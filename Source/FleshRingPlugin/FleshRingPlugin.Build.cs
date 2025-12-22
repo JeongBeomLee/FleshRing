@@ -38,6 +38,10 @@ public class FleshRingPlugin : ModuleRules
 				"Engine",
 				"Slate",
 				"SlateCore",
+				"RenderCore",
+				"Renderer",
+				"RHI",
+				"Projects"
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);
