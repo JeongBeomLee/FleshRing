@@ -4,7 +4,7 @@
 
 #include "Modules/ModuleManager.h"
 
-class FFleshRingPluginModule : public IModuleInterface
+class FFleshRingEditorModule : public IModuleInterface
 {
 public:
 

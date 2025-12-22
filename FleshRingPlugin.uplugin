@@ -16,8 +16,13 @@
 	"Installed": false,
 	"Modules": [
 		{
-			"Name": "FleshRingPlugin",
+			"Name": "FleshRingRuntime",
 			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "FleshRingEditor",
+			"Type": "Editor",
 			"LoadingPhase": "Default"
 		}
 	]

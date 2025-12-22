@@ -1,20 +1,20 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
-#include "FleshRingPlugin.h"
+#include "FleshRingEditor.h"
 
-#define LOCTEXT_NAMESPACE "FFleshRingPluginModule"
+#define LOCTEXT_NAMESPACE "FFleshRingEditorModule"
 
-void FFleshRingPluginModule::StartupModule()
+void FFleshRingEditorModule::StartupModule()
 {
 	// This code will execute after your module is loaded into memory; the exact timing is specified in the .uplugin file per-module
 }
 
-void FFleshRingPluginModule::ShutdownModule()
+void FFleshRingEditorModule::ShutdownModule()
 {
 	// This function may be called during shutdown to clean up your module.  For modules that support dynamic reloading,
 	// we call this function before unloading the module.
 }
 
 #undef LOCTEXT_NAMESPACE
-	
-IMPLEMENT_MODULE(FFleshRingPluginModule, FleshRingPlugin)
+
+IMPLEMENT_MODULE(FFleshRingEditorModule, FleshRingEditor)
