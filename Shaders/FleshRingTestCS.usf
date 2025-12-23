@@ -1,0 +1,30 @@
+// just test for compute shader
+
+#include "/Engine/Public/Platform.ush"
+
+// it's StructuredBuffer (Read and Write) and type is float
+RWStructuredBuffer<float> TestBuffer;
+
+// 셰이더 파라미터 (C++에서 전달받음)
+// ============================================================================
+// this is shader parameter which is injected from cpp
+uint BufferSize;
+
+// 64 threads by one group
+// DTid is thread index 
+[numthreads(64, 1, 1)]
+void MainCS(uint3 DTid : SV_DispatchThreadID)
+{
+    // check boundary
+    if (DTid.x >= BufferSize)
+    {
+        return;
+    }
+
+    // 테스트: 인덱스의 2배 값을 버퍼에 저장
+    // DTid.x = 0 -> TestBuffer[0] = 0.0
+    // DTid.x = 1 -> TestBuffer[1] = 2.0
+    // DTid.x = 2 -> TestBuffer[2] = 4.0
+    // ...
+    TestBuffer[DTid.x] = (float)DTid.x * 2.0f;
+}
