@@ -41,6 +41,7 @@ public class FleshRingEditor : ModuleRules
 				"UnrealEd",
 				"PropertyEditor",
 				"InputCore",
+				"AssetTools",
 			}
 			);
 

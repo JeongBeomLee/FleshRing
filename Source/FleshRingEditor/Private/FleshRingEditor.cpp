@@ -1,18 +1,31 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "FleshRingEditor.h"
+#include "FleshRingDeformerAssetTypeActions.h"
+#include "AssetToolsModule.h"
+#include "IAssetTools.h"
 
 #define LOCTEXT_NAMESPACE "FFleshRingEditorModule"
 
 void FFleshRingEditorModule::StartupModule()
 {
-	// This code will execute after your module is loaded into memory; the exact timing is specified in the .uplugin file per-module
+	// Register asset type actions
+	IAssetTools& AssetTools = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools").Get();
+	FleshRingDeformerAssetTypeActions = MakeShared<FFleshRingDeformerAssetTypeActions>();
+	AssetTools.RegisterAssetTypeActions(FleshRingDeformerAssetTypeActions.ToSharedRef());
 }
 
 void FFleshRingEditorModule::ShutdownModule()
 {
-	// This function may be called during shutdown to clean up your module.  For modules that support dynamic reloading,
-	// we call this function before unloading the module.
+	// Unregister asset type actions
+	if (FModuleManager::Get().IsModuleLoaded("AssetTools"))
+	{
+		IAssetTools& AssetTools = FModuleManager::GetModuleChecked<FAssetToolsModule>("AssetTools").Get();
+		if (FleshRingDeformerAssetTypeActions.IsValid())
+		{
+			AssetTools.UnregisterAssetTypeActions(FleshRingDeformerAssetTypeActions.ToSharedRef());
+		}
+	}
 }
 
 #undef LOCTEXT_NAMESPACE

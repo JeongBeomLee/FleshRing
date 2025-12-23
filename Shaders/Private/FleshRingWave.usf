@@ -1,0 +1,143 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#include "/Engine/Public/Platform.ush"
+
+// Input/Output buffers
+// FPositionVertexBuffer uses PF_R32_FLOAT SRV with 3 floats per vertex (FVector3f)
+// FSkeletalMeshDeformerHelpers::AllocateVertexFactoryPositionBuffer also uses 3 floats per vertex
+Buffer<float> SourcePositions;
+RWBuffer<float> OutputPositions;
+
+// Parameters
+uint NumVertices;
+float WaveAmplitude;
+float WaveFrequency;
+float Time;
+float3 Velocity;
+float InertiaStrength;
+
+#ifndef THREADGROUP_SIZE
+#define THREADGROUP_SIZE 64
+#endif
+
+[numthreads(THREADGROUP_SIZE, 1, 1)]
+void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    uint VertexIndex = DispatchThreadId.x;
+
+    if (VertexIndex >= NumVertices)
+    {
+        return;
+    }
+
+    // Each vertex has 3 float components (X, Y, Z) - no padding
+    // FPositionVertex is FVector3f (12 bytes, stride 3 floats)
+    uint BaseIndex = VertexIndex * 3;
+
+    // Read source position
+    float PosX = SourcePositions[BaseIndex + 0];
+    float PosY = SourcePositions[BaseIndex + 1];
+    float PosZ = SourcePositions[BaseIndex + 2];
+
+    // ============================================
+    // Jelly/Wobble Effect with Velocity-based Inertia
+    // ============================================
+
+    float3 Pos = float3(PosX, PosY, PosZ);
+
+    // Distance from origin (affects wobble intensity)
+    float DistXY = sqrt(PosX * PosX + PosY * PosY);
+    float DistFromCenter = length(Pos);
+
+    // Normalize distance for scaling (avoid division by zero)
+    float NormDist = DistFromCenter * 0.01f; // Scale factor for typical mesh sizes
+
+    // ============================================
+    // Velocity-based Inertia Effect
+    // ============================================
+
+    float Speed = length(Velocity);
+    float3 VelDir = Speed > 0.001f ? Velocity / Speed : float3(0, 0, 0);
+
+    // How much this vertex is aligned with velocity direction
+    // Vertices in the back (opposite to velocity) stretch more
+    float3 PosDir = DistFromCenter > 0.001f ? Pos / DistFromCenter : float3(0, 0, 0);
+    float VelAlignment = dot(PosDir, -VelDir); // -1 to 1, positive = trailing behind
+
+    // Trailing vertices stretch backward, leading vertices compress slightly
+    float TrailFactor = saturate(VelAlignment * 0.5f + 0.5f); // 0 to 1
+    float LeadFactor = saturate(-VelAlignment * 0.5f + 0.5f); // 0 to 1
+
+    // Scale speed for reasonable deformation (adjust based on typical movement speeds)
+    float NormalizedSpeed = Speed * 0.001f; // Convert from units/sec to reasonable scale
+
+    // Inertia displacement: vertices trail behind the movement
+    float InertiaScale = NormalizedSpeed * InertiaStrength * NormDist;
+    float3 InertiaOffset = -VelDir * InertiaScale * TrailFactor * 50.0f;
+
+    // Squash and stretch effect
+    // Stretch along velocity axis, compress perpendicular
+    float StretchAmount = 1.0f + NormalizedSpeed * InertiaStrength * 0.3f * TrailFactor;
+    float SquashAmount = 1.0f - NormalizedSpeed * InertiaStrength * 0.1f * LeadFactor;
+
+    // Apply stretch in velocity direction
+    float VelComponent = dot(Pos, VelDir);
+    float3 VelParallel = VelDir * VelComponent;
+    float3 VelPerpendicular = Pos - VelParallel;
+
+    float3 StretchedPos = VelParallel * StretchAmount + VelPerpendicular * SquashAmount;
+
+    // Blend based on speed (no effect when stationary)
+    float SpeedBlend = saturate(NormalizedSpeed * 2.0f);
+    Pos = lerp(Pos, StretchedPos, SpeedBlend);
+    Pos += InertiaOffset;
+
+    // ============================================
+    // Jelly Wobble Effect (enhanced by velocity)
+    // ============================================
+
+    float t = Time;
+    float freq = WaveFrequency;
+    float amp = WaveAmplitude;
+
+    // Velocity adds extra wobble energy
+    float VelocityWobbleBoost = 1.0f + NormalizedSpeed * InertiaStrength * 0.5f;
+
+    // Primary wobble - slow, large movement
+    float wobble1 = sin(t * 1.0f + Pos.z * freq * 0.5f) * 0.5f;
+    float wobble2 = cos(t * 1.3f + Pos.x * freq * 0.3f) * 0.3f;
+    float wobble3 = sin(t * 0.7f + Pos.y * freq * 0.4f) * 0.4f;
+
+    // Secondary wobble - faster, smaller ripples
+    float ripple1 = sin(t * 2.5f + DistXY * freq) * 0.2f;
+    float ripple2 = cos(t * 3.1f + Pos.z * freq * 2.0f) * 0.15f;
+
+    // Tertiary wobble - high frequency detail
+    float detail = sin(t * 5.0f + (Pos.x + Pos.y + Pos.z) * freq * 1.5f) * 0.1f;
+
+    // Combine all wobbles with velocity boost
+    float totalWobble = (wobble1 + wobble2 + wobble3 + ripple1 + ripple2 + detail) * VelocityWobbleBoost;
+
+    // Scale by amplitude and apply distance-based falloff
+    float distanceScale = 1.0f + NormDist * 0.5f;
+    float finalScale = 1.0f + totalWobble * amp * 0.01f * distanceScale;
+
+    // Apply directional displacement for organic feel
+    float phaseX = sin(t * 1.1f + Pos.y * freq * 0.2f);
+    float phaseY = cos(t * 0.9f + Pos.z * freq * 0.2f);
+    float phaseZ = sin(t * 1.2f + Pos.x * freq * 0.2f);
+
+    float displaceX = phaseX * amp * 0.3f * (1.0f + wobble1 * 0.5f);
+    float displaceY = phaseY * amp * 0.3f * (1.0f + wobble2 * 0.5f);
+    float displaceZ = phaseZ * amp * 0.5f * (1.0f + wobble3 * 0.5f);
+
+    // Final position: inertia + scale from center + directional displacement
+    float NewPosX = Pos.x * finalScale + displaceX;
+    float NewPosY = Pos.y * finalScale + displaceY;
+    float NewPosZ = Pos.z * finalScale + displaceZ;
+
+    // Write output position (3 floats only, no W component)
+    OutputPositions[BaseIndex + 0] = NewPosX;
+    OutputPositions[BaseIndex + 1] = NewPosY;
+    OutputPositions[BaseIndex + 2] = NewPosZ;
+}

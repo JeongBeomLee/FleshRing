@@ -7,7 +7,7 @@
 // 셰이더를 엔진에 등록
 IMPLEMENT_GLOBAL_SHADER(
     FSimpleSphereSDF,
-    "/FleshRingPlugin/SimpleSphereSDF.usf",
+    "/Plugin/FleshRingPlugin/SimpleSphereSDF.usf",
     "MainCS",
     SF_Compute
 );
