@@ -1,0 +1,174 @@
+// Purpose: Pull vertices toward Ring center axis (Tightness effect)
+// This shader processes only AffectedVertices (not all mesh vertices) for performance optimization.
+
+#include "/Engine/Public/Platform.ush"
+
+// Input: All mesh vertex positions
+Buffer<float> SourcePositions;
+
+// Input: Indices of affected vertices to process
+StructuredBuffer<uint> AffectedIndices;
+
+// Input: Per-vertex influence weights (0-1, from falloff calculation)
+StructuredBuffer<float> Influences;
+
+// Output: Deformed vertex positions
+RWBuffer<float> OutputPositions;
+
+// Ring parameters
+float3 RingCenter;
+float3 RingAxis;
+float TightnessStrength;
+float RingRadius;
+float RingWidth;
+
+// Counts
+uint NumAffectedVertices;
+uint NumTotalVertices;
+
+// Thread Group Size
+#ifndef THREADGROUP_SIZE
+#define THREADGROUP_SIZE 64
+#endif
+
+// [FLEXIBLE] Falloff Type Selection
+// Can be changed via ModifyCompilationEnvironment in C++
+// 0 = Linear (default), 1 = Quadratic, 2 = Smooth (Hermite)
+#ifndef FALLOFF_TYPE
+#define FALLOFF_TYPE 0
+#endif
+
+// [FLEXIBLE] Falloff Calculation Function
+// This function can be modified to change the falloff curve
+// without touching the main shader logic
+float CalculateFalloff(float Distance, float MaxDistance)
+{
+    float t = saturate(1.0 - Distance / MaxDistance);
+
+#if FALLOFF_TYPE == 0
+    // Linear falloff (default)
+    return t;
+#elif FALLOFF_TYPE == 1
+    // Quadratic falloff (smoother near center)
+    return t * t;
+#elif FALLOFF_TYPE == 2
+    // Smooth Hermite falloff (S-curve)
+    return t * t * (3.0 - 2.0 * t);
+#else
+    // Fallback to linear
+    return t;
+#endif
+}
+
+// ==== Helper Functions ====
+// Read vertex position from buffer (3 floats per vertex)
+float3 ReadPosition(uint VertexIndex)
+{
+    uint BaseIndex = VertexIndex * 3;
+    return float3(
+        SourcePositions[BaseIndex + 0],
+        SourcePositions[BaseIndex + 1],
+        SourcePositions[BaseIndex + 2]
+    );
+}
+
+// Write vertex position to buffer (3 floats per vertex)
+void WritePosition(uint VertexIndex, float3 Pos)
+{
+    uint BaseIndex = VertexIndex * 3;
+    OutputPositions[BaseIndex + 0] = Pos.x;
+    OutputPositions[BaseIndex + 1] = Pos.y;
+    OutputPositions[BaseIndex + 2] = Pos.z;
+}
+
+// [FLEXIBLE] Deformation Formula
+// This function can be modified to implement different deformation algorithms
+// (e.g., volume-preserving deformation based on research papers)
+//
+// Current implementation: Simple radial inward displacement
+// Future: Can add volume preservation, Laplacian constraints, etc.
+float3 ApplyTightnessDeformation(
+    float3 Pos,
+    float3 Center,
+    float3 Axis,
+    float Influence,
+    float Strength)
+{
+    // ring center to vertex
+    float3 ToVertex = Pos - Center;
+
+    // Project onto ring axis to find axial distance
+    float AxisDist = dot(ToVertex, Axis);
+
+    // Calculate radial vector (perpendicular to axis)
+    float3 RadialVec = ToVertex - Axis * AxisDist;
+    float RadialDist = length(RadialVec);
+
+    // Safety check for vertices on the axis
+    if (RadialDist < 0.001)
+    {
+        return Pos;
+    }
+
+    // Calculate inward direction (toward ring axis)
+    float3 InwardDir = -RadialVec / RadialDist;
+
+    // [CHANGEABLE] Calculate displacement amount
+    // Current: Linear displacement based on strength and influence
+    // Future: Can be modified for volume preservation
+    float Displacement = Strength * Influence;
+
+    // Apply inward displacement
+    float3 NewPos = Pos + InwardDir * Displacement;
+
+    return NewPos;
+}
+
+[numthreads(THREADGROUP_SIZE, 1, 1)]
+void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    uint ThreadIndex = DispatchThreadId.x;
+
+    // Bounds check: Only process affected vertices
+    if (ThreadIndex >= NumAffectedVertices)
+    {
+        return;
+    }
+
+    // Get the actual vertex index from AffectedIndices buffer
+    uint VertexIndex = AffectedIndices[ThreadIndex];
+
+    // Safety check: Ensure vertex index is valid
+    if (VertexIndex >= NumTotalVertices)
+    {
+        return;
+    }
+
+    // Get pre-calculated influence for this vertex
+    float Influence = Influences[ThreadIndex];
+
+    // Skip if influence is negligible
+    if (Influence < 0.001)
+    {
+        // Copy source position unchanged
+        float3 Pos = ReadPosition(VertexIndex);
+        WritePosition(VertexIndex, Pos);
+        return;
+    }
+
+    // Read source position
+    float3 Pos = ReadPosition(VertexIndex);
+
+    // Apply tightness deformation
+    // [FLEXIBLE] This function call can be replaced with different algorithms
+    float3 NewPos = ApplyTightnessDeformation(
+        Pos,
+        RingCenter,
+        RingAxis,
+        Influence,
+        TightnessStrength
+    );
+
+    // Write deformed position
+    WritePosition(VertexIndex, NewPos);
+}
