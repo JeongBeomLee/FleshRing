@@ -42,6 +42,10 @@ public class FleshRingEditor : ModuleRules
 				"PropertyEditor",
 				"InputCore",
 				"AssetTools",
+				"AdvancedPreviewScene",
+				"EditorStyle",
+				"ToolMenus",
+				"EditorFramework",
 			}
 			);
 

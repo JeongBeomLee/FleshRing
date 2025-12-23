@@ -2,6 +2,7 @@
 
 #include "FleshRingAssetTypeActions.h"
 #include "FleshRingAsset.h"
+#include "FleshRingAssetEditor.h"
 
 #define LOCTEXT_NAMESPACE "FleshRingAssetTypeActions"
 
@@ -28,9 +29,19 @@ uint32 FFleshRingAssetTypeActions::GetCategories()
 
 void FFleshRingAssetTypeActions::OpenAssetEditor(const TArray<UObject*>& InObjects, TSharedPtr<IToolkitHost> EditWithinLevelEditor)
 {
-	// TODO: Week 4에서 FFleshRingAssetEditor 구현 후 교체
-	// 현재는 기본 에디터(Property Editor)를 사용
-	FAssetTypeActions_Base::OpenAssetEditor(InObjects, EditWithinLevelEditor);
+	EToolkitMode::Type Mode = EditWithinLevelEditor.IsValid()
+		? EToolkitMode::WorldCentric
+		: EToolkitMode::Standalone;
+
+	for (UObject* Obj : InObjects)
+	{
+		UFleshRingAsset* Asset = Cast<UFleshRingAsset>(Obj);
+		if (Asset)
+		{
+			TSharedRef<FFleshRingAssetEditor> NewEditor = MakeShared<FFleshRingAssetEditor>();
+			NewEditor->InitFleshRingAssetEditor(Mode, EditWithinLevelEditor, Asset);
+		}
+	}
 }
 
 #undef LOCTEXT_NAMESPACE
