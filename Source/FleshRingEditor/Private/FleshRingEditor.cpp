@@ -1,22 +1,39 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "FleshRingEditor.h"
 #include "FleshRingDeformerAssetTypeActions.h"
 #include "AssetToolsModule.h"
 #include "IAssetTools.h"
+#include "FleshRingDetailCustomization.h"
+#include "FleshRingComponent.h"
+#include "PropertyEditorModule.h"
 
 #define LOCTEXT_NAMESPACE "FFleshRingEditorModule"
 
 void FFleshRingEditorModule::StartupModule()
 {
+	// This code will execute after your module is loaded into memory; the exact timing is specified in the .uplugin file per-module
 	// Register asset type actions
 	IAssetTools& AssetTools = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools").Get();
 	FleshRingDeformerAssetTypeActions = MakeShared<FFleshRingDeformerAssetTypeActions>();
 	AssetTools.RegisterAssetTypeActions(FleshRingDeformerAssetTypeActions.ToSharedRef());
+	// PropertyEditor 모듈 가져오기
+	FPropertyEditorModule& PropertyModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
+
+	// UFleshRingComponent에 대한 Detail Customization 등록
+	PropertyModule.RegisterCustomClassLayout(
+		UFleshRingComponent::StaticClass()->GetFName(),
+		FOnGetDetailCustomizationInstance::CreateStatic(&FFleshRingDetailCustomization::MakeInstance)
+	);
+
+	// 등록 후 Detail View 갱신
+	PropertyModule.NotifyCustomizationModuleChanged();
 }
 
 void FFleshRingEditorModule::ShutdownModule()
 {
+	// This function may be called during shutdown to clean up your module.  For modules that support dynamic reloading,
+	// we call this function before unloading the module.
 	// Unregister asset type actions
 	if (FModuleManager::Get().IsModuleLoaded("AssetTools"))
 	{
@@ -25,6 +42,12 @@ void FFleshRingEditorModule::ShutdownModule()
 		{
 			AssetTools.UnregisterAssetTypeActions(FleshRingDeformerAssetTypeActions.ToSharedRef());
 		}
+	}
+	// 모듈 언로드 시 등록 해제
+	if (FModuleManager::Get().IsModuleLoaded("PropertyEditor"))
+	{
+		FPropertyEditorModule& PropertyModule = FModuleManager::GetModuleChecked<FPropertyEditorModule>("PropertyEditor");
+		PropertyModule.UnregisterCustomClassLayout(UFleshRingComponent::StaticClass()->GetFName());
 	}
 }
 
