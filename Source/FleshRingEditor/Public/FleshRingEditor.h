@@ -16,4 +16,5 @@ public:
 
 private:
 	TSharedPtr<IAssetTypeActions> FleshRingDeformerAssetTypeActions;
+	TSharedPtr<IAssetTypeActions> FleshRingAssetTypeActions;
 };

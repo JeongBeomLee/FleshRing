@@ -49,6 +49,10 @@ struct FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
 	FName BoneName;
 
+	/** Ring 메쉬 (시각적 표현용) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
+	TSoftObjectPtr<UStaticMesh> RingMesh;
+
 	/** 영향 범위 결정 방식 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
 	EFleshRingInfluenceMode InfluenceMode = EFleshRingInfluenceMode::Auto;

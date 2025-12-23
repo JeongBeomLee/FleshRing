@@ -2,6 +2,7 @@
 
 #include "FleshRingEditor.h"
 #include "FleshRingDeformerAssetTypeActions.h"
+#include "FleshRingAssetTypeActions.h"
 #include "AssetToolsModule.h"
 #include "IAssetTools.h"
 #include "FleshRingDetailCustomization.h"
@@ -18,6 +19,10 @@ void FFleshRingEditorModule::StartupModule()
 	IAssetTools& AssetTools = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools").Get();
 	FleshRingDeformerAssetTypeActions = MakeShared<FFleshRingDeformerAssetTypeActions>();
 	AssetTools.RegisterAssetTypeActions(FleshRingDeformerAssetTypeActions.ToSharedRef());
+
+	// FleshRing Asset type actions 등록
+	FleshRingAssetTypeActions = MakeShared<FFleshRingAssetTypeActions>();
+	AssetTools.RegisterAssetTypeActions(FleshRingAssetTypeActions.ToSharedRef());
 	// PropertyEditor 모듈 가져오기
 	FPropertyEditorModule& PropertyModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
 
@@ -48,6 +53,10 @@ void FFleshRingEditorModule::ShutdownModule()
 		if (FleshRingDeformerAssetTypeActions.IsValid())
 		{
 			AssetTools.UnregisterAssetTypeActions(FleshRingDeformerAssetTypeActions.ToSharedRef());
+		}
+		if (FleshRingAssetTypeActions.IsValid())
+		{
+			AssetTools.UnregisterAssetTypeActions(FleshRingAssetTypeActions.ToSharedRef());
 		}
 	}
 	// 모듈 언로드 시 등록 해제
