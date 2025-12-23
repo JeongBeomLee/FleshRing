@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "FleshRingRuntime.h"
 #include "Interfaces/IPluginManager.h"
@@ -9,8 +9,9 @@
 
 void FFleshRingRuntimeModule::StartupModule()
 {
-	// Shader directory is automatically registered by UE
-	// (Plugins/FleshRingPlugin/Shaders/ -> /Plugin/FleshRingPlugin/)
+    // Register shader directory mapping
+    FString PluginShaderDir = FPaths::Combine(IPluginManager::Get().FindPlugin(TEXT("FleshRingPlugin"))->GetBaseDir(), TEXT("Shaders"));
+    AddShaderSourceDirectoryMapping(TEXT("/Plugin/FleshRingPlugin"), PluginShaderDir);
 }
 
 void FFleshRingRuntimeModule::ShutdownModule()

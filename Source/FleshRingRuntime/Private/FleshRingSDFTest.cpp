@@ -37,7 +37,7 @@ void UFleshRingSDFTest::TestSphereSDF()
 
             FRDGTextureRef SDFTexture = GraphBuilder.CreateTexture(Desc, TEXT("TestSDFTexture"));
 
-            // CS Dispatch!
+            // CS Dispatch
             GenerateSphereSDF(
                 GraphBuilder,
                 SDFTexture,
