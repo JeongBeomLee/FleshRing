@@ -1,0 +1,143 @@
+// FleshRingSDFGenerate.usf
+// 메시 삼각형들로부터 SDF(Signed Distance Field)를 생성하는 Compute Shader
+
+#include "/Engine/Public/Platform.ush"
+
+// 입력 데이터 (CPU에서 업로드)
+StructuredBuffer<float3> MeshVertices;      // 버텍스 위치 배열
+StructuredBuffer<uint3> MeshIndices;        // 삼각형 인덱스 (v0, v1, v2)
+StructuredBuffer<float3> TriangleNormals;   // 삼각형별 면 노말
+uint TriangleCount;                         // 총 삼각형 개수
+
+// 출력
+RWTexture3D<float> OutputSDF;               // SDF 3D 텍스처
+
+// 파라미터
+float3 SDFBoundsMin;                        // SDF 바운딩 박스 최소점
+float3 SDFBoundsMax;                        // SDF 바운딩 박스 최대점
+int3 SDFResolution;                         // SDF 해상도 (예: 64x64x64)
+
+// Point-to-Triangle 최단 거리 계산
+// 참조: Real-Time Collision Detection (Christer Ericson)
+float PointToTriangleDistance(float3 P, float3 A, float3 B, float3 C, out float3 ClosestPoint)
+{
+    // 삼각형 변 벡터
+    float3 AB = B - A;
+    float3 AC = C - A;
+    float3 AP = P - A;
+
+    // A 꼭짓점 영역 체크
+    float d1 = dot(AB, AP);
+    float d2 = dot(AC, AP);
+    if (d1 <= 0.0f && d2 <= 0.0f)
+    {
+        ClosestPoint = A;
+        return length(P - A);
+    }
+
+    // B 꼭짓점 영역 체크
+    float3 BP = P - B;
+    float d3 = dot(AB, BP);
+    float d4 = dot(AC, BP);
+    if (d3 >= 0.0f && d4 <= d3)
+    {
+        ClosestPoint = B;
+        return length(P - B);
+    }
+
+    // AB 변 영역 체크
+    float vc = d1 * d4 - d3 * d2;
+    if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f)
+    {
+        float v = d1 / (d1 - d3);
+        ClosestPoint = A + v * AB;
+        return length(P - ClosestPoint);
+    }
+
+    // C 꼭짓점 영역 체크
+    float3 CP = P - C;
+    float d5 = dot(AB, CP);
+    float d6 = dot(AC, CP);
+    if (d6 >= 0.0f && d5 <= d6)
+    {
+        ClosestPoint = C;
+        return length(P - C);
+    }
+
+    // AC 변 영역 체크
+    float vb = d5 * d2 - d1 * d6;
+    if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f)
+    {
+        float w = d2 / (d2 - d6);
+        ClosestPoint = A + w * AC;
+        return length(P - ClosestPoint);
+    }
+
+    // BC 변 영역 체크
+    float va = d3 * d6 - d5 * d4;
+    if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f)
+    {
+        float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        ClosestPoint = B + w * (C - B);
+        return length(P - ClosestPoint);
+    }
+
+    // 삼각형 내부에 투영되는 경우
+    float denom = 1.0f / (va + vb + vc);
+    float v = vb * denom;
+    float w = vc * denom;
+    ClosestPoint = A + AB * v + AC * w;
+    return length(P - ClosestPoint);
+}
+
+// 메인 Compute Shader
+// 각 복셀에 대해 모든 삼각형과의 최소 거리 계산
+[numthreads(8, 8, 8)]
+void MainCS(uint3 ThreadId : SV_DispatchThreadID)
+{
+    // 범위 체크
+    if (any(ThreadId >= (uint3)SDFResolution))
+        return;
+
+    // 복셀 중심의 월드 좌표 계산
+    // ThreadId가 (0,0,0) ~ (Resolution-1) 범위
+    // 복셀 중심 = Min + (ThreadId + 0.5) / Resolution * (Max - Min)
+    float3 VoxelUVW = (float3(ThreadId) + 0.5f) / float3(SDFResolution);
+    float3 VoxelWorldPos = SDFBoundsMin + VoxelUVW * (SDFBoundsMax - SDFBoundsMin);
+
+    // 최소 거리 및 가장 가까운 삼각형 정보
+    float MinDistance = 999999.0f;
+    float3 ClosestNormal = float3(0, 0, 1);
+    float3 ClosestPointOnMesh = float3(0, 0, 0);
+
+    // 모든 삼각형과 거리 계산 (브루트 포스)
+    // TODO: 성능 최적화 시 BVH/Octree 사용
+    for (uint i = 0; i < TriangleCount; i++)
+    {
+        // 삼각형 버텍스 가져오기
+        uint3 Indices = MeshIndices[i];
+        float3 V0 = MeshVertices[Indices.x];
+        float3 V1 = MeshVertices[Indices.y];
+        float3 V2 = MeshVertices[Indices.z];
+
+        // 이 삼각형과의 거리 계산
+        float3 ClosestPt;
+        float Dist = PointToTriangleDistance(VoxelWorldPos, V0, V1, V2, ClosestPt);
+
+        // 최소 거리 갱신
+        if (Dist < MinDistance)
+        {
+            MinDistance = Dist;
+            ClosestNormal = TriangleNormals[i];
+            ClosestPointOnMesh = ClosestPt;
+        }
+    }
+
+    // 부호 결정: 노말 방향 기반
+    // 복셀이 노말 방향(외부)에 있으면 +, 반대(내부)면 -
+    float3 ToVoxel = VoxelWorldPos - ClosestPointOnMesh;
+    float Sign = (dot(ToVoxel, ClosestNormal) >= 0.0f) ? 1.0f : -1.0f;
+
+    // SDF 값 저장 (부호 있는 거리)
+    OutputSDF[ThreadId] = Sign * MinDistance;
+}

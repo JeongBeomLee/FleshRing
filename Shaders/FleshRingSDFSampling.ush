@@ -1,0 +1,67 @@
+// FleshRingSDFSampling.ush
+// A→B 인터페이스: SDF 샘플링 함수들
+// 사용법: #include 후 자신의 텍스처/샘플러를 인자로 전달
+
+#pragma once
+
+// 좌표 변환: 로컬 좌표 → UV 좌표
+float3 LocalPosToUVW(float3 LocalPos, float3 BoundsMin, float3 BoundsMax)
+{
+    return (LocalPos - BoundsMin) / (BoundsMax - BoundsMin);
+}
+
+// SDF 샘플링 함수
+// 입력: SDF 텍스처, 샘플러, Bounds, 로컬 좌표
+// 출력: SDF 거리값 (음수=Ring 내부, 양수=Ring 외부)
+float SampleSDF(
+    Texture3D<float> InSDFTexture,
+    SamplerState InSDFSampler,
+    float3 InBoundsMin,
+    float3 InBoundsMax,
+    float3 LocalPos)
+{
+    float3 uvw = LocalPosToUVW(LocalPos, InBoundsMin, InBoundsMax);
+
+    // 범위 체크 (0~1 밖이면 큰 양수 반환 = 멀리 있음)
+    if (any(uvw < 0.0f) || any(uvw > 1.0f))
+    {
+        return 1000.0f;
+    }
+
+    // Trilinear 보간으로 부드러운 SDF 값 반환
+    return InSDFTexture.SampleLevel(InSDFSampler, uvw, 0);
+}
+
+// SDF Gradient 샘플링 함수
+// 입력: SDF 텍스처, 샘플러, Bounds, 로컬 좌표
+// 출력: 정규화된 방향 벡터 (표면에서 바깥쪽을 향함)
+// 용도: 충돌 시 밀어낼 방향 결정
+float3 SampleSDFGradient(
+    Texture3D<float> InSDFTexture,
+    SamplerState InSDFSampler,
+    float3 InBoundsMin,
+    float3 InBoundsMax,
+    float3 LocalPos)
+{
+    // 그래디언트 계산을 위한 작은 오프셋
+    float3 texelSize = (InBoundsMax - InBoundsMin) / 64.0f;
+    float epsilon = length(texelSize) * 0.5f;
+
+    // 중앙 차분법으로 그래디언트 계산
+    float3 gradient;
+    gradient.x = SampleSDF(InSDFTexture, InSDFSampler, InBoundsMin, InBoundsMax, LocalPos + float3(epsilon, 0, 0))
+               - SampleSDF(InSDFTexture, InSDFSampler, InBoundsMin, InBoundsMax, LocalPos - float3(epsilon, 0, 0));
+    gradient.y = SampleSDF(InSDFTexture, InSDFSampler, InBoundsMin, InBoundsMax, LocalPos + float3(0, epsilon, 0))
+               - SampleSDF(InSDFTexture, InSDFSampler, InBoundsMin, InBoundsMax, LocalPos - float3(0, epsilon, 0));
+    gradient.z = SampleSDF(InSDFTexture, InSDFSampler, InBoundsMin, InBoundsMax, LocalPos + float3(0, 0, epsilon))
+               - SampleSDF(InSDFTexture, InSDFSampler, InBoundsMin, InBoundsMax, LocalPos - float3(0, 0, epsilon));
+
+    // 정규화 (길이가 0에 가까우면 기본값 반환)
+    float len = length(gradient);
+    if (len < 0.0001f)
+    {
+        return float3(0, 0, 1);
+    }
+
+    return gradient / len;
+}

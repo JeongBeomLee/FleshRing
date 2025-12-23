@@ -1,0 +1,65 @@
+// SDFSliceVisualize.usf
+// 3D SDF 텍스처에서 Z 슬라이스를 추출하고 색상 매핑하여 2D 텍스처로 출력
+
+#include "/Engine/Public/Platform.ush"
+
+// 입력: SDF 3D 텍스처
+Texture3D<float> SDFTexture;
+SamplerState SDFSampler;
+
+// 출력: 색상 매핑된 2D 텍스처
+RWTexture2D<float4> OutputSlice;
+
+// 파라미터
+int3 SDFResolution;     // SDF 텍스처 해상도
+int SliceZ;             // 추출할 Z 인덱스
+float MaxDisplayDist;   // 색상 매핑 최대 거리 (이 거리에서 완전 빨강/파랑)
+
+// SDF 값을 색상으로 변환
+// 음수(내부) = 파랑, 0(표면) = 흰색, 양수(외부) = 빨강
+float4 SDFToColor(float sdf)
+{
+    // 정규화: -MaxDisplayDist ~ +MaxDisplayDist → -1 ~ +1
+    float normalized = clamp(sdf / MaxDisplayDist, -1.0f, 1.0f);
+
+    float3 color;
+    if (normalized < 0.0f)
+    {
+        // 내부 (음수): 흰색 → 파랑
+        float t = -normalized;  // 0 ~ 1
+        color = lerp(float3(1, 1, 1), float3(0, 0.3, 1), t);
+    }
+    else
+    {
+        // 외부 (양수): 흰색 → 빨강
+        float t = normalized;   // 0 ~ 1
+        color = lerp(float3(1, 1, 1), float3(1, 0.2, 0), t);
+    }
+
+    // 표면 근처 (SDF ≈ 0) 강조: 검은 윤곽선
+    float surfaceThreshold = 0.02f;  // 표면 두께
+    if (abs(normalized) < surfaceThreshold)
+    {
+        color = float3(0, 0, 0);  // 검은색 윤곽
+    }
+
+    return float4(color, 1.0f);
+}
+
+[numthreads(8, 8, 1)]
+void MainCS(uint3 ThreadId : SV_DispatchThreadID)
+{
+    // 범위 체크
+    if (ThreadId.x >= (uint)SDFResolution.x || ThreadId.y >= (uint)SDFResolution.y)
+        return;
+
+    // Z 슬라이스 범위 체크
+    int clampedZ = clamp(SliceZ, 0, SDFResolution.z - 1);
+
+    // 3D 텍스처에서 SDF 값 읽기
+    int3 texCoord = int3(ThreadId.x, ThreadId.y, clampedZ);
+    float sdf = SDFTexture.Load(int4(texCoord, 0));
+
+    // 색상 변환 후 출력
+    OutputSlice[ThreadId.xy] = SDFToColor(sdf);
+}
