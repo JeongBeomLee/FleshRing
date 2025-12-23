@@ -1,4 +1,4 @@
-// FleshRing Test Compute Shader - C++ 구현
+﻿// FleshRing Test Compute Shader - C++ 구현
 // 목적: GPU Compute Shader 파이프라인 동작 확인
 
 // 언리얼 코딩 규칙: 자신의 헤더를 반드시 첫 번째로 include
@@ -58,14 +58,14 @@ public:
 // IMPLEMENT_GLOBAL_SHADER(클래스명, .usf경로, 진입점함수, 셰이더타입)
 //
 // 경로 설명:
-// - "/FleshRingPlugin/..." 은 가상 경로
+// - "/Plugin/FleshRingPlugin/..." 은 가상 경로
 // - FleshRingRuntime.cpp의 StartupModule()에서 실제 경로와 매핑됨
 // - 실제 파일: Plugins/FleshRingPlugin/Shaders/FleshRingTestCS.usf
 //
 // SF_Compute: 이 셰이더가 Compute Shader임을 지정
 IMPLEMENT_GLOBAL_SHADER(
     FFleshRingTestCS,                           // C++ 클래스명
-    "/FleshRingPlugin/FleshRingTestCS.usf",     // .usf 파일 가상 경로
+    "/Plugin/FleshRingPlugin/FleshRingTestCS.usf",      // .usf 파일 가상 경로
     "MainCS",                                   // .usf 내 진입점 함수명
     SF_Compute                                  // 셰이더 타입
 );
