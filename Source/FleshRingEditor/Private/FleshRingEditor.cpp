@@ -5,6 +5,7 @@
 #include "AssetToolsModule.h"
 #include "IAssetTools.h"
 #include "FleshRingDetailCustomization.h"
+#include "FleshRingSettingsCustomization.h"
 #include "FleshRingComponent.h"
 #include "PropertyEditorModule.h"
 
@@ -24,6 +25,12 @@ void FFleshRingEditorModule::StartupModule()
 	PropertyModule.RegisterCustomClassLayout(
 		UFleshRingComponent::StaticClass()->GetFName(),
 		FOnGetDetailCustomizationInstance::CreateStatic(&FFleshRingDetailCustomization::MakeInstance)
+	);
+
+	// FFleshRingSettings 구조체에 대한 Property Type Customization 등록
+	PropertyModule.RegisterCustomPropertyTypeLayout(
+		FFleshRingSettings::StaticStruct()->GetFName(),
+		FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FFleshRingSettingsCustomization::MakeInstance)
 	);
 
 	// 등록 후 Detail View 갱신
@@ -48,6 +55,7 @@ void FFleshRingEditorModule::ShutdownModule()
 	{
 		FPropertyEditorModule& PropertyModule = FModuleManager::GetModuleChecked<FPropertyEditorModule>("PropertyEditor");
 		PropertyModule.UnregisterCustomClassLayout(UFleshRingComponent::StaticClass()->GetFName());
+		PropertyModule.UnregisterCustomPropertyTypeLayout(FFleshRingSettings::StaticStruct()->GetFName());
 	}
 }
 
