@@ -14,9 +14,20 @@ class FFleshRingWaveCS : public FGlobalShader
 	SHADER_USE_PARAMETER_STRUCT(FFleshRingWaveCS, FGlobalShader);
 
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		// Vertex Data
 		SHADER_PARAMETER_SRV(Buffer<float>, SourcePositions)
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float>, OutputPositions)
-		SHADER_PARAMETER(uint32, NumVertices)
+		SHADER_PARAMETER(uint32, BaseVertexIndex)  // Section's base vertex index
+		SHADER_PARAMETER(uint32, NumVertices)      // Section's vertex count
+
+		// Skinning Data (same as Optimus Skeleton Data Interface)
+		SHADER_PARAMETER_SRV(Buffer<float4>, BoneMatrices)  // Section-specific bone buffer
+		SHADER_PARAMETER_SRV(Buffer<uint>, InputWeightStream)
+		SHADER_PARAMETER(uint32, NumBoneInfluences)
+		SHADER_PARAMETER(uint32, InputWeightStride)
+		SHADER_PARAMETER(uint32, InputWeightIndexSize)
+
+		// Jelly Effect Parameters
 		SHADER_PARAMETER(float, WaveAmplitude)
 		SHADER_PARAMETER(float, WaveFrequency)
 		SHADER_PARAMETER(float, Time)

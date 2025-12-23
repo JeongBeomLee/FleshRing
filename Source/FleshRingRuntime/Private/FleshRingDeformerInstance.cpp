@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "FleshRingDeformerInstance.h"
 #include "FleshRingDeformer.h"
@@ -10,6 +10,7 @@
 #include "SkeletalRenderPublic.h"
 #include "Rendering/SkeletalMeshRenderData.h"
 #include "Rendering/SkeletalMeshLODRenderData.h"
+#include "Rendering/SkinWeightVertexBuffer.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogFleshRing, Log, All);
 
@@ -179,19 +180,12 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			return;
 		}
 
-		FRDGBuilder GraphBuilder(RHICmdList);
-		FRDGExternalAccessQueue ExternalAccessQueue;
+		// ============================================
+		// Gather all data BEFORE creating RDG resources
+		// (Following Optimus Skeleton Data Interface approach)
+		// ============================================
 
-		FRDGBuffer* PositionBuffer = FSkeletalMeshDeformerHelpers::AllocateVertexFactoryPositionBuffer(
-			GraphBuilder, ExternalAccessQueue, MeshObject, LODIndex, TEXT("FleshRingPosition"));
-
-		if (!PositionBuffer)
-		{
-			FallbackDelegate.ExecuteIfBound();
-			return;
-		}
-
-		// Get source position data
+		// Get LOD render data
 		FSkeletalMeshLODRenderData const* LodRenderData = RenderData.GetPendingFirstLOD(LODIndex);
 		if (!LodRenderData)
 		{
@@ -200,10 +194,64 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		}
 
 		const uint32 NumVertices = static_cast<uint32>(LodRenderData->GetNumVertices());
-		FRHIShaderResourceView* SourcePositionSRV = LodRenderData->StaticVertexBuffers.PositionVertexBuffer.GetSRV();
-
-		if (!SourcePositionSRV || NumVertices == 0)
+		if (NumVertices == 0)
 		{
+			FallbackDelegate.ExecuteIfBound();
+			return;
+		}
+
+		// Get bind pose position buffer (LOD-wide)
+		FRHIShaderResourceView* SourcePositionSRV = LodRenderData->StaticVertexBuffers.PositionVertexBuffer.GetSRV();
+		if (!SourcePositionSRV)
+		{
+			FallbackDelegate.ExecuteIfBound();
+			return;
+		}
+
+		// Get skin weight buffer (LOD-wide, same as Optimus)
+		FSkinWeightVertexBuffer const* WeightBuffer = LodRenderData->GetSkinWeightVertexBuffer();
+		if (!WeightBuffer)
+		{
+			FallbackDelegate.ExecuteIfBound();
+			return;
+		}
+
+		FRHIShaderResourceView* InputWeightStreamSRV = WeightBuffer->GetDataVertexBuffer()->GetSRV();
+		if (!InputWeightStreamSRV)
+		{
+			FallbackDelegate.ExecuteIfBound();
+			return;
+		}
+
+		// Get skinning parameters (exactly as Optimus does)
+		const uint32 NumBoneInfluences = WeightBuffer->GetMaxBoneInfluences();
+		const uint32 InputWeightStride = WeightBuffer->GetConstantInfluencesVertexStride();
+		const uint32 InputWeightIndexSize = WeightBuffer->GetBoneIndexByteSize() | (WeightBuffer->GetBoneWeightByteSize() << 8);
+
+		// Get the shader
+		TShaderMapRef<FFleshRingWaveCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+		if (!ComputeShader.IsValid())
+		{
+			FallbackDelegate.ExecuteIfBound();
+			return;
+		}
+
+		// ============================================
+		// All validation passed - now create RDG resources
+		// No early returns after this point!
+		// ============================================
+
+		FRDGBuilder GraphBuilder(RHICmdList);
+		FRDGExternalAccessQueue ExternalAccessQueue;
+
+		FRDGBuffer* PositionBuffer = FSkeletalMeshDeformerHelpers::AllocateVertexFactoryPositionBuffer(
+			GraphBuilder, ExternalAccessQueue, MeshObject, LODIndex, TEXT("FleshRingPosition"));
+
+		if (!PositionBuffer)
+		{
+			// Must submit before returning after ExternalAccessQueue is created
+			ExternalAccessQueue.Submit(GraphBuilder);
+			GraphBuilder.Execute();
 			FallbackDelegate.ExecuteIfBound();
 			return;
 		}
@@ -211,48 +259,80 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		// Create UAV for output
 		FRDGBufferUAVRef PositionUAV = GraphBuilder.CreateUAV(PositionBuffer, PF_R32_FLOAT);
 
-		// Setup shader parameters
-		FFleshRingWaveCS::FParameters* PassParameters = GraphBuilder.AllocParameters<FFleshRingWaveCS::FParameters>();
-		PassParameters->SourcePositions = SourcePositionSRV;
-		PassParameters->OutputPositions = PositionUAV;
-		PassParameters->NumVertices = NumVertices;
-		PassParameters->WaveAmplitude = WaveAmplitude;
-		PassParameters->WaveFrequency = WaveFrequency;
-		PassParameters->Time = Time * WaveSpeed;
-		PassParameters->Velocity = VelocityForShader;
-		PassParameters->InertiaStrength = InertiaStrength;
+		// ============================================
+		// Dispatch per Section (each Section has its own BoneBuffer)
+		// ============================================
+		const FSkeletalMeshLODRenderData& LODRenderData = RenderData.LODRenderData[LODIndex];
+		const uint32 ThreadGroupSize = 64;
 
-		// Get the shader
-		TShaderMapRef<FFleshRingWaveCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
-
-		// Check if shader is valid
-		if (!ComputeShader.IsValid())
+		for (int32 SectionIdx = 0; SectionIdx < LODRenderData.RenderSections.Num(); SectionIdx++)
 		{
-			UE_LOG(LogFleshRing, Warning, TEXT("FleshRingWaveCS shader is not valid!"));
-			FallbackDelegate.ExecuteIfBound();
-			return;
+			const FSkelMeshRenderSection& Section = LODRenderData.RenderSections[SectionIdx];
+
+			// Skip disabled sections
+			if (Section.bDisabled)
+			{
+				continue;
+			}
+
+			// Get this Section's BoneBuffer
+			FRHIShaderResourceView* SectionBoneMatricesSRV = FSkeletalMeshDeformerHelpers::GetBoneBufferForReading(
+				MeshObject, LODIndex, SectionIdx, false /* bPreviousFrame */);
+
+			if (!SectionBoneMatricesSRV)
+			{
+				continue;
+			}
+
+			// Section's vertex range
+			const uint32 BaseVertexIndex = Section.BaseVertexIndex;
+			const uint32 NumSectionVertices = Section.NumVertices;
+
+			if (NumSectionVertices == 0)
+			{
+				continue;
+			}
+
+			// Setup shader parameters for this Section
+			FFleshRingWaveCS::FParameters* PassParameters = GraphBuilder.AllocParameters<FFleshRingWaveCS::FParameters>();
+
+			// Vertex data
+			PassParameters->SourcePositions = SourcePositionSRV;
+			PassParameters->OutputPositions = PositionUAV;
+			PassParameters->BaseVertexIndex = BaseVertexIndex;
+			PassParameters->NumVertices = NumSectionVertices;
+
+			// Skinning data (Section-specific BoneBuffer)
+			PassParameters->BoneMatrices = SectionBoneMatricesSRV;
+			PassParameters->InputWeightStream = InputWeightStreamSRV;
+			PassParameters->NumBoneInfluences = NumBoneInfluences;
+			PassParameters->InputWeightStride = InputWeightStride;
+			PassParameters->InputWeightIndexSize = InputWeightIndexSize;
+
+			// Jelly effect parameters
+			PassParameters->WaveAmplitude = WaveAmplitude;
+			PassParameters->WaveFrequency = WaveFrequency;
+			PassParameters->Time = Time * WaveSpeed;
+			PassParameters->Velocity = VelocityForShader;
+			PassParameters->InertiaStrength = InertiaStrength;
+
+			// Dispatch for this Section
+			const uint32 NumGroups = FMath::DivideAndRoundUp(NumSectionVertices, ThreadGroupSize);
+
+			FComputeShaderUtils::AddPass(
+				GraphBuilder,
+				RDG_EVENT_NAME("FleshRingWaveDeform_Section%d", SectionIdx),
+				ComputeShader,
+				PassParameters,
+				FIntVector(static_cast<int32>(NumGroups), 1, 1)
+			);
 		}
 
-		// Add compute pass
-		const uint32 ThreadGroupSize = 64;
-		const uint32 NumGroups = FMath::DivideAndRoundUp(NumVertices, ThreadGroupSize);
-
-		FComputeShaderUtils::AddPass(
-			GraphBuilder,
-			RDG_EVENT_NAME("FleshRingWaveDeform"),
-			ComputeShader,
-			PassParameters,
-			FIntVector(static_cast<int32>(NumGroups), 1, 1)
-		);
-
-		// Update vertex factory to use the deformed buffer (must be before Execute, using GraphBuilder version)
-		// Safe to call here because we verified bHasBeenUpdatedAtLeastOnce on game thread
+		// Update vertex factory to use the deformed buffer
 		FSkeletalMeshDeformerHelpers::UpdateVertexFactoryBufferOverrides(GraphBuilder, MeshObject, LODIndex, bInvalidatePreviousPosition);
 
-		// Submit external access queue
+		// Submit external access queue and execute
 		ExternalAccessQueue.Submit(GraphBuilder);
-
-		// Execute the graph
 		GraphBuilder.Execute();
 	});
 }

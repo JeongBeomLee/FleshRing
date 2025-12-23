@@ -30,6 +30,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inertia Settings", meta = (ClampMin = "0.0", ClampMax = "10.0"))
 	float InertiaStrength = 1.0f;
 
+	// Bounds 확장 배율 (VSM 등 캐싱 시스템의 정상 작동을 위해 Deformer 변형량에 맞게 조정)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bounds Settings", meta = (ClampMin = "1.0", ClampMax = "3.0"))
+	float BoundsScale = 2.0f;
+
+	// 매 프레임 Bounds Invalidation 강제 (VSM 캐시 문제 완전 해결, 약간의 성능 비용)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bounds Settings")
+	bool bForceBoundsUpdate = false;
+
 	// UMeshDeformer interface
 	virtual UMeshDeformerInstanceSettings* CreateSettingsInstance(UMeshComponent* InMeshComponent) override;
 	virtual UMeshDeformerInstance* CreateInstance(UMeshComponent* InMeshComponent, UMeshDeformerInstanceSettings* InSettings) override;

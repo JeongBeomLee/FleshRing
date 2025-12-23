@@ -20,25 +20,26 @@ void FFleshRingEditorModule::StartupModule()
 	FleshRingDeformerAssetTypeActions = MakeShared<FFleshRingDeformerAssetTypeActions>();
 	AssetTools.RegisterAssetTypeActions(FleshRingDeformerAssetTypeActions.ToSharedRef());
 
-	// FleshRing Asset type actions 등록
+	// FleshRing Asset type actions 깅줉
 	FleshRingAssetTypeActions = MakeShared<FFleshRingAssetTypeActions>();
 	AssetTools.RegisterAssetTypeActions(FleshRingAssetTypeActions.ToSharedRef());
-	// PropertyEditor 모듈 가져오기
+
+	// PropertyEditor 紐⑤뱢 媛몄삤湲
 	FPropertyEditorModule& PropertyModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
 
-	// UFleshRingComponent에 대한 Detail Customization 등록
+	// UFleshRingComponentDetail Customization 깅줉
 	PropertyModule.RegisterCustomClassLayout(
 		UFleshRingComponent::StaticClass()->GetFName(),
 		FOnGetDetailCustomizationInstance::CreateStatic(&FFleshRingDetailCustomization::MakeInstance)
 	);
 
-	// FFleshRingSettings 구조체에 대한 Property Type Customization 등록
+	// FFleshRingSettings 援ъ“泥댁뿉 Property Type Customization 깅줉
 	PropertyModule.RegisterCustomPropertyTypeLayout(
 		FFleshRingSettings::StaticStruct()->GetFName(),
 		FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FFleshRingSettingsCustomization::MakeInstance)
 	);
 
-	// 등록 후 Detail View 갱신
+	// 깅줉 Detail View 媛깆떊
 	PropertyModule.NotifyCustomizationModuleChanged();
 }
 
@@ -59,7 +60,7 @@ void FFleshRingEditorModule::ShutdownModule()
 			AssetTools.UnregisterAssetTypeActions(FleshRingAssetTypeActions.ToSharedRef());
 		}
 	}
-	// 모듈 언로드 시 등록 해제
+	// 紐⑤뱢 몃줈깅줉 댁젣
 	if (FModuleManager::Get().IsModuleLoaded("PropertyEditor"))
 	{
 		FPropertyEditorModule& PropertyModule = FModuleManager::GetModuleChecked<FPropertyEditorModule>("PropertyEditor");
