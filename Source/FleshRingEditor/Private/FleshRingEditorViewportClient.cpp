@@ -91,12 +91,8 @@ void FFleshRingEditorViewportClient::SetAsset(UFleshRingAsset* InAsset)
 
 	if (PreviewScene && InAsset)
 	{
-		// 스켈레탈 메시 설정
-		USkeletalMesh* SkelMesh = InAsset->TargetSkeletalMesh.LoadSynchronous();
-		PreviewScene->SetSkeletalMesh(SkelMesh);
-
-		// Ring 메시 갱신
-		PreviewScene->RefreshRings(InAsset->Rings);
+		// Asset 설정 (메시 + 컴포넌트 + Ring 시각화)
+		PreviewScene->SetFleshRingAsset(InAsset);
 
 		// 카메라 포커스
 		FocusOnMesh();

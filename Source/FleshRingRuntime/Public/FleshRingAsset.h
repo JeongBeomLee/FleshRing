@@ -4,7 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
-#include "FleshRingComponent.h"
+#include "FleshRingTypes.h"
 #include "FleshRingAsset.generated.h"
 
 /**
@@ -39,7 +39,7 @@ public:
 	// SDF Settings
 	// =====================================
 
-	/** SDF 설정 */
+	/** SDF 설정 (각 Ring의 RingMesh에서 SDF 생성) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF Settings")
 	FFleshRingSdfSettings SdfSettings;
 

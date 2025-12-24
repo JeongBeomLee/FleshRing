@@ -5,115 +5,21 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "FleshRingTypes.h"
 #include "FleshRingDeformer.h"
 #include "FleshRingComponent.generated.h"
 
 class UStaticMesh;
 class UVolumeTexture;
+class UFleshRingAsset;
 
 // =====================================
-// �거�의
+// 컴포넌트 클래스
 // =====================================
-
-/** Ring �향 범위 결정 방식 */
-UENUM(BlueprintType)
-enum class EFleshRingInfluenceMode : uint8
-{
-	/** SDF 기반 �동 계산 */
-	Auto	UMETA(DisplayName = "Auto (SDF-based)"),
-
-	/** �동 Radius 지*/
-	Manual	UMETA(DisplayName = "Manual")
-};
-
-/** SDF �데�트 모드 */
-UENUM(BlueprintType)
-enum class EFleshRingSdfUpdateMode : uint8
-{
-	/** 맱마�데�트 */
-	OnTick		UMETA(DisplayName = "On Tick"),
-
-	/** �변겜에맅데�트 */
-	OnChange	UMETA(DisplayName = "On Change"),
-
-	/** �동 �데�트 */
-	Manual		UMETA(DisplayName = "Manual")
-};
-
-// =====================================
-// 구조첕의
-// =====================================
-
-/** 개별 Ring �정 */
-USTRUCT(BlueprintType)
-struct FFleshRingSettings
-{
-	GENERATED_BODY()
-
-	/** ��보름 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
-	FName BoneName;
-
-	/** Ring 메쉬 (�각�현 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
-	TSoftObjectPtr<UStaticMesh> RingMesh;
-
-	/** �향 범위 결정 방식 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
-	EFleshRingInfluenceMode InfluenceMode = EFleshRingInfluenceMode::Auto;
-
-	/** Ring 반��(Manual 모드�서맬용) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::Manual", ClampMin = "0.1", ClampMax = "100.0"))
-	float RingRadius = 5.0f;
-
-	/** Ring �께 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.1", ClampMax = "50.0"))
-	float RingWidth = 2.0f;
-
-	/** 감쇠 곡선 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "5.0"))
-	float Falloff = 1.0f;
-
-	/** 볼록 �과 강도 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "2.0"))
-	float BulgeIntensity = 0.5f;
-
-	FFleshRingSettings()
-		: BoneName(NAME_None)
-		, InfluenceMode(EFleshRingInfluenceMode::Auto)
-		, RingRadius(5.0f)
-		, RingWidth(2.0f)
-		, Falloff(1.0f)
-		, BulgeIntensity(0.5f)
-	{
-	}
-};
-
-/** SDF 관�정 */
-USTRUCT(BlueprintType)
-struct FFleshRingSdfSettings
-{
-	GENERATED_BODY()
-
-	/** SDF 볼륨 �상*/
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "16", ClampMax = "128"))
-	int32 Resolution = 64;
-
-	/** JFA 반복 �수 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "1", ClampMax = "16"))
-	int32 JfaIterations = 8;
-
-	/** �데�트 모드 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF")
-	EFleshRingSdfUpdateMode UpdateMode = EFleshRingSdfUpdateMode::OnTick;
-};
-
-// =====================================
-// 컴포�트 �래// =====================================
 
 /**
- * FleshRing 메쉬 변컴포�트
- * SDF 기반�로 �켈�탈 메쉬Flesh) �현처리
+ * FleshRing 메쉬 변형 컴포넌트
+ * SDF 기반으로 스켈레탈 메쉬의 살(Flesh) 표현을 처리
  */
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent), DisplayName="Flesh Ring")
 class FLESHRINGRUNTIME_API UFleshRingComponent : public UActorComponent
@@ -131,71 +37,59 @@ public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 	// =====================================
-	// SDF Source
+	// FleshRing Asset (Primary Data Source)
 	// =====================================
 
-	/** SDF �성�용StaticMesh */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF Source")
-	TObjectPtr<UStaticMesh> SDFSourceMesh;
+	/** FleshRing 데이터 에셋 (Ring 설정, SDF 설정, SDFSourceMesh 등 포함) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FleshRing Asset")
+	TObjectPtr<UFleshRingAsset> FleshRingAsset;
+
+	/** Asset 변경 시 호출 */
+	UFUNCTION(BlueprintCallable, Category = "FleshRing")
+	void ApplyAsset();
 
 	// =====================================
-	// Target Settings
+	// Target Settings (런타임 오버라이드)
 	// =====================================
 
-	/** �동�로 ��SkeletalMeshComponent 지(false�Owner�서 �동 �색) */
+	/** 수동으로 대상 SkeletalMeshComponent 지정 (false면 Owner에서 자동 검색) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Settings", AdvancedDisplay)
 	bool bUseCustomTarget = false;
 
-	/** �동 지��(bUseCustomTargettrue�만 �용) */
+	/** 수동 지정 대상 (bUseCustomTarget이 true일 때만 사용) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Settings", AdvancedDisplay, meta = (EditCondition = "bUseCustomTarget"))
 	TObjectPtr<USkeletalMeshComponent> CustomTargetMesh;
 
 	// =====================================
-	// General
+	// General (런타임 설정)
 	// =====================================
 
-	/** �체 기능 �성*/
+	/** 전체 기능 활성화 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General")
 	bool bEnableFleshRing = true;
 
-	/** Bounds �장 배율 (VSM 캐싱 �스�의 �상 �동�해 Deformer 변�량맞게 조정) */
+	/** Bounds 확장 배율 (VSM 캐싱을 위해 Deformer 변형량에 맞게 조정) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General", meta = (ClampMin = "1.0", ClampMax = "3.0"))
 	float BoundsScale = 2.0f;
 
 	// =====================================
-	// Ring Settings
-	// =====================================
-
-	/** Ring �정 배열 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring Settings")
-	TArray<FFleshRingSettings> Rings;
-
-	// =====================================
-	// SDF Settings
-	// =====================================
-
-	/** SDF �정 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF Settings")
-	FFleshRingSdfSettings SdfSettings;
-
-	// =====================================
-	// Debug / Visualization (�디�용)
+	// Debug / Visualization (에디터 전용)
 	// =====================================
 
 #if WITH_EDITORONLY_DATA
-	/** SDF 볼륨 �시 */
+	/** SDF 볼륨 표시 */
 	UPROPERTY(EditAnywhere, Category = "Debug")
 	bool bShowSdfVolume = false;
 
-	/** �향받는 버텍�시 */
+	/** 영향받는 버텍스 표시 */
 	UPROPERTY(EditAnywhere, Category = "Debug")
 	bool bShowAffectedVertices = false;
 
-	/** Ring 기즈몜시 */
+	/** Ring 기즈모 표시 */
 	UPROPERTY(EditAnywhere, Category = "Debug")
 	bool bShowRingGizmos = true;
 
-	/** Bulge �트맜시 */
+	/** Bulge 히트맵 표시 */
 	UPROPERTY(EditAnywhere, Category = "Debug")
 	bool bShowBulgeHeatmap = false;
 #endif
@@ -204,40 +98,40 @@ public:
 	// Blueprint Callable Functions
 	// =====================================
 
-	/** SDF �동 �데�트 */
+	/** SDF 수동 업데이트 */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing")
 	void UpdateSDF();
 
-	/** �제 �용��SkeletalMeshComponent 반환 */
+	/** 실제 적용될 SkeletalMeshComponent 반환 */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing")
 	USkeletalMeshComponent* GetResolvedTargetMesh() const { return ResolvedTargetMesh.Get(); }
 
-	/** �� Deformer 반환 */
+	/** 내부 Deformer 반환 */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing")
 	UFleshRingDeformer* GetDeformer() const { return InternalDeformer; }
 
 private:
-	/** �동/�동 �색�제 ��*/
+	/** 자동/수동 검색된 실제 대상 */
 	UPROPERTY(Transient)
 	TWeakObjectPtr<USkeletalMeshComponent> ResolvedTargetMesh;
 
-	/** ��에 �성�� Deformer */
+	/** 내부에 생성된 Deformer */
 	UPROPERTY(Transient)
 	TObjectPtr<UFleshRingDeformer> InternalDeformer;
 
-	/** SDF 3D 볼륨 �스�*/
+	/** SDF 3D 볼륨 텍스처 */
 	UPROPERTY(Transient)
 	TObjectPtr<UVolumeTexture> SDFVolumeTexture;
 
-	/** ��SkeletalMeshComponent �색 밤정 */
+	/** 대상 SkeletalMeshComponent 검색 및 설정 */
 	void ResolveTargetMesh();
 
-	/** Deformer �성 백록 */
+	/** Deformer 생성 및 등록 */
 	void SetupDeformer();
 
-	/** Deformer �제 */
+	/** Deformer 제거 */
 	void CleanupDeformer();
 
-	/** SDF �성 (SDFSourceMesh 기반) */
+	/** SDF 생성 (Asset의 SDFSourceMesh 기반) */
 	void GenerateSDF();
 };

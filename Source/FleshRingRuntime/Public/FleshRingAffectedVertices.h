@@ -5,7 +5,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "FleshRingComponent.h"
+#include "FleshRingTypes.h"
+
+class UFleshRingComponent;
 
 // Forward declarations
 class USkeletalMeshComponent;

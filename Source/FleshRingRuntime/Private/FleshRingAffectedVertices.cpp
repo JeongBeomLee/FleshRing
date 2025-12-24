@@ -3,6 +3,8 @@
 // Role B: Deformation Algorithm (Week 2)
 
 #include "FleshRingAffectedVertices.h"
+#include "FleshRingComponent.h"
+#include "FleshRingAsset.h"
 
 #include "Components/SkeletalMeshComponent.h"
 #include "Rendering/SkeletalMeshRenderData.h"
@@ -143,6 +145,16 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
     // Clear previous data
     ClearAll();
 
+    // FleshRingAsset null check
+    if (!Component->FleshRingAsset)
+    {
+        UE_LOG(LogFleshRingVertices, Warning,
+            TEXT("RegisterAffectedVertices: FleshRingAsset is null"));
+        return false;
+    }
+
+    const TArray<FFleshRingSettings>& Rings = Component->FleshRingAsset->Rings;
+
     // Extract mesh vertices
     TArray<FVector3f> MeshVertices;
     if (!ExtractMeshVertices(SkeletalMesh, MeshVertices))
@@ -154,14 +166,14 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
 
     UE_LOG(LogFleshRingVertices, Log,
         TEXT("RegisterAffectedVertices: Processing %d vertices for %d Rings"),
-        MeshVertices.Num(), Component->Rings.Num());
+        MeshVertices.Num(), Rings.Num());
 
     // Process each Ring
-    RingDataArray.Reserve(Component->Rings.Num());
+    RingDataArray.Reserve(Rings.Num());
 
-    for (int32 RingIdx = 0; RingIdx < Component->Rings.Num(); ++RingIdx)
+    for (int32 RingIdx = 0; RingIdx < Rings.Num(); ++RingIdx)
     {
-        const FFleshRingSettings& RingSettings = Component->Rings[RingIdx];
+        const FFleshRingSettings& RingSettings = Rings[RingIdx];
 
         // Skip Rings without valid bone
         if (RingSettings.BoneName == NAME_None)

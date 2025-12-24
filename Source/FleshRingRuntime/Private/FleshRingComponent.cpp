@@ -1,6 +1,7 @@
 ﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "FleshRingComponent.h"
+#include "FleshRingAsset.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/VolumeTexture.h"
 #include "GameFramework/Actor.h"
@@ -44,7 +45,7 @@ void UFleshRingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 	// 초기화 시점(SetupDeformer)에서만 MarkRenderStateDirty/MarkRenderDynamicDataDirty 호출
 
 	// SDF 업데이트 (UpdateMode에 따라)
-	if (SdfSettings.UpdateMode == EFleshRingSdfUpdateMode::OnTick)
+	if (FleshRingAsset && FleshRingAsset->SdfSettings.UpdateMode == EFleshRingSdfUpdateMode::OnTick)
 	{
 		GenerateSDF();
 	}
@@ -150,17 +151,26 @@ void UFleshRingComponent::CleanupDeformer()
 
 void UFleshRingComponent::GenerateSDF()
 {
-	if (!SDFSourceMesh)
+	if (!FleshRingAsset)
 	{
-		// SDFSourceMesh가 없으면 SDF 생성 스킵 (정상 동작)
 		return;
 	}
 
-	// TODO: SDFSourceMesh로부터 SDF 3D 텍스처 생성
-	// 1. StaticMesh의 버텍스 데이터 추출
-	// 2. GPU에서 JFA(Jump Flooding Algorithm)로 SDF 계산
-	// 3. SDFVolumeTexture에 결과 저장
-	// 4. InternalDeformer에 SDF 텍스처 전달
+	// 각 Ring의 RingMesh에서 SDF 생성
+	for (const FFleshRingSettings& Ring : FleshRingAsset->Rings)
+	{
+		UStaticMesh* RingMesh = Ring.RingMesh.LoadSynchronous();
+		if (!RingMesh)
+		{
+			continue;
+		}
+
+		// TODO: RingMesh로부터 SDF 3D 텍스처 생성
+		// 1. StaticMesh의 버텍스 데이터 추출
+		// 2. GPU에서 JFA(Jump Flooding Algorithm)로 SDF 계산
+		// 3. SDFVolumeTexture에 결과 저장
+		// 4. InternalDeformer에 SDF 텍스처 전달
+	}
 
 	// 현재는 placeholder - 실제 SDF 생성 로직은 별도 구현 필요
 }
@@ -168,4 +178,25 @@ void UFleshRingComponent::GenerateSDF()
 void UFleshRingComponent::UpdateSDF()
 {
 	GenerateSDF();
+}
+
+void UFleshRingComponent::ApplyAsset()
+{
+	if (!FleshRingAsset)
+	{
+		UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: ApplyAsset called but FleshRingAsset is null"));
+		return;
+	}
+
+	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Applying asset '%s'"), *FleshRingAsset->GetName());
+
+	// 기존 설정 정리 후 재설정
+	CleanupDeformer();
+
+	if (bEnableFleshRing)
+	{
+		ResolveTargetMesh();
+		SetupDeformer();
+		GenerateSDF();
+	}
 }

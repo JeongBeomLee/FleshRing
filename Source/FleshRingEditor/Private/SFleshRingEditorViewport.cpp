@@ -50,12 +50,8 @@ void SFleshRingEditorViewport::RefreshPreview()
 {
 	if (PreviewScene.IsValid() && EditingAsset.IsValid())
 	{
-		// 스켈레탈 메시 갱신
-		USkeletalMesh* SkelMesh = EditingAsset->TargetSkeletalMesh.LoadSynchronous();
-		PreviewScene->SetSkeletalMesh(SkelMesh);
-
-		// Ring 메시 갱신
-		PreviewScene->RefreshRings(EditingAsset->Rings);
+		// Asset 전체 갱신 (메시 + 컴포넌트 + Ring 시각화)
+		PreviewScene->SetFleshRingAsset(EditingAsset.Get());
 	}
 
 	if (ViewportClient.IsValid())
