@@ -36,14 +36,6 @@ public:
 	TArray<FFleshRingSettings> Rings;
 
 	// =====================================
-	// SDF Settings
-	// =====================================
-
-	/** SDF 설정 (각 Ring의 RingMesh에서 SDF 생성) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF Settings")
-	FFleshRingSdfSettings SdfSettings;
-
-	// =====================================
 	// Utility Functions
 	// =====================================
 

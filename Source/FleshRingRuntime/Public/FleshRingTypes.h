@@ -40,6 +40,25 @@ enum class EFleshRingSdfUpdateMode : uint8
 // 구조체 정의
 // =====================================
 
+/** SDF 관련 설정 (Ring별) */
+USTRUCT(BlueprintType)
+struct FLESHRINGRUNTIME_API FFleshRingSdfSettings
+{
+	GENERATED_BODY()
+
+	/** SDF 볼륨 해상도 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "16", ClampMax = "128"))
+	int32 Resolution = 64;
+
+	/** JFA 반복 횟수 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "1", ClampMax = "16"))
+	int32 JfaIterations = 8;
+
+	/** 업데이트 모드 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF")
+	EFleshRingSdfUpdateMode UpdateMode = EFleshRingSdfUpdateMode::OnChange;
+};
+
 /** 개별 Ring 설정 */
 USTRUCT(BlueprintType)
 struct FLESHRINGRUNTIME_API FFleshRingSettings
@@ -50,7 +69,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
 	FName BoneName;
 
-	/** Ring 메쉬 (시각적 표현용) */
+	/** Ring 메쉬 (시각적 표현 + SDF 소스) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
 	TSoftObjectPtr<UStaticMesh> RingMesh;
 
@@ -74,6 +93,10 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "2.0"))
 	float BulgeIntensity = 0.5f;
 
+	/** 이 Ring의 SDF 설정 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF")
+	FFleshRingSdfSettings SdfSettings;
+
 	FFleshRingSettings()
 		: BoneName(NAME_None)
 		, InfluenceMode(EFleshRingInfluenceMode::Auto)
@@ -83,23 +106,4 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		, BulgeIntensity(0.5f)
 	{
 	}
-};
-
-/** SDF 관련 설정 */
-USTRUCT(BlueprintType)
-struct FLESHRINGRUNTIME_API FFleshRingSdfSettings
-{
-	GENERATED_BODY()
-
-	/** SDF 볼륨 해상도 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "16", ClampMax = "128"))
-	int32 Resolution = 64;
-
-	/** JFA 반복 횟수 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "1", ClampMax = "16"))
-	int32 JfaIterations = 8;
-
-	/** 업데이트 모드 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF")
-	EFleshRingSdfUpdateMode UpdateMode = EFleshRingSdfUpdateMode::OnTick;
 };

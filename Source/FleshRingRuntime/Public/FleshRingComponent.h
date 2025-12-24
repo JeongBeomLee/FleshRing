@@ -40,7 +40,7 @@ public:
 	// FleshRing Asset (Primary Data Source)
 	// =====================================
 
-	/** FleshRing 데이터 에셋 (Ring 설정, SDF 설정, SDFSourceMesh 등 포함) */
+	/** FleshRing 데이터 에셋 (Ring 설정 포함) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FleshRing Asset")
 	TObjectPtr<UFleshRingAsset> FleshRingAsset;
 
@@ -119,9 +119,9 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UFleshRingDeformer> InternalDeformer;
 
-	/** SDF 3D 볼륨 텍스처 */
+	/** SDF 3D 볼륨 텍스처 (Ring별로 하나씩) */
 	UPROPERTY(Transient)
-	TObjectPtr<UVolumeTexture> SDFVolumeTexture;
+	TArray<TObjectPtr<UVolumeTexture>> SDFVolumeTextures;
 
 	/** 대상 SkeletalMeshComponent 검색 및 설정 */
 	void ResolveTargetMesh();
@@ -132,6 +132,6 @@ private:
 	/** Deformer 제거 */
 	void CleanupDeformer();
 
-	/** SDF 생성 (Asset의 SDFSourceMesh 기반) */
+	/** SDF 생성 (각 Ring의 RingMesh 기반) */
 	void GenerateSDF();
 };

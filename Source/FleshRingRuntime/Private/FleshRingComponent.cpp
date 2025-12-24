@@ -44,10 +44,18 @@ void UFleshRingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 	// Optimus 방식: 엔진의 SendRenderDynamicData_Concurrent()가 자동으로 deformer의 EnqueueWork를 호출
 	// 초기화 시점(SetupDeformer)에서만 MarkRenderStateDirty/MarkRenderDynamicDataDirty 호출
 
-	// SDF 업데이트 (UpdateMode에 따라)
-	if (FleshRingAsset && FleshRingAsset->SdfSettings.UpdateMode == EFleshRingSdfUpdateMode::OnTick)
+	// SDF 업데이트 (각 Ring의 UpdateMode에 따라 GenerateSDF에서 처리)
+	if (FleshRingAsset)
 	{
-		GenerateSDF();
+		// OnTick 모드인 Ring이 있으면 SDF 갱신
+		for (const FFleshRingSettings& Ring : FleshRingAsset->Rings)
+		{
+			if (Ring.SdfSettings.UpdateMode == EFleshRingSdfUpdateMode::OnTick)
+			{
+				GenerateSDF();
+				break;
+			}
+		}
 	}
 }
 
@@ -146,7 +154,7 @@ void UFleshRingComponent::CleanupDeformer()
 
 	InternalDeformer = nullptr;
 	ResolvedTargetMesh.Reset();
-	SDFVolumeTexture = nullptr;
+	SDFVolumeTextures.Empty();
 }
 
 void UFleshRingComponent::GenerateSDF()
@@ -166,9 +174,11 @@ void UFleshRingComponent::GenerateSDF()
 		}
 
 		// TODO: RingMesh로부터 SDF 3D 텍스처 생성
+		// - Ring.SdfSettings.Resolution: SDF 볼륨 해상도
+		// - Ring.SdfSettings.JfaIterations: JFA 반복 횟수
 		// 1. StaticMesh의 버텍스 데이터 추출
 		// 2. GPU에서 JFA(Jump Flooding Algorithm)로 SDF 계산
-		// 3. SDFVolumeTexture에 결과 저장
+		// 3. SDFVolumeTextures 배열에 결과 저장
 		// 4. InternalDeformer에 SDF 텍스처 전달
 	}
 
@@ -196,6 +206,22 @@ void UFleshRingComponent::ApplyAsset()
 	if (bEnableFleshRing)
 	{
 		ResolveTargetMesh();
+
+		// SkeletalMesh 일치 검증 (에디터 프리뷰 = 게임 결과 보장)
+		USkeletalMeshComponent* TargetMesh = ResolvedTargetMesh.Get();
+		if (TargetMesh && !FleshRingAsset->TargetSkeletalMesh.IsNull())
+		{
+			USkeletalMesh* ExpectedMesh = FleshRingAsset->TargetSkeletalMesh.LoadSynchronous();
+			USkeletalMesh* ActualMesh = TargetMesh->GetSkeletalMeshAsset();
+
+			if (ExpectedMesh && ActualMesh && ExpectedMesh != ActualMesh)
+			{
+				UE_LOG(LogFleshRingComponent, Warning,
+					TEXT("FleshRingComponent: SkeletalMesh mismatch! Asset expects '%s' but target has '%s'. Effect may differ from editor preview."),
+					*ExpectedMesh->GetName(), *ActualMesh->GetName());
+			}
+		}
+
 		SetupDeformer();
 		GenerateSDF();
 	}

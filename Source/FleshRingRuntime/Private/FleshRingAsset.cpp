@@ -4,10 +4,7 @@
 
 UFleshRingAsset::UFleshRingAsset()
 {
-	// 기본 SDF 설정
-	SdfSettings.Resolution = 64;
-	SdfSettings.JfaIterations = 8;
-	SdfSettings.UpdateMode = EFleshRingSdfUpdateMode::OnChange;
+	// SdfSettings는 이제 각 Ring별로 FFleshRingSettings에 포함됨
 }
 
 int32 UFleshRingAsset::AddRing(const FFleshRingSettings& NewRing)

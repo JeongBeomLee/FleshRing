@@ -5,11 +5,14 @@
 #include "SFleshRingEditorViewport.h"
 #include "FleshRingAsset.h"
 #include "FleshRingComponent.h"
+#include "FleshRingHitProxy.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "CanvasItem.h"
 #include "CanvasTypes.h"
+
+IMPLEMENT_HIT_PROXY(HFleshRingHitProxy, HHitProxy);
 
 FFleshRingEditorViewportClient::FFleshRingEditorViewportClient(
 	FFleshRingPreviewScene* InPreviewScene,
