@@ -1,4 +1,4 @@
-// FleshRingMeshExtractor.h
+﻿// FleshRingMeshExtractor.h
 // UStaticMesh에서 버텍스/인덱스/노말 데이터를 추출하는 유틸리티
 #pragma once
 

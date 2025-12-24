@@ -1,5 +1,7 @@
 // FleshRingSDFGenerate.usf
 // 메시 삼각형들로부터 SDF(Signed Distance Field)를 생성하는 Compute Shader
+// 부호 결정: Multiple Ray Casting (12방향 다수결로 내부/외부 판별)
+// 참조: SDFGenerator (https://github.com/AirGuanZ/SDFGenerator)
 
 #include "/Engine/Public/Platform.ush"
 
@@ -17,9 +19,124 @@ float3 SDFBoundsMin;                        // SDF 바운딩 박스 최소점
 float3 SDFBoundsMax;                        // SDF 바운딩 박스 최대점
 int3 SDFResolution;                         // SDF 해상도 (예: 64x64x64)
 
+// ============================================
+// Ray-Triangle 교차 테스트 (Moller-Trumbore 알고리즘)
+// 반환: 교차하면 true, 아니면 false
+// ============================================
+bool RayTriangleIntersect(float3 RayOrigin, float3 RayDir, float3 V0, float3 V1, float3 V2)
+{
+    const float EPSILON = 0.0000001f;
+
+    float3 Edge1 = V1 - V0;
+    float3 Edge2 = V2 - V0;
+
+    float3 H = cross(RayDir, Edge2);
+    float A = dot(Edge1, H);
+
+    // 광선이 삼각형과 평행한 경우
+    if (A > -EPSILON && A < EPSILON)
+        return false;
+
+    float F = 1.0f / A;
+    float3 S = RayOrigin - V0;
+    float U = F * dot(S, H);
+
+    // U 범위 체크 (0~1)
+    if (U < 0.0f || U > 1.0f)
+        return false;
+
+    float3 Q = cross(S, Edge1);
+    float V = F * dot(RayDir, Q);
+
+    // V 범위 체크, U+V <= 1
+    if (V < 0.0f || U + V > 1.0f)
+        return false;
+
+    // 교차점까지의 거리 (T)
+    float T = F * dot(Edge2, Q);
+
+    // 광선 방향으로 교차 (T > 0)
+    return T > EPSILON;
+}
+
+// ============================================
+// Multiple Ray Casting으로 내부/외부 판별
+// 여러 방향으로 광선 발사 -> 다수결로 판정
+// 참조: SDFGenerator (12 rays default)
+// ============================================
+
+// 구 표면에 균일 분포된 12방향 (Icosahedron 꼭짓점 기반)
+static const float3 RayDirections[12] =
+{
+    // 정이십면체 꼭짓점 방향 (황금비 기반)
+    normalize(float3( 0.000f,  0.526f,  0.851f)),
+    normalize(float3( 0.000f,  0.526f, -0.851f)),
+    normalize(float3( 0.000f, -0.526f,  0.851f)),
+    normalize(float3( 0.000f, -0.526f, -0.851f)),
+    normalize(float3( 0.526f,  0.851f,  0.000f)),
+    normalize(float3( 0.526f, -0.851f,  0.000f)),
+    normalize(float3(-0.526f,  0.851f,  0.000f)),
+    normalize(float3(-0.526f, -0.851f,  0.000f)),
+    normalize(float3( 0.851f,  0.000f,  0.526f)),
+    normalize(float3(-0.851f,  0.000f,  0.526f)),
+    normalize(float3( 0.851f,  0.000f, -0.526f)),
+    normalize(float3(-0.851f,  0.000f, -0.526f))
+};
+
+static const int NumRayDirections = 12;
+
+// 단일 방향 Ray Casting (교차 횟수 반환)
+int CountRayIntersections(float3 VoxelPos, float3 RayDir)
+{
+    int IntersectionCount = 0;
+
+    for (uint i = 0; i < TriangleCount; i++)
+    {
+        uint3 Indices = MeshIndices[i];
+        float3 V0 = MeshVertices[Indices.x];
+        float3 V1 = MeshVertices[Indices.y];
+        float3 V2 = MeshVertices[Indices.z];
+
+        if (RayTriangleIntersect(VoxelPos, RayDir, V0, V1, V2))
+        {
+            IntersectionCount++;
+        }
+    }
+
+    return IntersectionCount;
+}
+
+// Multiple Ray Casting - 다수결로 내부/외부 판정
+float DetermineSignByMultipleRayCasting(float3 VoxelPos)
+{
+    int InsideVotes = 0;
+    int OutsideVotes = 0;
+
+    // 12방향으로 ray 발사
+    for (int r = 0; r < NumRayDirections; r++)
+    {
+        int intersections = CountRayIntersections(VoxelPos, RayDirections[r]);
+
+        // 홀수 교차 = 내부, 짝수 교차 = 외부
+        if (intersections % 2 == 1)
+        {
+            InsideVotes++;
+        }
+        else
+        {
+            OutsideVotes++;
+        }
+    }
+
+    // 다수결: 과반수가 내부면 -1, 외부면 +1
+    return (InsideVotes > OutsideVotes) ? -1.0f : 1.0f;
+}
+
+// ============================================
 // Point-to-Triangle 최단 거리 계산
 // 참조: Real-Time Collision Detection (Christer Ericson)
-float PointToTriangleDistance(float3 P, float3 A, float3 B, float3 C, out float3 ClosestPoint)
+// ============================================
+float PointToTriangleDistance(float3 P, float3 A, float3 B, float3 C)
 {
     // 삼각형 변 벡터
     float3 AB = B - A;
@@ -30,28 +147,21 @@ float PointToTriangleDistance(float3 P, float3 A, float3 B, float3 C, out float3
     float d1 = dot(AB, AP);
     float d2 = dot(AC, AP);
     if (d1 <= 0.0f && d2 <= 0.0f)
-    {
-        ClosestPoint = A;
         return length(P - A);
-    }
 
     // B 꼭짓점 영역 체크
     float3 BP = P - B;
     float d3 = dot(AB, BP);
     float d4 = dot(AC, BP);
     if (d3 >= 0.0f && d4 <= d3)
-    {
-        ClosestPoint = B;
         return length(P - B);
-    }
 
     // AB 변 영역 체크
     float vc = d1 * d4 - d3 * d2;
     if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f)
     {
         float v = d1 / (d1 - d3);
-        ClosestPoint = A + v * AB;
-        return length(P - ClosestPoint);
+        return length(P - (A + v * AB));
     }
 
     // C 꼭짓점 영역 체크
@@ -59,18 +169,14 @@ float PointToTriangleDistance(float3 P, float3 A, float3 B, float3 C, out float3
     float d5 = dot(AB, CP);
     float d6 = dot(AC, CP);
     if (d6 >= 0.0f && d5 <= d6)
-    {
-        ClosestPoint = C;
         return length(P - C);
-    }
 
     // AC 변 영역 체크
     float vb = d5 * d2 - d1 * d6;
     if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f)
     {
         float w = d2 / (d2 - d6);
-        ClosestPoint = A + w * AC;
-        return length(P - ClosestPoint);
+        return length(P - (A + w * AC));
     }
 
     // BC 변 영역 체크
@@ -78,20 +184,20 @@ float PointToTriangleDistance(float3 P, float3 A, float3 B, float3 C, out float3
     if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f)
     {
         float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
-        ClosestPoint = B + w * (C - B);
-        return length(P - ClosestPoint);
+        return length(P - (B + w * (C - B)));
     }
 
     // 삼각형 내부에 투영되는 경우
     float denom = 1.0f / (va + vb + vc);
     float v = vb * denom;
     float w = vc * denom;
-    ClosestPoint = A + AB * v + AC * w;
+    float3 ClosestPoint = A + AB * v + AC * w;
     return length(P - ClosestPoint);
 }
 
+// ============================================
 // 메인 Compute Shader
-// 각 복셀에 대해 모든 삼각형과의 최소 거리 계산
+// ============================================
 [numthreads(8, 8, 8)]
 void MainCS(uint3 ThreadId : SV_DispatchThreadID)
 {
@@ -100,44 +206,27 @@ void MainCS(uint3 ThreadId : SV_DispatchThreadID)
         return;
 
     // 복셀 중심의 월드 좌표 계산
-    // ThreadId가 (0,0,0) ~ (Resolution-1) 범위
-    // 복셀 중심 = Min + (ThreadId + 0.5) / Resolution * (Max - Min)
     float3 VoxelUVW = (float3(ThreadId) + 0.5f) / float3(SDFResolution);
     float3 VoxelWorldPos = SDFBoundsMin + VoxelUVW * (SDFBoundsMax - SDFBoundsMin);
 
-    // 최소 거리 및 가장 가까운 삼각형 정보
+    // 1. 거리 계산: 모든 삼각형과의 최소 거리
     float MinDistance = 999999.0f;
-    float3 ClosestNormal = float3(0, 0, 1);
-    float3 ClosestPointOnMesh = float3(0, 0, 0);
 
-    // 모든 삼각형과 거리 계산 (브루트 포스)
-    // TODO: 성능 최적화 시 BVH/Octree 사용
     for (uint i = 0; i < TriangleCount; i++)
     {
-        // 삼각형 버텍스 가져오기
         uint3 Indices = MeshIndices[i];
         float3 V0 = MeshVertices[Indices.x];
         float3 V1 = MeshVertices[Indices.y];
         float3 V2 = MeshVertices[Indices.z];
 
-        // 이 삼각형과의 거리 계산
-        float3 ClosestPt;
-        float Dist = PointToTriangleDistance(VoxelWorldPos, V0, V1, V2, ClosestPt);
-
-        // 최소 거리 갱신
-        if (Dist < MinDistance)
-        {
-            MinDistance = Dist;
-            ClosestNormal = TriangleNormals[i];
-            ClosestPointOnMesh = ClosestPt;
-        }
+        float Dist = PointToTriangleDistance(VoxelWorldPos, V0, V1, V2);
+        MinDistance = min(MinDistance, Dist);
     }
 
-    // 부호 결정: 노말 방향 기반
-    // 복셀이 노말 방향(외부)에 있으면 +, 반대(내부)면 -
-    float3 ToVoxel = VoxelWorldPos - ClosestPointOnMesh;
-    float Sign = (dot(ToVoxel, ClosestNormal) >= 0.0f) ? 1.0f : -1.0f;
+    // 2. 부호 결정: Multiple Ray Casting (12방향 다수결)
+    float Sign = DetermineSignByMultipleRayCasting(VoxelWorldPos);
 
-    // SDF 값 저장 (부호 있는 거리)
+    // 3. SDF 값 저장 (부호 * 거리)
+    // 도넛홀 보정은 2D Slice Flood Fill 후처리에서 수행
     OutputSDF[ThreadId] = Sign * MinDistance;
 }

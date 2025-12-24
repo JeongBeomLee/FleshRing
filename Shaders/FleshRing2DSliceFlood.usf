@@ -1,0 +1,129 @@
+// FleshRing2DSliceFlood.usf
+// 2D Slice Flood Fill - 각 Z 슬라이스에서 XY 경계부터 flood하여 도넛홀 감지
+// 도달 못한 "외부" 영역 = 도넛홀 = 내부로 변환
+
+#include "/Engine/Public/Platform.ush"
+
+// ============================================
+// Pass 1: 2D Flood 초기화
+// 각 Z 슬라이스에서 XY 경계를 "외부 시드"로 마킹
+// SDF > 0 (외부)인 복셀만 전파 대상
+// ============================================
+Texture3D<float> InputSDF;
+RWTexture3D<uint> FloodMask;
+int3 GridResolution;
+
+[numthreads(8, 8, 8)]
+void Initialize2DFloodCS(uint3 ThreadId : SV_DispatchThreadID)
+{
+    if (any(ThreadId >= (uint3)GridResolution))
+        return;
+
+    float sdf = InputSDF[ThreadId];
+
+    // XY 경계면이고 SDF > 0 (외부)이면 시드로 마킹
+    bool isXYBoundary =
+        ThreadId.x == 0 || ThreadId.x == (uint)(GridResolution.x - 1) ||
+        ThreadId.y == 0 || ThreadId.y == (uint)(GridResolution.y - 1);
+
+    if (isXYBoundary && sdf > 0.0f)
+    {
+        FloodMask[ThreadId] = 1u;  // 외부에서 도달 가능
+    }
+    else
+    {
+        FloodMask[ThreadId] = 0u;  // 미정
+    }
+}
+
+// ============================================
+// Pass 2-N: 2D Flood 전파 (Z 슬라이스별로 독립적)
+// 같은 Z에서 4방향(상하좌우) 이웃만 확인
+// ============================================
+Texture3D<uint> FloodMaskInput;
+RWTexture3D<uint> FloodMaskOutput;
+Texture3D<float> SDFForFlood;
+
+[numthreads(8, 8, 8)]
+void Flood2DPassCS(uint3 ThreadId : SV_DispatchThreadID)
+{
+    if (any(ThreadId >= (uint3)GridResolution))
+        return;
+
+    // 이미 외부로 마킹된 경우 그대로 유지
+    uint currentMask = FloodMaskInput[ThreadId];
+    if (currentMask == 1u)
+    {
+        FloodMaskOutput[ThreadId] = 1u;
+        return;
+    }
+
+    // SDF <= 0 (내부/표면)이면 전파 안 됨
+    float sdf = SDFForFlood[ThreadId];
+    if (sdf <= 0.0f)
+    {
+        FloodMaskOutput[ThreadId] = 0u;
+        return;
+    }
+
+    // 4방향 이웃 확인 (같은 Z 슬라이스에서만!)
+    // 상(+Y), 하(-Y), 좌(-X), 우(+X)
+    int2 neighbors[4] = {
+        int2( 0,  1),  // 상
+        int2( 0, -1),  // 하
+        int2(-1,  0),  // 좌
+        int2( 1,  0)   // 우
+    };
+
+    [unroll]
+    for (int i = 0; i < 4; i++)
+    {
+        int3 neighborPos = int3(
+            (int)ThreadId.x + neighbors[i].x,
+            (int)ThreadId.y + neighbors[i].y,
+            (int)ThreadId.z  // Z는 고정!
+        );
+
+        // 범위 체크
+        if (all(neighborPos >= 0) && all(neighborPos < GridResolution))
+        {
+            if (FloodMaskInput[neighborPos] == 1u)
+            {
+                // 외부에서 도달 가능 → 외부로 마킹
+                FloodMaskOutput[ThreadId] = 1u;
+                return;
+            }
+        }
+    }
+
+    // 도달 불가 → 미정 유지
+    FloodMaskOutput[ThreadId] = 0u;
+}
+
+// ============================================
+// Pass Final: 도넛홀 부호 반전
+// 미도달(0) + SDF > 0 = 도넛홀 = 부호 반전하여 내부로
+// ============================================
+Texture3D<uint> FinalFloodMask;
+Texture3D<float> OriginalSDF;
+RWTexture3D<float> OutputSDF;
+
+[numthreads(8, 8, 8)]
+void Finalize2DFloodCS(uint3 ThreadId : SV_DispatchThreadID)
+{
+    if (any(ThreadId >= (uint3)GridResolution))
+        return;
+
+    float sdf = OriginalSDF[ThreadId];
+    uint mask = FinalFloodMask[ThreadId];
+
+    // 미도달(0) + 외부(SDF > 0) = 도넛홀 → 내부로 변환
+    if (mask == 0u && sdf > 0.0f)
+    {
+        OutputSDF[ThreadId] = -sdf;  // 부호 반전
+    }
+    else
+    {
+        OutputSDF[ThreadId] = sdf;   // 그대로 유지
+    }
+}

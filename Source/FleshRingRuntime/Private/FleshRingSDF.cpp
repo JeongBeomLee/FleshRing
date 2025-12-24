@@ -1,4 +1,4 @@
-// FleshRingSDF.cpp
+﻿// FleshRingSDF.cpp
 #include "FleshRingSDF.h"
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
@@ -21,6 +21,28 @@ IMPLEMENT_GLOBAL_SHADER(
     FSDFSliceVisualizeCS,
     "/Plugin/FleshRingPlugin/SDFSliceVisualize.usf",
     "MainCS",
+    SF_Compute
+);
+
+// 2D Slice Flood Fill 셰이더 등록
+IMPLEMENT_GLOBAL_SHADER(
+    F2DFloodInitializeCS,
+    "/Plugin/FleshRingPlugin/FleshRing2DSliceFlood.usf",
+    "Initialize2DFloodCS",
+    SF_Compute
+);
+
+IMPLEMENT_GLOBAL_SHADER(
+    F2DFloodPassCS,
+    "/Plugin/FleshRingPlugin/FleshRing2DSliceFlood.usf",
+    "Flood2DPassCS",
+    SF_Compute
+);
+
+IMPLEMENT_GLOBAL_SHADER(
+    F2DFloodFinalizeCS,
+    "/Plugin/FleshRingPlugin/FleshRing2DSliceFlood.usf",
+    "Finalize2DFloodCS",
     SF_Compute
 );
 
@@ -142,4 +164,97 @@ void GenerateSDFSlice(
         Parameters,
         GroupCount
     );
+}
+
+void Apply2DSliceFloodFill(
+    FRDGBuilder& GraphBuilder,
+    FRDGTextureRef InputSDF,
+    FRDGTextureRef OutputSDF,
+    FIntVector Resolution)
+{
+    // 스레드 그룹 계산 (8x8x8 per group)
+    FIntVector GroupCount(
+        FMath::DivideAndRoundUp(Resolution.X, 8),
+        FMath::DivideAndRoundUp(Resolution.Y, 8),
+        FMath::DivideAndRoundUp(Resolution.Z, 8)
+    );
+
+    // Flood 마스크 텍스처 2개 생성 (핑퐁 버퍼)
+    FRDGTextureDesc MaskDesc = FRDGTextureDesc::Create3D(
+        Resolution,
+        PF_R32_UINT,
+        FClearValueBinding::Black,
+        TexCreate_ShaderResource | TexCreate_UAV
+    );
+    FRDGTextureRef FloodMaskA = GraphBuilder.CreateTexture(MaskDesc, TEXT("2DFloodMaskA"));
+    FRDGTextureRef FloodMaskB = GraphBuilder.CreateTexture(MaskDesc, TEXT("2DFloodMaskB"));
+
+    // Pass 1: 초기화 - XY 경계를 외부 시드로 마킹
+    {
+        TShaderMapRef<F2DFloodInitializeCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+        F2DFloodInitializeCS::FParameters* Parameters = GraphBuilder.AllocParameters<F2DFloodInitializeCS::FParameters>();
+        Parameters->InputSDF = GraphBuilder.CreateSRV(InputSDF);
+        Parameters->FloodMask = GraphBuilder.CreateUAV(FloodMaskA);
+        Parameters->GridResolution = Resolution;
+
+        FComputeShaderUtils::AddPass(
+            GraphBuilder,
+            RDG_EVENT_NAME("2DFlood Initialize"),
+            ComputeShader,
+            Parameters,
+            GroupCount
+        );
+    }
+
+    // Pass 2-N: 2D Flood 전파 (최대 해상도만큼 반복)
+    // 2D에서는 대각선 없이 4방향만 전파하므로, max(X,Y) 번 반복
+    TShaderMapRef<F2DFloodPassCS> FloodPassShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+
+    int32 MaxIterations = FMath::Max(Resolution.X, Resolution.Y);
+    FRDGTextureRef CurrentInput = FloodMaskA;
+    FRDGTextureRef CurrentOutput = FloodMaskB;
+
+    for (int32 Iter = 0; Iter < MaxIterations; Iter++)
+    {
+        F2DFloodPassCS::FParameters* Parameters = GraphBuilder.AllocParameters<F2DFloodPassCS::FParameters>();
+        Parameters->FloodMaskInput = GraphBuilder.CreateSRV(CurrentInput);
+        Parameters->FloodMaskOutput = GraphBuilder.CreateUAV(CurrentOutput);
+        Parameters->SDFForFlood = GraphBuilder.CreateSRV(InputSDF);
+        Parameters->GridResolution = Resolution;
+
+        FComputeShaderUtils::AddPass(
+            GraphBuilder,
+            RDG_EVENT_NAME("2DFlood Pass %d", Iter),
+            FloodPassShader,
+            Parameters,
+            GroupCount
+        );
+
+        // 핑퐁 스왑
+        Swap(CurrentInput, CurrentOutput);
+    }
+
+    // 마지막 결과는 CurrentInput에 있음 (스왑 후)
+    FRDGTextureRef FinalMask = CurrentInput;
+
+    // Pass Final: 도넛홀 부호 반전
+    {
+        TShaderMapRef<F2DFloodFinalizeCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+        F2DFloodFinalizeCS::FParameters* Parameters = GraphBuilder.AllocParameters<F2DFloodFinalizeCS::FParameters>();
+        Parameters->FinalFloodMask = GraphBuilder.CreateSRV(FinalMask);
+        Parameters->OriginalSDF = GraphBuilder.CreateSRV(InputSDF);
+        Parameters->OutputSDF = GraphBuilder.CreateUAV(OutputSDF);
+        Parameters->GridResolution = Resolution;
+
+        FComputeShaderUtils::AddPass(
+            GraphBuilder,
+            RDG_EVENT_NAME("2DFlood Finalize"),
+            ComputeShader,
+            Parameters,
+            GroupCount
+        );
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("Apply2DSliceFloodFill: Completed %d iterations for Resolution %dx%dx%d"),
+        MaxIterations, Resolution.X, Resolution.Y, Resolution.Z);
 }

@@ -16,31 +16,32 @@ int SliceZ;             // 추출할 Z 인덱스
 float MaxDisplayDist;   // 색상 매핑 최대 거리 (이 거리에서 완전 빨강/파랑)
 
 // SDF 값을 색상으로 변환
-// 음수(내부) = 파랑, 0(표면) = 흰색, 양수(외부) = 빨강
+// 음수(내부) = 파랑, 0(표면) = 검정, 양수(외부) = 빨강
 float4 SDFToColor(float sdf)
 {
     // 정규화: -MaxDisplayDist ~ +MaxDisplayDist → -1 ~ +1
     float normalized = clamp(sdf / MaxDisplayDist, -1.0f, 1.0f);
 
+    // 더 극단적인 색상을 위해 pow 적용 (빠르게 채도 상승)
+    float t = pow(abs(normalized), 0.4f);
+
     float3 color;
     if (normalized < 0.0f)
     {
-        // 내부 (음수): 흰색 → 파랑
-        float t = -normalized;  // 0 ~ 1
-        color = lerp(float3(1, 1, 1), float3(0, 0.3, 1), t);
+        // 내부 (음수): 진한 파랑
+        color = lerp(float3(0.2, 0.2, 0.2), float3(0, 0.3, 1), t);
     }
     else
     {
-        // 외부 (양수): 흰색 → 빨강
-        float t = normalized;   // 0 ~ 1
-        color = lerp(float3(1, 1, 1), float3(1, 0.2, 0), t);
+        // 외부 (양수): 진한 빨강
+        color = lerp(float3(0.2, 0.2, 0.2), float3(1, 0.1, 0), t);
     }
 
     // 표면 근처 (SDF ≈ 0) 강조: 검은 윤곽선
-    float surfaceThreshold = 0.02f;  // 표면 두께
+    float surfaceThreshold = 0.03f;
     if (abs(normalized) < surfaceThreshold)
     {
-        color = float3(0, 0, 0);  // 검은색 윤곽
+        color = float3(0, 0, 0);
     }
 
     return float4(color, 1.0f);

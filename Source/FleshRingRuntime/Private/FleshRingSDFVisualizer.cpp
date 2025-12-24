@@ -168,7 +168,7 @@ FSDFVisualizationResult UFleshRingSDFVisualizer::VisualizeSDFSlice(
 
             FRDGBuilder GraphBuilder(RHICmdList);
 
-            // SDF 3D 텍스처 생성
+            // SDF 3D 텍스처 생성 (Ray Casting으로 부호 결정됨)
             FRDGTextureDesc SDFDesc = FRDGTextureDesc::Create3D(
                 SDFResolution,
                 PF_R32_FLOAT,
@@ -177,7 +177,7 @@ FSDFVisualizationResult UFleshRingSDFVisualizer::VisualizeSDFSlice(
             );
             FRDGTextureRef SDFTexture = GraphBuilder.CreateTexture(SDFDesc, TEXT("SDFTexture"));
 
-            // SDF 생성
+            // SDF 생성 (Multiple Ray Casting으로 부호 결정)
             GenerateMeshSDF(
                 GraphBuilder,
                 SDFTexture,
@@ -189,7 +189,23 @@ FSDFVisualizationResult UFleshRingSDFVisualizer::VisualizeSDFSlice(
                 SDFResolution
             );
 
-            // 슬라이스 2D 텍스처 생성 (RDG 내부용)
+            // 2D Slice Flood Fill로 도넛홀 보정
+            FRDGTextureDesc CorrectedSDFDesc = FRDGTextureDesc::Create3D(
+                SDFResolution,
+                PF_R32_FLOAT,
+                FClearValueBinding::Black,
+                TexCreate_ShaderResource | TexCreate_UAV
+            );
+            FRDGTextureRef CorrectedSDF = GraphBuilder.CreateTexture(CorrectedSDFDesc, TEXT("CorrectedSDFTexture"));
+
+            Apply2DSliceFloodFill(
+                GraphBuilder,
+                SDFTexture,
+                CorrectedSDF,
+                SDFResolution
+            );
+
+            // 슬라이스 2D 텍스처 생성
             FRDGTextureDesc SliceDesc = FRDGTextureDesc::Create2D(
                 FIntPoint(SDFResolution.X, SDFResolution.Y),
                 PF_B8G8R8A8,
@@ -198,10 +214,10 @@ FSDFVisualizationResult UFleshRingSDFVisualizer::VisualizeSDFSlice(
             );
             FRDGTextureRef SliceTexture = GraphBuilder.CreateTexture(SliceDesc, TEXT("SDFSliceTexture"));
 
-            // 슬라이스 시각화
+            // 슬라이스 시각화 (보정된 SDF 사용)
             GenerateSDFSlice(
                 GraphBuilder,
-                SDFTexture,
+                CorrectedSDF,
                 SliceTexture,
                 SDFResolution,
                 CapturedSliceZ,

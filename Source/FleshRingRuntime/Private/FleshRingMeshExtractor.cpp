@@ -134,8 +134,8 @@ bool UFleshRingMeshExtractor::ExtractMeshDataFromLOD(UStaticMesh* Mesh, int32 LO
         FVector3f Edge1 = V1 - V0;
         FVector3f Edge2 = V2 - V0;
 
-        // 외적으로 노말 계산 (왼손 좌표계: Cross(Edge1, Edge2))
-        FVector3f Normal = FVector3f::CrossProduct(Edge1, Edge2);
+        // 외적으로 노말 계산 (Edge2 x Edge1로 외부 방향)
+        FVector3f Normal = FVector3f::CrossProduct(Edge2, Edge1);
 
         // 정규화 (degenerate 삼각형 처리)
         float Length = Normal.Size();
