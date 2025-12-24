@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -34,6 +34,20 @@ enum class EFleshRingSdfUpdateMode : uint8
 
 	/** 수동 업데이트 */
 	Manual		UMETA(DisplayName = "Manual")
+};
+
+/** 감쇠 곡선 타입 */
+UENUM(BlueprintType)
+enum class EFalloffType : uint8
+{
+	/** 선형 감쇠 */
+	Linear		UMETA(DisplayName = "Linear"),
+
+	/** 2차 곡선 감쇠 (부드러움) */
+	Quadratic	UMETA(DisplayName = "Quadratic"),
+
+	/** Hermite S-커브 감쇠 (가장 부드러움) */
+	Hermite		UMETA(DisplayName = "Hermite (S-Curve)")
 };
 
 // =====================================
@@ -81,17 +95,25 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::Manual", ClampMin = "0.1", ClampMax = "100.0"))
 	float RingRadius = 5.0f;
 
-	/** Ring 두께 */
+	/** 링 두께 - 반경 방향 벽 두께 (안쪽→바깥쪽) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::Manual", ClampMin = "0.1", ClampMax = "20.0"))
+	float RingThickness = 1.0f;
+
+	/** 링 높이 - 축 방향 전체 높이 (위아래 각각 RingWidth/2) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.1", ClampMax = "50.0"))
 	float RingWidth = 2.0f;
-
-	/** 감쇠 곡선 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "5.0"))
-	float Falloff = 1.0f;
 
 	/** 볼록 효과 강도 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "2.0"))
 	float BulgeIntensity = 0.5f;
+
+	/** 조이기 강도 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "3.0"))
+	float TightnessStrength = 1.0f;
+
+	/** 감쇠 곡선 타입 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
+	EFalloffType FalloffType = EFalloffType::Linear;
 
 	/** 이 Ring의 SDF 설정 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF")
@@ -101,9 +123,11 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		: BoneName(NAME_None)
 		, InfluenceMode(EFleshRingInfluenceMode::Auto)
 		, RingRadius(5.0f)
+		, RingThickness(1.0f)
 		, RingWidth(2.0f)
-		, Falloff(1.0f)
 		, BulgeIntensity(0.5f)
+		, TightnessStrength(1.0f)
+		, FalloffType(EFalloffType::Linear)
 	{
 	}
 };

@@ -63,6 +63,12 @@ struct FRingAffectedData
     /** Ring width from component settings */
     float RingWidth;
 
+    /** [추가] 조이기 강도 - FFleshRingSettings에서 복사 */
+    float TightnessStrength;
+
+    /** [추가] 감쇠 곡선 타입 - FFleshRingSettings에서 복사 */
+    EFalloffType FalloffType;
+
     /** List of affected vertices */
     TArray<FAffectedVertex> Vertices;
 
@@ -78,6 +84,8 @@ struct FRingAffectedData
         , RingAxis(FVector::UpVector)
         , RingRadius(5.0f)
         , RingWidth(2.0f)
+        , TightnessStrength(1.0f)
+        , FalloffType(EFalloffType::Linear)
     {
     }
 
@@ -149,31 +157,20 @@ public:
         return TEXT("DistanceBased");
     }
 
-    // [FLEXIBLE] Falloff Calculation
-    // Can be overridden in subclass or modified here
-
-    /** Falloff type enum for flexibility */
-    enum class EFalloffType : uint8
-    {
-        Linear,     // Simple linear falloff
-        Quadratic,  // Smoother falloff
-        Smooth      // Hermite S-curve
-    };
-
-    /** Current falloff type (can be changed) */
-    EFalloffType FalloffType = EFalloffType::Linear;
+    // [수정] 로컬 EFalloffType enum 삭제 - FleshRingTypes.h의 전역 enum 사용
+    // [수정] FalloffType 멤버 삭제 - Ring.FalloffType에서 가져옴
 
 protected:
     /**
      * Calculate falloff influence based on distance
-     * [FLEXIBLE] This method can be modified for different curves
+     * [수정] FalloffType 파라미터 추가 - Ring 설정에서 전달받음
      *
      * @param Distance - Distance from Ring axis
      * @param MaxDistance - Maximum influence distance (RingRadius + RingWidth)
-     * @param FalloffParam - Falloff parameter from Ring settings
+     * @param InFalloffType - 감쇠 곡선 타입 (Ring 설정에서 전달)
      * @return Influence value (0-1)
      */
-    virtual float CalculateFalloff(float Distance, float MaxDistance, float FalloffParam) const;
+    virtual float CalculateFalloff(float Distance, float MaxDistance, EFalloffType InFalloffType) const;
 };
 
 // [FUTURE] SDF-Based Vertex Selector (Placeholder)

@@ -54,12 +54,13 @@ void FDistanceBasedVertexSelector::SelectVertices(
 
         if (RadialDistance <= MaxDistance && FMath::Abs(AxisDistance) <= HalfWidth)
         {
+            // [수정] Ring.FalloffType을 전달하여 에셋 설정 반영
             // Calculate radial influence (distance from axis)
-            const float RadialInfluence = CalculateFalloff(RadialDistance, MaxDistance, Ring.Falloff);
+            const float RadialInfluence = CalculateFalloff(RadialDistance, MaxDistance, Ring.FalloffType);
 
             // Calculate axial influence (distance from ring center along axis)
             // This ensures smooth falloff at ring edges (like stocking/band edges)
-            const float AxialInfluence = CalculateFalloff(FMath::Abs(AxisDistance), HalfWidth, Ring.Falloff);
+            const float AxialInfluence = CalculateFalloff(FMath::Abs(AxisDistance), HalfWidth, Ring.FalloffType);
 
             // Combine both influences for final effect
             const float CombinedInfluence = RadialInfluence * AxialInfluence;
@@ -80,23 +81,24 @@ void FDistanceBasedVertexSelector::SelectVertices(
         OutAffected.Num(), *Ring.BoneName.ToString(), AllVertices.Num());
 }
 
+// [수정] FalloffType 파라미터 추가 - Ring 설정에서 전달받음
 float FDistanceBasedVertexSelector::CalculateFalloff(
     float Distance,
     float MaxDistance,
-    float FalloffParam) const
+    EFalloffType InFalloffType) const
 {
     // Normalize distance to 0-1 range
     const float NormalizedDist = FMath::Clamp(Distance / MaxDistance, 0.0f, 1.0f);
     const float T = 1.0f - NormalizedDist; // Inverted: closer = higher influence
 
-    // [FLEXIBLE] Apply falloff curve based on type
-    switch (FalloffType)
+    // [수정] 로컬 멤버 대신 파라미터로 전달받은 FalloffType 사용
+    switch (InFalloffType)
     {
     case EFalloffType::Quadratic:
         // Smoother falloff near center
         return T * T;
 
-    case EFalloffType::Smooth:
+    case EFalloffType::Hermite:
         // Hermite S-curve (smooth in, smooth out)
         return T * T * (3.0f - 2.0f * T);
 
@@ -192,7 +194,33 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             continue;
         }
 
-        const FTransform BoneTransform = SkeletalMesh->GetBoneTransform(BoneIndex);
+        // [수정] 바인드 포즈(Reference Pose)에서의 본 트랜스폼 사용
+        // 버텍스가 바인드 포즈 로컬 좌표이므로 동일한 좌표계 사용 필요
+        USkeletalMesh* SkelMeshAsset = SkeletalMesh->GetSkeletalMeshAsset();
+        if (!SkelMeshAsset)
+        {
+            UE_LOG(LogFleshRingVertices, Warning,
+                TEXT("Ring[%d]: SkeletalMesh asset is null"), RingIdx);
+            continue;
+        }
+
+        // 바인드 포즈 컴포넌트 스페이스 트랜스폼 계산
+        const FReferenceSkeleton& RefSkeleton = SkelMeshAsset->GetRefSkeleton();
+        const TArray<FTransform>& RefBonePose = RefSkeleton.GetRefBonePose();
+
+        // 부모 체인을 따라가며 컴포넌트 스페이스 트랜스폼 누적
+        FTransform BoneTransform = FTransform::Identity;
+        int32 CurrentBoneIdx = BoneIndex;
+        while (CurrentBoneIdx != INDEX_NONE)
+        {
+            BoneTransform = BoneTransform * RefBonePose[CurrentBoneIdx];
+            CurrentBoneIdx = RefSkeleton.GetParentIndex(CurrentBoneIdx);
+        }
+
+        UE_LOG(LogFleshRingVertices, Verbose,
+            TEXT("Ring[%d] '%s': RefPose Center=(%.2f, %.2f, %.2f)"),
+            RingIdx, *RingSettings.BoneName.ToString(),
+            BoneTransform.GetLocation().X, BoneTransform.GetLocation().Y, BoneTransform.GetLocation().Z);
 
         // Create Ring data
         FRingAffectedData RingData;
@@ -201,6 +229,9 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         RingData.RingAxis = BoneTransform.GetRotation().GetUpVector();
         RingData.RingRadius = RingSettings.RingRadius;
         RingData.RingWidth = RingSettings.RingWidth;
+        // [추가] 새 변수들 복사 - FTightnessDispatchParams 변환 시 사용
+        RingData.TightnessStrength = RingSettings.TightnessStrength;
+        RingData.FalloffType = RingSettings.FalloffType;
 
         // Select affected vertices using current strategy
         VertexSelector->SelectVertices(
@@ -295,110 +326,5 @@ bool FFleshRingAffectedVerticesManager::ExtractMeshVertices(
     return true;
 }
 
-// ============================================================================
-// Console Command for Testing AffectedVertices Registration
-// ============================================================================
-static FAutoConsoleCommand GFleshRingAffectedVerticesTestCommand(
-    TEXT("FleshRing.AffectedVerticesTest"),
-    TEXT("Test affected vertices registration with synthetic data"),
-    FConsoleCommandDelegate::CreateLambda([]()
-    {
-        UE_LOG(LogTemp, Log, TEXT("========================================="));
-        UE_LOG(LogTemp, Log, TEXT("FleshRing.AffectedVerticesTest: Starting test"));
-        UE_LOG(LogTemp, Log, TEXT("========================================="));
-
-        // Create manager
-        FFleshRingAffectedVerticesManager Manager;
-
-        // Test distance-based selector directly
-        FDistanceBasedVertexSelector Selector;
-
-        // Create synthetic ring settings
-        FFleshRingSettings RingSettings;
-        RingSettings.BoneName = TEXT("TestBone");
-        RingSettings.RingRadius = 3.0f;
-        RingSettings.RingWidth = 2.0f;
-        RingSettings.Falloff = 1.0f;
-
-        // Create bone transform
-        FTransform BoneTransform;
-        BoneTransform.SetLocation(FVector(0.0f, 0.0f, 5.0f));
-        BoneTransform.SetRotation(FQuat::Identity);
-
-        // Generate synthetic vertices (cylinder)
-        TArray<FVector3f> SyntheticVertices;
-        const int32 NumVertices = 256;
-        SyntheticVertices.Reserve(NumVertices);
-
-        for (int32 i = 0; i < NumVertices; ++i)
-        {
-            float Angle = (float(i) / float(NumVertices)) * 2.0f * PI;
-            float Height = (float(i % 16) / 16.0f) * 10.0f;
-            float Radius = 4.0f;
-
-            SyntheticVertices.Add(FVector3f(
-                FMath::Cos(Angle) * Radius,
-                FMath::Sin(Angle) * Radius,
-                Height
-            ));
-        }
-
-        // Select affected vertices
-        TArray<FAffectedVertex> AffectedVertices;
-        Selector.SelectVertices(RingSettings, BoneTransform, SyntheticVertices, AffectedVertices);
-
-        UE_LOG(LogTemp, Log, TEXT("Total vertices: %d"), NumVertices);
-        UE_LOG(LogTemp, Log, TEXT("Affected vertices: %d"), AffectedVertices.Num());
-
-        if (AffectedVertices.Num() > 0)
-        {
-            // Log sample vertices
-            int32 SamplesToLog = FMath::Min(5, AffectedVertices.Num());
-            UE_LOG(LogTemp, Log, TEXT("Sample affected vertices:"));
-
-            for (int32 i = 0; i < SamplesToLog; ++i)
-            {
-                const FAffectedVertex& V = AffectedVertices[i];
-                const FVector3f& Pos = SyntheticVertices[V.VertexIndex];
-
-                UE_LOG(LogTemp, Log,
-                    TEXT("  [%d] Index=%d, Distance=%.2f, Influence=%.2f, Pos=(%.1f, %.1f, %.1f)"),
-                    i, V.VertexIndex, V.DistanceToRing, V.Influence,
-                    Pos.X, Pos.Y, Pos.Z);
-            }
-
-            UE_LOG(LogTemp, Log, TEXT("FleshRing.AffectedVerticesTest: ===== PASSED ====="));
-        }
-        else
-        {
-            UE_LOG(LogTemp, Warning, TEXT("FleshRing.AffectedVerticesTest: No vertices selected"));
-            UE_LOG(LogTemp, Log, TEXT("This may be expected if Ring is outside vertex range"));
-        }
-
-        // Test falloff types
-        UE_LOG(LogTemp, Log, TEXT("Testing falloff types:"));
-
-        FDistanceBasedVertexSelector LinearSelector;
-        LinearSelector.FalloffType = FDistanceBasedVertexSelector::EFalloffType::Linear;
-
-        FDistanceBasedVertexSelector QuadSelector;
-        QuadSelector.FalloffType = FDistanceBasedVertexSelector::EFalloffType::Quadratic;
-
-        FDistanceBasedVertexSelector SmoothSelector;
-        SmoothSelector.FalloffType = FDistanceBasedVertexSelector::EFalloffType::Smooth;
-
-        TArray<FAffectedVertex> LinearResult, QuadResult, SmoothResult;
-
-        LinearSelector.SelectVertices(RingSettings, BoneTransform, SyntheticVertices, LinearResult);
-        QuadSelector.SelectVertices(RingSettings, BoneTransform, SyntheticVertices, QuadResult);
-        SmoothSelector.SelectVertices(RingSettings, BoneTransform, SyntheticVertices, SmoothResult);
-
-        UE_LOG(LogTemp, Log, TEXT("  Linear: %d vertices"), LinearResult.Num());
-        UE_LOG(LogTemp, Log, TEXT("  Quadratic: %d vertices"), QuadResult.Num());
-        UE_LOG(LogTemp, Log, TEXT("  Smooth: %d vertices"), SmoothResult.Num());
-
-        UE_LOG(LogTemp, Log, TEXT("========================================="));
-        UE_LOG(LogTemp, Log, TEXT("FleshRing.AffectedVerticesTest: Complete"));
-        UE_LOG(LogTemp, Log, TEXT("========================================="));
-    })
-);
+// [삭제됨] 합성 데이터 테스트 코드
+// 실제 에셋 기반 테스트는 FleshRingTightnessShader.cpp의 FleshRing.TightnessTest 사용

@@ -6,6 +6,7 @@
 #include "ShaderParameterStruct.h"
 #include "RenderGraphResources.h"
 #include "RenderGraphUtils.h"
+#include "FleshRingAffectedVertices.h"
 
 // Processes only AffectedVertices (not all mesh vertices) for performance
 // Pulls vertices inward toward Ring center axis
@@ -56,15 +57,11 @@ public:
 
     static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
     {
-        // Set Define to .usf
-        // #define THREADGROUP_SIZE 64
-        // #define FALLOFF_TYPE 0
         FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
         OutEnvironment.SetDefine(TEXT("THREADGROUP_SIZE"), 64);
 
-        // [FLEXIBLE] Falloff type can be changed here
-        // 0 = Linear, 1 = Quadratic, 2 = Smooth (Hermite)
-        OutEnvironment.SetDefine(TEXT("FALLOFF_TYPE"), 0);
+        // [삭제됨] FALLOFF_TYPE define
+        // Influence 값은 CPU에서 FalloffType에 따라 계산되어 GPU로 전달됨
     }
 };
 
@@ -98,6 +95,42 @@ struct FTightnessDispatchParams
     {
     }
 };
+
+// ============================================================================
+// [추가] FRingAffectedData에서 FTightnessDispatchParams로 변환하는 헬퍼 함수
+// FFleshRingSettings → FRingAffectedData → FTightnessDispatchParams 데이터 흐름 완성
+// ============================================================================
+
+/**
+ * FRingAffectedData에서 FTightnessDispatchParams 생성
+ *
+ * @param AffectedData - 영향받는 버텍스 데이터 (Ring 파라미터 포함)
+ * @param TotalVertexCount - 메시 전체 버텍스 수
+ * @return GPU Dispatch용 파라미터 구조체
+ */
+inline FTightnessDispatchParams CreateTightnessParams(
+    const FRingAffectedData& AffectedData,
+    uint32 TotalVertexCount)
+{
+    FTightnessDispatchParams Params;
+
+    // [변환] Ring 트랜스폼 정보
+    Params.RingCenter = FVector3f(AffectedData.RingCenter);
+    Params.RingAxis = FVector3f(AffectedData.RingAxis);
+
+    // [변환] Ring 지오메트리 정보
+    Params.RingRadius = AffectedData.RingRadius;
+    Params.RingWidth = AffectedData.RingWidth;
+
+    // [변환] 변형 강도 (FFleshRingSettings에서 복사된 값)
+    Params.TightnessStrength = AffectedData.TightnessStrength;
+
+    // [변환] 버텍스 카운트
+    Params.NumAffectedVertices = static_cast<uint32>(AffectedData.Vertices.Num());
+    Params.NumTotalVertices = TotalVertexCount;
+
+    return Params;
+}
 
 // Dispatch Function Declarations
 /**

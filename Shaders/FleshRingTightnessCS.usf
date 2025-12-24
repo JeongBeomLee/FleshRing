@@ -4,19 +4,23 @@
 #include "/Engine/Public/Platform.ush"
 
 // Input: All mesh vertex positions
+// 메시의 원본 정점 위치
 Buffer<float> SourcePositions;
 
 // Input: Indices of affected vertices to process
+// 영향받는 정점 인덱스
 StructuredBuffer<uint> AffectedIndices;
 
 // Input: Per-vertex influence weights (0-1, from falloff calculation)
+// 영향받는 정점의 영향도 (0~1)
 StructuredBuffer<float> Influences;
 
 // Output: Deformed vertex positions
+// 변형된 정점
 RWBuffer<float> OutputPositions;
 
 // Ring parameters
-float3 RingCenter;
+float3 RingCenter;          // 링 중심
 float3 RingAxis;
 float TightnessStrength;
 float RingRadius;
@@ -31,34 +35,9 @@ uint NumTotalVertices;
 #define THREADGROUP_SIZE 64
 #endif
 
-// [FLEXIBLE] Falloff Type Selection
-// Can be changed via ModifyCompilationEnvironment in C++
-// 0 = Linear (default), 1 = Quadratic, 2 = Smooth (Hermite)
-#ifndef FALLOFF_TYPE
-#define FALLOFF_TYPE 0
-#endif
-
-// [FLEXIBLE] Falloff Calculation Function
-// This function can be modified to change the falloff curve
-// without touching the main shader logic
-float CalculateFalloff(float Distance, float MaxDistance)
-{
-    float t = saturate(1.0 - Distance / MaxDistance);
-
-#if FALLOFF_TYPE == 0
-    // Linear falloff (default)
-    return t;
-#elif FALLOFF_TYPE == 1
-    // Quadratic falloff (smoother near center)
-    return t * t;
-#elif FALLOFF_TYPE == 2
-    // Smooth Hermite falloff (S-curve)
-    return t * t * (3.0 - 2.0 * t);
-#else
-    // Fallback to linear
-    return t;
-#endif
-}
+// [삭제됨] FALLOFF_TYPE과 CalculateFalloff 함수
+// Influence 값은 CPU에서 FalloffType에 따라 미리 계산되어 Influences 버퍼로 전달됨
+// GPU는 전달받은 Influence 값을 그대로 사용
 
 // ==== Helper Functions ====
 // Read vertex position from buffer (3 floats per vertex)
