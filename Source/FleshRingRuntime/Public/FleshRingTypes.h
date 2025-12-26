@@ -119,6 +119,26 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF")
 	FFleshRingSdfSettings SdfSettings;
 
+	/** Bone 기준 Ring 위치 오프셋 (변형 영역) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform")
+	FVector RingOffset = FVector::ZeroVector;
+
+	/** Ring 회전 오프셋 (본 forward 기준 추가 회전) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform")
+	FRotator RingRotation = FRotator::ZeroRotator;
+
+	/** Bone 기준 메시 위치 오프셋 (시각적 + SDF) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform")
+	FVector MeshOffset = FVector::ZeroVector;
+
+	/** 메시 회전 오프셋 (본 forward 기준 추가 회전) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform")
+	FRotator MeshRotation = FRotator::ZeroRotator;
+
+	/** 메시 스케일 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform", meta = (ClampMin = "0.01", ClampMax = "10.0"))
+	FVector MeshScale = FVector::OneVector;
+
 	FFleshRingSettings()
 		: BoneName(NAME_None)
 		, InfluenceMode(EFleshRingInfluenceMode::Auto)

@@ -3,7 +3,7 @@
 #include "FleshRingPreviewScene.h"
 #include "FleshRingComponent.h"
 #include "FleshRingAsset.h"
-#include "Components/SkeletalMeshComponent.h"
+#include "Animation/DebugSkelMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "Engine/StaticMesh.h"
@@ -58,13 +58,14 @@ void FFleshRingPreviewScene::CreatePreviewActor()
 		return;
 	}
 
-	// 스켈레탈 메시 컴포넌트 생성
-	SkeletalMeshComponent = NewObject<USkeletalMeshComponent>(PreviewActor, TEXT("SkeletalMeshComponent"));
+	// 스켈레탈 메시 컴포넌트 생성 (DebugSkelMesh 사용 - Persona 스타일 고정 본 색상)
+	SkeletalMeshComponent = NewObject<UDebugSkelMeshComponent>(PreviewActor, TEXT("SkeletalMeshComponent"));
 	SkeletalMeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	SkeletalMeshComponent->SetAnimationMode(EAnimationMode::AnimationSingleNode);
 	SkeletalMeshComponent->bCastDynamicShadow = true;
 	SkeletalMeshComponent->CastShadow = true;
 	SkeletalMeshComponent->SetVisibility(true);
+	SkeletalMeshComponent->SkeletonDrawMode = ESkeletonDrawMode::Default;  // 본 표시 및 선택 가능
 	SkeletalMeshComponent->RegisterComponent();
 	PreviewActor->AddInstanceComponent(SkeletalMeshComponent);
 
@@ -142,8 +143,11 @@ void FFleshRingPreviewScene::RefreshRings(const TArray<FFleshRingSettings>& Ring
 	{
 		const FFleshRingSettings& RingSetting = Rings[i];
 
-		UStaticMeshComponent* RingComp = NewObject<UStaticMeshComponent>(GetTransientPackage());
-		RingComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		UStaticMeshComponent* RingComp = NewObject<UStaticMeshComponent>(PreviewActor);
+		RingComp->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+		RingComp->SetCollisionResponseToAllChannels(ECR_Ignore);
+		RingComp->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+		RingComp->bSelectable = true;
 
 		// Ring 메시 설정
 		UStaticMesh* RingMesh = RingSetting.RingMesh.LoadSynchronous();
@@ -152,14 +156,25 @@ void FFleshRingPreviewScene::RefreshRings(const TArray<FFleshRingSettings>& Ring
 			RingComp->SetStaticMesh(RingMesh);
 		}
 
-		// 본 위치에 배치
+		// 본 위치에 배치 (Forward 벡터 정렬 + MeshOffset, MeshRotation 적용)
 		if (SkeletalMeshComponent && SkeletalMeshComponent->GetSkeletalMeshAsset())
 		{
 			int32 BoneIndex = SkeletalMeshComponent->GetBoneIndex(RingSetting.BoneName);
 			if (BoneIndex != INDEX_NONE)
 			{
 				FTransform BoneTransform = SkeletalMeshComponent->GetBoneTransform(BoneIndex);
-				RingComp->SetWorldTransform(BoneTransform);
+				FQuat BoneRotation = BoneTransform.GetRotation();
+
+				// MeshOffset 적용 (본 로컬 좌표계)
+				FVector MeshLocation = BoneTransform.GetLocation() + BoneRotation.RotateVector(RingSetting.MeshOffset);
+
+				// 본의 Forward 방향으로 메시 축(Z) 정렬 + 사용자 회전
+				FVector BoneForward = BoneTransform.GetUnitAxis(EAxis::X);
+				FQuat AlignRotation = FQuat::FindBetweenNormals(FVector::ZAxisVector, BoneForward);
+				FQuat MeshWorldRotation = AlignRotation * FQuat(RingSetting.MeshRotation);
+
+				RingComp->SetWorldLocationAndRotation(MeshLocation, MeshWorldRotation);
+				RingComp->SetWorldScale3D(RingSetting.MeshScale);
 			}
 		}
 

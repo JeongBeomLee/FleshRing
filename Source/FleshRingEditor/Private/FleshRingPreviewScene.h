@@ -5,8 +5,9 @@
 #include "CoreMinimal.h"
 #include "AdvancedPreviewScene.h"
 #include "FleshRingTypes.h"
+#include "Animation/DebugSkelMeshComponent.h"
+
 class USkeletalMesh;
-class USkeletalMeshComponent;
 class UStaticMeshComponent;
 class UFleshRingComponent;
 class UFleshRingAsset;
@@ -43,8 +44,8 @@ public:
 	/** 선택된 Ring 인덱스 반환 */
 	int32 GetSelectedRingIndex() const { return SelectedRingIndex; }
 
-	/** 스켈레탈 메시 컴포넌트 반환 */
-	USkeletalMeshComponent* GetSkeletalMeshComponent() const { return SkeletalMeshComponent; }
+	/** 스켈레탈 메시 컴포넌트 반환 (DebugSkelMesh) */
+	UDebugSkelMeshComponent* GetSkeletalMeshComponent() const { return SkeletalMeshComponent; }
 
 	/** FleshRing 컴포넌트 반환 */
 	UFleshRingComponent* GetFleshRingComponent() const { return FleshRingComponent; }
@@ -59,8 +60,8 @@ private:
 	/** 프리뷰 액터 */
 	AActor* PreviewActor = nullptr;
 
-	/** 타겟 스켈레탈 메시 컴포넌트 */
-	USkeletalMeshComponent* SkeletalMeshComponent = nullptr;
+	/** 타겟 스켈레탈 메시 컴포넌트 (DebugSkelMesh로 본 색상 고정) */
+	UDebugSkelMeshComponent* SkeletalMeshComponent = nullptr;
 
 	/** FleshRing 컴포넌트 (실제 변형 처리) */
 	UFleshRingComponent* FleshRingComponent = nullptr;
