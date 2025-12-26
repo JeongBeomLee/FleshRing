@@ -1,4 +1,9 @@
-﻿// Purpose: Pull vertices toward Ring center axis (Tightness effect)
+﻿// ============================================================================
+// FleshRing Tightness Shader - Implementation
+// FleshRing 조이기(Tightness) 셰이더 - 구현부
+// ============================================================================
+// Purpose: Pull vertices toward Ring center axis (Tightness effect)
+// 목적: 버텍스를 링 중심축 방향으로 안쪽으로 당김 (조이기 효과)
 
 #include "FleshRingTightnessShader.h"
 
@@ -9,7 +14,8 @@
 #include "RenderingThread.h"
 #include "RHIGPUReadback.h"
 
-// [추가] 실제 에셋 기반 테스트를 위한 include
+// Includes for asset-based testing
+// 에셋 기반 테스트를 위한 include
 #include "FleshRingComponent.h"
 #include "FleshRingAsset.h"
 #include "EngineUtils.h"
@@ -17,7 +23,10 @@
 #include "Rendering/SkeletalMeshRenderData.h"
 #include "Rendering/SkeletalMeshLODRenderData.h"
 
+// ============================================================================
 // Shader Implementation Registration
+// 셰이더 구현 등록
+// ============================================================================
 IMPLEMENT_GLOBAL_SHADER(
     FFleshRingTightnessCS,
     "/Plugin/FleshRingPlugin/FleshRingTightnessCS.usf",
@@ -25,7 +34,11 @@ IMPLEMENT_GLOBAL_SHADER(
     SF_Compute
 );
 
+// ============================================================================
 // Dispatch Function Implementation
+// Dispatch 함수 구현
+// ============================================================================
+
 void DispatchFleshRingTightnessCS(
     FRDGBuilder& GraphBuilder,
     const FTightnessDispatchParams& Params,
@@ -35,25 +48,32 @@ void DispatchFleshRingTightnessCS(
     FRDGBufferRef OutputPositionsBuffer)
 {
     // Early out if no vertices to process
+    // 처리할 버텍스가 없으면 조기 반환
     if (Params.NumAffectedVertices == 0)
     {
         return;
     }
 
     // Allocate shader parameters
+    // 셰이더 파라미터 할당
     FFleshRingTightnessCS::FParameters* PassParameters =
         GraphBuilder.AllocParameters<FFleshRingTightnessCS::FParameters>();
 
-    // ==== Bind buffers ==== 
+    // ===== Bind buffers =====
+    // ===== 버퍼 바인딩 =====
+
     // Create SRV (Read Only)
+    // SRV 생성 (읽기 전용)
     PassParameters->SourcePositions = GraphBuilder.CreateSRV(SourcePositionsBuffer, PF_R32_FLOAT);
     PassParameters->AffectedIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
     PassParameters->Influences = GraphBuilder.CreateSRV(InfluencesBuffer);
 
     // Create UAV (Read and Write)
+    // UAV 생성 (읽기/쓰기)
     PassParameters->OutputPositions = GraphBuilder.CreateUAV(OutputPositionsBuffer, PF_R32_FLOAT);
 
     // Set ring parameters
+    // 링 파라미터 설정
     PassParameters->RingCenter = Params.RingCenter;
     PassParameters->RingAxis = Params.RingAxis;
     PassParameters->TightnessStrength = Params.TightnessStrength;
@@ -61,17 +81,21 @@ void DispatchFleshRingTightnessCS(
     PassParameters->RingWidth = Params.RingWidth;
 
     // Set counts
+    // 버텍스 수 설정
     PassParameters->NumAffectedVertices = Params.NumAffectedVertices;
     PassParameters->NumTotalVertices = Params.NumTotalVertices;
 
     // Get shader reference
+    // 셰이더 참조 가져오기
     TShaderMapRef<FFleshRingTightnessCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
 
     // Calculate dispatch groups
-    const uint32 ThreadGroupSize = 64; // match .usf [numthreads(64,1,1)]
-    const uint32 NumGroups = FMath::DivideAndRoundUp(Params.NumAffectedVertices, ThreadGroupSize); // (NumAffectedVertices + 64 - 1) / 64
+    // 디스패치 그룹 수 계산
+    const uint32 ThreadGroupSize = 64; // .usf의 [numthreads(64,1,1)]와 일치
+    const uint32 NumGroups = FMath::DivideAndRoundUp(Params.NumAffectedVertices, ThreadGroupSize);
 
     // Add compute pass to RDG
+    // RDG에 컴퓨트 패스 추가
     FComputeShaderUtils::AddPass(
         GraphBuilder,
         RDG_EVENT_NAME("FleshRingTightnessCS"),
@@ -81,7 +105,11 @@ void DispatchFleshRingTightnessCS(
     );
 }
 
+// ============================================================================
 // Dispatch with Readback (for testing/validation)
+// 리드백 포함 디스패치 (테스트/검증용)
+// ============================================================================
+
 void DispatchFleshRingTightnessCS_WithReadback(
     FRDGBuilder& GraphBuilder,
     const FTightnessDispatchParams& Params,
@@ -92,6 +120,7 @@ void DispatchFleshRingTightnessCS_WithReadback(
     FRHIGPUBufferReadback* Readback)
 {
     // Dispatch the compute shader
+    // 컴퓨트 셰이더 디스패치
     DispatchFleshRingTightnessCS(
         GraphBuilder,
         Params,
@@ -101,12 +130,13 @@ void DispatchFleshRingTightnessCS_WithReadback(
         OutputPositionsBuffer
     );
 
-    // Add readback pass
+    // Add readback pass (GPU → CPU data transfer)
+    // 리드백 패스 추가 (GPU → CPU 데이터 전송)
     AddEnqueueCopyPass(GraphBuilder, Readback, OutputPositionsBuffer, 0);
 }
 
 // ============================================================================
-// [변경] 실제 에셋 기반 테스트 - FleshRing.TightnessTest 콘솔 커맨드
+// 실제 에셋 기반 테스트 - FleshRing.TightnessTest 콘솔 커맨드
 // 월드에서 FleshRingComponent를 찾아 실제 에셋 데이터로 TightnessCS 테스트
 // ============================================================================
 
@@ -318,8 +348,8 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
             {
                 const FAffectedVertex& V = RingData.Vertices[i];
                 uint32 BaseIdx = V.VertexIndex * 3;
-                UE_LOG(LogTemp, Log, TEXT("      [%d] 버텍스#%d: 거리=%.2f, 영향도=%.3f, 위치=(%.2f, %.2f, %.2f)"),
-                    i, V.VertexIndex, V.DistanceToRing, V.Influence,
+                UE_LOG(LogTemp, Log, TEXT("      [%d] 버텍스#%d: 반경거리=%.2f, 영향도=%.3f, 위치=(%.2f, %.2f, %.2f)"),
+                    i, V.VertexIndex, V.RadialDistance, V.Influence,
                     SourcePositions[BaseIdx], SourcePositions[BaseIdx + 1], SourcePositions[BaseIdx + 2]);
             }
 
@@ -336,59 +366,81 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
             UE_LOG(LogTemp, Log, TEXT("  [GPU Dispatch]"));
             UE_LOG(LogTemp, Log, TEXT("    - 버퍼 생성 중..."));
 
-            // 렌더 스레드에서 Dispatch
+            // ================================================================
+            // 렌더 스레드에서 RDG(Render Dependency Graph) Dispatch
+            // ================================================================
+            // RDG는 "지연 실행" 방식:
+            //   1. CreateBuffer / QueueBufferUpload / CreateSRV 등은 "예약"만 함
+            //   2. GraphBuilder.Execute() 호출 시 의존성 순서대로 실제 실행
+            //   3. 따라서 Dispatch 함수에 버퍼를 넘길 때 이미 데이터가 "예약"된 상태
+            // ================================================================
             ENQUEUE_RENDER_COMMAND(FleshRingTightnessTest_Dispatch)(
                 [SourceDataPtr, IndicesPtr, InfluencesPtr, Params, Readback, TotalVertexCount, RingIdx, BoneName]
                 (FRHICommandListImmediate& RHICmdList)
                 {
                     FRDGBuilder GraphBuilder(RHICmdList);
 
-                    // Source positions 버퍼
+                    // ========================================
+                    // [1단계] 버퍼 생성 + 데이터 업로드 "예약"
+                    // ========================================
+
+                    // Source positions 버퍼 (입력: 원본 버텍스 위치)
                     FRDGBufferRef SourceBuffer = GraphBuilder.CreateBuffer(
                         FRDGBufferDesc::CreateBufferDesc(sizeof(float), TotalVertexCount * 3),
                         TEXT("TightnessTest_SourcePositions")
                     );
-                    GraphBuilder.QueueBufferUpload(
+                    GraphBuilder.QueueBufferUpload(  // 데이터 업로드 "예약"
                         SourceBuffer,
                         SourceDataPtr->GetData(),
                         SourceDataPtr->Num() * sizeof(float),
                         ERDGInitialDataFlags::None
                     );
 
-                    // Affected indices 버퍼
+                    // Affected indices 버퍼 (입력: 영향받는 버텍스 인덱스)
                     FRDGBufferRef IndicesBuffer = GraphBuilder.CreateBuffer(
                         FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), Params.NumAffectedVertices),
                         TEXT("TightnessTest_AffectedIndices")
                     );
-                    GraphBuilder.QueueBufferUpload(
+                    GraphBuilder.QueueBufferUpload(  // 데이터 업로드 "예약"
                         IndicesBuffer,
                         IndicesPtr->GetData(),
                         IndicesPtr->Num() * sizeof(uint32),
                         ERDGInitialDataFlags::None
                     );
 
-                    // Influences 버퍼
+                    // Influences 버퍼 (입력: 버텍스별 영향도)
                     FRDGBufferRef InfluencesBuffer = GraphBuilder.CreateBuffer(
                         FRDGBufferDesc::CreateStructuredDesc(sizeof(float), Params.NumAffectedVertices),
                         TEXT("TightnessTest_Influences")
                     );
-                    GraphBuilder.QueueBufferUpload(
+                    GraphBuilder.QueueBufferUpload(  // 데이터 업로드 "예약"
                         InfluencesBuffer,
                         InfluencesPtr->GetData(),
                         InfluencesPtr->Num() * sizeof(float),
                         ERDGInitialDataFlags::None
                     );
 
-                    // Output 버퍼
+                    // Output 버퍼 (출력: 변형된 버텍스 위치)
                     FRDGBufferRef OutputBuffer = GraphBuilder.CreateBuffer(
                         FRDGBufferDesc::CreateBufferDesc(sizeof(float), TotalVertexCount * 3),
                         TEXT("TightnessTest_OutputPositions")
                     );
 
                     // Source를 Output에 복사 (영향 안 받는 버텍스 보존)
+                    // Copy source to output (preserve unaffected vertices)
                     AddCopyBufferPass(GraphBuilder, OutputBuffer, SourceBuffer);
 
-                    // TightnessCS Dispatch
+                    // ========================================
+                    // [2단계] Dispatch 호출 "예약"
+                    // ========================================
+                    // 이 시점에서:
+                    //   - 버퍼들은 아직 GPU 메모리에 실제 생성되지 않음
+                    //   - 데이터도 아직 업로드되지 않음
+                    //   - DispatchFleshRingTightnessCS 내부에서:
+                    //     1. CreateSRV/CreateUAV = View 생성 "예약"
+                    //     2. AddPass = 셰이더 실행 "예약"
+                    //   - 모든 것은 GraphBuilder에 "예약"만 된 상태
+                    // ========================================
                     DispatchFleshRingTightnessCS_WithReadback(
                         GraphBuilder,
                         Params,
@@ -399,6 +451,17 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
                         Readback.Get()
                     );
 
+                    // ========================================
+                    // [3단계] Execute() = 실제 실행
+                    // ========================================
+                    // Execute() 호출 시 발생하는 일:
+                    //   1. RDG가 모든 리소스 의존성 분석
+                    //   2. 최적의 실행 순서 결정
+                    //   3. GPU 버퍼 실제 생성
+                    //   4. QueueBufferUpload로 예약된 데이터 실제 업로드
+                    //   5. AddPass로 예약된 셰이더 실제 실행
+                    //   6. Readback 패스 실행 (GPU→CPU 복사)
+                    // ========================================
                     GraphBuilder.Execute();
                     UE_LOG(LogTemp, Log, TEXT("    - Ring[%d] '%s' GPU Dispatch 완료"), RingIdx, *BoneName.ToString());
                 });
