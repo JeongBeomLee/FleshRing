@@ -2,7 +2,8 @@
 
 #include "FleshRingDeformerInstance.h"
 #include "FleshRingDeformer.h"
-#include "FleshRingWaveShader.h"
+#include "FleshRingComponent.h"
+#include "FleshRingTightnessShader.h"
 #include "Components/SkinnedMeshComponent.h"
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
@@ -26,6 +27,36 @@ void UFleshRingDeformerInstance::SetupFromDeformer(UFleshRingDeformer* InDeforme
 	MeshComponent = InMeshComponent;
 	Scene = InMeshComponent ? InMeshComponent->GetScene() : nullptr;
 	LastLodIndex = INDEX_NONE;
+
+	// FleshRingComponent 찾기 및 AffectedVertices 등록
+	if (AActor* Owner = InMeshComponent->GetOwner())
+	{
+		FleshRingComponent = Owner->FindComponentByClass<UFleshRingComponent>();
+		if (FleshRingComponent.IsValid())
+		{
+			USkeletalMeshComponent* SkelMesh = Cast<USkeletalMeshComponent>(InMeshComponent);
+			if (SkelMesh)
+			{
+				bAffectedVerticesRegistered = AffectedVerticesManager.RegisterAffectedVertices(
+					FleshRingComponent.Get(), SkelMesh);
+
+				if (bAffectedVerticesRegistered)
+				{
+					UE_LOG(LogFleshRing, Log, TEXT("AffectedVertices 등록 완료: %d개 Ring, 총 %d개 버텍스"),
+						AffectedVerticesManager.GetAllRingData().Num(),
+						AffectedVerticesManager.GetTotalAffectedCount());
+				}
+				else
+				{
+					UE_LOG(LogFleshRing, Warning, TEXT("AffectedVertices 등록 실패"));
+				}
+			}
+		}
+		else
+		{
+			UE_LOG(LogFleshRing, Warning, TEXT("FleshRingComponent를 찾을 수 없음"));
+		}
+	}
 }
 
 void UFleshRingDeformerInstance::AllocateResources()
@@ -65,6 +96,19 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		return;
 	}
 
+	// AffectedVertices가 등록되지 않았으면 Fallback
+	if (!bAffectedVerticesRegistered || AffectedVerticesManager.GetTotalAffectedCount() == 0)
+	{
+		if (InDesc.FallbackDelegate.IsBound())
+		{
+			ENQUEUE_RENDER_COMMAND(FleshRingFallback)([FallbackDelegate = InDesc.FallbackDelegate](FRHICommandListImmediate& RHICmdList)
+			{
+				FallbackDelegate.ExecuteIfBound();
+			});
+		}
+		return;
+	}
+
 	FSkeletalMeshObject* MeshObject = SkinnedMeshComp->MeshObject;
 	if (!MeshObject || MeshObject->IsCPUSkinned())
 	{
@@ -79,13 +123,8 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	}
 
 	// Check if MeshObject has been updated at least once
-	// This ensures render resources (including passthrough vertex factory) are initialized
-	// By the time bHasBeenUpdatedAtLeastOnce is true, the previous frame's render commands
-	// (including InitResources/InitVertexFactories) have already executed
 	if (!MeshObject->bHasBeenUpdatedAtLeastOnce)
 	{
-		// Not ready yet - passthrough vertex factory's InitRHI hasn't been called
-		// Skip this frame and let fallback handle it
 		if (InDesc.FallbackDelegate.IsBound())
 		{
 			ENQUEUE_RENDER_COMMAND(FleshRingFallback)([FallbackDelegate = InDesc.FallbackDelegate](FRHICommandListImmediate& RHICmdList)
@@ -96,41 +135,9 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		return;
 	}
 
-	// Capture parameters for render thread
-	const float WaveAmplitude = DeformerPtr->WaveAmplitude;
-	const float WaveFrequency = DeformerPtr->WaveFrequency;
-	const float WaveSpeed = DeformerPtr->WaveSpeed;
-	const float InertiaStrength = DeformerPtr->InertiaStrength;
-
-	// Get actual world time instead of accumulating with hardcoded delta
-	// This matches how Optimus handles time via Scene Data Interface
-	float Time = 0.0f;
-	float DeltaTime = 0.016f; // Fallback
-	if (UWorld* World = SkinnedMeshComp->GetWorld())
-	{
-		Time = World->GetTimeSeconds();
-		DeltaTime = World->GetDeltaSeconds();
-	}
-
-	// Calculate velocity from component movement
-	const FVector CurrentWorldLocation = SkinnedMeshComp->GetComponentLocation();
-	if (bHasPreviousLocation && DeltaTime > KINDA_SMALL_NUMBER)
-	{
-		// Smooth velocity calculation with exponential smoothing
-		FVector InstantVelocity = (CurrentWorldLocation - PreviousWorldLocation) / DeltaTime;
-		const float SmoothingFactor = FMath::Clamp(DeltaTime * 10.0f, 0.0f, 1.0f); // Responsive but smooth
-		CurrentVelocity = FMath::Lerp(CurrentVelocity, InstantVelocity, SmoothingFactor);
-	}
-	PreviousWorldLocation = CurrentWorldLocation;
-	bHasPreviousLocation = true;
-
-	// Convert to local space velocity for shader (mesh deforms in local space)
-	const FVector LocalVelocity = SkinnedMeshComp->GetComponentTransform().InverseTransformVector(CurrentVelocity);
-	const FVector3f VelocityForShader = FVector3f(LocalVelocity);
-
 	const int32 LODIndex = SkinnedMeshComp->GetPredictedLODLevel();
 
-	// Track LOD changes for invalidating previous position (like Optimus does)
+	// Track LOD changes for invalidating previous position
 	bool bInvalidatePreviousPosition = false;
 	if (LODIndex != LastLodIndex)
 	{
@@ -138,8 +145,95 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		LastLodIndex = LODIndex;
 	}
 
-	ENQUEUE_RENDER_COMMAND(FleshRingDeformer)(
-		[MeshObject, LODIndex, WaveAmplitude, WaveFrequency, WaveSpeed, Time, VelocityForShader, InertiaStrength, bInvalidatePreviousPosition, FallbackDelegate = InDesc.FallbackDelegate]
+	// ================================================================
+	// 소스 버텍스 캐싱 (첫 프레임에만)
+	// ================================================================
+	if (!bSourcePositionsCached)
+	{
+		USkeletalMeshComponent* SkelMeshComp = Cast<USkeletalMeshComponent>(SkinnedMeshComp);
+		USkeletalMesh* SkelMesh = SkelMeshComp ? SkelMeshComp->GetSkeletalMeshAsset() : nullptr;
+		if (SkelMesh)
+		{
+			const FSkeletalMeshRenderData* RenderData = SkelMesh->GetResourceForRendering();
+			if (RenderData && RenderData->LODRenderData.Num() > LODIndex)
+			{
+				const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[LODIndex];
+				const uint32 NumVerts = LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
+
+				CachedSourcePositions.SetNum(NumVerts * 3);
+				for (uint32 i = 0; i < NumVerts; ++i)
+				{
+					const FVector3f& Pos = LODData.StaticVertexBuffers.PositionVertexBuffer.VertexPosition(i);
+					CachedSourcePositions[i * 3 + 0] = Pos.X;
+					CachedSourcePositions[i * 3 + 1] = Pos.Y;
+					CachedSourcePositions[i * 3 + 2] = Pos.Z;
+				}
+				bSourcePositionsCached = true;
+
+				UE_LOG(LogFleshRing, Log, TEXT("소스 버텍스 캐싱 완료: %d개"), NumVerts);
+			}
+		}
+	}
+
+	if (!bSourcePositionsCached)
+	{
+		if (InDesc.FallbackDelegate.IsBound())
+		{
+			ENQUEUE_RENDER_COMMAND(FleshRingFallback)([FallbackDelegate = InDesc.FallbackDelegate](FRHICommandListImmediate& RHICmdList)
+			{
+				FallbackDelegate.ExecuteIfBound();
+			});
+		}
+		return;
+	}
+
+	// ================================================================
+	// 렌더 스레드용 데이터 캡처
+	// ================================================================
+	const TArray<FRingAffectedData>& AllRingData = AffectedVerticesManager.GetAllRingData();
+	const uint32 TotalVertexCount = CachedSourcePositions.Num() / 3;
+
+	// 각 Ring 데이터를 TSharedPtr로 캡처 (렌더 스레드 안전)
+	struct FRingDispatchData
+	{
+		FTightnessDispatchParams Params;
+		TArray<uint32> Indices;
+		TArray<float> Influences;
+	};
+	TSharedPtr<TArray<FRingDispatchData>> RingDispatchDataPtr = MakeShared<TArray<FRingDispatchData>>();
+	RingDispatchDataPtr->Reserve(AllRingData.Num());
+
+	for (const FRingAffectedData& RingData : AllRingData)
+	{
+		if (RingData.Vertices.Num() == 0)
+		{
+			continue;
+		}
+
+		FRingDispatchData DispatchData;
+		DispatchData.Params = CreateTightnessParams(RingData, TotalVertexCount);
+		DispatchData.Indices = RingData.PackedIndices;
+		DispatchData.Influences = RingData.PackedInfluences;
+		RingDispatchDataPtr->Add(MoveTemp(DispatchData));
+	}
+
+	if (RingDispatchDataPtr->Num() == 0)
+	{
+		if (InDesc.FallbackDelegate.IsBound())
+		{
+			ENQUEUE_RENDER_COMMAND(FleshRingFallback)([FallbackDelegate = InDesc.FallbackDelegate](FRHICommandListImmediate& RHICmdList)
+			{
+				FallbackDelegate.ExecuteIfBound();
+			});
+		}
+		return;
+	}
+
+	// 소스 버텍스 데이터를 공유 포인터로 캡처
+	TSharedPtr<TArray<float>> SourceDataPtr = MakeShared<TArray<float>>(CachedSourcePositions);
+
+	ENQUEUE_RENDER_COMMAND(FleshRingTightnessDeformer)(
+		[MeshObject, LODIndex, TotalVertexCount, SourceDataPtr, RingDispatchDataPtr, bInvalidatePreviousPosition, FallbackDelegate = InDesc.FallbackDelegate]
 		(FRHICommandListImmediate& RHICmdList)
 	{
 		// Validate LOD index before proceeding
@@ -157,22 +251,13 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			return;
 		}
 
-		// Check if LOD has render sections (vertex factories might not be ready)
 		const FSkeletalMeshLODRenderData& LODData = RenderData.LODRenderData[LODIndex];
-		if (LODData.RenderSections.Num() == 0)
+		if (LODData.RenderSections.Num() == 0 || !LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices())
 		{
 			FallbackDelegate.ExecuteIfBound();
 			return;
 		}
 
-		// Check if this LOD is actually streamed in and ready
-		if (!LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices())
-		{
-			FallbackDelegate.ExecuteIfBound();
-			return;
-		}
-
-		// Check if vertex factory is initialized by verifying a valid section exists
 		const int32 FirstAvailableSection = FSkeletalMeshDeformerHelpers::GetIndexOfFirstAvailableSection(MeshObject, LODIndex);
 		if (FirstAvailableSection == INDEX_NONE)
 		{
@@ -180,56 +265,8 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			return;
 		}
 
-		// ============================================
-		// Gather all data BEFORE creating RDG resources
-		// (Following Optimus Skeleton Data Interface approach)
-		// ============================================
-
-		// Get LOD render data
-		FSkeletalMeshLODRenderData const* LodRenderData = RenderData.GetPendingFirstLOD(LODIndex);
-		if (!LodRenderData)
-		{
-			FallbackDelegate.ExecuteIfBound();
-			return;
-		}
-
-		const uint32 NumVertices = static_cast<uint32>(LodRenderData->GetNumVertices());
-		if (NumVertices == 0)
-		{
-			FallbackDelegate.ExecuteIfBound();
-			return;
-		}
-
-		// Get bind pose position buffer (LOD-wide)
-		FRHIShaderResourceView* SourcePositionSRV = LodRenderData->StaticVertexBuffers.PositionVertexBuffer.GetSRV();
-		if (!SourcePositionSRV)
-		{
-			FallbackDelegate.ExecuteIfBound();
-			return;
-		}
-
-		// Get skin weight buffer (LOD-wide, same as Optimus)
-		FSkinWeightVertexBuffer const* WeightBuffer = LodRenderData->GetSkinWeightVertexBuffer();
-		if (!WeightBuffer)
-		{
-			FallbackDelegate.ExecuteIfBound();
-			return;
-		}
-
-		FRHIShaderResourceView* InputWeightStreamSRV = WeightBuffer->GetDataVertexBuffer()->GetSRV();
-		if (!InputWeightStreamSRV)
-		{
-			FallbackDelegate.ExecuteIfBound();
-			return;
-		}
-
-		// Get skinning parameters (exactly as Optimus does)
-		const uint32 NumBoneInfluences = WeightBuffer->GetMaxBoneInfluences();
-		const uint32 InputWeightStride = WeightBuffer->GetConstantInfluencesVertexStride();
-		const uint32 InputWeightIndexSize = WeightBuffer->GetBoneIndexByteSize() | (WeightBuffer->GetBoneWeightByteSize() << 8);
-
-		// Get the shader
-		TShaderMapRef<FFleshRingWaveCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+		// Get TightnessCS shader
+		TShaderMapRef<FFleshRingTightnessCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
 		if (!ComputeShader.IsValid())
 		{
 			FallbackDelegate.ExecuteIfBound();
@@ -237,101 +274,134 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		}
 
 		// ============================================
-		// All validation passed - now create RDG resources
-		// No early returns after this point!
+		// RDG 빌더 생성 및 버퍼 할당
 		// ============================================
-
 		FRDGBuilder GraphBuilder(RHICmdList);
 		FRDGExternalAccessQueue ExternalAccessQueue;
 
+		// VertexFactory용 출력 버퍼 할당
 		FRDGBuffer* PositionBuffer = FSkeletalMeshDeformerHelpers::AllocateVertexFactoryPositionBuffer(
-			GraphBuilder, ExternalAccessQueue, MeshObject, LODIndex, TEXT("FleshRingPosition"));
+			GraphBuilder, ExternalAccessQueue, MeshObject, LODIndex, TEXT("FleshRingTightnessPosition"));
 
 		if (!PositionBuffer)
 		{
-			// Must submit before returning after ExternalAccessQueue is created
 			ExternalAccessQueue.Submit(GraphBuilder);
 			GraphBuilder.Execute();
 			FallbackDelegate.ExecuteIfBound();
 			return;
 		}
 
-		// Create UAV for output
-		FRDGBufferUAVRef PositionUAV = GraphBuilder.CreateUAV(PositionBuffer, PF_R32_FLOAT);
-
 		// ============================================
-		// Dispatch per Section (each Section has its own BoneBuffer)
+		// 실제 LOD 버텍스 수 확인 (렌더 스레드에서)
 		// ============================================
-		const FSkeletalMeshLODRenderData& LODRenderData = RenderData.LODRenderData[LODIndex];
-		const uint32 ThreadGroupSize = 64;
+		const uint32 ActualNumVertices = LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
+		const uint32 ActualBufferSize = ActualNumVertices * 3;
 
-		for (int32 SectionIdx = 0; SectionIdx < LODRenderData.RenderSections.Num(); SectionIdx++)
+		// 캐싱된 데이터와 실제 LOD 버텍스 수가 다르면 스킵
+		if (TotalVertexCount != ActualNumVertices)
 		{
-			const FSkelMeshRenderSection& Section = LODRenderData.RenderSections[SectionIdx];
+			UE_LOG(LogTemp, Warning, TEXT("FleshRing: 버텍스 수 불일치 - 캐시:%d, 실제:%d"), TotalVertexCount, ActualNumVertices);
+			ExternalAccessQueue.Submit(GraphBuilder);
+			GraphBuilder.Execute();
+			FallbackDelegate.ExecuteIfBound();
+			return;
+		}
 
-			// Skip disabled sections
-			if (Section.bDisabled)
+		// ============================================
+		// 소스 버텍스 버퍼 생성 및 업로드
+		// ============================================
+		FRDGBufferRef SourceBuffer = GraphBuilder.CreateBuffer(
+			FRDGBufferDesc::CreateBufferDesc(sizeof(float), ActualBufferSize),
+			TEXT("FleshRingTightness_SourcePositions")
+		);
+		GraphBuilder.QueueBufferUpload(
+			SourceBuffer,
+			SourceDataPtr->GetData(),
+			ActualBufferSize * sizeof(float),
+			ERDGInitialDataFlags::None
+		);
+
+		// 소스를 출력 버퍼에 복사 (영향 안 받는 버텍스 보존)
+		// T-Pose 테스트: 바인드 포즈를 그대로 출력 버퍼에 복사
+		AddCopyBufferPass(GraphBuilder, PositionBuffer, SourceBuffer);
+
+		// ============================================
+		// 각 Ring별 TightnessCS 디스패치
+		// ============================================
+		UE_LOG(LogTemp, Log, TEXT("FleshRing: TightnessCS 디스패치 시작 - %d개 Ring"), RingDispatchDataPtr->Num());
+
+		for (const FRingDispatchData& DispatchData : *RingDispatchDataPtr)
+		{
+			const FTightnessDispatchParams& Params = DispatchData.Params;
+
+			if (Params.NumAffectedVertices == 0)
 			{
 				continue;
 			}
 
-			// Get this Section's BoneBuffer
-			FRHIShaderResourceView* SectionBoneMatricesSRV = FSkeletalMeshDeformerHelpers::GetBoneBufferForReading(
-				MeshObject, LODIndex, SectionIdx, false /* bPreviousFrame */);
+			UE_LOG(LogTemp, Log, TEXT("FleshRing: Ring 디스패치 - %d개 버텍스, Strength=%.2f"),
+				Params.NumAffectedVertices, Params.TightnessStrength);
 
-			if (!SectionBoneMatricesSRV)
+			// ====== 디버그: Influence 값 분석 ======
+			float MinInfluence = FLT_MAX;
+			float MaxInfluence = -FLT_MAX;
+			float SumInfluence = 0.0f;
+			for (int32 i = 0; i < DispatchData.Influences.Num(); ++i)
 			{
-				continue;
+				float Inf = DispatchData.Influences[i];
+				MinInfluence = FMath::Min(MinInfluence, Inf);
+				MaxInfluence = FMath::Max(MaxInfluence, Inf);
+				SumInfluence += Inf;
 			}
+			float AvgInfluence = DispatchData.Influences.Num() > 0 ? SumInfluence / DispatchData.Influences.Num() : 0.0f;
+			UE_LOG(LogTemp, Warning, TEXT("FleshRing: Influence 분석 - Min=%.4f, Max=%.4f, Avg=%.4f"),
+				MinInfluence, MaxInfluence, AvgInfluence);
+			UE_LOG(LogTemp, Warning, TEXT("FleshRing: 예상 최대 변위 = Strength(%.2f) * MaxInfluence(%.4f) = %.4f"),
+				Params.TightnessStrength, MaxInfluence, Params.TightnessStrength * MaxInfluence);
+			UE_LOG(LogTemp, Warning, TEXT("FleshRing: RingCenter=(%.2f,%.2f,%.2f), RingAxis=(%.2f,%.2f,%.2f)"),
+				Params.RingCenter.X, Params.RingCenter.Y, Params.RingCenter.Z,
+				Params.RingAxis.X, Params.RingAxis.Y, Params.RingAxis.Z);
 
-			// Section's vertex range
-			const uint32 BaseVertexIndex = Section.BaseVertexIndex;
-			const uint32 NumSectionVertices = Section.NumVertices;
+			// AffectedIndices 버퍼
+			FRDGBufferRef IndicesBuffer = GraphBuilder.CreateBuffer(
+				FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), Params.NumAffectedVertices),
+				TEXT("FleshRingTightness_AffectedIndices")
+			);
+			GraphBuilder.QueueBufferUpload(
+				IndicesBuffer,
+				DispatchData.Indices.GetData(),
+				DispatchData.Indices.Num() * sizeof(uint32),
+				ERDGInitialDataFlags::None
+			);
 
-			if (NumSectionVertices == 0)
-			{
-				continue;
-			}
+			// Influences 버퍼
+			FRDGBufferRef InfluencesBuffer = GraphBuilder.CreateBuffer(
+				FRDGBufferDesc::CreateStructuredDesc(sizeof(float), Params.NumAffectedVertices),
+				TEXT("FleshRingTightness_Influences")
+			);
+			GraphBuilder.QueueBufferUpload(
+				InfluencesBuffer,
+				DispatchData.Influences.GetData(),
+				DispatchData.Influences.Num() * sizeof(float),
+				ERDGInitialDataFlags::None
+			);
 
-			// Setup shader parameters for this Section
-			FFleshRingWaveCS::FParameters* PassParameters = GraphBuilder.AllocParameters<FFleshRingWaveCS::FParameters>();
-
-			// Vertex data
-			PassParameters->SourcePositions = SourcePositionSRV;
-			PassParameters->OutputPositions = PositionUAV;
-			PassParameters->BaseVertexIndex = BaseVertexIndex;
-			PassParameters->NumVertices = NumSectionVertices;
-
-			// Skinning data (Section-specific BoneBuffer)
-			PassParameters->BoneMatrices = SectionBoneMatricesSRV;
-			PassParameters->InputWeightStream = InputWeightStreamSRV;
-			PassParameters->NumBoneInfluences = NumBoneInfluences;
-			PassParameters->InputWeightStride = InputWeightStride;
-			PassParameters->InputWeightIndexSize = InputWeightIndexSize;
-
-			// Jelly effect parameters
-			PassParameters->WaveAmplitude = WaveAmplitude;
-			PassParameters->WaveFrequency = WaveFrequency;
-			PassParameters->Time = Time * WaveSpeed;
-			PassParameters->Velocity = VelocityForShader;
-			PassParameters->InertiaStrength = InertiaStrength;
-
-			// Dispatch for this Section
-			const uint32 NumGroups = FMath::DivideAndRoundUp(NumSectionVertices, ThreadGroupSize);
-
-			FComputeShaderUtils::AddPass(
+			// TightnessCS 디스패치
+			DispatchFleshRingTightnessCS(
 				GraphBuilder,
-				RDG_EVENT_NAME("FleshRingWaveDeform_Section%d", SectionIdx),
-				ComputeShader,
-				PassParameters,
-				FIntVector(static_cast<int32>(NumGroups), 1, 1)
+				Params,
+				SourceBuffer,
+				IndicesBuffer,
+				InfluencesBuffer,
+				PositionBuffer
 			);
 		}
 
-		// Update vertex factory to use the deformed buffer
+		// ============================================
+		// VertexFactory 버퍼 업데이트 및 실행
+		// ============================================
 		FSkeletalMeshDeformerHelpers::UpdateVertexFactoryBufferOverrides(GraphBuilder, MeshObject, LODIndex, bInvalidatePreviousPosition);
 
-		// Submit external access queue and execute
 		ExternalAccessQueue.Submit(GraphBuilder);
 		GraphBuilder.Execute();
 	});

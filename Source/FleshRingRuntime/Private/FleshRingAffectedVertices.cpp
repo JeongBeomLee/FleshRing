@@ -70,9 +70,12 @@ void FDistanceBasedVertexSelector::SelectVertices(
 
         if (RadialDistance <= MaxDistance && FMath::Abs(AxisDistance) <= HalfWidth)
         {
-            // Calculate radial influence (distance from axis)
-            // 반경 방향 영향도 계산 (축으로부터의 거리)
-            const float RadialInfluence = CalculateFalloff(RadialDistance, MaxDistance, Ring.FalloffType);
+            // Calculate radial influence (distance from ring surface)
+            // 반경 방향 영향도 계산 (링 표면으로부터의 거리)
+            // - 링 표면(RingRadius)에서 최대 영향도
+            // - 축(axis) 또는 링 바깥(MaxDistance)으로 갈수록 감소
+            const float DistFromRingSurface = FMath::Abs(RadialDistance - Ring.RingRadius);
+            const float RadialInfluence = CalculateFalloff(DistFromRingSurface, Ring.RingThickness, Ring.FalloffType);
 
             // Calculate axial influence (distance from ring center along axis)
             // This ensures smooth falloff at ring edges (like stocking/band edges)
@@ -287,7 +290,8 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         // FQuat BoneRotation = BoneTransform.GetRotation();
         // FQuat FinalRotation = BoneRotation * RingSettings.RingRotationOffset.Quaternion();
         // RingData.RingAxis = FinalRotation.GetUpVector();
-        RingData.RingAxis = BoneTransform.GetRotation().GetUpVector();
+        // 본 방향(Forward/X축)을 링 축으로 사용 - 링이 본을 감싸는 형태
+        RingData.RingAxis = BoneTransform.GetRotation().GetForwardVector();
 
         // Ring Geometry (copy from asset)
         // 링 지오메트리 (에셋에서 복사)
