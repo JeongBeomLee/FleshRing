@@ -19,10 +19,8 @@ float3 SDFBoundsMin;                        // SDF 바운딩 박스 최소점
 float3 SDFBoundsMax;                        // SDF 바운딩 박스 최대점
 int3 SDFResolution;                         // SDF 해상도 (예: 64x64x64)
 
-// ============================================
 // Ray-Triangle 교차 테스트 (Moller-Trumbore 알고리즘)
-// 반환: 교차하면 true, 아니면 false
-// ============================================
+// Return: 교차하면 true, 아니면 false
 bool RayTriangleIntersect(float3 RayOrigin, float3 RayDir, float3 V0, float3 V1, float3 V2)
 {
     const float EPSILON = 0.0000001f;
@@ -58,12 +56,6 @@ bool RayTriangleIntersect(float3 RayOrigin, float3 RayDir, float3 V0, float3 V1,
     // 광선 방향으로 교차 (T > 0)
     return T > EPSILON;
 }
-
-// ============================================
-// Multiple Ray Casting으로 내부/외부 판별
-// 여러 방향으로 광선 발사 -> 다수결로 판정
-// 참조: SDFGenerator (12 rays default)
-// ============================================
 
 // 구 표면에 균일 분포된 12방향 (Icosahedron 꼭짓점 기반)
 static const float3 RayDirections[12] =
@@ -107,6 +99,8 @@ int CountRayIntersections(float3 VoxelPos, float3 RayDir)
 }
 
 // Multiple Ray Casting - 다수결로 내부/외부 판정
+// 여러 방향으로 광선 발사 -> 다수결로 판정
+// 참조: SDFGenerator (12 rays default)
 float DetermineSignByMultipleRayCasting(float3 VoxelPos)
 {
     int InsideVotes = 0;
@@ -132,10 +126,8 @@ float DetermineSignByMultipleRayCasting(float3 VoxelPos)
     return (InsideVotes > OutsideVotes) ? -1.0f : 1.0f;
 }
 
-// ============================================
 // Point-to-Triangle 최단 거리 계산
 // 참조: Real-Time Collision Detection (Christer Ericson)
-// ============================================
 float PointToTriangleDistance(float3 P, float3 A, float3 B, float3 C)
 {
     // 삼각형 변 벡터
@@ -195,9 +187,7 @@ float PointToTriangleDistance(float3 P, float3 A, float3 B, float3 C)
     return length(P - ClosestPoint);
 }
 
-// ============================================
 // 메인 Compute Shader
-// ============================================
 [numthreads(8, 8, 8)]
 void MainCS(uint3 ThreadId : SV_DispatchThreadID)
 {

@@ -74,8 +74,4 @@ public:
     // 추출된 데이터 디버그 출력
     UFUNCTION(BlueprintCallable, Category = "FleshRing|Mesh")
     static void DebugPrintMeshData(const FFleshRingMeshData& MeshData);
-
-    // 테스트: 간단한 큐브 메시에서 데이터 추출 테스트
-    UFUNCTION(BlueprintCallable, Category = "FleshRing|Mesh Test")
-    static void TestMeshExtraction(UStaticMesh* TestMesh);
 };

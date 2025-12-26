@@ -202,31 +202,3 @@ void UFleshRingMeshExtractor::DebugPrintMeshData(const FFleshRingMeshData& MeshD
 
     UE_LOG(LogTemp, Warning, TEXT("======================================"));
 }
-
-void UFleshRingMeshExtractor::TestMeshExtraction(UStaticMesh* TestMesh)
-{
-    UE_LOG(LogTemp, Warning, TEXT("=== Mesh Extraction Test Start ==="));
-
-    if (!TestMesh)
-    {
-        UE_LOG(LogTemp, Error, TEXT("TestMesh is null! Please provide a valid StaticMesh."));
-        return;
-    }
-
-    UE_LOG(LogTemp, Warning, TEXT("Testing mesh: %s"), *TestMesh->GetName());
-
-    FFleshRingMeshData MeshData;
-    bool bSuccess = ExtractMeshData(TestMesh, MeshData);
-
-    if (bSuccess)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("Extraction SUCCESS!"));
-        DebugPrintMeshData(MeshData);
-    }
-    else
-    {
-        UE_LOG(LogTemp, Error, TEXT("Extraction FAILED!"));
-    }
-
-    UE_LOG(LogTemp, Warning, TEXT("=== Mesh Extraction Test End ==="));
-}

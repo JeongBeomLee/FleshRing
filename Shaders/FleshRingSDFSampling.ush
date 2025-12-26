@@ -1,5 +1,4 @@
 // FleshRingSDFSampling.ush
-// A→B 인터페이스: SDF 샘플링 함수들
 // 사용법: #include 후 자신의 텍스처/샘플러를 인자로 전달
 
 #pragma once

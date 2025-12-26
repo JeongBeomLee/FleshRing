@@ -63,7 +63,7 @@ void GenerateMeshSDF(
     FVector3f BoundsMax,
     FIntVector Resolution);
 
-// SDF 슬라이스 시각화 함수
+// SDF 슬라이스 시각화 함수 (디버그용)
 void GenerateSDFSlice(
     FRDGBuilder& GraphBuilder,
     FRDGTextureRef SDFTexture,
@@ -72,10 +72,8 @@ void GenerateSDFSlice(
     int32 SliceZ,
     float MaxDisplayDist);
 
-// ============================================
 // 2D Slice Flood Fill - 도넛홀 보정
 // 각 Z 슬라이스에서 XY 경계부터 flood하여 도넛홀 감지
-// ============================================
 
 // 2D Flood 초기화 셰이더
 class F2DFloodInitializeCS : public FGlobalShader

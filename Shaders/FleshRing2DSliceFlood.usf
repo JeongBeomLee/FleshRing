@@ -4,11 +4,9 @@
 
 #include "/Engine/Public/Platform.ush"
 
-// ============================================
 // Pass 1: 2D Flood 초기화
 // 각 Z 슬라이스에서 XY 경계를 "외부 시드"로 마킹
 // SDF > 0 (외부)인 복셀만 전파 대상
-// ============================================
 Texture3D<float> InputSDF;
 RWTexture3D<uint> FloodMask;
 int3 GridResolution;
@@ -36,10 +34,8 @@ void Initialize2DFloodCS(uint3 ThreadId : SV_DispatchThreadID)
     }
 }
 
-// ============================================
 // Pass 2-N: 2D Flood 전파 (Z 슬라이스별로 독립적)
 // 같은 Z에서 4방향(상하좌우) 이웃만 확인
-// ============================================
 Texture3D<uint> FloodMaskInput;
 RWTexture3D<uint> FloodMaskOutput;
 Texture3D<float> SDFForFlood;
@@ -100,10 +96,10 @@ void Flood2DPassCS(uint3 ThreadId : SV_DispatchThreadID)
     FloodMaskOutput[ThreadId] = 0u;
 }
 
-// ============================================
-// Pass Final: 도넛홀 부호 반전
-// 미도달(0) + SDF > 0 = 도넛홀 = 부호 반전하여 내부로
-// ============================================
+// Pass Final: 부호 최종 결정
+// 1. 도넛홀 (미도달 + 원본 양수) = 살 공간 = 음수로 변환
+// 2. 튜브 내부 (원본 음수) = 단단한 링 = 양수로 변환
+// 3. 외부 (도달 + 원본 양수) = 공기 = 양수 유지
 Texture3D<uint> FinalFloodMask;
 Texture3D<float> OriginalSDF;
 RWTexture3D<float> OutputSDF;
@@ -117,13 +113,19 @@ void Finalize2DFloodCS(uint3 ThreadId : SV_DispatchThreadID)
     float sdf = OriginalSDF[ThreadId];
     uint mask = FinalFloodMask[ThreadId];
 
-    // 미도달(0) + 외부(SDF > 0) = 도넛홀 → 내부로 변환
+    // 1. 도넛홀: 미도달(0) + 외부(SDF > 0) = 살이 들어갈 공간 → 음수로 변환
     if (mask == 0u && sdf > 0.0f)
     {
-        OutputSDF[ThreadId] = -sdf;  // 부호 반전
+        OutputSDF[ThreadId] = -sdf;
     }
+    // 2. 튜브 내부: 원본이 음수 (Ray Casting이 내부로 판정) = 단단한 링 자체 → 양수로 변환
+    else if (sdf < 0.0f)
+    {
+        OutputSDF[ThreadId] = 0u;
+    }
+    // 3. 외부: 도달(1) + 외부(SDF > 0) = 공기 → 양수 유지
     else
     {
-        OutputSDF[ThreadId] = sdf;   // 그대로 유지
+        OutputSDF[ThreadId] = sdf;
     }
 }
