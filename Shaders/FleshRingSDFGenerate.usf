@@ -134,7 +134,7 @@ float PointToTriangleDistance(float3 P, float3 A, float3 B, float3 C)
     float3 AB = B - A;
     float3 AC = C - A;
     float3 AP = P - A;
-
+    
     // A 꼭짓점 영역 체크
     float d1 = dot(AB, AP);
     float d2 = dot(AC, AP);

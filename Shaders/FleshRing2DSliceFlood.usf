@@ -96,6 +96,63 @@ void Flood2DPassCS(uint3 ThreadId : SV_DispatchThreadID)
     FloodMaskOutput[ThreadId] = 0u;
 }
 
+// Pass Z-Vote: Z축 투표로 도넛홀 전파
+// 각 XY 좌표에서 모든 Z의 FloodMask를 확인
+// 과반수가 "내부(0)"이면 해당 XY의 모든 Z를 "내부(0)"로 설정
+// 이렇게 하면 중앙 슬라이스의 도넛홀 판정이 상/하단으로 전파됨
+Texture3D<uint> VoteMaskInput;
+RWTexture3D<uint> VoteMaskOutput;
+Texture3D<float> SDFForVote;
+
+[numthreads(8, 8, 1)]
+void ZAxisVoteCS(uint3 ThreadId : SV_DispatchThreadID)
+{
+    // XY만 처리 (Z는 전체 순회)
+    if (ThreadId.x >= (uint)GridResolution.x || ThreadId.y >= (uint)GridResolution.y)
+        return;
+
+    // 이 XY 좌표에서 모든 Z의 투표 집계
+    int insideVotes = 0;   // 내부(0) 투표
+    int outsideVotes = 0;  // 외부(1) 투표
+
+    for (int z = 0; z < GridResolution.z; z++)
+    {
+        int3 pos = int3(ThreadId.x, ThreadId.y, z);
+        float sdf = SDFForVote[pos];
+
+        // SDF > 0 (외부 영역)인 복셀만 투표 참여
+        // SDF <= 0 (메시 내부)는 투표에서 제외
+        if (sdf > 0.0f)
+        {
+            uint mask = VoteMaskInput[pos];
+            if (mask == 0u)
+                insideVotes++;   // 2D Flood에서 도달 못함 = 도넛홀 후보
+            else
+                outsideVotes++;  // 2D Flood에서 도달함 = 진짜 외부
+        }
+    }
+
+    // 투표 결과 적용: 과반수가 "내부"면 이 XY의 모든 Z를 내부로
+    bool majorityInside = (insideVotes > outsideVotes) && (insideVotes > 0);
+
+    for (int z2 = 0; z2 < GridResolution.z; z2++)
+    {
+        int3 pos = int3(ThreadId.x, ThreadId.y, z2);
+        float sdf = SDFForVote[pos];
+
+        if (majorityInside && sdf > 0.0f)
+        {
+            // 이 XY는 도넛홀 → 모든 Z에서 내부(0)로 설정
+            VoteMaskOutput[pos] = 0u;
+        }
+        else
+        {
+            // 원본 유지
+            VoteMaskOutput[pos] = VoteMaskInput[pos];
+        }
+    }
+}
+
 // Pass Final: 부호 최종 결정
 // 1. 도넛홀 (미도달 + 원본 양수) = 살 공간 = 음수로 변환
 // 2. 튜브 내부 (원본 음수) = 단단한 링 = 양수로 변환

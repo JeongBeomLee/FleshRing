@@ -104,6 +104,22 @@ public:
     END_SHADER_PARAMETER_STRUCT()
 };
 
+// Z축 투표 셰이더 - 도넛홀 판정을 Z축으로 전파
+// 각 XY 좌표에서 과반수가 "내부"면 모든 Z를 "내부"로 설정
+class FZAxisVoteCS : public FGlobalShader
+{
+public:
+    DECLARE_GLOBAL_SHADER(FZAxisVoteCS)
+    SHADER_USE_PARAMETER_STRUCT(FZAxisVoteCS, FGlobalShader)
+
+    BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+        SHADER_PARAMETER_RDG_TEXTURE_SRV(Texture3D<uint>, VoteMaskInput)
+        SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture3D<uint>, VoteMaskOutput)
+        SHADER_PARAMETER_RDG_TEXTURE_SRV(Texture3D<float>, SDFForVote)
+        SHADER_PARAMETER(FIntVector, GridResolution)
+    END_SHADER_PARAMETER_STRUCT()
+};
+
 // 2D Flood 최종화 셰이더
 class F2DFloodFinalizeCS : public FGlobalShader
 {

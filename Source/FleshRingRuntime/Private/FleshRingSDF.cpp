@@ -36,6 +36,13 @@ IMPLEMENT_GLOBAL_SHADER(
 );
 
 IMPLEMENT_GLOBAL_SHADER(
+    FZAxisVoteCS,
+    "/Plugin/FleshRingPlugin/FleshRing2DSliceFlood.usf",
+    "ZAxisVoteCS",
+    SF_Compute
+);
+
+IMPLEMENT_GLOBAL_SHADER(
     F2DFloodFinalizeCS,
     "/Plugin/FleshRingPlugin/FleshRing2DSliceFlood.usf",
     "Finalize2DFloodCS",
@@ -227,7 +234,37 @@ void Apply2DSliceFloodFill(
     }
 
     // 마지막 결과는 CurrentInput에 있음 (스왑 후)
-    FRDGTextureRef FinalMask = CurrentInput;
+    FRDGTextureRef FloodResult = CurrentInput;
+    FRDGTextureRef VoteOutput = CurrentOutput;  // 핑퐁 버퍼 재사용
+
+    // Pass Z-Vote: Z축 투표로 도넛홀 전파
+    // 각 XY 좌표에서 과반수가 "내부"면 모든 Z를 "내부"로 설정
+    {
+        TShaderMapRef<FZAxisVoteCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+        FZAxisVoteCS::FParameters* Parameters = GraphBuilder.AllocParameters<FZAxisVoteCS::FParameters>();
+        Parameters->VoteMaskInput = GraphBuilder.CreateSRV(FloodResult);
+        Parameters->VoteMaskOutput = GraphBuilder.CreateUAV(VoteOutput);
+        Parameters->SDFForVote = GraphBuilder.CreateSRV(InputSDF);
+        Parameters->GridResolution = Resolution;
+
+        // XY만 디스패치 (Z는 셰이더 내부에서 순회)
+        FIntVector VoteGroupCount(
+            FMath::DivideAndRoundUp(Resolution.X, 8),
+            FMath::DivideAndRoundUp(Resolution.Y, 8),
+            1  // Z는 1
+        );
+
+        FComputeShaderUtils::AddPass(
+            GraphBuilder,
+            RDG_EVENT_NAME("ZAxisVote"),
+            ComputeShader,
+            Parameters,
+            VoteGroupCount
+        );
+    }
+
+    // Z축 투표 결과를 최종 마스크로 사용
+    FRDGTextureRef FinalMask = VoteOutput;
 
     // Pass Final: 도넛홀 부호 반전
     {
@@ -247,6 +284,6 @@ void Apply2DSliceFloodFill(
         );
     }
 
-    UE_LOG(LogTemp, Log, TEXT("Apply2DSliceFloodFill: Completed %d iterations for Resolution %dx%dx%d"),
+    UE_LOG(LogTemp, Log, TEXT("Apply2DSliceFloodFill: Completed %d iterations + ZAxisVote for Resolution %dx%dx%d"),
         MaxIterations, Resolution.X, Resolution.Y, Resolution.Z);
 }
