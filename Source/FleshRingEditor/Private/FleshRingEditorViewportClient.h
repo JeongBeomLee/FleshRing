@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "EditorViewportClient.h"
+#include "ScopedTransaction.h"
 
 class FFleshRingPreviewScene;
 class SFleshRingEditorViewport;
@@ -42,6 +43,8 @@ public:
 	virtual FMatrix GetWidgetCoordSystem() const override;
 	virtual UE::Widget::EWidgetMode GetWidgetMode() const override;
 	virtual bool InputWidgetDelta(FViewport* InViewport, EAxisList::Type CurrentAxis, FVector& Drag, FRotator& Rot, FVector& Scale) override;
+	virtual void TrackingStarted(const FInputEventState& InInputState, bool bIsDraggingWidget, bool bNudge) override;
+	virtual void TrackingStopped() override;
 
 	/** 편집 중인 Asset 설정 */
 	void SetAsset(UFleshRingAsset* InAsset);
@@ -76,4 +79,7 @@ private:
 
 	/** 현재 선택 타입 */
 	EFleshRingSelectionType SelectionType = EFleshRingSelectionType::None;
+
+	/** Undo용 트랜잭션 */
+	TUniquePtr<FScopedTransaction> ScopedTransaction;
 };

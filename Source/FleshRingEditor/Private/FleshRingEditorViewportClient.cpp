@@ -610,3 +610,23 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 
 	return true;
 }
+
+void FFleshRingEditorViewportClient::TrackingStarted(const FInputEventState& InInputState, bool bIsDraggingWidget, bool bNudge)
+{
+	// 드래그 시작 시 트랜잭션 시작
+	if (bIsDraggingWidget && EditingAsset.IsValid() && SelectionType != EFleshRingSelectionType::None)
+	{
+		ScopedTransaction = MakeUnique<FScopedTransaction>(NSLOCTEXT("FleshRingEditor", "ModifyRingTransform", "Modify Ring Transform"));
+		EditingAsset->Modify();
+	}
+
+	FEditorViewportClient::TrackingStarted(InInputState, bIsDraggingWidget, bNudge);
+}
+
+void FFleshRingEditorViewportClient::TrackingStopped()
+{
+	// 드래그 종료 시 트랜잭션 종료
+	ScopedTransaction.Reset();
+
+	FEditorViewportClient::TrackingStopped();
+}
