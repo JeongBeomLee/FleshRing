@@ -8,6 +8,7 @@
 #include "PropertyEditorModule.h"
 #include "IDetailsView.h"
 #include "Modules/ModuleManager.h"
+#include "UObject/UObjectGlobals.h"
 
 #define LOCTEXT_NAMESPACE "FleshRingAssetEditor"
 
@@ -17,6 +18,11 @@ FFleshRingAssetEditor::FFleshRingAssetEditor()
 
 FFleshRingAssetEditor::~FFleshRingAssetEditor()
 {
+	// 프로퍼티 변경 델리게이트 해제
+	if (OnPropertyChangedHandle.IsValid())
+	{
+		FCoreUObjectDelegates::OnObjectPropertyChanged.Remove(OnPropertyChangedHandle);
+	}
 }
 
 void FFleshRingAssetEditor::InitFleshRingAssetEditor(
@@ -63,6 +69,9 @@ void FFleshRingAssetEditor::InitFleshRingAssetEditor(
 		true,  // bCreateDefaultToolbar
 		ObjectsToEdit);
 
+	// 프로퍼티 변경 델리게이트 구독 (Undo/Redo 포함)
+	OnPropertyChangedHandle = FCoreUObjectDelegates::OnObjectPropertyChanged.AddRaw(
+		this, &FFleshRingAssetEditor::OnObjectPropertyChanged);
 }
 
 
@@ -182,16 +191,18 @@ void FFleshRingAssetEditor::CreateDetailsView()
 
 	DetailsView = PropertyEditorModule.CreateDetailView(DetailsViewArgs);
 
-	// 프로퍼티 변경 시 뷰포트 갱신
-	DetailsView->OnFinishedChangingProperties().AddLambda(
-		[this](const FPropertyChangedEvent& PropertyChangedEvent)
-		{
-			RefreshViewport();
-		});
-
 	if (EditingAsset)
 	{
 		DetailsView->SetObject(EditingAsset);
+	}
+}
+
+void FFleshRingAssetEditor::OnObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& PropertyChangedEvent)
+{
+	// EditingAsset이 변경되었을 때만 갱신
+	if (Object == EditingAsset)
+	{
+		RefreshViewport();
 	}
 }
 

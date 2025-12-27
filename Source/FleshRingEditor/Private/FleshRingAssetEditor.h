@@ -54,6 +54,9 @@ private:
 	/** Details View 생성 */
 	void CreateDetailsView();
 
+	/** 프로퍼티 변경 콜백 (Undo/Redo 포함) */
+	void OnObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& PropertyChangedEvent);
+
 private:
 	/** 편집 중인 Asset */
 	UFleshRingAsset* EditingAsset = nullptr;
@@ -63,4 +66,7 @@ private:
 
 	/** Details View */
 	TSharedPtr<IDetailsView> DetailsView;
+
+	/** 프로퍼티 변경 델리게이트 핸들 */
+	FDelegateHandle OnPropertyChangedHandle;
 };
