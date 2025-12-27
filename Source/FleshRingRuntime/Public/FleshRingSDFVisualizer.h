@@ -72,6 +72,20 @@ public:
     UFUNCTION(BlueprintCallable, Category = "FleshRing|Visualization")
     static void CleanupVisualization(UPARAM(ref) FSDFVisualizationResult& Result);
 
+    // 모든 슬라이스 한 번에 시각화 (SDF 1회 생성)
+    // @param WorldContext - 월드 컨텍스트 (액터 스폰용)
+    // @param Mesh - SDF를 생성할 스태틱 메시
+    // @param WorldLocation - 평면들을 배치할 기준 월드 위치
+    // @param Resolution - SDF 해상도 (기본 64, 슬라이스 개수와 동일)
+    // @return 시각화 결과 배열 (Resolution 개수만큼)
+    UFUNCTION(BlueprintCallable, Category = "FleshRing|Visualization", meta = (WorldContext = "WorldContextObject"))
+    static TArray<FSDFVisualizationResult> VisualizeAllSDFSlices(
+        UObject* WorldContextObject,
+        UStaticMesh* Mesh,
+        FVector WorldLocation,
+        int32 Resolution = 64
+    );
+
     // 유틸리티 함수
     // UTexture2D로 슬라이스 추출 (평면 없이 텍스처만 필요할 때)
     UFUNCTION(BlueprintCallable, Category = "FleshRing|Visualization")

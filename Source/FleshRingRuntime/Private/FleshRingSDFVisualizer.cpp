@@ -137,7 +137,7 @@ FSDFVisualizationResult UFleshRingSDFVisualizer::VisualizeSDFSlice(
     BackPlaneMeshComp->RegisterComponent();
 
     Result.PlaneActor = PlaneActor;
-
+    
     UE_LOG(LogTemp, Warning, TEXT("Plane spawned at: %s, Scale: (%.2f, %.2f)"),
         *PlaneCenter.ToString(), PlaneScaleX, PlaneScaleY);
 
@@ -271,6 +271,214 @@ void UFleshRingSDFVisualizer::CleanupVisualization(FSDFVisualizationResult& Resu
     }
 
     UE_LOG(LogTemp, Log, TEXT("CleanupVisualization: Cleaned up"));
+}
+
+TArray<FSDFVisualizationResult> UFleshRingSDFVisualizer::VisualizeAllSDFSlices(
+    UObject* WorldContextObject,
+    UStaticMesh* Mesh,
+    FVector WorldLocation,
+    int32 Resolution)
+{
+    TArray<FSDFVisualizationResult> Results;
+
+    if (!WorldContextObject || !Mesh)
+    {
+        UE_LOG(LogTemp, Error, TEXT("VisualizeAllSDFSlices: Invalid parameters"));
+        return Results;
+    }
+
+    UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull);
+    if (!World)
+    {
+        UE_LOG(LogTemp, Error, TEXT("VisualizeAllSDFSlices: Could not get world"));
+        return Results;
+    }
+
+    // 1. 메시 데이터 추출 (1회만)
+    FFleshRingMeshData MeshData;
+    if (!UFleshRingMeshExtractor::ExtractMeshData(Mesh, MeshData))
+    {
+        UE_LOG(LogTemp, Error, TEXT("VisualizeAllSDFSlices: Failed to extract mesh data"));
+        return Results;
+    }
+
+    // 2. 바운딩 박스 계산
+    FVector3f BoundsSize = MeshData.Bounds.Max - MeshData.Bounds.Min;
+    FVector3f Margin = BoundsSize * 0.1f;
+    FVector3f BoundsMin = MeshData.Bounds.Min - Margin;
+    FVector3f BoundsMax = MeshData.Bounds.Max + Margin;
+    FVector3f BoundsSizeWithMargin = BoundsMax - BoundsMin;
+
+    float PlaneScaleX = BoundsSizeWithMargin.X / 100.0f;
+    float PlaneScaleY = BoundsSizeWithMargin.Y / 100.0f;
+
+    UStaticMesh* PlaneMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"));
+    UMaterial* BaseMaterial = LoadObject<UMaterial>(nullptr, TEXT("/Engine/EngineMaterials/Widget3DPassThrough.Widget3DPassThrough"));
+    if (!BaseMaterial)
+    {
+        BaseMaterial = LoadObject<UMaterial>(nullptr, TEXT("/Engine/EngineMaterials/DefaultMaterial.DefaultMaterial"));
+    }
+
+    // 3. 모든 슬라이스에 대해 렌더 타겟 + 평면 액터 생성
+    Results.SetNum(Resolution);
+    TArray<UTextureRenderTarget2D*> RenderTargets;
+    RenderTargets.SetNum(Resolution);
+
+    for (int32 SliceZ = 0; SliceZ < Resolution; SliceZ++)
+    {
+        FSDFVisualizationResult& Result = Results[SliceZ];
+        Result.BoundsMin = FVector(BoundsMin);
+        Result.BoundsMax = FVector(BoundsMax);
+        Result.CurrentSliceZ = SliceZ;
+        Result.Resolution = Resolution;
+
+        // 렌더 타겟 생성
+        Result.SliceTexture = NewObject<UTextureRenderTarget2D>(WorldContextObject);
+        Result.SliceTexture->InitCustomFormat(Resolution, Resolution, PF_B8G8R8A8, false);
+        Result.SliceTexture->UpdateResourceImmediate(true);
+        RenderTargets[SliceZ] = Result.SliceTexture;
+
+        // 평면 액터 스폰
+        FActorSpawnParameters SpawnParams;
+        SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+        AActor* PlaneActor = World->SpawnActor<AActor>(AActor::StaticClass(), WorldLocation, FRotator::ZeroRotator, SpawnParams);
+        if (!PlaneActor) continue;
+
+        USceneComponent* RootComp = NewObject<USceneComponent>(PlaneActor, TEXT("Root"));
+        PlaneActor->SetRootComponent(RootComp);
+        RootComp->RegisterComponent();
+
+        // Z 슬라이스 위치 계산
+        float LocalSliceZ = FMath::Lerp(BoundsMin.Z, BoundsMax.Z, (float)SliceZ / (float)(Resolution - 1));
+        FVector PlaneCenter(
+            WorldLocation.X + (BoundsMin.X + BoundsMax.X) * 0.5f,
+            WorldLocation.Y + (BoundsMin.Y + BoundsMax.Y) * 0.5f,
+            WorldLocation.Z + LocalSliceZ
+        );
+
+        // 앞면 평면
+        UStaticMeshComponent* FrontPlane = NewObject<UStaticMeshComponent>(PlaneActor, TEXT("FrontPlane"));
+        FrontPlane->SetupAttachment(RootComp);
+        if (PlaneMesh) FrontPlane->SetStaticMesh(PlaneMesh);
+        FrontPlane->SetWorldScale3D(FVector(PlaneScaleX, PlaneScaleY, 1.0f));
+        FrontPlane->SetWorldLocation(PlaneCenter);
+
+        UMaterialInstanceDynamic* DynMaterial = UMaterialInstanceDynamic::Create(BaseMaterial, PlaneActor);
+        if (DynMaterial && Result.SliceTexture)
+        {
+            DynMaterial->SetTextureParameterValue(TEXT("SlateUI"), Result.SliceTexture);
+        }
+        FrontPlane->SetMaterial(0, DynMaterial);
+        FrontPlane->RegisterComponent();
+
+        // 뒷면 평면
+        UStaticMeshComponent* BackPlane = NewObject<UStaticMeshComponent>(PlaneActor, TEXT("BackPlane"));
+        BackPlane->SetupAttachment(RootComp);
+        if (PlaneMesh) BackPlane->SetStaticMesh(PlaneMesh);
+        BackPlane->SetWorldScale3D(FVector(PlaneScaleX, PlaneScaleY, 1.0f));
+        BackPlane->SetWorldLocation(PlaneCenter);
+        BackPlane->SetWorldRotation(FRotator(180.0f, 0.0f, 0.0f));
+        BackPlane->SetMaterial(0, DynMaterial);
+        BackPlane->RegisterComponent();
+
+        Result.PlaneActor = PlaneActor;
+    }
+
+    // 4. GPU 작업: SDF 1회 생성 + 모든 슬라이스 시각화
+    TArray<FVector3f> Vertices = MeshData.Vertices;
+    TArray<uint32> Indices = MeshData.Indices;
+    FIntVector SDFResolution(Resolution, Resolution, Resolution);
+    float MaxDisplayDist = BoundsSize.GetMax() * 0.5f;
+
+    ENQUEUE_RENDER_COMMAND(GenerateSDFAndAllSlices)(
+        [Vertices, Indices, BoundsMin, BoundsMax, SDFResolution, MaxDisplayDist, RenderTargets](FRHICommandListImmediate& RHICmdList)
+        {
+            FRDGBuilder GraphBuilder(RHICmdList);
+
+            // SDF 3D 텍스처 생성 (1회만!)
+            FRDGTextureDesc SDFDesc = FRDGTextureDesc::Create3D(
+                SDFResolution,
+                PF_R32_FLOAT,
+                FClearValueBinding::Black,
+                TexCreate_ShaderResource | TexCreate_UAV
+            );
+            FRDGTextureRef SDFTexture = GraphBuilder.CreateTexture(SDFDesc, TEXT("SDFTexture"));
+
+            // SDF 생성 (1회만!)
+            GenerateMeshSDF(
+                GraphBuilder,
+                SDFTexture,
+                Vertices,
+                Indices,
+                BoundsMin,
+                BoundsMax,
+                SDFResolution
+            );
+
+            // Flood Fill 보정 (1회만!)
+            FRDGTextureDesc CorrectedSDFDesc = FRDGTextureDesc::Create3D(
+                SDFResolution,
+                PF_R32_FLOAT,
+                FClearValueBinding::Black,
+                TexCreate_ShaderResource | TexCreate_UAV
+            );
+            FRDGTextureRef CorrectedSDF = GraphBuilder.CreateTexture(CorrectedSDFDesc, TEXT("CorrectedSDFTexture"));
+
+            Apply2DSliceFloodFill(
+                GraphBuilder,
+                SDFTexture,
+                CorrectedSDF,
+                SDFResolution
+            );
+
+            // 모든 슬라이스 시각화
+            for (int32 SliceZ = 0; SliceZ < SDFResolution.Z; SliceZ++)
+            {
+                UTextureRenderTarget2D* RenderTarget = RenderTargets[SliceZ];
+                if (!RenderTarget) continue;
+
+                FTextureRenderTargetResource* RTResource = RenderTarget->GetRenderTargetResource();
+                if (!RTResource) continue;
+
+                // 슬라이스 2D 텍스처 생성
+                FRDGTextureDesc SliceDesc = FRDGTextureDesc::Create2D(
+                    FIntPoint(SDFResolution.X, SDFResolution.Y),
+                    PF_B8G8R8A8,
+                    FClearValueBinding::Black,
+                    TexCreate_ShaderResource | TexCreate_UAV | TexCreate_RenderTargetable
+                );
+                FRDGTextureRef SliceTexture = GraphBuilder.CreateTexture(SliceDesc, *FString::Printf(TEXT("SDFSlice_%d"), SliceZ));
+
+                // 슬라이스 시각화
+                GenerateSDFSlice(
+                    GraphBuilder,
+                    CorrectedSDF,
+                    SliceTexture,
+                    SDFResolution,
+                    SliceZ,
+                    MaxDisplayDist
+                );
+
+                // 렌더 타겟에 복사
+                FRHITexture* DestRHI = RTResource->GetRenderTargetTexture();
+                if (DestRHI)
+                {
+                    FRDGTextureRef DestTexture = GraphBuilder.RegisterExternalTexture(
+                        CreateRenderTarget(DestRHI, TEXT("DestRenderTarget"))
+                    );
+                    AddCopyTexturePass(GraphBuilder, SliceTexture, DestTexture);
+                }
+            }
+
+            GraphBuilder.Execute();
+
+            UE_LOG(LogTemp, Warning, TEXT("VisualizeAllSDFSlices: Generated SDF once, visualized %d slices"), SDFResolution.Z);
+        }
+    );
+
+    UE_LOG(LogTemp, Warning, TEXT("VisualizeAllSDFSlices: Created %d slice visualizations"), Resolution);
+    return Results;
 }
 
 UTexture2D* UFleshRingSDFVisualizer::GenerateSDFSliceTexture(
