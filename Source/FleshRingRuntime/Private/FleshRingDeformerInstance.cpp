@@ -4,6 +4,7 @@
 #include "FleshRingDeformer.h"
 #include "FleshRingComponent.h"
 #include "FleshRingTightnessShader.h"
+#include "FleshRingSkinningShader.h"
 #include "Components/SkinnedMeshComponent.h"
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
@@ -66,7 +67,17 @@ void UFleshRingDeformerInstance::AllocateResources()
 
 void UFleshRingDeformerInstance::ReleaseResources()
 {
-	// Nothing to release for now
+	// Release cached TightenedBindPose buffer
+	// 캐싱된 TightenedBindPose 버퍼 해제
+	CachedTightenedBindPose.SafeRelease();
+	bTightenedBindPoseCached = false;
+	CachedTightnessLODIndex = INDEX_NONE;
+	CachedTightnessVertexCount = 0;
+
+	// Release cached source positions
+	// 캐싱된 소스 위치 해제
+	CachedSourcePositions.Empty();
+	bSourcePositionsCached = false;
 }
 
 void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
@@ -143,6 +154,16 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	{
 		bInvalidatePreviousPosition = true;
 		LastLodIndex = LODIndex;
+
+		// LOD 변경 시 TightenedBindPose 캐시 무효화
+		// Invalidate TightenedBindPose cache on LOD change
+		if (LODIndex != CachedTightnessLODIndex)
+		{
+			bTightenedBindPoseCached = false;
+			CachedTightnessLODIndex = LODIndex;
+			UE_LOG(LogFleshRing, Log, TEXT("LOD 변경 감지 (%d -> %d): TightenedBindPose 캐시 무효화"),
+				CachedTightnessLODIndex, LODIndex);
+		}
 	}
 
 	// ================================================================
@@ -232,18 +253,41 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	// 소스 버텍스 데이터를 공유 포인터로 캡처
 	TSharedPtr<TArray<float>> SourceDataPtr = MakeShared<TArray<float>>(CachedSourcePositions);
 
-	ENQUEUE_RENDER_COMMAND(FleshRingTightnessDeformer)(
-		[MeshObject, LODIndex, TotalVertexCount, SourceDataPtr, RingDispatchDataPtr, bInvalidatePreviousPosition, FallbackDelegate = InDesc.FallbackDelegate]
+	// ================================================================
+	// TightenedBindPose 캐싱 여부 결정
+	// ================================================================
+	bool bNeedTightnessCaching = !bTightenedBindPoseCached;
+	if (bNeedTightnessCaching)
+	{
+		// 낙관적으로 캐싱 완료 플래그 설정 (렌더 스레드에서 실제 캐싱)
+		bTightenedBindPoseCached = true;
+		CachedTightnessVertexCount = TotalVertexCount;
+
+		// 캐싱 전환 시점: Previous Position 무효화 (모션블러/TAA 잔상 방지)
+		// Invalidate previous position on cache transition to prevent motion blur artifacts
+		bInvalidatePreviousPosition = true;
+
+		UE_LOG(LogFleshRing, Log, TEXT("TightenedBindPose 캐싱 시작 (%d 버텍스) - Previous Position 무효화"), TotalVertexCount);
+	}
+
+	// 캐시 버퍼 포인터 캡처 (렌더 스레드에서 사용)
+	TRefCountPtr<FRDGPooledBuffer>* CachedBufferPtr = &CachedTightenedBindPose;
+
+	ENQUEUE_RENDER_COMMAND(FleshRingDeformer)(
+		[MeshObject, LODIndex, TotalVertexCount, SourceDataPtr, RingDispatchDataPtr,
+		 bInvalidatePreviousPosition, bNeedTightnessCaching, CachedBufferPtr,
+		 FallbackDelegate = InDesc.FallbackDelegate]
 		(FRHICommandListImmediate& RHICmdList)
 	{
-		// Validate LOD index before proceeding
+		// ============================================
+		// 유효성 검사
+		// ============================================
 		if (!MeshObject || LODIndex < 0)
 		{
 			FallbackDelegate.ExecuteIfBound();
 			return;
 		}
 
-		// Check if render data is valid
 		FSkeletalMeshRenderData const& RenderData = MeshObject->GetSkeletalMeshRenderData();
 		if (LODIndex >= RenderData.LODRenderData.Num())
 		{
@@ -265,10 +309,12 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			return;
 		}
 
-		// Get TightnessCS shader
-		TShaderMapRef<FFleshRingTightnessCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
-		if (!ComputeShader.IsValid())
+		const uint32 ActualNumVertices = LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
+		const uint32 ActualBufferSize = ActualNumVertices * 3;
+
+		if (TotalVertexCount != ActualNumVertices)
 		{
+			UE_LOG(LogTemp, Warning, TEXT("FleshRing: 버텍스 수 불일치 - 캐시:%d, 실제:%d"), TotalVertexCount, ActualNumVertices);
 			FallbackDelegate.ExecuteIfBound();
 			return;
 		}
@@ -280,10 +326,10 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		FRDGExternalAccessQueue ExternalAccessQueue;
 
 		// VertexFactory용 출력 버퍼 할당
-		FRDGBuffer* PositionBuffer = FSkeletalMeshDeformerHelpers::AllocateVertexFactoryPositionBuffer(
-			GraphBuilder, ExternalAccessQueue, MeshObject, LODIndex, TEXT("FleshRingTightnessPosition"));
+		FRDGBuffer* OutputPositionBuffer = FSkeletalMeshDeformerHelpers::AllocateVertexFactoryPositionBuffer(
+			GraphBuilder, ExternalAccessQueue, MeshObject, LODIndex, TEXT("FleshRingOutput"));
 
-		if (!PositionBuffer)
+		if (!OutputPositionBuffer)
 		{
 			ExternalAccessQueue.Submit(GraphBuilder);
 			GraphBuilder.Execute();
@@ -292,109 +338,164 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		}
 
 		// ============================================
-		// 실제 LOD 버텍스 수 확인 (렌더 스레드에서)
+		// 캐싱 분기: 첫 프레임 vs 이후 프레임
 		// ============================================
-		const uint32 ActualNumVertices = LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
-		const uint32 ActualBufferSize = ActualNumVertices * 3;
+		FRDGBufferRef TightenedBindPoseBuffer = nullptr;  // 공통 사용을 위해 바깥에서 선언
 
-		// 캐싱된 데이터와 실제 LOD 버텍스 수가 다르면 스킵
-		if (TotalVertexCount != ActualNumVertices)
+		if (bNeedTightnessCaching)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("FleshRing: 버텍스 수 불일치 - 캐시:%d, 실제:%d"), TotalVertexCount, ActualNumVertices);
-			ExternalAccessQueue.Submit(GraphBuilder);
-			GraphBuilder.Execute();
-			FallbackDelegate.ExecuteIfBound();
-			return;
-		}
+			// ========================================
+			// 첫 프레임: TightnessCS 실행 + 캐싱
+			// ========================================
+			UE_LOG(LogFleshRing, Log, TEXT("FleshRing: 첫 프레임 - TightnessCS 실행 및 TightenedBindPose 캐싱"));
 
-		// ============================================
-		// 소스 버텍스 버퍼 생성 및 업로드
-		// ============================================
-		FRDGBufferRef SourceBuffer = GraphBuilder.CreateBuffer(
-			FRDGBufferDesc::CreateBufferDesc(sizeof(float), ActualBufferSize),
-			TEXT("FleshRingTightness_SourcePositions")
-		);
-		GraphBuilder.QueueBufferUpload(
-			SourceBuffer,
-			SourceDataPtr->GetData(),
-			ActualBufferSize * sizeof(float),
-			ERDGInitialDataFlags::None
-		);
-
-		// 소스를 출력 버퍼에 복사 (영향 안 받는 버텍스 보존)
-		// T-Pose 테스트: 바인드 포즈를 그대로 출력 버퍼에 복사
-		AddCopyBufferPass(GraphBuilder, PositionBuffer, SourceBuffer);
-
-		// ============================================
-		// 각 Ring별 TightnessCS 디스패치
-		// ============================================
-		UE_LOG(LogTemp, Log, TEXT("FleshRing: TightnessCS 디스패치 시작 - %d개 Ring"), RingDispatchDataPtr->Num());
-
-		for (const FRingDispatchData& DispatchData : *RingDispatchDataPtr)
-		{
-			const FTightnessDispatchParams& Params = DispatchData.Params;
-
-			if (Params.NumAffectedVertices == 0)
-			{
-				continue;
-			}
-
-			UE_LOG(LogTemp, Log, TEXT("FleshRing: Ring 디스패치 - %d개 버텍스, Strength=%.2f"),
-				Params.NumAffectedVertices, Params.TightnessStrength);
-
-			// ====== 디버그: Influence 값 분석 ======
-			float MinInfluence = FLT_MAX;
-			float MaxInfluence = -FLT_MAX;
-			float SumInfluence = 0.0f;
-			for (int32 i = 0; i < DispatchData.Influences.Num(); ++i)
-			{
-				float Inf = DispatchData.Influences[i];
-				MinInfluence = FMath::Min(MinInfluence, Inf);
-				MaxInfluence = FMath::Max(MaxInfluence, Inf);
-				SumInfluence += Inf;
-			}
-			float AvgInfluence = DispatchData.Influences.Num() > 0 ? SumInfluence / DispatchData.Influences.Num() : 0.0f;
-			UE_LOG(LogTemp, Warning, TEXT("FleshRing: Influence 분석 - Min=%.4f, Max=%.4f, Avg=%.4f"),
-				MinInfluence, MaxInfluence, AvgInfluence);
-			UE_LOG(LogTemp, Warning, TEXT("FleshRing: 예상 최대 변위 = Strength(%.2f) * MaxInfluence(%.4f) = %.4f"),
-				Params.TightnessStrength, MaxInfluence, Params.TightnessStrength * MaxInfluence);
-			UE_LOG(LogTemp, Warning, TEXT("FleshRing: RingCenter=(%.2f,%.2f,%.2f), RingAxis=(%.2f,%.2f,%.2f)"),
-				Params.RingCenter.X, Params.RingCenter.Y, Params.RingCenter.Z,
-				Params.RingAxis.X, Params.RingAxis.Y, Params.RingAxis.Z);
-
-			// AffectedIndices 버퍼
-			FRDGBufferRef IndicesBuffer = GraphBuilder.CreateBuffer(
-				FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), Params.NumAffectedVertices),
-				TEXT("FleshRingTightness_AffectedIndices")
+			// 소스 버텍스 버퍼 생성 및 업로드
+			FRDGBufferRef SourceBuffer = GraphBuilder.CreateBuffer(
+				FRDGBufferDesc::CreateBufferDesc(sizeof(float), ActualBufferSize),
+				TEXT("FleshRing_SourcePositions")
 			);
 			GraphBuilder.QueueBufferUpload(
-				IndicesBuffer,
-				DispatchData.Indices.GetData(),
-				DispatchData.Indices.Num() * sizeof(uint32),
-				ERDGInitialDataFlags::None
-			);
-
-			// Influences 버퍼
-			FRDGBufferRef InfluencesBuffer = GraphBuilder.CreateBuffer(
-				FRDGBufferDesc::CreateStructuredDesc(sizeof(float), Params.NumAffectedVertices),
-				TEXT("FleshRingTightness_Influences")
-			);
-			GraphBuilder.QueueBufferUpload(
-				InfluencesBuffer,
-				DispatchData.Influences.GetData(),
-				DispatchData.Influences.Num() * sizeof(float),
-				ERDGInitialDataFlags::None
-			);
-
-			// TightnessCS 디스패치
-			DispatchFleshRingTightnessCS(
-				GraphBuilder,
-				Params,
 				SourceBuffer,
-				IndicesBuffer,
-				InfluencesBuffer,
-				PositionBuffer
+				SourceDataPtr->GetData(),
+				ActualBufferSize * sizeof(float),
+				ERDGInitialDataFlags::None
 			);
+
+			// TightenedBindPose 버퍼 생성 (영구 캐싱용)
+			TightenedBindPoseBuffer = GraphBuilder.CreateBuffer(
+				FRDGBufferDesc::CreateBufferDesc(sizeof(float), ActualBufferSize),
+				TEXT("FleshRing_TightenedBindPose")
+			);
+
+			// 소스를 TightenedBindPose에 복사 (영향 안 받는 버텍스 보존)
+			AddCopyBufferPass(GraphBuilder, TightenedBindPoseBuffer, SourceBuffer);
+
+			// 각 Ring별 TightnessCS 디스패치 (TightenedBindPose에 직접 쓰기)
+			for (const FRingDispatchData& DispatchData : *RingDispatchDataPtr)
+			{
+				const FTightnessDispatchParams& Params = DispatchData.Params;
+				if (Params.NumAffectedVertices == 0) continue;
+
+				FRDGBufferRef IndicesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), Params.NumAffectedVertices),
+					TEXT("FleshRing_AffectedIndices")
+				);
+				GraphBuilder.QueueBufferUpload(
+					IndicesBuffer,
+					DispatchData.Indices.GetData(),
+					DispatchData.Indices.Num() * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				FRDGBufferRef InfluencesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(float), Params.NumAffectedVertices),
+					TEXT("FleshRing_Influences")
+				);
+				GraphBuilder.QueueBufferUpload(
+					InfluencesBuffer,
+					DispatchData.Influences.GetData(),
+					DispatchData.Influences.Num() * sizeof(float),
+					ERDGInitialDataFlags::None
+				);
+
+				// TightnessCS: 소스 → TightenedBindPose (스키닝 없음)
+				DispatchFleshRingTightnessCS(
+					GraphBuilder,
+					Params,
+					SourceBuffer,
+					IndicesBuffer,
+					InfluencesBuffer,
+					TightenedBindPoseBuffer  // TightenedBindPose에 직접 쓰기
+				);
+			}
+
+			// TightenedBindPose를 영구 버퍼로 변환하여 캐싱
+			*CachedBufferPtr = GraphBuilder.ConvertToExternalBuffer(TightenedBindPoseBuffer);
+
+			UE_LOG(LogFleshRing, Log, TEXT("FleshRing: 첫 프레임 - TightenedBindPose 캐싱 완료, 스키닝 적용"));
+			// 첫 프레임에서도 스키닝 적용 (아래 공통 코드로 진행)
+		}
+		else
+		{
+			// 이후 프레임: 캐싱된 TightenedBindPose를 RDG에 등록
+			TightenedBindPoseBuffer = GraphBuilder.RegisterExternalBuffer(*CachedBufferPtr);
+		}
+
+		// ========================================
+		// 공통: TightenedBindPose에 스키닝 적용 (첫 프레임 + 이후 프레임)
+		// ========================================
+
+		// 캐싱된 버퍼 유효성 검사
+		if (!CachedBufferPtr->IsValid())
+		{
+			UE_LOG(LogFleshRing, Warning, TEXT("FleshRing: 캐싱된 TightenedBindPose 버퍼가 유효하지 않음"));
+			FallbackDelegate.ExecuteIfBound();
+			return;
+		}
+
+		// 웨이트 스트림 SRV 가져오기 (LOD 전체 공유)
+		const FSkinWeightVertexBuffer* WeightBuffer = LODData.GetSkinWeightVertexBuffer();
+		FRHIShaderResourceView* InputWeightStreamSRV = WeightBuffer ?
+			WeightBuffer->GetDataVertexBuffer()->GetSRV() : nullptr;
+
+		// 원본 Tangent 버퍼 SRV 가져오기 (바인드 포즈의 Normal/Tangent)
+		FRHIShaderResourceView* SourceTangentsSRV = LODData.StaticVertexBuffers.StaticMeshVertexBuffer.GetTangentsSRV();
+
+		if (!InputWeightStreamSRV)
+		{
+			UE_LOG(LogFleshRing, Warning, TEXT("FleshRing: 웨이트 스트림 SRV 없음 - TightenedBindPose 직접 복사"));
+			AddCopyBufferPass(GraphBuilder, OutputPositionBuffer, TightenedBindPoseBuffer);
+		}
+		else
+		{
+			// ========================================
+			// Optimus 방식: Position + Tangent 스키닝
+			// PF_R16G16B16A16_SNORM + GpuSkinCommon.ush
+			// ========================================
+
+			// Tangent 출력 버퍼 할당 (Optimus 방식)
+			FRDGBuffer* OutputTangentBuffer = FSkeletalMeshDeformerHelpers::AllocateVertexFactoryTangentBuffer(
+				GraphBuilder, ExternalAccessQueue, MeshObject, LODIndex, TEXT("FleshRingTangentOutput"));
+
+			const int32 NumSections = LODData.RenderSections.Num();
+			UE_LOG(LogFleshRing, Log, TEXT("FleshRing: Position+Tangent 스키닝 (%d Sections, 캐싱=%s)"),
+				NumSections, bNeedTightnessCaching ? TEXT("첫프레임") : TEXT("이후"));
+
+			for (int32 SectionIndex = 0; SectionIndex < NumSections; ++SectionIndex)
+			{
+				const FSkelMeshRenderSection& Section = LODData.RenderSections[SectionIndex];
+
+				// 이 Section의 BoneMatrices SRV 가져오기
+				FRHIShaderResourceView* BoneMatricesSRV = FSkeletalMeshDeformerHelpers::GetBoneBufferForReading(
+					MeshObject, LODIndex, SectionIndex, false);
+
+				if (!BoneMatricesSRV)
+				{
+					UE_LOG(LogFleshRing, Warning, TEXT("FleshRing: Section %d - BoneMatrices SRV 없음, 스킵"), SectionIndex);
+					continue;
+				}
+
+				// 스키닝 파라미터 설정 (Section별)
+				FSkinningDispatchParams SkinParams;
+				SkinParams.BaseVertexIndex = Section.BaseVertexIndex;
+				SkinParams.NumVertices = Section.NumVertices;
+				SkinParams.InputWeightStride = WeightBuffer->GetConstantInfluencesVertexStride();
+				SkinParams.InputWeightIndexSize = WeightBuffer->GetBoneIndexByteSize() |
+					(WeightBuffer->GetBoneWeightByteSize() << 8);
+				SkinParams.NumBoneInfluences = WeightBuffer->GetMaxBoneInfluences();
+
+				// SkinningCS 디스패치: Position + Tangent 처리
+				DispatchFleshRingSkinningCS(
+					GraphBuilder,
+					SkinParams,
+					TightenedBindPoseBuffer,
+					SourceTangentsSRV,
+					OutputPositionBuffer,
+					OutputTangentBuffer,  // Optimus 방식으로 할당된 탄젠트 버퍼
+					BoneMatricesSRV,
+					InputWeightStreamSRV
+				);
+			}
 		}
 
 		// ============================================
@@ -409,5 +510,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 
 EMeshDeformerOutputBuffer UFleshRingDeformerInstance::GetOutputBuffers() const
 {
-	return EMeshDeformerOutputBuffer::SkinnedMeshPosition;
+	// Optimus 방식 적용: Position + Tangents 출력
+	// PF_R16G16B16A16_SNORM format with GpuSkinCommon.ush macros
+	return EMeshDeformerOutputBuffer::SkinnedMeshPosition | EMeshDeformerOutputBuffer::SkinnedMeshTangents;
 }

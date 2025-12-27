@@ -70,4 +70,25 @@ private:
 	// 캐시된 버텍스 데이터 (RDG 업로드용)
 	TArray<float> CachedSourcePositions;
 	bool bSourcePositionsCached = false;
+
+	// ===== TightenedBindPose Caching =====
+	// TightenedBindPose 캐싱
+
+	// Permanent GPU buffer: TightenedBindPose (survives RDG frame end)
+	// Using TRefCountPtr<FRDGPooledBuffer> for RDG compatibility
+	// 영구 GPU 버퍼: TightenedBindPose (RDG 프레임 종료 후에도 유지)
+	// RDG 호환을 위해 TRefCountPtr<FRDGPooledBuffer> 사용
+	TRefCountPtr<FRDGPooledBuffer> CachedTightenedBindPose;
+
+	// Cache completion flag
+	// 캐싱 완료 플래그
+	bool bTightenedBindPoseCached = false;
+
+	// Cached LOD index (invalidate cache on LOD change)
+	// 캐싱된 LOD 인덱스 (LOD 변경 시 캐시 무효화)
+	int32 CachedTightnessLODIndex = INDEX_NONE;
+
+	// Cached vertex count for validation
+	// 검증용 캐싱된 버텍스 수
+	uint32 CachedTightnessVertexCount = 0;
 };
