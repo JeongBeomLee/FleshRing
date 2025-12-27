@@ -335,10 +335,10 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 		FLinearColor GizmoColor;
 		if (i == SelectedIndex)
 		{
-			// 선택된 Ring: Gizmo=노랑, Mesh=주황
+			// 선택된 Ring: Gizmo=노랑, Mesh=마젠타
 			GizmoColor = (SelectionType == EFleshRingSelectionType::Gizmo)
 				? FLinearColor::Yellow
-				: FLinearColor(1.0f, 0.6f, 0.0f, 1.0f); // 주황 (Mesh 선택 시)
+				: FLinearColor(1.0f, 0.0f, 1.0f, 1.0f); // 마젠타 (Mesh 선택 시)
 		}
 		else
 		{
