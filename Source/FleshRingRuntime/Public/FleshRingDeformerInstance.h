@@ -75,10 +75,10 @@ private:
 	// TightenedBindPose 캐싱
 
 	// Permanent GPU buffer: TightenedBindPose (survives RDG frame end)
-	// Using TRefCountPtr<FRDGPooledBuffer> for RDG compatibility
+	// Using TSharedPtr wrapper for thread-safe sharing with render thread
+	// DeformerInstance 파괴 후에도 렌더 스레드에서 안전하게 접근 가능
 	// 영구 GPU 버퍼: TightenedBindPose (RDG 프레임 종료 후에도 유지)
-	// RDG 호환을 위해 TRefCountPtr<FRDGPooledBuffer> 사용
-	TRefCountPtr<FRDGPooledBuffer> CachedTightenedBindPose;
+	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedTightenedBindPoseShared;
 
 	// Cache completion flag
 	// 캐싱 완료 플래그

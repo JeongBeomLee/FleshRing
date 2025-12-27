@@ -43,13 +43,7 @@ void UFleshRingDeformerInstance::SetupFromDeformer(UFleshRingDeformer* InDeforme
 				bAffectedVerticesRegistered = AffectedVerticesManager.RegisterAffectedVertices(
 					FleshRingComponent.Get(), SkelMesh);
 
-				if (bAffectedVerticesRegistered)
-				{
-					UE_LOG(LogFleshRing, Log, TEXT("AffectedVertices 등록 완료: %d개 Ring, 총 %d개 버텍스"),
-						AffectedVerticesManager.GetAllRingData().Num(),
-						AffectedVerticesManager.GetTotalAffectedCount());
-				}
-				else
+				if (!bAffectedVerticesRegistered)
 				{
 					UE_LOG(LogFleshRing, Warning, TEXT("AffectedVertices 등록 실패"));
 				}
@@ -71,7 +65,12 @@ void UFleshRingDeformerInstance::ReleaseResources()
 {
 	// Release cached TightenedBindPose buffer
 	// 캐싱된 TightenedBindPose 버퍼 해제
-	CachedTightenedBindPose.SafeRelease();
+	// Note: TSharedPtr 내부의 TRefCountPtr만 해제하고, TSharedPtr 자체는 유지
+	// 렌더 스레드에서 아직 참조 중일 수 있으므로 reset하지 않음
+	if (CachedTightenedBindPoseShared.IsValid())
+	{
+		CachedTightenedBindPoseShared->SafeRelease();
+	}
 	bTightenedBindPoseCached = false;
 	CachedTightnessLODIndex = INDEX_NONE;
 	CachedTightnessVertexCount = 0;
@@ -177,8 +176,6 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		{
 			bTightenedBindPoseCached = false;
 			CachedTightnessLODIndex = LODIndex;
-			UE_LOG(LogFleshRing, Log, TEXT("LOD 변경 감지 (%d -> %d): TightenedBindPose 캐시 무효화"),
-				CachedTightnessLODIndex, LODIndex);
 		}
 	}
 
@@ -206,8 +203,6 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 					CachedSourcePositions[i * 3 + 2] = Pos.Z;
 				}
 				bSourcePositionsCached = true;
-
-				UE_LOG(LogFleshRing, Log, TEXT("소스 버텍스 캐싱 완료: %d개"), NumVerts);
 			}
 		}
 	}
@@ -268,7 +263,12 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		bTightenedBindPoseCached = true;
 		CachedTightnessVertexCount = TotalVertexCount;
 		bInvalidatePreviousPosition = true;
-		UE_LOG(LogFleshRing, Log, TEXT("TightenedBindPose 캐싱 시작 (%d 버텍스)"), TotalVertexCount);
+
+		// TSharedPtr 생성 (첫 캐싱 시)
+		if (!CachedTightenedBindPoseShared.IsValid())
+		{
+			CachedTightenedBindPoseShared = MakeShared<TRefCountPtr<FRDGPooledBuffer>>();
+		}
 	}
 
 	// 작업 아이템 생성
@@ -281,7 +281,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	WorkItem.RingDispatchDataPtr = RingDispatchDataPtr;
 	WorkItem.bNeedTightnessCaching = bNeedTightnessCaching;
 	WorkItem.bInvalidatePreviousPosition = bInvalidatePreviousPosition;
-	WorkItem.CachedBufferPtr = &CachedTightenedBindPose;
+	WorkItem.CachedBufferSharedPtr = CachedTightenedBindPoseShared;  // TSharedPtr 복사 (ref count 증가)
 	WorkItem.FallbackDelegate = InDesc.FallbackDelegate;
 
 	// 렌더 스레드에서 Worker에 작업 큐잉

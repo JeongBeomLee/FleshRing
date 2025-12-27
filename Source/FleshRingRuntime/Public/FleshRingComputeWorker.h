@@ -39,7 +39,8 @@ struct FFleshRingWorkItem
 	bool bInvalidatePreviousPosition = false;
 
 	// 캐시 버퍼 (렌더 스레드에서 접근)
-	TRefCountPtr<FRDGPooledBuffer>* CachedBufferPtr = nullptr;
+	// TSharedPtr로 래핑하여 DeformerInstance 파괴 후에도 안전하게 접근 가능
+	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedBufferSharedPtr;
 
 	// Fallback 델리게이트
 	FSimpleDelegate FallbackDelegate;

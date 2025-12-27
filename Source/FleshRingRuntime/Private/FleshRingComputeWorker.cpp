@@ -27,12 +27,10 @@ bool FFleshRingComputeSystem::bIsRegistered = false;
 FFleshRingComputeWorker::FFleshRingComputeWorker(FSceneInterface const* InScene)
 	: Scene(InScene)
 {
-	UE_LOG(LogFleshRingWorker, Log, TEXT("FleshRingComputeWorker 생성됨 (Scene=%p)"), InScene);
 }
 
 FFleshRingComputeWorker::~FFleshRingComputeWorker()
 {
-	UE_LOG(LogFleshRingWorker, Log, TEXT("FleshRingComputeWorker 소멸됨"));
 }
 
 bool FFleshRingComputeWorker::HasWork(FName InExecutionGroupName) const
@@ -67,9 +65,6 @@ void FFleshRingComputeWorker::SubmitWork(FComputeContext& Context)
 	{
 		return;
 	}
-
-	UE_LOG(LogFleshRingWorker, Log, TEXT("FleshRingComputeWorker::SubmitWork - %d개 작업 처리"),
-		WorkItemsToProcess.Num());
 
 	// MeshDeformer 단계 대기 - 이것이 핵심!
 	// UpdatedFrameNumber가 올바르게 설정된 후 실행되도록 보장
@@ -170,8 +165,6 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 
 	if (WorkItem.bNeedTightnessCaching)
 	{
-		UE_LOG(LogFleshRingWorker, Log, TEXT("FleshRing: 첫 프레임 - TightnessCS 실행"));
-
 		// 소스 버퍼 생성
 		FRDGBufferRef SourceBuffer = GraphBuilder.CreateBuffer(
 			FRDGBufferDesc::CreateBufferDesc(sizeof(float), ActualBufferSize),
@@ -235,17 +228,17 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 		}
 
 		// 영구 버퍼로 변환하여 캐싱
-		if (WorkItem.CachedBufferPtr)
+		if (WorkItem.CachedBufferSharedPtr.IsValid())
 		{
-			*WorkItem.CachedBufferPtr = GraphBuilder.ConvertToExternalBuffer(TightenedBindPoseBuffer);
+			*WorkItem.CachedBufferSharedPtr = GraphBuilder.ConvertToExternalBuffer(TightenedBindPoseBuffer);
 		}
 	}
 	else
 	{
 		// 캐싱된 버퍼 사용
-		if (WorkItem.CachedBufferPtr && WorkItem.CachedBufferPtr->IsValid())
+		if (WorkItem.CachedBufferSharedPtr.IsValid() && WorkItem.CachedBufferSharedPtr->IsValid())
 		{
-			TightenedBindPoseBuffer = GraphBuilder.RegisterExternalBuffer(*WorkItem.CachedBufferPtr);
+			TightenedBindPoseBuffer = GraphBuilder.RegisterExternalBuffer(*WorkItem.CachedBufferSharedPtr);
 		}
 		else
 		{
@@ -324,8 +317,6 @@ void FFleshRingComputeSystem::CreateWorkers(FSceneInterface const* InScene, TArr
 	FFleshRingComputeWorker* Worker = new FFleshRingComputeWorker(InScene);
 	SceneWorkers.Add(InScene, Worker);
 	OutWorkers.Add(Worker);
-
-	UE_LOG(LogFleshRingWorker, Log, TEXT("FleshRingComputeSystem: Worker 생성됨 (Scene=%p)"), InScene);
 }
 
 void FFleshRingComputeSystem::DestroyWorkers(FSceneInterface const* InScene, TArray<IComputeTaskWorker*>& InOutWorkers)
@@ -339,8 +330,6 @@ void FFleshRingComputeSystem::DestroyWorkers(FSceneInterface const* InScene, TAr
 		InOutWorkers.Remove(Worker);
 		delete Worker;
 		SceneWorkers.Remove(InScene);
-
-		UE_LOG(LogFleshRingWorker, Log, TEXT("FleshRingComputeSystem: Worker 제거됨 (Scene=%p)"), InScene);
 	}
 }
 
@@ -358,7 +347,6 @@ void FFleshRingComputeSystem::Register()
 	{
 		ComputeSystemInterface::RegisterSystem(&Get());
 		bIsRegistered = true;
-		UE_LOG(LogFleshRingWorker, Log, TEXT("FleshRingComputeSystem 등록됨"));
 	}
 }
 
@@ -374,6 +362,5 @@ void FFleshRingComputeSystem::Unregister()
 			delete Instance;
 			Instance = nullptr;
 		}
-		UE_LOG(LogFleshRingWorker, Log, TEXT("FleshRingComputeSystem 해제됨"));
 	}
 }
