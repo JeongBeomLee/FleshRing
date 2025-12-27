@@ -1,46 +1,155 @@
 // Purpose: Pull vertices toward Ring center axis (Tightness effect)
+// 목적: 버텍스를 링 중심축 방향으로 안쪽으로 당김 (조이기 효과)
 // This shader processes only AffectedVertices (not all mesh vertices) for performance optimization.
+// 성능 최적화를 위해 영향받는 버텍스만 처리 (전체 메시 버텍스 X)
 
 #include "/Engine/Public/Platform.ush"
+#include "/Engine/Private/GpuSkinCommon.ush"
 
-// Input: All mesh vertex positions
-// 메시의 원본 정점 위치
+// ============================================================================
+// Buffer Declarations
+// 버퍼 선언
+// ============================================================================
+
+// Input: All mesh vertex positions (bind pose component space)
+// 입력: 메시의 원본 정점 위치 (바인드 포즈 컴포넌트 스페이스)
 Buffer<float> SourcePositions;
 
 // Input: Indices of affected vertices to process
-// 영향받는 정점 인덱스
+// 입력: 처리할 영향받는 정점 인덱스
 StructuredBuffer<uint> AffectedIndices;
 
 // Input: Per-vertex influence weights (0-1, from falloff calculation)
-// 영향받는 정점의 영향도 (0~1)
+// 입력: 정점별 영향도 (0~1, 감쇠 계산에서 산출)
 StructuredBuffer<float> Influences;
 
 // Output: Deformed vertex positions
-// 변형된 정점
+// 출력: 변형된 정점 위치
 RWBuffer<float> OutputPositions;
 
-// Ring parameters
-float3 RingCenter;          // 링 중심
-float3 RingAxis;
-float TightnessStrength;
-float RingRadius;
-float RingWidth;
+// ============================================================================
+// Skinning Data (from GpuSkinCommon.ush pattern)
+// 스키닝 데이터 (GpuSkinCommon.ush 패턴)
+// ============================================================================
 
+// Bone matrices buffer (3 float4 per bone = 3x4 matrix)
+// 본 행렬 버퍼 (본당 3개의 float4 = 3x4 행렬)
+Buffer<float4> BoneMatrices;
+
+// Packed bone indices + weights (LOD-wide)
+// 패킹된 본 인덱스 + 웨이트 (LOD 전체)
+Buffer<uint> InputWeightStream;
+
+// Skinning parameters
+// 스키닝 파라미터
+uint InputWeightStride;     // Stride in bytes / 바이트 단위 스트라이드
+uint InputWeightIndexSize;  // BoneIndexByteSize | (BoneWeightByteSize << 8)
+uint NumBoneInfluences;     // Number of bone influences per vertex / 버텍스당 본 영향 수
+
+// Flag to enable/disable skinning (0 = bind pose, 1 = skinned)
+// 스키닝 활성화 플래그 (0 = 바인드 포즈, 1 = 스키닝 적용)
+uint bEnableSkinning;
+
+// ============================================================================
+// Ring Parameters
+// 링 파라미터
+// ============================================================================
+
+float3 RingCenter;          // Ring center position (component space)
+                            // 링 중심 위치 (컴포넌트 스페이스)
+float3 RingAxis;            // Ring axis direction (normalized)
+                            // 링 축 방향 (정규화됨)
+float TightnessStrength;    // Tightness deformation strength
+                            // 조이기 변형 강도
+float RingRadius;           // Ring inner radius
+                            // 링 내부 반지름
+float RingWidth;            // Ring height along axis
+                            // 링 높이 (축 방향)
+
+// ============================================================================
 // Counts
-uint NumAffectedVertices;
-uint NumTotalVertices;
+// 버텍스 수
+// ============================================================================
+
+uint NumAffectedVertices;   // Number of affected vertices to process
+                            // 처리할 영향받는 버텍스 수
+uint NumTotalVertices;      // Total mesh vertex count (for bounds check)
+                            // 전체 메시 버텍스 수 (범위 체크용)
 
 // Thread Group Size
 #ifndef THREADGROUP_SIZE
 #define THREADGROUP_SIZE 64
 #endif
 
-// [삭제됨] FALLOFF_TYPE과 CalculateFalloff 함수
-// Influence 값은 CPU에서 FalloffType에 따라 미리 계산되어 Influences 버퍼로 전달됨
-// GPU는 전달받은 Influence 값을 그대로 사용
+// ============================================================================
+// Skinning Helper Functions (from FleshRingWave.usf)
+// 스키닝 헬퍼 함수 (FleshRingWave.usf에서 가져옴)
+// ============================================================================
 
-// ==== Helper Functions ====
+// Get bone matrix from buffer (3 float4 = 3x4 matrix)
+// 버퍼에서 본 행렬 가져오기 (3 float4 = 3x4 행렬)
+float3x4 GetBoneMatrix(uint BoneIndex)
+{
+    uint BufferIndex = BoneIndex * 3;
+    return float3x4(
+        BoneMatrices[BufferIndex],
+        BoneMatrices[BufferIndex + 1],
+        BoneMatrices[BufferIndex + 2]
+    );
+}
+
+// Transform position by 3x4 matrix
+// 3x4 행렬로 위치 변환
+float3 TransformByMatrix(float3x4 Matrix, float3 Position)
+{
+    float4 Pos4 = float4(Position, 1.0f);
+    return float3(
+        dot(Matrix[0], Pos4),
+        dot(Matrix[1], Pos4),
+        dot(Matrix[2], Pos4)
+    );
+}
+
+// Compute blended skinning matrix for a vertex
+// 버텍스의 블렌딩된 스키닝 행렬 계산
+float3x4 ComputeSkinnedMatrix(uint VertexIndex)
+{
+    // Calculate stream offset for this vertex
+    // 이 버텍스의 스트림 오프셋 계산
+    uint StreamOffset = VertexIndex * (InputWeightStride / 4);
+
+    // Initialize indices and weights
+    // 인덱스와 웨이트 초기화
+    FGPUSkinIndexAndWeight IndicesAndWeights = (FGPUSkinIndexAndWeight)0;
+
+    // Get first 4 bone influences
+    // 첫 4개 본 영향 가져오기
+    if (NumBoneInfluences > 0)
+    {
+        IndicesAndWeights.BlendIndices = GetBlendIndices(InputWeightStream, StreamOffset, 0);
+        IndicesAndWeights.BlendWeights = GetBlendWeights(InputWeightStream, StreamOffset, 0, NumBoneInfluences);
+    }
+
+    // Get additional 4 bone influences (if 8-bone skinning)
+    // 추가 4개 본 영향 가져오기 (8본 스키닝인 경우)
+    if (NumBoneInfluences > 4)
+    {
+        IndicesAndWeights.BlendIndices2 = GetBlendIndices(InputWeightStream, StreamOffset, 1);
+        IndicesAndWeights.BlendWeights2 = GetBlendWeights(InputWeightStream, StreamOffset, 1, NumBoneInfluences);
+    }
+
+    // Compute blended bone matrix
+    // 블렌딩된 본 행렬 계산
+    return ComputeBoneMatrixWithLimitedInfluences(BoneMatrices, IndicesAndWeights, NumBoneInfluences > 4);
+}
+
+// ============================================================================
+// Position Read/Write Helper Functions
+// 위치 읽기/쓰기 헬퍼 함수
+// ============================================================================
+
 // Read vertex position from buffer (3 floats per vertex)
+// 버퍼에서 버텍스 위치 읽기 (버텍스당 3 float)
 float3 ReadPosition(uint VertexIndex)
 {
     uint BaseIndex = VertexIndex * 3;
@@ -52,6 +161,7 @@ float3 ReadPosition(uint VertexIndex)
 }
 
 // Write vertex position to buffer (3 floats per vertex)
+// 버퍼에 버텍스 위치 쓰기 (버텍스당 3 float)
 void WritePosition(uint VertexIndex, float3 Pos)
 {
     uint BaseIndex = VertexIndex * 3;
@@ -60,12 +170,19 @@ void WritePosition(uint VertexIndex, float3 Pos)
     OutputPositions[BaseIndex + 2] = Pos.z;
 }
 
+// ============================================================================
+// Tightness Deformation Function
+// 조이기 변형 함수
+// ============================================================================
+
 // [FLEXIBLE] Deformation Formula
 // This function can be modified to implement different deformation algorithms
 // (e.g., volume-preserving deformation based on research papers)
-//
+// 이 함수는 다양한 변형 알고리즘으로 수정 가능
+// (예: 부피 보존 변형, 라플라시안 제약 등)
+
 // Current implementation: Simple radial inward displacement
-// Future: Can add volume preservation, Laplacian constraints, etc.
+// 현재 구현: 단순 반경 방향 내부 변위
 float3 ApplyTightnessDeformation(
     float3 Pos,
     float3 Center,
@@ -73,35 +190,49 @@ float3 ApplyTightnessDeformation(
     float Influence,
     float Strength)
 {
-    // ring center to vertex
+    // Ring center to vertex
+    // 링 중심에서 버텍스까지
     float3 ToVertex = Pos - Center;
 
     // Project onto ring axis to find axial distance
+    // 축에 투영하여 축 방향 거리 계산
     float AxisDist = dot(ToVertex, Axis);
 
     // Calculate radial vector (perpendicular to axis)
+    // 반경 벡터 계산 (축에 수직)
     float3 RadialVec = ToVertex - Axis * AxisDist;
     float RadialDist = length(RadialVec);
 
     // Safety check for vertices on the axis
+    // 축 위에 있는 버텍스 안전 체크
     if (RadialDist < 0.001)
     {
         return Pos;
     }
 
     // Calculate inward direction (toward ring axis)
+    // 안쪽 방향 계산 (링 축을 향해)
     float3 InwardDir = -RadialVec / RadialDist;
 
     // [CHANGEABLE] Calculate displacement amount
     // Current: Linear displacement based on strength and influence
     // Future: Can be modified for volume preservation
+    // [변경 가능] 변위량 계산
+    // 현재: 강도와 영향도 기반 선형 변위
+    // 미래: 부피 보존용으로 수정 가능
     float Displacement = Strength * Influence;
 
     // Apply inward displacement
+    // 안쪽 변위 적용
     float3 NewPos = Pos + InwardDir * Displacement;
 
     return NewPos;
 }
+
+// ============================================================================
+// Main Compute Shader
+// 메인 컴퓨트 셰이더
+// ============================================================================
 
 [numthreads(THREADGROUP_SIZE, 1, 1)]
 void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
@@ -109,37 +240,69 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     uint ThreadIndex = DispatchThreadId.x;
 
     // Bounds check: Only process affected vertices
+    // 범위 체크: 영향받는 버텍스만 처리
     if (ThreadIndex >= NumAffectedVertices)
     {
         return;
     }
 
     // Get the actual vertex index from AffectedIndices buffer
+    // AffectedIndices 버퍼에서 실제 버텍스 인덱스 가져오기
     uint VertexIndex = AffectedIndices[ThreadIndex];
 
     // Safety check: Ensure vertex index is valid
+    // 안전 체크: 버텍스 인덱스 유효성 확인
     if (VertexIndex >= NumTotalVertices)
     {
         return;
     }
 
     // Get pre-calculated influence for this vertex
+    // 이 버텍스의 미리 계산된 영향도 가져오기
     float Influence = Influences[ThreadIndex];
 
-    // Skip if influence is negligible
+    // Read bind pose position (bind pose component space)
+    // 바인드 포즈 위치 읽기 (바인드 포즈 컴포넌트 스페이스)
+    float3 BindPos = ReadPosition(VertexIndex);
+
+    // ========================================
+    // Step 1: Apply GPU Skinning (if enabled)
+    // 1단계: GPU 스키닝 적용 (활성화된 경우)
+    // ========================================
+    float3 Pos;
+    if (bEnableSkinning != 0)
+    {
+        // Apply skinning: BindPos → SkinnedPos (animated component space)
+        // 스키닝 적용: 바인드 포즈 → 스킨된 포즈 (애니메이션된 컴포넌트 스페이스)
+        float3x4 SkinMatrix = ComputeSkinnedMatrix(VertexIndex);
+        Pos = TransformByMatrix(SkinMatrix, BindPos);
+    }
+    else
+    {
+        // No skinning: use bind pose directly
+        // 스키닝 없음: 바인드 포즈 직접 사용
+        Pos = BindPos;
+    }
+
+    // Skip tightness if influence is negligible
+    // 영향도가 미미하면 tightness 스킵
     if (Influence < 0.001)
     {
-        // Copy source position unchanged
-        float3 Pos = ReadPosition(VertexIndex);
         WritePosition(VertexIndex, Pos);
         return;
     }
 
-    // Read source position
-    float3 Pos = ReadPosition(VertexIndex);
+    // ========================================
+    // Step 2: Apply Tightness Deformation
+    // 2단계: 조이기 변형 적용
+    // ========================================
+    // Note: RingCenter and RingAxis should be in the same space as Pos
+    // - When bEnableSkinning=0: bind pose component space
+    // - When bEnableSkinning=1: animated component space (current frame bone transform)
+    // 참고: RingCenter와 RingAxis는 Pos와 같은 스페이스여야 함
+    // - bEnableSkinning=0일 때: 바인드 포즈 컴포넌트 스페이스
+    // - bEnableSkinning=1일 때: 애니메이션된 컴포넌트 스페이스 (현재 프레임 본 트랜스폼)
 
-    // Apply tightness deformation
-    // [FLEXIBLE] This function call can be replaced with different algorithms
     float3 NewPos = ApplyTightnessDeformation(
         Pos,
         RingCenter,
@@ -148,6 +311,9 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         TightnessStrength
     );
 
-    // Write deformed position
+    // ========================================
+    // Step 3: Write Output
+    // 3단계: 출력 쓰기
+    // ========================================
     WritePosition(VertexIndex, NewPos);
 }

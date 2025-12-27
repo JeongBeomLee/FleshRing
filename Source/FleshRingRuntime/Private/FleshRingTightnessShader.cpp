@@ -59,29 +59,52 @@ void DispatchFleshRingTightnessCS(
     FFleshRingTightnessCS::FParameters* PassParameters =
         GraphBuilder.AllocParameters<FFleshRingTightnessCS::FParameters>();
 
-    // ===== Bind buffers =====
-    // ===== 버퍼 바인딩 =====
-
-    // Create SRV (Read Only)
-    // SRV 생성 (읽기 전용)
+    // ===== Bind input buffers (SRV) =====
+    // ===== 입력 버퍼 바인딩 (SRV) =====
     PassParameters->SourcePositions = GraphBuilder.CreateSRV(SourcePositionsBuffer, PF_R32_FLOAT);
     PassParameters->AffectedIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
     PassParameters->Influences = GraphBuilder.CreateSRV(InfluencesBuffer);
 
-    // Create UAV (Read and Write)
-    // UAV 생성 (읽기/쓰기)
+    // ===== Bind output buffer (UAV) =====
+    // ===== 출력 버퍼 바인딩 (UAV) =====
     PassParameters->OutputPositions = GraphBuilder.CreateUAV(OutputPositionsBuffer, PF_R32_FLOAT);
 
-    // Set ring parameters
-    // 링 파라미터 설정
+    // ===== Skinning disabled (bind pose mode) =====
+    // ===== 스키닝 비활성화 (바인드 포즈 모드) =====
+    // Note: RDG requires valid SRV bindings with uploaded data even for unused resources
+    // RDG는 사용하지 않는 리소스도 데이터가 업로드된 유효한 SRV 바인딩이 필요함
+    static const float DummyBoneMatrixData[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    static const uint32 DummyWeightData = 0;
+
+    FRDGBufferRef DummyBoneMatricesBuffer = GraphBuilder.CreateBuffer(
+        FRDGBufferDesc::CreateBufferDesc(sizeof(float) * 4, 1),
+        TEXT("FleshRingTightness_DummyBoneMatrices")
+    );
+    GraphBuilder.QueueBufferUpload(DummyBoneMatricesBuffer, DummyBoneMatrixData, sizeof(DummyBoneMatrixData), ERDGInitialDataFlags::None);
+
+    FRDGBufferRef DummyWeightStreamBuffer = GraphBuilder.CreateBuffer(
+        FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), 1),
+        TEXT("FleshRingTightness_DummyWeightStream")
+    );
+    GraphBuilder.QueueBufferUpload(DummyWeightStreamBuffer, &DummyWeightData, sizeof(DummyWeightData), ERDGInitialDataFlags::None);
+
+    PassParameters->BoneMatrices = GraphBuilder.CreateSRV(DummyBoneMatricesBuffer, PF_A32B32G32R32F);
+    PassParameters->InputWeightStream = GraphBuilder.CreateSRV(DummyWeightStreamBuffer, PF_R32_UINT);
+    PassParameters->InputWeightStride = 0;
+    PassParameters->InputWeightIndexSize = 0;
+    PassParameters->NumBoneInfluences = 0;
+    PassParameters->bEnableSkinning = 0;
+
+    // ===== Ring parameters =====
+    // ===== 링 파라미터 =====
     PassParameters->RingCenter = Params.RingCenter;
     PassParameters->RingAxis = Params.RingAxis;
     PassParameters->TightnessStrength = Params.TightnessStrength;
     PassParameters->RingRadius = Params.RingRadius;
     PassParameters->RingWidth = Params.RingWidth;
 
-    // Set counts
-    // 버텍스 수 설정
+    // ===== Counts =====
+    // ===== 버텍스 수 =====
     PassParameters->NumAffectedVertices = Params.NumAffectedVertices;
     PassParameters->NumTotalVertices = Params.NumTotalVertices;
 
@@ -101,7 +124,91 @@ void DispatchFleshRingTightnessCS(
         RDG_EVENT_NAME("FleshRingTightnessCS"),
         ComputeShader,
         PassParameters,
-        FIntVector(static_cast<int32>(NumGroups), 1, 1) // Dispatch(NumGroups, 1, 1)
+        FIntVector(static_cast<int32>(NumGroups), 1, 1)
+    );
+}
+
+// ============================================================================
+// Dispatch with GPU Skinning (animated mode)
+// GPU 스키닝 포함 디스패치 (애니메이션 모드)
+// ============================================================================
+
+void DispatchFleshRingTightnessCS_WithSkinning(
+    FRDGBuilder& GraphBuilder,
+    const FTightnessDispatchParams& Params,
+    FRDGBufferRef SourcePositionsBuffer,
+    FRDGBufferRef AffectedIndicesBuffer,
+    FRDGBufferRef InfluencesBuffer,
+    FRDGBufferRef OutputPositionsBuffer,
+    FRDGBufferRef BoneMatricesBuffer,
+    FRDGBufferRef InputWeightStreamBuffer)
+{
+    // Early out if no vertices to process
+    // 처리할 버텍스가 없으면 조기 반환
+    if (Params.NumAffectedVertices == 0)
+    {
+        return;
+    }
+
+    // Allocate shader parameters
+    // 셰이더 파라미터 할당
+    FFleshRingTightnessCS::FParameters* PassParameters =
+        GraphBuilder.AllocParameters<FFleshRingTightnessCS::FParameters>();
+
+    // ===== Bind input buffers (SRV) =====
+    // ===== 입력 버퍼 바인딩 (SRV) =====
+    PassParameters->SourcePositions = GraphBuilder.CreateSRV(SourcePositionsBuffer, PF_R32_FLOAT);
+    PassParameters->AffectedIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
+    PassParameters->Influences = GraphBuilder.CreateSRV(InfluencesBuffer);
+
+    // ===== Bind output buffer (UAV) =====
+    // ===== 출력 버퍼 바인딩 (UAV) =====
+    PassParameters->OutputPositions = GraphBuilder.CreateUAV(OutputPositionsBuffer, PF_R32_FLOAT);
+
+    // ===== Bind skinning buffers (SRV) =====
+    // ===== 스키닝 버퍼 바인딩 (SRV) =====
+    // BoneMatrices: RefToLocal 행렬 (본당 3개 float4)
+    // [Bind Pose Component Space] → [Animated Component Space]
+    PassParameters->BoneMatrices = GraphBuilder.CreateSRV(BoneMatricesBuffer, PF_A32B32G32R32F);
+    PassParameters->InputWeightStream = GraphBuilder.CreateSRV(InputWeightStreamBuffer, PF_R32_UINT);
+
+    // ===== Skinning parameters =====
+    // ===== 스키닝 파라미터 =====
+    PassParameters->InputWeightStride = Params.InputWeightStride;
+    PassParameters->InputWeightIndexSize = Params.InputWeightIndexSize;
+    PassParameters->NumBoneInfluences = Params.NumBoneInfluences;
+    PassParameters->bEnableSkinning = Params.bEnableSkinning;
+
+    // ===== Ring parameters (animated component space) =====
+    // ===== 링 파라미터 (애니메이션된 컴포넌트 스페이스) =====
+    PassParameters->RingCenter = Params.RingCenter;
+    PassParameters->RingAxis = Params.RingAxis;
+    PassParameters->TightnessStrength = Params.TightnessStrength;
+    PassParameters->RingRadius = Params.RingRadius;
+    PassParameters->RingWidth = Params.RingWidth;
+
+    // ===== Counts =====
+    // ===== 버텍스 수 =====
+    PassParameters->NumAffectedVertices = Params.NumAffectedVertices;
+    PassParameters->NumTotalVertices = Params.NumTotalVertices;
+
+    // Get shader reference
+    // 셰이더 참조 가져오기
+    TShaderMapRef<FFleshRingTightnessCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+
+    // Calculate dispatch groups
+    // 디스패치 그룹 수 계산
+    const uint32 ThreadGroupSize = 64;
+    const uint32 NumGroups = FMath::DivideAndRoundUp(Params.NumAffectedVertices, ThreadGroupSize);
+
+    // Add compute pass to RDG
+    // RDG에 컴퓨트 패스 추가
+    FComputeShaderUtils::AddPass(
+        GraphBuilder,
+        RDG_EVENT_NAME("FleshRingTightnessCS_Skinned"),
+        ComputeShader,
+        PassParameters,
+        FIntVector(static_cast<int32>(NumGroups), 1, 1)
     );
 }
 
