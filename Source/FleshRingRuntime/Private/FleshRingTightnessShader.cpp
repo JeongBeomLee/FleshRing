@@ -45,7 +45,8 @@ void DispatchFleshRingTightnessCS(
     FRDGBufferRef SourcePositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
-    FRDGBufferRef OutputPositionsBuffer)
+    FRDGBufferRef OutputPositionsBuffer,
+    FRDGTextureRef SDFTexture)
 {
     // Early out if no vertices to process
     // 처리할 버텍스가 없으면 조기 반환
@@ -108,6 +109,37 @@ void DispatchFleshRingTightnessCS(
     PassParameters->NumAffectedVertices = Params.NumAffectedVertices;
     PassParameters->NumTotalVertices = Params.NumTotalVertices;
 
+    // ===== SDF Parameters =====
+    // ===== SDF 파라미터 =====
+    // SDFTexture가 유효하면 SDF Auto 모드, nullptr이면 Manual 모드
+    if (SDFTexture)
+    {
+        PassParameters->SDFTexture = GraphBuilder.CreateSRV(SDFTexture);
+        PassParameters->SDFSampler = TStaticSamplerState<SF_Trilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+        PassParameters->SDFBoundsMin = Params.SDFBoundsMin;
+        PassParameters->SDFBoundsMax = Params.SDFBoundsMax;
+        PassParameters->bUseSDFInfluence = 1;
+    }
+    else
+    {
+        // Manual 모드: Dummy SDF 텍스처 바인딩 (RDG 요구사항 - 모든 파라미터 바인딩 필수)
+        FRDGTextureDesc DummySDFDesc = FRDGTextureDesc::Create3D(
+            FIntVector(1, 1, 1),
+            PF_R32_FLOAT,
+            FClearValueBinding::Black,
+            TexCreate_ShaderResource | TexCreate_UAV);  // UAV 추가 (Clear용)
+        FRDGTextureRef DummySDFTexture = GraphBuilder.CreateTexture(DummySDFDesc, TEXT("FleshRingTightness_DummySDF"));
+
+        // RDG 검증 통과: 텍스처에 쓰기 패스 추가 (Producer 필요)
+        AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DummySDFTexture), 0.0f);
+
+        PassParameters->SDFTexture = GraphBuilder.CreateSRV(DummySDFTexture);
+        PassParameters->SDFSampler = TStaticSamplerState<SF_Trilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+        PassParameters->SDFBoundsMin = FVector3f::ZeroVector;
+        PassParameters->SDFBoundsMax = FVector3f::OneVector;
+        PassParameters->bUseSDFInfluence = 0;
+    }
+
     // Get shader reference
     // 셰이더 참조 가져오기
     TShaderMapRef<FFleshRingTightnessCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
@@ -129,11 +161,12 @@ void DispatchFleshRingTightnessCS(
 }
 
 // ============================================================================
-// Dispatch with GPU Skinning (animated mode)
-// GPU 스키닝 포함 디스패치 (애니메이션 모드)
+// [DEPRECATED] Dispatch with GPU Skinning (animated mode)
+// [DEPRECATED] GPU 스키닝 포함 디스패치 (애니메이션 모드)
+// NOTE: 스키닝이 FleshRingSkinningCS로 분리되어 더 이상 사용되지 않음
 // ============================================================================
 
-void DispatchFleshRingTightnessCS_WithSkinning(
+void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
     FRDGBuilder& GraphBuilder,
     const FTightnessDispatchParams& Params,
     FRDGBufferRef SourcePositionsBuffer,
@@ -141,7 +174,8 @@ void DispatchFleshRingTightnessCS_WithSkinning(
     FRDGBufferRef InfluencesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRDGBufferRef BoneMatricesBuffer,
-    FRDGBufferRef InputWeightStreamBuffer)
+    FRDGBufferRef InputWeightStreamBuffer,
+    FRDGTextureRef SDFTexture)
 {
     // Early out if no vertices to process
     // 처리할 버텍스가 없으면 조기 반환
@@ -192,6 +226,37 @@ void DispatchFleshRingTightnessCS_WithSkinning(
     PassParameters->NumAffectedVertices = Params.NumAffectedVertices;
     PassParameters->NumTotalVertices = Params.NumTotalVertices;
 
+    // ===== SDF Parameters =====
+    // ===== SDF 파라미터 =====
+    // SDFTexture가 유효하면 SDF Auto 모드, nullptr이면 Manual 모드
+    if (SDFTexture)
+    {
+        PassParameters->SDFTexture = GraphBuilder.CreateSRV(SDFTexture);
+        PassParameters->SDFSampler = TStaticSamplerState<SF_Trilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+        PassParameters->SDFBoundsMin = Params.SDFBoundsMin;
+        PassParameters->SDFBoundsMax = Params.SDFBoundsMax;
+        PassParameters->bUseSDFInfluence = 1;
+    }
+    else
+    {
+        // Manual 모드: Dummy SDF 텍스처 바인딩 (RDG 요구사항)
+        FRDGTextureDesc DummySDFDesc = FRDGTextureDesc::Create3D(
+            FIntVector(1, 1, 1),
+            PF_R32_FLOAT,
+            FClearValueBinding::Black,
+            TexCreate_ShaderResource | TexCreate_UAV);  // UAV 추가 (Clear용)
+        FRDGTextureRef DummySDFTexture = GraphBuilder.CreateTexture(DummySDFDesc, TEXT("FleshRingTightness_DummySDF_Skinned"));
+
+        // RDG 검증 통과: 텍스처에 쓰기 패스 추가 (Producer 필요)
+        AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DummySDFTexture), 0.0f);
+
+        PassParameters->SDFTexture = GraphBuilder.CreateSRV(DummySDFTexture);
+        PassParameters->SDFSampler = TStaticSamplerState<SF_Trilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+        PassParameters->SDFBoundsMin = FVector3f::ZeroVector;
+        PassParameters->SDFBoundsMax = FVector3f::OneVector;
+        PassParameters->bUseSDFInfluence = 0;
+    }
+
     // Get shader reference
     // 셰이더 참조 가져오기
     TShaderMapRef<FFleshRingTightnessCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
@@ -205,7 +270,7 @@ void DispatchFleshRingTightnessCS_WithSkinning(
     // RDG에 컴퓨트 패스 추가
     FComputeShaderUtils::AddPass(
         GraphBuilder,
-        RDG_EVENT_NAME("FleshRingTightnessCS_Skinned"),
+        RDG_EVENT_NAME("FleshRingTightnessCS_Skinned_Deprecated"),
         ComputeShader,
         PassParameters,
         FIntVector(static_cast<int32>(NumGroups), 1, 1)
@@ -224,7 +289,8 @@ void DispatchFleshRingTightnessCS_WithReadback(
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
-    FRHIGPUBufferReadback* Readback)
+    FRHIGPUBufferReadback* Readback,
+    FRDGTextureRef SDFTexture)
 {
     // Dispatch the compute shader
     // 컴퓨트 셰이더 디스패치
@@ -234,7 +300,8 @@ void DispatchFleshRingTightnessCS_WithReadback(
         SourcePositionsBuffer,
         AffectedIndicesBuffer,
         InfluencesBuffer,
-        OutputPositionsBuffer
+        OutputPositionsBuffer,
+        SDFTexture
     );
 
     // Add readback pass (GPU → CPU data transfer)

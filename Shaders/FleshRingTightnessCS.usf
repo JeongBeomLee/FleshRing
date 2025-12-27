@@ -67,6 +67,45 @@ float RingWidth;            // Ring height along axis
                             // 링 높이 (축 방향)
 
 // ============================================================================
+// SDF Parameters (Auto Influence Mode)
+// SDF 파라미터 (자동 영향도 모드)
+// ============================================================================
+//
+// Design: SDF in Component Space (Option C)
+// 설계: SDF를 컴포넌트 스페이스에서 생성 (옵션 C)
+//
+// ┌─────────────────────────────────────────────────────────────────────┐
+// │ SDF Generation (A 역할):                                            │
+// │   Ring Mesh Local → MeshTransform → BoneTransform → Component Space │
+// │                                                                     │
+// │ Shader Sampling (B 역할):                                           │
+// │   BindPos (Component Space) → 바로 SDF 샘플링 (변환 불필요)          │
+// └─────────────────────────────────────────────────────────────────────┘
+//
+// Benefit: No per-vertex matrix multiplication in shader
+// 장점: 셰이더에서 버텍스당 행렬 연산 불필요
+//
+
+// SDF 3D texture (Component Space, Bind Pose)
+// SDF 3D 텍스처 (컴포넌트 스페이스, 바인드 포즈)
+// A 역할이 Ring 메시를 Component Space로 변환 후 SDF 생성
+Texture3D<float> SDFTexture;
+
+// Trilinear sampler for smooth SDF interpolation
+// 부드러운 SDF 보간용 삼선형 샘플러
+SamplerState SDFSampler;
+
+// SDF volume bounds (Component Space, Bind Pose)
+// SDF 볼륨 바운드 (컴포넌트 스페이스, 바인드 포즈)
+// A 역할이 변환된 Ring 메시의 바운드로 설정
+float3 SDFBoundsMin;        // Volume minimum corner / 볼륨 최소 코너
+float3 SDFBoundsMax;        // Volume maximum corner / 볼륨 최대 코너
+
+// Flag: 0 = Use Influences buffer (Manual), 1 = Use SDF sampling (Auto)
+// 플래그: 0 = Influences 버퍼 사용 (수동), 1 = SDF 샘플링 사용 (자동)
+uint bUseSDFInfluence;
+
+// ============================================================================
 // Counts
 // 버텍스 수
 // ============================================================================
@@ -171,6 +210,69 @@ void WritePosition(uint VertexIndex, float3 Pos)
 }
 
 // ============================================================================
+// SDF Sampling Helper Functions
+// SDF 샘플링 헬퍼 함수
+// ============================================================================
+//
+// Note: No coordinate transform needed! (Option C Design)
+// 참고: 좌표 변환 불필요! (옵션 C 설계)
+//
+// Both SDF and BindPos are in Component Space (Bind Pose),
+// so we can sample SDF directly with vertex position.
+// SDF와 BindPos 모두 컴포넌트 스페이스 (바인드 포즈)이므로
+// 버텍스 위치로 바로 SDF 샘플링 가능.
+//
+
+// Convert position to SDF UV coordinates [0, 1]
+// 위치를 SDF UV 좌표 [0, 1]로 변환
+float3 PositionToSDFUV(float3 Pos)
+{
+    float3 Range = SDFBoundsMax - SDFBoundsMin;
+
+    // Avoid division by zero / 0으로 나누기 방지
+    Range = max(Range, float3(0.001, 0.001, 0.001));
+
+    return (Pos - SDFBoundsMin) / Range;
+}
+
+// Sample SDF distance at position (Component Space)
+// 위치에서 SDF 거리 샘플링 (컴포넌트 스페이스)
+// Returns: Signed distance (negative = inside, positive = outside)
+// 반환: 부호 있는 거리 (음수 = 내부, 양수 = 외부)
+float SampleSDFDistance(float3 Pos)
+{
+    float3 UV = PositionToSDFUV(Pos);
+
+    // Clamp to valid range / 유효 범위로 클램프
+    UV = saturate(UV);
+
+    // Trilinear sampling / 삼선형 샘플링
+    return SDFTexture.SampleLevel(SDFSampler, UV, 0).r;
+}
+
+// Calculate influence from SDF distance
+// SDF 거리에서 영향도 계산
+// Returns: Influence [0, 1] / 반환: 영향도 [0, 1]
+float CalculateInfluenceFromSDF(float3 Pos)
+{
+    float Distance = SampleSDFDistance(Pos);
+
+    // Inside ring mesh (negative SDF) = full influence
+    // Ring 메시 내부 (음수 SDF) = 최대 영향도
+    if (Distance <= 0.0)
+    {
+        return 1.0;
+    }
+
+    // Outside: Smooth falloff based on RingRadius
+    // 외부: RingRadius 기반 감쇠
+    float NormalizedDist = Distance / max(RingRadius, 0.001);
+
+    // Smoothstep: Distance 0→1.0, Distance>=RingRadius→0.0
+    return 1.0 - saturate(smoothstep(0.0, 1.0, NormalizedDist));
+}
+
+// ============================================================================
 // Tightness Deformation Function
 // 조이기 변형 함수
 // ============================================================================
@@ -257,10 +359,6 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
-    // Get pre-calculated influence for this vertex
-    // 이 버텍스의 미리 계산된 영향도 가져오기
-    float Influence = Influences[ThreadIndex];
-
     // Read bind pose position (bind pose component space)
     // 바인드 포즈 위치 읽기 (바인드 포즈 컴포넌트 스페이스)
     float3 BindPos = ReadPosition(VertexIndex);
@@ -282,6 +380,25 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         // No skinning: use bind pose directly
         // 스키닝 없음: 바인드 포즈 직접 사용
         Pos = BindPos;
+    }
+
+    // ========================================
+    // Step 1.5: Calculate Influence
+    // 1.5단계: 영향도 계산
+    // ========================================
+    float Influence;
+    if (bUseSDFInfluence != 0)
+    {
+        // Auto mode (Option C): SDF와 BindPos 모두 Component Space
+        // Direct sampling - no transform needed
+        // 직접 샘플링 - 변환 불필요
+        Influence = CalculateInfluenceFromSDF(BindPos);
+    }
+    else
+    {
+        // Manual mode: Use pre-calculated influence from buffer
+        // 수동 모드: 버퍼에서 미리 계산된 영향도 사용
+        Influence = Influences[ThreadIndex];
     }
 
     // Skip tightness if influence is negligible

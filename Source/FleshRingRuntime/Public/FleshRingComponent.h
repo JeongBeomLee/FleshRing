@@ -7,11 +7,65 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "FleshRingTypes.h"
 #include "FleshRingDeformer.h"
+#include "RenderGraphResources.h"
 #include "FleshRingComponent.generated.h"
 
 class UStaticMesh;
 class UVolumeTexture;
 class UFleshRingAsset;
+struct IPooledRenderTarget;
+
+// =====================================
+// SDF 캐시 구조체 (Ring별 영구 저장)
+// =====================================
+
+/**
+ * Ring별 SDF 텍스처 캐시
+ * RDG 텍스처를 Pooled 텍스처로 변환하여 영구 저장
+ * Deformer에서 매 프레임 RegisterExternalTexture()로 사용
+ */
+struct FRingSDFCache
+{
+	/**
+	 * Pooled 렌더 타겟 (GPU에 영구 저장)
+	 *
+	 * IPooledRenderTarget이란?
+	 * - RDG(Render Dependency Graph) 외부에서 렌더 타겟을 영구 보관하기 위한 인터페이스
+	 * - RDG 텍스처는 GraphBuilder.Execute() 후 소멸되지만,
+	 *   ConvertToExternalTexture()로 Pooled 텍스처로 변환하면 프레임 간 유지됨
+	 * - 이후 프레임에서 RegisterExternalTexture()로 RDG에 다시 등록하여 사용
+	 * - TRefCountPtr로 참조 카운트 관리 (SafeRelease()로 해제)
+	 */
+	TRefCountPtr<IPooledRenderTarget> PooledTexture;
+
+	/** SDF 볼륨 최소 바운드 (컴포넌트 스페이스) */
+	FVector3f BoundsMin = FVector3f::ZeroVector;
+
+	/** SDF 볼륨 최대 바운드 (컴포넌트 스페이스) */
+	FVector3f BoundsMax = FVector3f::ZeroVector;
+
+	/** SDF 해상도 */
+	FIntVector Resolution = FIntVector(64, 64, 64);
+
+	/** 캐싱 완료 여부 */
+	bool bCached = false;
+
+	/** 캐시 초기화 */
+	void Reset()
+	{
+		PooledTexture.SafeRelease();
+		BoundsMin = FVector3f::ZeroVector;
+		BoundsMax = FVector3f::ZeroVector;
+		Resolution = FIntVector(64, 64, 64);
+		bCached = false;
+	}
+
+	/** 유효성 검사 */
+	bool IsValid() const
+	{
+		return bCached && PooledTexture.IsValid();
+	}
+};
 
 // =====================================
 // 컴포넌트 클래스
@@ -110,6 +164,36 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "FleshRing")
 	UFleshRingDeformer* GetDeformer() const { return InternalDeformer; }
 
+	// =====================================
+	// SDF 캐시 접근 (Deformer에서 사용)
+	// =====================================
+
+	/** Ring 개수 반환 */
+	int32 GetNumRingSDFCaches() const { return RingSDFCaches.Num(); }
+
+	/** 특정 Ring의 SDF 캐시 반환 (읽기 전용) */
+	const FRingSDFCache* GetRingSDFCache(int32 RingIndex) const
+	{
+		if (RingSDFCaches.IsValidIndex(RingIndex))
+		{
+			return &RingSDFCaches[RingIndex];
+		}
+		return nullptr;
+	}
+
+	/** 모든 Ring의 SDF 캐시가 유효한지 확인 */
+	bool AreAllSDFCachesValid() const
+	{
+		for (const FRingSDFCache& Cache : RingSDFCaches)
+		{
+			if (!Cache.IsValid())
+			{
+				return false;
+			}
+		}
+		return RingSDFCaches.Num() > 0;
+	}
+
 private:
 	/** 자동/수동 검색된 실제 대상 */
 	UPROPERTY(Transient)
@@ -119,9 +203,14 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UFleshRingDeformer> InternalDeformer;
 
-	/** SDF 3D 볼륨 텍스처 (Ring별로 하나씩) */
-	UPROPERTY(Transient)
-	TArray<TObjectPtr<UVolumeTexture>> SDFVolumeTextures;
+	/**
+	 * Ring별 SDF 캐시 배열
+	 * - GenerateSDF()에서 Pooled 텍스처로 변환하여 저장
+	 * - Deformer에서 GetRingSDFCache()로 접근
+	 * - UPROPERTY 불가 (IPooledRenderTarget은 UObject가 아님)
+	 * - CleanupDeformer()에서 수동 해제 필요
+	 */
+	TArray<FRingSDFCache> RingSDFCaches;
 
 	/** 대상 SkeletalMeshComponent 검색 및 설정 */
 	void ResolveTargetMesh();

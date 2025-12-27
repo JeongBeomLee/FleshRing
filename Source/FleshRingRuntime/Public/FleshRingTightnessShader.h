@@ -70,15 +70,18 @@ public:
 
         // Packed bone indices + weights
         // 패킹된 본 인덱스 + 웨이트
+        // 버텍스마다 [본인덱스0, 본인덱스1, ...] [웨이트0, 웨이트1, ...]
+        // 4본 스키닝이라면 100번째 버텍스에서
+        // [5,6,7,0] [0.5,0.3,0.2,0.0]
         SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<uint>, InputWeightStream)
 
         // ===== Skinning Parameters =====
         // ===== 스키닝 파라미터 =====
 
         SHADER_PARAMETER(uint32, InputWeightStride)    // 웨이트 스트림 스트라이드 (바이트)
-        SHADER_PARAMETER(uint32, InputWeightIndexSize) // 인덱스/웨이트 바이트 크기
-        SHADER_PARAMETER(uint32, NumBoneInfluences)    // 버텍스당 본 영향 수
-        SHADER_PARAMETER(uint32, bEnableSkinning)      // 스키닝 활성화 플래그
+        SHADER_PARAMETER(uint32, InputWeightIndexSize) // 인덱스/웨이트 바이트 크기 (패킹됨)
+        SHADER_PARAMETER(uint32, NumBoneInfluences)    // 버텍스당 본 영향 수 (4 or 8)
+        SHADER_PARAMETER(uint32, bEnableSkinning)      // 스키닝 활성화 플래그 (0 or 1)
 
         // ===== Ring Parameters (Constant Buffer) =====
         // ===== 링 파라미터 (상수 버퍼) =====
@@ -94,6 +97,26 @@ public:
 
         SHADER_PARAMETER(uint32, NumAffectedVertices) // 영향받는 버텍스 수
         SHADER_PARAMETER(uint32, NumTotalVertices)    // 전체 버텍스 수 (범위 체크용)
+
+        // ===== SDF Parameters (Option C Design) =====
+        // ===== SDF 파라미터 (옵션 C 설계) =====
+        //
+        // Option C: SDF와 BindPos 모두 Component Space (Bind Pose)
+        // → 셰이더에서 좌표 변환 불필요, 직접 샘플링
+        // A 역할이 Ring 메시를 Component Space로 변환 후 SDF 생성
+
+        // SDF 3D 텍스처 (Component Space, Bind Pose)
+        // SDF 값: negative = 내부, positive = 외부
+        SHADER_PARAMETER_RDG_TEXTURE_SRV(Texture3D<float>, SDFTexture)
+        SHADER_PARAMETER_SAMPLER(SamplerState, SDFSampler)
+
+        // SDF 볼륨 바운드 (Component Space, Bind Pose)
+        // UV 변환: (Pos - BoundsMin) / (BoundsMax - BoundsMin)
+        SHADER_PARAMETER(FVector3f, SDFBoundsMin)
+        SHADER_PARAMETER(FVector3f, SDFBoundsMax)
+
+        // SDF 영향 모드 (0 = Manual, 1 = Auto/SDF-based)
+        SHADER_PARAMETER(uint32, bUseSDFInfluence)
     END_SHADER_PARAMETER_STRUCT()
 
     // Shader Compilation Settings
@@ -197,12 +220,18 @@ struct FTightnessDispatchParams
     /**
      * Weight stream stride in bytes
      * 웨이트 스트림 스트라이드 (바이트)
+     * 다음 버텍스 데이터로 가려면 몇 바이트 건너뛰어야 하는지
+     * 4본 스키닝: 12, 8본 스키닝: 24
      */
     uint32 InputWeightStride;
 
     /**
      * Packed: BoneIndexByteSize | (BoneWeightByteSize << 8)
      * 패킹: 본인덱스바이트크기 | (본웨이트바이트크기 << 8)
+     * 하위 8비트: 본 인덱스 크기(바이트), 상위 8비트: 본 웨이트 크기(바이트)
+     * 일반적인 값:
+     * 본 인덱스: 1바이트 (0~255 범위, 본 256개까지)
+     * 본 웨이트: 2바이트 (0~65535 범위, 정밀도 ↑)
      */
     uint32 InputWeightIndexSize;
 
@@ -211,6 +240,28 @@ struct FTightnessDispatchParams
      * 버텍스당 본 영향 수 (4 또는 8)
      */
     uint32 NumBoneInfluences;
+
+    // =========== SDF Parameters (Reserved for future use) ===========
+    // =========== SDF 파라미터 (향후 사용 예정) ===========
+    // NOTE: 현재 .usf에서 사용하지 않음. 팀원이 .usf 작업 완료 후 활성화
+
+    /**
+     * SDF volume minimum bounds (component space)
+     * SDF 볼륨 최소 바운드 (컴포넌트 스페이스)
+     */
+    FVector3f SDFBoundsMin;
+
+    /**
+     * SDF volume maximum bounds (component space)
+     * SDF 볼륨 최대 바운드 (컴포넌트 스페이스)
+     */
+    FVector3f SDFBoundsMax;
+
+    /**
+     * Use SDF-based influence calculation (0=Manual, 1=SDF Auto)
+     * SDF 기반 영향도 계산 사용 (0=수동, 1=SDF 자동)
+     */
+    uint32 bUseSDFInfluence;
 
     FTightnessDispatchParams()
         : RingCenter(FVector3f::ZeroVector)
@@ -224,6 +275,9 @@ struct FTightnessDispatchParams
         , InputWeightStride(0)
         , InputWeightIndexSize(0)
         , NumBoneInfluences(0)
+        , SDFBoundsMin(FVector3f::ZeroVector)
+        , SDFBoundsMax(FVector3f::ZeroVector)
+        , bUseSDFInfluence(0)
     {
     }
 };
@@ -247,22 +301,22 @@ inline FTightnessDispatchParams CreateTightnessParams(
 {
     FTightnessDispatchParams Params;
 
-    // [변환] Ring 트랜스폼 정보 (바인드 포즈)
+    // Ring 트랜스폼 정보 (바인드 포즈)
     Params.RingCenter = FVector3f(AffectedData.RingCenter);
     Params.RingAxis = FVector3f(AffectedData.RingAxis);
 
-    // [변환] Ring 지오메트리 정보
+    // Ring 지오메트리 정보
     Params.RingRadius = AffectedData.RingRadius;
     Params.RingWidth = AffectedData.RingWidth;
 
-    // [변환] 변형 강도 (FFleshRingSettings에서 복사된 값)
+    // 변형 강도 (FFleshRingSettings에서 복사된 값)
     Params.TightnessStrength = AffectedData.TightnessStrength;
 
-    // [변환] 버텍스 카운트
+    // 버텍스 카운트
     Params.NumAffectedVertices = static_cast<uint32>(AffectedData.Vertices.Num());
     Params.NumTotalVertices = TotalVertexCount;
 
-    // [기본값] 스키닝 비활성화
+    // 스키닝 비활성화
     Params.bEnableSkinning = 0;
     Params.InputWeightStride = 0;
     Params.InputWeightIndexSize = 0;
@@ -272,8 +326,11 @@ inline FTightnessDispatchParams CreateTightnessParams(
 }
 
 /**
- * Create FTightnessDispatchParams with skinning enabled (animated mode)
- * 스키닝 활성화된 FTightnessDispatchParams 생성 (애니메이션 모드)
+ * [DEPRECATED] Create FTightnessDispatchParams with skinning enabled (animated mode)
+ * [DEPRECATED] 스키닝 활성화된 FTightnessDispatchParams 생성 (애니메이션 모드)
+ *
+ * NOTE: 스키닝이 FleshRingSkinningCS로 분리되어 더 이상 사용되지 않음
+ *       TightnessCS는 바인드 포즈에서만 동작하고, 스키닝은 별도 패스로 처리
  *
  * @param AffectedData - 영향받는 버텍스 데이터 (Ring 파라미터 포함, 바인드 포즈 기준)
  * @param TotalVertexCount - 메시 전체 버텍스 수
@@ -284,7 +341,8 @@ inline FTightnessDispatchParams CreateTightnessParams(
  * @param InNumBoneInfluences - 버텍스당 본 영향 수
  * @return GPU Dispatch용 파라미터 구조체 (스키닝 활성화)
  */
-inline FTightnessDispatchParams CreateTightnessParamsWithSkinning(
+UE_DEPRECATED(5.7, "Use CreateTightnessParams + FleshRingSkinningCS instead")
+inline FTightnessDispatchParams CreateTightnessParamsWithSkinning_Deprecated(
     const FRingAffectedData& AffectedData,
     uint32 TotalVertexCount,
     const FVector3f& AnimatedRingCenter,
@@ -295,22 +353,22 @@ inline FTightnessDispatchParams CreateTightnessParamsWithSkinning(
 {
     FTightnessDispatchParams Params;
 
-    // [변환] Ring 트랜스폼 정보 (애니메이션된 현재 프레임)
+    // Ring 트랜스폼 정보 (애니메이션된 현재 프레임)
     Params.RingCenter = AnimatedRingCenter;
     Params.RingAxis = AnimatedRingAxis;
 
-    // [변환] Ring 지오메트리 정보
+    // Ring 지오메트리 정보
     Params.RingRadius = AffectedData.RingRadius;
     Params.RingWidth = AffectedData.RingWidth;
 
-    // [변환] 변형 강도
+    // 변형 강도
     Params.TightnessStrength = AffectedData.TightnessStrength;
 
-    // [변환] 버텍스 카운트
+    // 버텍스 카운트
     Params.NumAffectedVertices = static_cast<uint32>(AffectedData.Vertices.Num());
     Params.NumTotalVertices = TotalVertexCount;
 
-    // [설정] 스키닝 활성화
+    // 스키닝 활성화
     Params.bEnableSkinning = 1;
     Params.InputWeightStride = InInputWeightStride;
     Params.InputWeightIndexSize = InInputWeightIndexSize;
@@ -340,6 +398,9 @@ inline FTightnessDispatchParams CreateTightnessParamsWithSkinning(
  *                           버텍스별 영향도 버퍼
  * @param OutputPositionsBuffer - UAV buffer for deformed positions
  *                                변형된 위치 출력 버퍼 (UAV)
+ * @param SDFTexture - (Optional) SDF 3D texture for Auto influence mode
+ *                     (옵션) SDF 자동 영향 모드용 3D 텍스처
+ *                     nullptr이면 Manual 모드 (Influences 버퍼 사용)
  */
 void DispatchFleshRingTightnessCS(
     FRDGBuilder& GraphBuilder,
@@ -347,11 +408,15 @@ void DispatchFleshRingTightnessCS(
     FRDGBufferRef SourcePositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
-    FRDGBufferRef OutputPositionsBuffer);
+    FRDGBufferRef OutputPositionsBuffer,
+    FRDGTextureRef SDFTexture = nullptr);
 
 /**
- * Dispatch TightnessCS with GPU skinning (animated mode)
- * GPU 스키닝이 포함된 TightnessCS 디스패치 (애니메이션 모드)
+ * [DEPRECATED] Dispatch TightnessCS with GPU skinning (animated mode)
+ * [DEPRECATED] GPU 스키닝이 포함된 TightnessCS 디스패치 (애니메이션 모드)
+ *
+ * NOTE: 스키닝이 FleshRingSkinningCS로 분리되어 더 이상 사용되지 않음
+ *       DispatchFleshRingTightnessCS + DispatchFleshRingSkinningCS로 대체
  *
  * @param GraphBuilder - RDG builder for resource management
  *                       RDG 빌더 (리소스 관리용)
@@ -369,8 +434,11 @@ void DispatchFleshRingTightnessCS(
  *                             RefToLocal 행렬 버퍼 (본당 3개 float4)
  * @param InputWeightStreamBuffer - Packed bone indices + weights
  *                                  패킹된 본 인덱스 + 웨이트 버퍼
+ * @param SDFTexture - (Optional) SDF 3D texture for Auto influence mode
+ *                     (옵션) SDF 자동 영향 모드용 3D 텍스처
  */
-void DispatchFleshRingTightnessCS_WithSkinning(
+UE_DEPRECATED(5.7, "Use DispatchFleshRingTightnessCS + DispatchFleshRingSkinningCS instead")
+void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
     FRDGBuilder& GraphBuilder,
     const FTightnessDispatchParams& Params,
     FRDGBufferRef SourcePositionsBuffer,
@@ -378,7 +446,8 @@ void DispatchFleshRingTightnessCS_WithSkinning(
     FRDGBufferRef InfluencesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRDGBufferRef BoneMatricesBuffer,
-    FRDGBufferRef InputWeightStreamBuffer);
+    FRDGBufferRef InputWeightStreamBuffer,
+    FRDGTextureRef SDFTexture = nullptr);
 
 /**
  * Dispatch TightnessCS with readback for validation/testing (bind pose mode)
@@ -398,6 +467,8 @@ void DispatchFleshRingTightnessCS_WithSkinning(
  *                                변형된 위치 출력 버퍼 (UAV)
  * @param Readback - Readback object for GPU->CPU transfer
  *                   GPU→CPU 데이터 전송용 리드백 객체
+ * @param SDFTexture - (Optional) SDF 3D texture for Auto influence mode
+ *                     (옵션) SDF 자동 영향 모드용 3D 텍스처
  */
 void DispatchFleshRingTightnessCS_WithReadback(
     FRDGBuilder& GraphBuilder,
@@ -406,4 +477,5 @@ void DispatchFleshRingTightnessCS_WithReadback(
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
-    FRHIGPUBufferReadback* Readback);
+    FRHIGPUBufferReadback* Readback,
+    FRDGTextureRef SDFTexture = nullptr);

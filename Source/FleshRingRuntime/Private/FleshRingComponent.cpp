@@ -2,11 +2,54 @@
 
 #include "FleshRingComponent.h"
 #include "FleshRingAsset.h"
+#include "FleshRingMeshExtractor.h"
+#include "FleshRingSDF.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/VolumeTexture.h"
 #include "GameFramework/Actor.h"
+#include "RenderGraphBuilder.h"
+#include "RenderingThread.h"
+#include "TextureResource.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogFleshRingComponent, Log, All);
+
+// Helper: 본의 바인드 포즈 트랜스폼 획득 (컴포넌트 스페이스)
+static FTransform GetBoneBindPoseTransform(USkeletalMeshComponent* SkelMesh, FName BoneName)
+{
+	if (!SkelMesh || BoneName.IsNone())
+	{
+		return FTransform::Identity;
+	}
+
+	const USkeletalMesh* SkeletalMesh = SkelMesh->GetSkeletalMeshAsset();
+	if (!SkeletalMesh)
+	{
+		return FTransform::Identity;
+	}
+
+	const FReferenceSkeleton& RefSkeleton = SkeletalMesh->GetRefSkeleton();
+	const int32 BoneIndex = RefSkeleton.FindBoneIndex(BoneName);
+
+	if (BoneIndex == INDEX_NONE)
+	{
+		UE_LOG(LogFleshRingComponent, Warning, TEXT("GetBoneBindPoseTransform: Bone '%s' not found"), *BoneName.ToString());
+		return FTransform::Identity;
+	}
+
+	// Component Space Transform 계산 (부모 체인 포함)
+	// RefBonePose는 부모 기준 로컬이므로 체인을 따라 누적해야 함
+	FTransform ComponentSpaceTransform = FTransform::Identity;
+	int32 CurrentIndex = BoneIndex;
+
+	while (CurrentIndex != INDEX_NONE)
+	{
+		const FTransform& LocalTransform = RefSkeleton.GetRefBonePose()[CurrentIndex];
+		ComponentSpaceTransform = ComponentSpaceTransform * LocalTransform;
+		CurrentIndex = RefSkeleton.GetParentIndex(CurrentIndex);
+	}
+
+	return ComponentSpaceTransform;
+}
 
 UFleshRingComponent::UFleshRingComponent()
 {
@@ -154,7 +197,13 @@ void UFleshRingComponent::CleanupDeformer()
 
 	InternalDeformer = nullptr;
 	ResolvedTargetMesh.Reset();
-	SDFVolumeTextures.Empty();
+
+	// SDF 캐시 해제 (IPooledRenderTarget은 UPROPERTY가 아니므로 수동 해제 필요)
+	for (FRingSDFCache& Cache : RingSDFCaches)
+	{
+		Cache.Reset();
+	}
+	RingSDFCaches.Empty();
 }
 
 void UFleshRingComponent::GenerateSDF()
@@ -164,25 +213,165 @@ void UFleshRingComponent::GenerateSDF()
 		return;
 	}
 
-	// 각 Ring의 RingMesh에서 SDF 생성
-	for (const FFleshRingSettings& Ring : FleshRingAsset->Rings)
+	// 기존 SDF 캐시 초기화
+	for (FRingSDFCache& Cache : RingSDFCaches)
 	{
+		Cache.Reset();
+	}
+	RingSDFCaches.Empty();
+
+	// Ring 개수만큼 캐시 배열 미리 할당 (렌더 스레드에서 인덱스로 접근)
+	RingSDFCaches.SetNum(FleshRingAsset->Rings.Num());
+
+	// 각 Ring의 RingMesh에서 SDF 생성
+	for (int32 RingIndex = 0; RingIndex < FleshRingAsset->Rings.Num(); ++RingIndex)
+	{
+		const FFleshRingSettings& Ring = FleshRingAsset->Rings[RingIndex];
 		UStaticMesh* RingMesh = Ring.RingMesh.LoadSynchronous();
 		if (!RingMesh)
 		{
+			UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: Ring[%d] has no valid RingMesh"), RingIndex);
 			continue;
 		}
 
-		// TODO: RingMesh로부터 SDF 3D 텍스처 생성
-		// - Ring.SdfSettings.Resolution: SDF 볼륨 해상도
-		// - Ring.SdfSettings.JfaIterations: JFA 반복 횟수
-		// 1. StaticMesh의 버텍스 데이터 추출
-		// 2. GPU에서 JFA(Jump Flooding Algorithm)로 SDF 계산
-		// 3. SDFVolumeTextures 배열에 결과 저장
-		// 4. InternalDeformer에 SDF 텍스처 전달
+		// 1. StaticMesh(RingMesh)에서 버텍스/인덱스/노말 데이터 추출
+		FFleshRingMeshData MeshData;
+		if (!UFleshRingMeshExtractor::ExtractMeshData(RingMesh, MeshData))
+		{
+			UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: Failed to extract mesh data from Ring[%d] mesh '%s'"),
+				RingIndex, *RingMesh->GetName());
+			continue;
+		}
+
+		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] extracted %d vertices, %d triangles from '%s'"),
+			RingIndex, MeshData.GetVertexCount(), MeshData.GetTriangleCount(), *RingMesh->GetName());
+
+		// 2. Ring Mesh를 Component Space로 변환
+		// Ring Mesh Local → MeshTransform → BoneTransform → Component Space
+		{
+			// Mesh Transform (Ring Local → Bone Local)
+			FTransform MeshTransform;
+			MeshTransform.SetLocation(Ring.MeshOffset);
+			MeshTransform.SetRotation(Ring.MeshRotation.Quaternion());
+			MeshTransform.SetScale3D(Ring.MeshScale);
+
+			// Bone Transform (Bone Local → Component Space)
+			FTransform BoneTransform = GetBoneBindPoseTransform(ResolvedTargetMesh.Get(), Ring.BoneName);
+
+			// Full Transform: Ring Local → Component Space
+			FTransform FullTransform = MeshTransform * BoneTransform;
+
+			// 버텍스 변환
+			for (FVector3f& Vertex : MeshData.Vertices)
+			{
+				FVector WorldPos = FullTransform.TransformPosition(FVector(Vertex));
+				Vertex = FVector3f(WorldPos);
+			}
+
+			// 노말도 회전 변환 (SDF 부호 판정에 필요)
+			FQuat FullRotation = FullTransform.GetRotation();
+			for (FVector3f& Normal : MeshData.TriangleNormals)
+			{
+				FVector RotatedNormal = FullRotation.RotateVector(FVector(Normal));
+				Normal = FVector3f(RotatedNormal.GetSafeNormal());
+			}
+
+			// Bounds 재계산
+			FVector3f MinBounds(FLT_MAX, FLT_MAX, FLT_MAX);
+			FVector3f MaxBounds(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+			for (const FVector3f& V : MeshData.Vertices)
+			{
+				MinBounds = FVector3f::Min(MinBounds, V);
+				MaxBounds = FVector3f::Max(MaxBounds, V);
+			}
+			MeshData.Bounds = FBox3f(MinBounds, MaxBounds);
+
+			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] transformed to Component Space. Bounds: (%s) to (%s)"),
+				RingIndex, *MinBounds.ToString(), *MaxBounds.ToString());
+		}
+
+		// 3. SDF 해상도 결정
+		const int32 Resolution = Ring.SdfSettings.Resolution;
+		const FIntVector SDFResolution(Resolution, Resolution, Resolution);
+
+		// 4. Bounds 계산 (메시 bounds + 패딩)
+		const float BoundsPadding = 2.0f; // SDF 경계 여유 공간
+		FVector3f BoundsMin = MeshData.Bounds.Min - FVector3f(BoundsPadding);
+		FVector3f BoundsMax = MeshData.Bounds.Max + FVector3f(BoundsPadding);
+
+		// 4. GPU SDF 생성 (렌더 스레드에서 실행)
+		// MeshData를 값으로 캡처 (렌더 스레드로 전달)
+		TArray<FVector3f> CapturedVertices = MoveTemp(MeshData.Vertices);
+		TArray<uint32> CapturedIndices = MoveTemp(MeshData.Indices);
+		TArray<FVector3f> CapturedNormals = MoveTemp(MeshData.TriangleNormals);
+		FIntVector CapturedResolution = SDFResolution;
+		FVector3f CapturedBoundsMin = BoundsMin;
+		FVector3f CapturedBoundsMax = BoundsMax;
+
+		// 캐시 포인터 캡처 (렌더 스레드에서 직접 업데이트)
+		// TRefCountPtr은 스레드 세이프하므로 직접 참조 가능
+		FRingSDFCache* CachePtr = &RingSDFCaches[RingIndex];
+
+		// 메타데이터 미리 설정 (게임 스레드에서)
+		CachePtr->BoundsMin = BoundsMin;
+		CachePtr->BoundsMax = BoundsMax;
+		CachePtr->Resolution = SDFResolution;
+
+		ENQUEUE_RENDER_COMMAND(GenerateFleshRingSDF)(
+			[CapturedVertices = MoveTemp(CapturedVertices),
+			 CapturedIndices = MoveTemp(CapturedIndices),
+			 CapturedNormals = MoveTemp(CapturedNormals),
+			 CapturedResolution,
+			 CapturedBoundsMin,
+			 CapturedBoundsMax,
+			 RingIndex,
+			 CachePtr](FRHICommandListImmediate& RHICmdList)
+			{
+				FRDGBuilder GraphBuilder(RHICmdList);
+
+				// SDF 텍스처 생성 (중간 결과용)
+				FRDGTextureDesc SDFTextureDesc = FRDGTextureDesc::Create3D(
+					FIntVector(CapturedResolution.X, CapturedResolution.Y, CapturedResolution.Z),
+					PF_R32_FLOAT,
+					FClearValueBinding::Black,
+					TexCreate_ShaderResource | TexCreate_UAV);
+
+				FRDGTextureRef RawSDFTexture = GraphBuilder.CreateTexture(SDFTextureDesc, TEXT("FleshRing_RawSDF"));
+				FRDGTextureRef CorrectedSDFTexture = GraphBuilder.CreateTexture(SDFTextureDesc, TEXT("FleshRing_CorrectedSDF"));
+
+				// SDF 생성 (Point-to-Triangle 거리 계산)
+				GenerateMeshSDF(
+					GraphBuilder,
+					RawSDFTexture,
+					CapturedVertices,
+					CapturedIndices,
+					CapturedNormals,
+					CapturedBoundsMin,
+					CapturedBoundsMax,
+					CapturedResolution);
+
+				// 도넛홀 보정 (2D Slice Flood Fill)
+				Apply2DSliceFloodFill(
+					GraphBuilder,
+					RawSDFTexture,
+					CorrectedSDFTexture,
+					CapturedResolution);
+
+				// 핵심: RDG 텍스처 → Pooled 텍스처로 변환 (Execute 전에!)
+				// ConvertToExternalTexture는 Execute 전에 호출해야 함
+				// Execute 후에도 텍스처가 유지되어 다음 프레임에서 사용 가능
+				CachePtr->PooledTexture = GraphBuilder.ConvertToExternalTexture(CorrectedSDFTexture);
+				CachePtr->bCached = true;
+
+				// RDG 실행
+				GraphBuilder.Execute();
+
+				UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: SDF cached for Ring[%d], Resolution=%d"),
+					RingIndex, CapturedResolution.X);
+			});
 	}
 
-	// 현재는 placeholder - 실제 SDF 생성 로직은 별도 구현 필요
+	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: GenerateSDF completed for %d rings"), FleshRingAsset->Rings.Num());
 }
 
 void UFleshRingComponent::UpdateSDF()
