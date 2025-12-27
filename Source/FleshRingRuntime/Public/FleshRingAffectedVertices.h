@@ -317,12 +317,15 @@ public:
      *                    링 설정을 가진 FleshRingComponent
      * @param SkeletalMesh - Target skeletal mesh
      *                       대상 스켈레탈 메시
+     * @param LODIndex - LOD index to use for vertex extraction (default: 0)
+     *                   버텍스 추출에 사용할 LOD 인덱스 (기본값: 0)
      * @return true if registration succeeded
      *         등록 성공 시 true
      */
     bool RegisterAffectedVertices(
         const UFleshRingComponent* Component,
-        const USkeletalMeshComponent* SkeletalMesh);
+        const USkeletalMeshComponent* SkeletalMesh,
+        int32 LODIndex = 0);
 
     /**
      * Get affected data for a specific Ring by index
@@ -362,10 +365,11 @@ private:
     TArray<FRingAffectedData> RingDataArray;
 
     /**
-     * Extract vertices from skeletal mesh
-     * 스켈레탈 메시에서 버텍스 추출 (바인드 포즈 컴포넌트 스페이스)
+     * Extract vertices from skeletal mesh at specific LOD
+     * 스켈레탈 메시의 특정 LOD에서 버텍스 추출 (바인드 포즈 컴포넌트 스페이스)
      */
     bool ExtractMeshVertices(
         const USkeletalMeshComponent* SkeletalMesh,
-        TArray<FVector3f>& OutVertices);
+        TArray<FVector3f>& OutVertices,
+        int32 LODIndex = 0);
 };

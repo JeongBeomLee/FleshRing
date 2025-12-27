@@ -60,35 +60,30 @@ private:
 	FVector CurrentVelocity = FVector::ZeroVector;
 	bool bHasPreviousLocation = false;
 
-	// ===== Tightness Deformation =====
-	// 영향받는 버텍스 관리자
-	FFleshRingAffectedVerticesManager AffectedVerticesManager;
+	// ===== LOD별 Tightness Deformation 데이터 =====
+	// Per-LOD Tightness Deformation Data
+	struct FLODDeformationData
+	{
+		// 영향받는 버텍스 관리자
+		FFleshRingAffectedVerticesManager AffectedVerticesManager;
 
-	// 버텍스 등록 완료 여부
-	bool bAffectedVerticesRegistered = false;
+		// 버텍스 등록 완료 여부
+		bool bAffectedVerticesRegistered = false;
 
-	// 캐시된 버텍스 데이터 (RDG 업로드용)
-	TArray<float> CachedSourcePositions;
-	bool bSourcePositionsCached = false;
+		// 캐시된 버텍스 데이터 (RDG 업로드용)
+		TArray<float> CachedSourcePositions;
+		bool bSourcePositionsCached = false;
 
-	// ===== TightenedBindPose Caching =====
-	// TightenedBindPose 캐싱
+		// TightenedBindPose 캐싱
+		// Using TSharedPtr wrapper for thread-safe sharing with render thread
+		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedTightenedBindPoseShared;
+		bool bTightenedBindPoseCached = false;
+		uint32 CachedTightnessVertexCount = 0;
+	};
 
-	// Permanent GPU buffer: TightenedBindPose (survives RDG frame end)
-	// Using TSharedPtr wrapper for thread-safe sharing with render thread
-	// DeformerInstance 파괴 후에도 렌더 스레드에서 안전하게 접근 가능
-	// 영구 GPU 버퍼: TightenedBindPose (RDG 프레임 종료 후에도 유지)
-	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedTightenedBindPoseShared;
+	// LOD별 데이터 배열 (인덱스 = LOD 번호)
+	TArray<FLODDeformationData> LODData;
 
-	// Cache completion flag
-	// 캐싱 완료 플래그
-	bool bTightenedBindPoseCached = false;
-
-	// Cached LOD index (invalidate cache on LOD change)
-	// 캐싱된 LOD 인덱스 (LOD 변경 시 캐시 무효화)
-	int32 CachedTightnessLODIndex = INDEX_NONE;
-
-	// Cached vertex count for validation
-	// 검증용 캐싱된 버텍스 수
-	uint32 CachedTightnessVertexCount = 0;
+	// LOD 개수 (초기화 시 설정)
+	int32 NumLODs = 0;
 };

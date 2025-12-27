@@ -65,14 +65,48 @@ void UFleshRingComponent::BeginPlay()
 		ResolveTargetMesh();
 		SetupDeformer();
 		GenerateSDF();
+		// Ring 메시는 OnRegister()에서 이미 설정됨
 	}
 }
 
 void UFleshRingComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	// Ring 메시는 OnUnregister()에서 정리됨
 	CleanupDeformer();
 	Super::EndPlay(EndPlayReason);
 }
+
+void UFleshRingComponent::OnRegister()
+{
+	Super::OnRegister();
+
+	// 에디터 및 런타임 모두에서 Ring 메시 설정
+	// OnRegister는 컴포넌트가 월드에 등록될 때 호출됨 (에디터 포함)
+	ResolveTargetMesh();
+	SetupRingMeshes();
+}
+
+void UFleshRingComponent::OnUnregister()
+{
+	CleanupRingMeshes();
+	Super::OnUnregister();
+}
+
+#if WITH_EDITOR
+void UFleshRingComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	// FleshRingAsset이나 관련 프로퍼티 변경 시 Ring 메시 재설정
+	const FName PropertyName = PropertyChangedEvent.GetPropertyName();
+	if (PropertyName == GET_MEMBER_NAME_CHECKED(UFleshRingComponent, FleshRingAsset) ||
+		PropertyName == GET_MEMBER_NAME_CHECKED(UFleshRingComponent, bEnableFleshRing))
+	{
+		ResolveTargetMesh();
+		SetupRingMeshes();
+	}
+}
+#endif
 
 void UFleshRingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
@@ -268,7 +302,7 @@ void UFleshRingComponent::GenerateSDF()
 				Vertex = FVector3f(WorldPos);
 			}
 
-				// Bounds 재계산
+			// Bounds 재계산
 			FVector3f MinBounds(FLT_MAX, FLT_MAX, FLT_MAX);
 			FVector3f MaxBounds(-FLT_MAX, -FLT_MAX, -FLT_MAX);
 			for (const FVector3f& V : MeshData.Vertices)
@@ -379,6 +413,7 @@ void UFleshRingComponent::ApplyAsset()
 	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Applying asset '%s'"), *FleshRingAsset->GetName());
 
 	// 기존 설정 정리 후 재설정
+	CleanupRingMeshes();
 	CleanupDeformer();
 
 	if (bEnableFleshRing)
@@ -402,5 +437,106 @@ void UFleshRingComponent::ApplyAsset()
 
 		SetupDeformer();
 		GenerateSDF();
+		SetupRingMeshes();
 	}
+}
+
+void UFleshRingComponent::SetupRingMeshes()
+{
+	// 기존 Ring 메시 정리
+	CleanupRingMeshes();
+
+	if (!FleshRingAsset || !ResolvedTargetMesh.IsValid())
+	{
+		return;
+	}
+
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return;
+	}
+
+	USkeletalMeshComponent* SkelMesh = ResolvedTargetMesh.Get();
+
+	// 각 Ring에 대해 StaticMeshComponent 생성
+	for (int32 RingIndex = 0; RingIndex < FleshRingAsset->Rings.Num(); ++RingIndex)
+	{
+		const FFleshRingSettings& Ring = FleshRingAsset->Rings[RingIndex];
+
+		// RingMesh가 없으면 스킵
+		UStaticMesh* RingMesh = Ring.RingMesh.LoadSynchronous();
+		if (!RingMesh)
+		{
+			RingMeshComponents.Add(nullptr);
+			continue;
+		}
+
+		// BoneName 유효성 검사
+		if (Ring.BoneName.IsNone())
+		{
+			UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: Ring[%d] has no BoneName"), RingIndex);
+			RingMeshComponents.Add(nullptr);
+			continue;
+		}
+
+		// 본 인덱스 확인
+		const int32 BoneIndex = SkelMesh->GetBoneIndex(Ring.BoneName);
+		if (BoneIndex == INDEX_NONE)
+		{
+			UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: Ring[%d] bone '%s' not found"),
+				RingIndex, *Ring.BoneName.ToString());
+			RingMeshComponents.Add(nullptr);
+			continue;
+		}
+
+		// StaticMeshComponent 생성
+		FName ComponentName = FName(*FString::Printf(TEXT("RingMesh_%d"), RingIndex));
+		UStaticMeshComponent* MeshComp = NewObject<UStaticMeshComponent>(Owner, ComponentName);
+		if (!MeshComp)
+		{
+			UE_LOG(LogFleshRingComponent, Error, TEXT("FleshRingComponent: Failed to create StaticMeshComponent for Ring[%d]"), RingIndex);
+			RingMeshComponents.Add(nullptr);
+			continue;
+		}
+
+		// StaticMesh 설정
+		MeshComp->SetStaticMesh(RingMesh);
+
+		// 트랜스폼 설정 (MeshOffset, MeshRotation, MeshScale)
+		MeshComp->SetRelativeLocation(Ring.MeshOffset);
+		MeshComp->SetRelativeRotation(Ring.MeshRotation);
+		MeshComp->SetRelativeScale3D(Ring.MeshScale);
+
+		// Construction Script로 생성된 것처럼 처리 (에디터에서 삭제 시도해도 다시 생성됨)
+		MeshComp->CreationMethod = EComponentCreationMethod::Native;
+		MeshComp->bIsEditorOnly = false;  // 게임에서도 보임
+		MeshComp->SetCastShadow(true);    // 그림자 캐스팅
+
+		// SkeletalMeshComponent의 본에 부착
+		MeshComp->AttachToComponent(SkelMesh, FAttachmentTransformRules::KeepRelativeTransform, Ring.BoneName);
+
+		// 컴포넌트 등록
+		MeshComp->RegisterComponent();
+
+		RingMeshComponents.Add(MeshComp);
+
+		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] mesh '%s' attached to bone '%s'"),
+			RingIndex, *RingMesh->GetName(), *Ring.BoneName.ToString());
+	}
+
+	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: SetupRingMeshes completed, %d meshes created"),
+		RingMeshComponents.Num());
+}
+
+void UFleshRingComponent::CleanupRingMeshes()
+{
+	for (UStaticMeshComponent* MeshComp : RingMeshComponents)
+	{
+		if (MeshComp)
+		{
+			MeshComp->DestroyComponent();
+		}
+	}
+	RingMeshComponents.Empty();
 }

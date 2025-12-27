@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "FleshRingTypes.h"
 #include "FleshRingDeformer.h"
 #include "RenderGraphResources.h"
@@ -86,6 +87,12 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void OnRegister() override;
+	virtual void OnUnregister() override;
+
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
 
 public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
@@ -212,6 +219,14 @@ private:
 	 */
 	TArray<FRingSDFCache> RingSDFCaches;
 
+	/**
+	 * Ring별 렌더링용 StaticMeshComponent 배열
+	 * - SetupRingMeshes()에서 생성하여 본에 부착
+	 * - CleanupRingMeshes()에서 제거
+	 */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UStaticMeshComponent>> RingMeshComponents;
+
 	/** 대상 SkeletalMeshComponent 검색 및 설정 */
 	void ResolveTargetMesh();
 
@@ -223,4 +238,10 @@ private:
 
 	/** SDF 생성 (각 Ring의 RingMesh 기반) */
 	void GenerateSDF();
+
+	/** Ring 메시 컴포넌트 생성 및 본에 부착 */
+	void SetupRingMeshes();
+
+	/** Ring 메시 컴포넌트 제거 */
+	void CleanupRingMeshes();
 };

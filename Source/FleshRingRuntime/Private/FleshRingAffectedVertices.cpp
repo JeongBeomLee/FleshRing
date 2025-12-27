@@ -172,7 +172,8 @@ void FFleshRingAffectedVerticesManager::SetVertexSelector(TSharedPtr<IVertexSele
 // ============================================================================
 bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
     const UFleshRingComponent* Component,
-    const USkeletalMeshComponent* SkeletalMesh)
+    const USkeletalMeshComponent* SkeletalMesh,
+    int32 LODIndex)
 {
     // Validate input parameters
     // 입력 파라미터 유효성 검사
@@ -198,10 +199,10 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
 
     const TArray<FFleshRingSettings>& Rings = Component->FleshRingAsset->Rings;
 
-    // Extract mesh vertices from skeletal mesh
-    // 스켈레탈 메시에서 버텍스 추출 (바인드 포즈 컴포넌트 스페이스)
+    // Extract mesh vertices from skeletal mesh at specified LOD
+    // 스켈레탈 메시의 지정된 LOD에서 버텍스 추출 (바인드 포즈 컴포넌트 스페이스)
     TArray<FVector3f> MeshVertices;
-    if (!ExtractMeshVertices(SkeletalMesh, MeshVertices))
+    if (!ExtractMeshVertices(SkeletalMesh, MeshVertices, LODIndex))
     {
         UE_LOG(LogFleshRingVertices, Error,
             TEXT("RegisterAffectedVertices: Failed to extract mesh vertices"));
@@ -360,7 +361,8 @@ int32 FFleshRingAffectedVerticesManager::GetTotalAffectedCount() const
 // ============================================================================
 bool FFleshRingAffectedVerticesManager::ExtractMeshVertices(
     const USkeletalMeshComponent* SkeletalMesh,
-    TArray<FVector3f>& OutVertices)
+    TArray<FVector3f>& OutVertices,
+    int32 LODIndex)
 {
     if (!SkeletalMesh)
     {
@@ -383,9 +385,19 @@ bool FFleshRingAffectedVerticesManager::ExtractMeshVertices(
         return false;
     }
 
-    // Use LOD 0 for vertex data
-    // LOD 0에서 버텍스 데이터 사용
-    const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[0];
+    // Validate LOD index
+    // LOD 인덱스 유효성 검사
+    if (LODIndex < 0 || LODIndex >= RenderData->LODRenderData.Num())
+    {
+        UE_LOG(LogFleshRingVertices, Warning,
+            TEXT("ExtractMeshVertices: Invalid LOD index %d (max: %d), falling back to LOD 0"),
+            LODIndex, RenderData->LODRenderData.Num() - 1);
+        LODIndex = 0;
+    }
+
+    // Use specified LOD for vertex data
+    // 지정된 LOD에서 버텍스 데이터 사용
+    const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[LODIndex];
     const uint32 NumVertices = LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
 
     if (NumVertices == 0)

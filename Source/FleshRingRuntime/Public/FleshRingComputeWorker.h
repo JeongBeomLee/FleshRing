@@ -6,10 +6,12 @@
 #include "ComputeWorkerInterface.h"
 #include "ComputeSystemInterface.h"
 #include "RenderGraphResources.h"
+#include "RendererInterface.h"
 #include "FleshRingTightnessShader.h"
 
 class FSkeletalMeshObject;
 class UFleshRingDeformerInstance;
+struct IPooledRenderTarget;
 
 // ============================================================================
 // FFleshRingWorkItem - 큐잉된 작업 항목
@@ -31,6 +33,12 @@ struct FFleshRingWorkItem
 		FTightnessDispatchParams Params;
 		TArray<uint32> Indices;
 		TArray<float> Influences;
+
+		// SDF 캐시 데이터 (렌더 스레드로 안전하게 전달)
+		TRefCountPtr<IPooledRenderTarget> SDFPooledTexture;
+		FVector3f SDFBoundsMin = FVector3f::ZeroVector;
+		FVector3f SDFBoundsMax = FVector3f::ZeroVector;
+		bool bHasValidSDF = false;
 	};
 	TSharedPtr<TArray<FRingDispatchData>> RingDispatchDataPtr;
 

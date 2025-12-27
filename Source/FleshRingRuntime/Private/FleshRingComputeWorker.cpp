@@ -216,13 +216,28 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					ERDGInitialDataFlags::None
 				);
 
+				// SDF 텍스처 등록 (Pooled → RDG)
+				FRDGTextureRef SDFTextureRDG = nullptr;
+				if (DispatchData.bHasValidSDF && DispatchData.SDFPooledTexture.IsValid())
+				{
+					SDFTextureRDG = GraphBuilder.RegisterExternalTexture(DispatchData.SDFPooledTexture);
+					UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] TightnessCS Dispatch: SDF Mode, Verts=%d, Strength=%.2f"),
+						Params.NumAffectedVertices, Params.TightnessStrength);
+				}
+				else
+				{
+					UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] TightnessCS Dispatch: Manual Mode, Verts=%d, Strength=%.2f"),
+						Params.NumAffectedVertices, Params.TightnessStrength);
+				}
+
 				DispatchFleshRingTightnessCS(
 					GraphBuilder,
 					Params,
 					SourceBuffer,
 					IndicesBuffer,
 					InfluencesBuffer,
-					TightenedBindPoseBuffer
+					TightenedBindPoseBuffer,
+					SDFTextureRDG
 				);
 			}
 		}
@@ -243,6 +258,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 		else
 		{
 			UE_LOG(LogFleshRingWorker, Warning, TEXT("FleshRing: 캐싱된 버퍼가 유효하지 않음"));
+			ExternalAccessQueue.Submit(GraphBuilder);
 			WorkItem.FallbackDelegate.ExecuteIfBound();
 			return;
 		}

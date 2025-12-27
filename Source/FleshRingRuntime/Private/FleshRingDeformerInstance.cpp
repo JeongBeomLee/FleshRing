@@ -31,7 +31,7 @@ void UFleshRingDeformerInstance::SetupFromDeformer(UFleshRingDeformer* InDeforme
 	Scene = InMeshComponent ? InMeshComponent->GetScene() : nullptr;
 	LastLodIndex = INDEX_NONE;
 
-	// FleshRingComponent 찾기 및 AffectedVertices 등록
+	// FleshRingComponent 찾기 및 모든 LOD에 대해 AffectedVertices 등록
 	if (AActor* Owner = InMeshComponent->GetOwner())
 	{
 		FleshRingComponent = Owner->FindComponentByClass<UFleshRingComponent>();
@@ -40,12 +40,33 @@ void UFleshRingDeformerInstance::SetupFromDeformer(UFleshRingDeformer* InDeforme
 			USkeletalMeshComponent* SkelMesh = Cast<USkeletalMeshComponent>(InMeshComponent);
 			if (SkelMesh)
 			{
-				bAffectedVerticesRegistered = AffectedVerticesManager.RegisterAffectedVertices(
-					FleshRingComponent.Get(), SkelMesh);
-
-				if (!bAffectedVerticesRegistered)
+				// LOD 개수 파악
+				USkeletalMesh* Mesh = SkelMesh->GetSkeletalMeshAsset();
+				if (Mesh)
 				{
-					UE_LOG(LogFleshRing, Warning, TEXT("AffectedVertices 등록 실패"));
+					const FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
+					if (RenderData)
+					{
+						NumLODs = RenderData->LODRenderData.Num();
+						LODData.SetNum(NumLODs);
+
+						// 각 LOD에 대해 AffectedVertices 등록
+						int32 SuccessCount = 0;
+						for (int32 LODIndex = 0; LODIndex < NumLODs; ++LODIndex)
+						{
+							LODData[LODIndex].bAffectedVerticesRegistered =
+								LODData[LODIndex].AffectedVerticesManager.RegisterAffectedVertices(
+									FleshRingComponent.Get(), SkelMesh, LODIndex);
+
+							if (LODData[LODIndex].bAffectedVerticesRegistered)
+							{
+								SuccessCount++;
+							}
+						}
+
+						UE_LOG(LogFleshRing, Log, TEXT("AffectedVertices 등록 완료: %d/%d LODs"),
+							SuccessCount, NumLODs);
+					}
 				}
 			}
 		}
@@ -63,22 +84,21 @@ void UFleshRingDeformerInstance::AllocateResources()
 
 void UFleshRingDeformerInstance::ReleaseResources()
 {
-	// Release cached TightenedBindPose buffer
-	// 캐싱된 TightenedBindPose 버퍼 해제
-	// Note: TSharedPtr 내부의 TRefCountPtr만 해제하고, TSharedPtr 자체는 유지
-	// 렌더 스레드에서 아직 참조 중일 수 있으므로 reset하지 않음
-	if (CachedTightenedBindPoseShared.IsValid())
+	// 모든 LOD의 캐싱된 리소스 해제
+	for (FLODDeformationData& Data : LODData)
 	{
-		CachedTightenedBindPoseShared->SafeRelease();
-	}
-	bTightenedBindPoseCached = false;
-	CachedTightnessLODIndex = INDEX_NONE;
-	CachedTightnessVertexCount = 0;
+		// TightenedBindPose 버퍼 해제
+		if (Data.CachedTightenedBindPoseShared.IsValid())
+		{
+			Data.CachedTightenedBindPoseShared->SafeRelease();
+		}
+		Data.bTightenedBindPoseCached = false;
+		Data.CachedTightnessVertexCount = 0;
 
-	// Release cached source positions
-	// 캐싱된 소스 위치 해제
-	CachedSourcePositions.Empty();
-	bSourcePositionsCached = false;
+		// 소스 위치 해제
+		Data.CachedSourcePositions.Empty();
+		Data.bSourcePositionsCached = false;
+	}
 }
 
 void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
@@ -108,8 +128,26 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		return;
 	}
 
+	const int32 LODIndex = SkinnedMeshComp->GetPredictedLODLevel();
+
+	// LOD 유효성 검사
+	if (LODIndex < 0 || LODIndex >= NumLODs)
+	{
+		if (InDesc.FallbackDelegate.IsBound())
+		{
+			ENQUEUE_RENDER_COMMAND(FleshRingFallback)([FallbackDelegate = InDesc.FallbackDelegate](FRHICommandListImmediate& RHICmdList)
+			{
+				FallbackDelegate.ExecuteIfBound();
+			});
+		}
+		return;
+	}
+
+	// 현재 LOD의 데이터 참조
+	FLODDeformationData& CurrentLODData = LODData[LODIndex];
+
 	// AffectedVertices가 등록되지 않았으면 Fallback
-	if (!bAffectedVerticesRegistered || AffectedVerticesManager.GetTotalAffectedCount() == 0)
+	if (!CurrentLODData.bAffectedVerticesRegistered || CurrentLODData.AffectedVerticesManager.GetTotalAffectedCount() == 0)
 	{
 		if (InDesc.FallbackDelegate.IsBound())
 		{
@@ -162,27 +200,20 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		return;
 	}
 
-	const int32 LODIndex = SkinnedMeshComp->GetPredictedLODLevel();
-
 	// Track LOD changes for invalidating previous position
+	// 각 LOD는 별도의 캐시를 가지므로 캐시 무효화는 필요없음
 	bool bInvalidatePreviousPosition = false;
 	if (LODIndex != LastLodIndex)
 	{
 		bInvalidatePreviousPosition = true;
 		LastLodIndex = LODIndex;
-
-		// LOD 변경 시 TightenedBindPose 캐시 무효화
-		if (LODIndex != CachedTightnessLODIndex)
-		{
-			bTightenedBindPoseCached = false;
-			CachedTightnessLODIndex = LODIndex;
-		}
+		UE_LOG(LogFleshRing, Log, TEXT("FleshRing: LOD changed to %d"), LODIndex);
 	}
 
 	// ================================================================
-	// 소스 버텍스 캐싱 (첫 프레임에만)
+	// 소스 버텍스 캐싱 (해당 LOD의 첫 프레임에만)
 	// ================================================================
-	if (!bSourcePositionsCached)
+	if (!CurrentLODData.bSourcePositionsCached)
 	{
 		USkeletalMeshComponent* SkelMeshComp = Cast<USkeletalMeshComponent>(SkinnedMeshComp);
 		USkeletalMesh* SkelMesh = SkelMeshComp ? SkelMeshComp->GetSkeletalMeshAsset() : nullptr;
@@ -191,23 +222,23 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			const FSkeletalMeshRenderData* RenderData = SkelMesh->GetResourceForRendering();
 			if (RenderData && RenderData->LODRenderData.Num() > LODIndex)
 			{
-				const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[LODIndex];
-				const uint32 NumVerts = LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
+				const FSkeletalMeshLODRenderData& RenderLODData = RenderData->LODRenderData[LODIndex];
+				const uint32 NumVerts = RenderLODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
 
-				CachedSourcePositions.SetNum(NumVerts * 3);
+				CurrentLODData.CachedSourcePositions.SetNum(NumVerts * 3);
 				for (uint32 i = 0; i < NumVerts; ++i)
 				{
-					const FVector3f& Pos = LODData.StaticVertexBuffers.PositionVertexBuffer.VertexPosition(i);
-					CachedSourcePositions[i * 3 + 0] = Pos.X;
-					CachedSourcePositions[i * 3 + 1] = Pos.Y;
-					CachedSourcePositions[i * 3 + 2] = Pos.Z;
+					const FVector3f& Pos = RenderLODData.StaticVertexBuffers.PositionVertexBuffer.VertexPosition(i);
+					CurrentLODData.CachedSourcePositions[i * 3 + 0] = Pos.X;
+					CurrentLODData.CachedSourcePositions[i * 3 + 1] = Pos.Y;
+					CurrentLODData.CachedSourcePositions[i * 3 + 2] = Pos.Z;
 				}
-				bSourcePositionsCached = true;
+				CurrentLODData.bSourcePositionsCached = true;
 			}
 		}
 	}
 
-	if (!bSourcePositionsCached)
+	if (!CurrentLODData.bSourcePositionsCached)
 	{
 		if (InDesc.FallbackDelegate.IsBound())
 		{
@@ -222,16 +253,17 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	// ================================================================
 	// 작업 아이템 생성 및 큐잉
 	// ================================================================
-	const TArray<FRingAffectedData>& AllRingData = AffectedVerticesManager.GetAllRingData();
-	const uint32 TotalVertexCount = CachedSourcePositions.Num() / 3;
+	const TArray<FRingAffectedData>& AllRingData = CurrentLODData.AffectedVerticesManager.GetAllRingData();
+	const uint32 TotalVertexCount = CurrentLODData.CachedSourcePositions.Num() / 3;
 
 	// Ring 데이터 준비
 	TSharedPtr<TArray<FFleshRingWorkItem::FRingDispatchData>> RingDispatchDataPtr =
 		MakeShared<TArray<FFleshRingWorkItem::FRingDispatchData>>();
 	RingDispatchDataPtr->Reserve(AllRingData.Num());
 
-	for (const FRingAffectedData& RingData : AllRingData)
+	for (int32 RingIndex = 0; RingIndex < AllRingData.Num(); ++RingIndex)
 	{
+		const FRingAffectedData& RingData = AllRingData[RingIndex];
 		if (RingData.Vertices.Num() == 0)
 		{
 			continue;
@@ -241,6 +273,37 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		DispatchData.Params = CreateTightnessParams(RingData, TotalVertexCount);
 		DispatchData.Indices = RingData.PackedIndices;
 		DispatchData.Influences = RingData.PackedInfluences;
+
+		// SDF 캐시 데이터 전달 (렌더 스레드로 안전하게 복사)
+		if (FleshRingComponent.IsValid())
+		{
+			const FRingSDFCache* SDFCache = FleshRingComponent->GetRingSDFCache(RingIndex);
+			if (SDFCache && SDFCache->IsValid())
+			{
+				DispatchData.SDFPooledTexture = SDFCache->PooledTexture;
+				DispatchData.SDFBoundsMin = SDFCache->BoundsMin;
+				DispatchData.SDFBoundsMax = SDFCache->BoundsMax;
+				DispatchData.bHasValidSDF = true;
+
+				// Params에도 SDF 바운드 설정
+				DispatchData.Params.SDFBoundsMin = SDFCache->BoundsMin;
+				DispatchData.Params.SDFBoundsMax = SDFCache->BoundsMax;
+				DispatchData.Params.bUseSDFInfluence = 1;
+
+				UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] SDF Valid! Bounds: (%s) to (%s), AffectedVerts: %d, Strength: %.2f"),
+					RingIndex,
+					*SDFCache->BoundsMin.ToString(),
+					*SDFCache->BoundsMax.ToString(),
+					DispatchData.Params.NumAffectedVertices,
+					DispatchData.Params.TightnessStrength);
+			}
+			else
+			{
+				UE_LOG(LogFleshRing, Warning, TEXT("[DEBUG] Ring[%d] SDF NOT Valid! AffectedVerts: %d (Manual mode)"),
+					RingIndex, DispatchData.Params.NumAffectedVertices);
+			}
+		}
+
 		RingDispatchDataPtr->Add(MoveTemp(DispatchData));
 	}
 
@@ -257,17 +320,17 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	}
 
 	// TightenedBindPose 캐싱 여부 결정
-	bool bNeedTightnessCaching = !bTightenedBindPoseCached;
+	bool bNeedTightnessCaching = !CurrentLODData.bTightenedBindPoseCached;
 	if (bNeedTightnessCaching)
 	{
-		bTightenedBindPoseCached = true;
-		CachedTightnessVertexCount = TotalVertexCount;
+		CurrentLODData.bTightenedBindPoseCached = true;
+		CurrentLODData.CachedTightnessVertexCount = TotalVertexCount;
 		bInvalidatePreviousPosition = true;
 
 		// TSharedPtr 생성 (첫 캐싱 시)
-		if (!CachedTightenedBindPoseShared.IsValid())
+		if (!CurrentLODData.CachedTightenedBindPoseShared.IsValid())
 		{
-			CachedTightenedBindPoseShared = MakeShared<TRefCountPtr<FRDGPooledBuffer>>();
+			CurrentLODData.CachedTightenedBindPoseShared = MakeShared<TRefCountPtr<FRDGPooledBuffer>>();
 		}
 	}
 
@@ -277,11 +340,11 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	WorkItem.MeshObject = MeshObject;
 	WorkItem.LODIndex = LODIndex;
 	WorkItem.TotalVertexCount = TotalVertexCount;
-	WorkItem.SourceDataPtr = MakeShared<TArray<float>>(CachedSourcePositions);
+	WorkItem.SourceDataPtr = MakeShared<TArray<float>>(CurrentLODData.CachedSourcePositions);
 	WorkItem.RingDispatchDataPtr = RingDispatchDataPtr;
 	WorkItem.bNeedTightnessCaching = bNeedTightnessCaching;
 	WorkItem.bInvalidatePreviousPosition = bInvalidatePreviousPosition;
-	WorkItem.CachedBufferSharedPtr = CachedTightenedBindPoseShared;  // TSharedPtr 복사 (ref count 증가)
+	WorkItem.CachedBufferSharedPtr = CurrentLODData.CachedTightenedBindPoseShared;  // TSharedPtr 복사 (ref count 증가)
 	WorkItem.FallbackDelegate = InDesc.FallbackDelegate;
 
 	// 렌더 스레드에서 Worker에 작업 큐잉
