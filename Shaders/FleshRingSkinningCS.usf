@@ -33,9 +33,13 @@ Buffer<float> SourcePositions;
 // SRV 포맷이 SNORM->float 변환을 처리
 Buffer<float4> SourceTangents;
 
-// Output: Skinned vertex positions
-// 출력: 스키닝된 버텍스 위치
+// Output: Skinned vertex positions (current frame)
+// 출력: 스키닝된 버텍스 위치 (현재 프레임)
 RWBuffer<float> OutputPositions;
+
+// Output: Previous frame skinned positions for velocity calculation (TAA/TSR)
+// TAA/TSR용 이전 프레임 스키닝된 위치 출력 (velocity 계산용)
+RWBuffer<float> OutputPreviousPositions;
 
 // Output: Skinned tangents (TangentX=Normal, TangentZ=Tangent)
 // 출력: 스키닝된 탄젠트 - TANGENT_RWBUFFER_FORMAT from GpuSkinCommon.ush
@@ -51,6 +55,10 @@ RWBuffer<TANGENT_RWBUFFER_FORMAT> OutputTangents;
 // RefToLocal: [Bind Pose Component Space] -> [Animated Component Space]
 // 본 행렬 버퍼 (본당 3개의 float4 = 3x4 행렬)
 Buffer<float4> BoneMatrices;
+
+// Previous frame bone matrices for velocity calculation (TAA/TSR)
+// TAA/TSR용 이전 프레임 본 행렬 (velocity 계산용)
+Buffer<float4> PreviousBoneMatrices;
 
 // Packed bone indices + weights (LOD-wide)
 // 패킹된 본 인덱스 + 웨이트 (LOD 전체)
@@ -70,6 +78,7 @@ uint NumVertices;           // Section's vertex count / Section 버텍스 수
 // Debug/Feature flags
 // 디버그/기능 플래그
 uint bProcessTangents;      // 탄젠트 처리 여부 (0 = Position만, 1 = Position + Tangent)
+uint bProcessPreviousPosition; // Previous Position 처리 여부 (0 = 현재만, 1 = 현재 + Previous)
 
 // Thread Group Size
 #ifndef THREADGROUP_SIZE
@@ -94,6 +103,18 @@ float3x4 GetBoneMatrix(uint BoneIndex)
         BoneMatrices[BufferIndex],
         BoneMatrices[BufferIndex + 1],
         BoneMatrices[BufferIndex + 2]
+    );
+}
+
+// Get previous frame bone matrix from buffer (3 float4 = 3x4 matrix)
+// 이전 프레임 본 행렬 가져오기 (3 float4 = 3x4 행렬)
+float3x4 GetPreviousBoneMatrix(uint BoneIndex)
+{
+    uint BufferIndex = BoneIndex * 3;
+    return float3x4(
+        PreviousBoneMatrices[BufferIndex],
+        PreviousBoneMatrices[BufferIndex + 1],
+        PreviousBoneMatrices[BufferIndex + 2]
     );
 }
 
@@ -252,6 +273,42 @@ float3x4 ComputeSkinnedMatrix(uint VertexIndex)
     return BlendedMatrix;
 }
 
+// Compute blended previous frame skinning matrix for a vertex (TAA/TSR velocity)
+// 버텍스의 이전 프레임 블렌딩된 스키닝 행렬 계산 (TAA/TSR velocity용)
+float3x4 ComputePreviousSkinnedMatrix(uint VertexIndex)
+{
+    // Calculate stream offset for this vertex (in uint32 units)
+    // 이 버텍스의 스트림 오프셋 계산 (uint32 단위)
+    uint StreamOffset = VertexIndex * (InputWeightStride / 4);
+
+    // Get first 4 bone influences
+    // 첫 4개 본 영향 가져오기
+    uint4 Indices0 = GetBlendIndicesRuntime(StreamOffset, 0);
+    float4 Weights0 = GetBlendWeightsRuntime(StreamOffset, 0);
+
+    // Blend previous frame bone matrices with weights
+    // 이전 프레임 본 행렬을 웨이트로 블렌딩
+    float3x4 BlendedMatrix = GetPreviousBoneMatrix(Indices0.x) * Weights0.x;
+    BlendedMatrix += GetPreviousBoneMatrix(Indices0.y) * Weights0.y;
+    BlendedMatrix += GetPreviousBoneMatrix(Indices0.z) * Weights0.z;
+    BlendedMatrix += GetPreviousBoneMatrix(Indices0.w) * Weights0.w;
+
+    // Get additional 4 bone influences (if 8-bone skinning)
+    // 추가 4개 본 영향 가져오기 (8본 스키닝인 경우)
+    if (NumBoneInfluences > 4)
+    {
+        uint4 Indices1 = GetBlendIndicesRuntime(StreamOffset, 1);
+        float4 Weights1 = GetBlendWeightsRuntime(StreamOffset, 1);
+
+        BlendedMatrix += GetPreviousBoneMatrix(Indices1.x) * Weights1.x;
+        BlendedMatrix += GetPreviousBoneMatrix(Indices1.y) * Weights1.y;
+        BlendedMatrix += GetPreviousBoneMatrix(Indices1.z) * Weights1.z;
+        BlendedMatrix += GetPreviousBoneMatrix(Indices1.w) * Weights1.w;
+    }
+
+    return BlendedMatrix;
+}
+
 // ============================================================================
 // Position Read/Write Helper Functions
 // 위치 읽기/쓰기 헬퍼 함수
@@ -277,6 +334,16 @@ void WritePosition(uint VertexIndex, float3 Pos)
     OutputPositions[BaseIndex + 0] = Pos.x;
     OutputPositions[BaseIndex + 1] = Pos.y;
     OutputPositions[BaseIndex + 2] = Pos.z;
+}
+
+// Write previous frame vertex position to buffer (3 floats per vertex)
+// 이전 프레임 버텍스 위치 쓰기 (버텍스당 3 float)
+void WritePreviousPosition(uint VertexIndex, float3 Pos)
+{
+    uint BaseIndex = VertexIndex * 3;
+    OutputPreviousPositions[BaseIndex + 0] = Pos.x;
+    OutputPreviousPositions[BaseIndex + 1] = Pos.y;
+    OutputPreviousPositions[BaseIndex + 2] = Pos.z;
 }
 
 // ============================================================================
@@ -305,6 +372,14 @@ void ReadTangents(uint VertexIndex, out float3 OutNormal, out float4 OutTangent)
     OutTangent = TangentZ; // W contains binormal sign
 }
 
+// Safe normalize: returns default if input is zero/near-zero
+// 안전한 정규화: 입력이 0이면 기본값 반환
+float3 SafeNormalize(float3 V, float3 Default)
+{
+    float LenSq = dot(V, V);
+    return LenSq > 1e-8f ? V * rsqrt(LenSq) : Default;
+}
+
 // Write TangentX (Normal) and TangentZ (Tangent) to buffer
 // 버퍼에 TangentX (노멀)와 TangentZ (탄젠트) 쓰기
 // Optimus 방식: TangentUnbias_SkinCache() 사용
@@ -312,11 +387,15 @@ void WriteTangents(uint VertexIndex, float3 Normal, float4 Tangent)
 {
     uint BaseIndex = VertexIndex * 2;
 
-    // TangentX: Normal (normalized) with W=0
-    float4 TangentX = float4(normalize(Normal), 0.0f);
+    // TangentX: Normal (safe normalized) with W=0
+    // 0 벡터면 (0,0,1) 기본값 사용
+    float3 SafeNormal = SafeNormalize(Normal, float3(0, 0, 1));
+    float4 TangentX = float4(SafeNormal, 0.0f);
 
-    // TangentZ: Tangent direction (normalized) with binormal sign preserved in W
-    float4 TangentZ = float4(normalize(Tangent.xyz), Tangent.w);
+    // TangentZ: Tangent direction (safe normalized) with binormal sign preserved in W
+    // 0 벡터면 (1,0,0) 기본값 사용
+    float3 SafeTangentDir = SafeNormalize(Tangent.xyz, float3(1, 0, 0));
+    float4 TangentZ = float4(SafeTangentDir, Tangent.w);
 
     // Use TangentUnbias_SkinCache from GpuSkinCommon.ush (passthrough for SNORM, converts for OpenGL)
     OutputTangents[BaseIndex + 0] = TangentUnbias_SkinCache(TangentX);
@@ -368,11 +447,35 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     float3 SkinnedPos = TransformByMatrix(SkinMatrix, TightenedPos);
 
     // ========================================
-    // Step 4: Write Output
-    // 4단계: 출력 쓰기
+    // Step 4: Write Current Position Output
+    // 4단계: 현재 Position 출력 쓰기
     // ========================================
     WritePosition(GlobalVertexIndex, SkinnedPos);
 
+    // ========================================
+    // Step 5: Compute & Write Previous Position (for TAA/TSR velocity)
+    // 5단계: 이전 Position 계산 및 쓰기 (TAA/TSR velocity용)
+    // ========================================
+    // Previous Position is needed for motion vector calculation
+    // velocity = CurrentPosition - PreviousPosition
+    // 이전 Position은 모션 벡터 계산에 필요함
+    if (bProcessPreviousPosition != 0)
+    {
+        // Compute previous frame skinning matrix using previous bone matrices
+        // 이전 프레임 본 행렬을 사용하여 이전 스키닝 행렬 계산
+        float3x4 PreviousSkinMatrix = ComputePreviousSkinnedMatrix(GlobalVertexIndex);
+
+        // Apply previous skinning to TightenedBindPose
+        // TightenedBindPose에 이전 스키닝 적용
+        float3 PreviousSkinnedPos = TransformByMatrix(PreviousSkinMatrix, TightenedPos);
+
+        WritePreviousPosition(GlobalVertexIndex, PreviousSkinnedPos);
+    }
+
+    // ========================================
+    // Step 6: Tangent processing (optional)
+    // 6단계: 탄젠트 처리 (선택적)
+    // ========================================
     // Tangent processing is optional (controlled by bProcessTangents flag)
     // 탄젠트 처리는 선택적 (bProcessTangents 플래그로 제어)
     if (bProcessTangents != 0)

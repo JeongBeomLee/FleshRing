@@ -35,8 +35,10 @@ void DispatchFleshRingSkinningCS(
     FRDGBufferRef SourcePositionsBuffer,
     FRHIShaderResourceView* SourceTangentsSRV,
     FRDGBufferRef OutputPositionsBuffer,
+    FRDGBufferRef OutputPreviousPositionsBuffer,
     FRDGBufferRef OutputTangentsBuffer,
     FRHIShaderResourceView* BoneMatricesSRV,
+    FRHIShaderResourceView* PreviousBoneMatricesSRV,
     FRHIShaderResourceView* InputWeightStreamSRV)
 {
     // Early out if no vertices to process
@@ -56,12 +58,11 @@ void DispatchFleshRingSkinningCS(
 
     // Tangent processing is optional - allow position-only skinning
     // 탄젠트 처리는 선택적 - 포지션 전용 스키닝 허용
-    // OutputTangentsBuffer가 있어야 실제 탄젠트 처리 (SourceTangentsSRV는 검증용으로 항상 필요)
     const bool bProcessTangents = (OutputTangentsBuffer != nullptr);
-    if (!bProcessTangents)
-    {
-        UE_LOG(LogTemp, Log, TEXT("FleshRingSkinningCS: Position-only mode (no tangent output)"));
-    }
+
+    // Previous Position processing for TAA/TSR velocity
+    // TAA/TSR velocity용 Previous Position 처리
+    const bool bProcessPreviousPosition = (OutputPreviousPositionsBuffer != nullptr) && (PreviousBoneMatricesSRV != nullptr);
 
     // Allocate shader parameters
     // 셰이더 파라미터 할당
@@ -77,9 +78,21 @@ void DispatchFleshRingSkinningCS(
     // ===== 출력 버퍼 바인딩 (UAV) =====
     PassParameters->OutputPositions = GraphBuilder.CreateUAV(OutputPositionsBuffer, PF_R32_FLOAT);
 
+    // Previous Position output buffer for TAA/TSR velocity
+    // TAA/TSR velocity용 Previous Position 출력 버퍼
+    if (bProcessPreviousPosition)
+    {
+        PassParameters->OutputPreviousPositions = GraphBuilder.CreateUAV(OutputPreviousPositionsBuffer, PF_R32_FLOAT);
+    }
+    else
+    {
+        // Dummy buffer - use Position buffer as placeholder (won't be written)
+        // 더미 버퍼 - Position 버퍼를 플레이스홀더로 사용 (실제로 쓰지 않음)
+        PassParameters->OutputPreviousPositions = GraphBuilder.CreateUAV(OutputPositionsBuffer, PF_R32_FLOAT);
+    }
+
     // Tangent buffers - RDG requires all declared parameters to be bound
     // 탄젠트 버퍼 - RDG는 선언된 모든 파라미터가 바인딩되어야 함
-    // SourceTangentsSRV는 항상 전달됨 (RDG 검증용)
     PassParameters->SourceTangents = SourceTangentsSRV;
 
     if (bProcessTangents)
@@ -104,6 +117,20 @@ void DispatchFleshRingSkinningCS(
     // BoneMatrices: RefToLocal matrix (3 float4 per bone)
     // [Bind Pose Component Space] -> [Animated Component Space]
     PassParameters->BoneMatrices = BoneMatricesSRV;
+
+    // Previous frame bone matrices for velocity calculation
+    // velocity 계산용 이전 프레임 본 행렬
+    if (bProcessPreviousPosition)
+    {
+        PassParameters->PreviousBoneMatrices = PreviousBoneMatricesSRV;
+    }
+    else
+    {
+        // Use current frame as fallback (no velocity)
+        // 폴백으로 현재 프레임 사용 (velocity 없음)
+        PassParameters->PreviousBoneMatrices = BoneMatricesSRV;
+    }
+
     PassParameters->InputWeightStream = InputWeightStreamSRV;
 
     // ===== Skinning parameters =====
@@ -120,6 +147,7 @@ void DispatchFleshRingSkinningCS(
     // ===== Debug/Feature flags =====
     // ===== 디버그/기능 플래그 =====
     PassParameters->bProcessTangents = bProcessTangents ? 1 : 0;
+    PassParameters->bProcessPreviousPosition = bProcessPreviousPosition ? 1 : 0;
 
     // Get shader reference
     // 셰이더 참조 가져오기
@@ -134,7 +162,8 @@ void DispatchFleshRingSkinningCS(
     // RDG에 컴퓨트 패스 추가
     FComputeShaderUtils::AddPass(
         GraphBuilder,
-        RDG_EVENT_NAME("FleshRingSkinningCS (Section base=%d, %d verts)", Params.BaseVertexIndex, Params.NumVertices),
+        RDG_EVENT_NAME("FleshRingSkinningCS (Section base=%d, %d verts, PrevPos=%d)",
+            Params.BaseVertexIndex, Params.NumVertices, bProcessPreviousPosition ? 1 : 0),
         ComputeShader,
         PassParameters,
         FIntVector(static_cast<int32>(NumGroups), 1, 1)

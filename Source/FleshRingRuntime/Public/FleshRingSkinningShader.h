@@ -53,9 +53,13 @@ public:
         // ===== Output Buffers (UAV - Read/Write) =====
         // ===== 출력 버퍼 (UAV - 읽기/쓰기) =====
 
-        // Output: Skinned vertex positions
-        // 출력: 스키닝된 버텍스 위치
+        // Output: Skinned vertex positions (current frame)
+        // 출력: 스키닝된 버텍스 위치 (현재 프레임)
         SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float>, OutputPositions)
+
+        // Output: Previous frame skinned positions for TAA/TSR velocity
+        // 출력: TAA/TSR velocity용 이전 프레임 스키닝된 위치
+        SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float>, OutputPreviousPositions)
 
         // Output: Skinned tangents (TangentX=Normal, TangentZ=Tangent)
         // 출력: 스키닝된 탄젠트 (TangentX=노멀, TangentZ=탄젠트)
@@ -72,6 +76,10 @@ public:
         // 본 행렬 (본당 3개의 float4 = 3x4 행렬)
         // RHI SRV 직접 사용 (RDG 아님) - 본 행렬은 외부에서 관리됨
         SHADER_PARAMETER_SRV(Buffer<float4>, BoneMatrices)
+
+        // Previous frame bone matrices for TAA/TSR velocity calculation
+        // TAA/TSR velocity 계산용 이전 프레임 본 행렬
+        SHADER_PARAMETER_SRV(Buffer<float4>, PreviousBoneMatrices)
 
         // Packed bone indices + weights
         // Using RHI SRV directly (not RDG) because weight stream is managed externally
@@ -96,6 +104,7 @@ public:
         // ===== 디버그/기능 플래그 =====
 
         SHADER_PARAMETER(uint32, bProcessTangents)     // 탄젠트 처리 여부 (0 = Position만, 1 = Position + Tangent)
+        SHADER_PARAMETER(uint32, bProcessPreviousPosition) // Previous Position 처리 여부 (0 = 현재만, 1 = 현재 + Previous)
     END_SHADER_PARAMETER_STRUCT()
 
     // Shader Compilation Settings
@@ -188,10 +197,14 @@ struct FSkinningDispatchParams
  *                            원본 바인드 포즈 탄젠트 SRV (RHI)
  * @param OutputPositionsBuffer - Output skinned positions (UAV, RDG)
  *                                스키닝된 위치 출력 버퍼 (UAV, RDG)
+ * @param OutputPreviousPositionsBuffer - Output previous positions for TAA/TSR velocity (UAV, RDG), can be nullptr
+ *                                        TAA/TSR velocity용 이전 위치 출력 버퍼 (UAV, RDG), nullptr 가능
  * @param OutputTangentsBuffer - Output skinned tangents (UAV, RDG)
  *                               스키닝된 탄젠트 출력 버퍼 (UAV, RDG)
- * @param BoneMatricesSRV - Bone matrices SRV (RHI, 3 float4 per bone)
- *                          본 행렬 SRV (RHI, 본당 3개 float4)
+ * @param BoneMatricesSRV - Current frame bone matrices SRV (RHI, 3 float4 per bone)
+ *                          현재 프레임 본 행렬 SRV (RHI, 본당 3개 float4)
+ * @param PreviousBoneMatricesSRV - Previous frame bone matrices SRV for velocity (RHI), can be nullptr
+ *                                  velocity용 이전 프레임 본 행렬 SRV (RHI), nullptr 가능
  * @param InputWeightStreamSRV - Packed bone indices + weights SRV (RHI)
  *                               패킹된 본 인덱스 + 웨이트 SRV (RHI)
  */
@@ -201,6 +214,8 @@ void DispatchFleshRingSkinningCS(
     FRDGBufferRef SourcePositionsBuffer,
     FRHIShaderResourceView* SourceTangentsSRV,
     FRDGBufferRef OutputPositionsBuffer,
+    FRDGBufferRef OutputPreviousPositionsBuffer,
     FRDGBufferRef OutputTangentsBuffer,
     FRHIShaderResourceView* BoneMatricesSRV,
+    FRHIShaderResourceView* PreviousBoneMatricesSRV,
     FRHIShaderResourceView* InputWeightStreamSRV);

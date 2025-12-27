@@ -17,7 +17,8 @@ public class FleshRingRuntime : ModuleRules
 
 		PrivateIncludePaths.AddRange(
 			new string[] {
-				// ... add other private include paths required here ...
+				// SkeletalMeshUpdater.h 접근을 위한 Engine Internal 경로
+				System.IO.Path.Combine(EngineDirectory, "Source/Runtime/Engine/Internal"),
 			}
 			);
 
