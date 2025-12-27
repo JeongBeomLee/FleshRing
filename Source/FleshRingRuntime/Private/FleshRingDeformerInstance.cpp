@@ -290,19 +290,22 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				DispatchData.Params.SDFBoundsMax = SDFCache->BoundsMax;
 				DispatchData.Params.bUseSDFInfluence = 1;
 
-				UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] SDF Valid! Bounds: (%s) to (%s), AffectedVerts: %d, Strength: %.2f"),
+				UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] SDF Mode: Bounds=(%.1f,%.1f,%.1f)~(%.1f,%.1f,%.1f), RingCenter=(%.1f,%.1f,%.1f)"),
 					RingIndex,
-					*SDFCache->BoundsMin.ToString(),
-					*SDFCache->BoundsMax.ToString(),
-					DispatchData.Params.NumAffectedVertices,
-					DispatchData.Params.TightnessStrength);
+					SDFCache->BoundsMin.X, SDFCache->BoundsMin.Y, SDFCache->BoundsMin.Z,
+					SDFCache->BoundsMax.X, SDFCache->BoundsMax.Y, SDFCache->BoundsMax.Z,
+					DispatchData.Params.RingCenter.X, DispatchData.Params.RingCenter.Y, DispatchData.Params.RingCenter.Z);
 			}
 			else
 			{
-				UE_LOG(LogFleshRing, Warning, TEXT("[DEBUG] Ring[%d] SDF NOT Valid! AffectedVerts: %d (Manual mode)"),
-					RingIndex, DispatchData.Params.NumAffectedVertices);
+				// UE_LOG(LogFleshRing, Warning, TEXT("[DEBUG] Ring[%d] SDF NOT Valid! AffectedVerts: %d (Manual mode)"),
+				// 	RingIndex, DispatchData.Params.NumAffectedVertices);
 			}
 		}
+
+		UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d]: AffectedVerts=%d, TightnessStrength=%.3f, RingCenter=(%.1f,%.1f,%.1f)"),
+			RingIndex, DispatchData.Params.NumAffectedVertices, DispatchData.Params.TightnessStrength,
+			DispatchData.Params.RingCenter.X, DispatchData.Params.RingCenter.Y, DispatchData.Params.RingCenter.Z);
 
 		RingDispatchDataPtr->Add(MoveTemp(DispatchData));
 	}
@@ -321,6 +324,8 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 
 	// TightenedBindPose 캐싱 여부 결정
 	bool bNeedTightnessCaching = !CurrentLODData.bTightenedBindPoseCached;
+	UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] bNeedTightnessCaching=%d (first frame = will run TightnessCS)"), bNeedTightnessCaching ? 1 : 0);
+
 	if (bNeedTightnessCaching)
 	{
 		CurrentLODData.bTightenedBindPoseCached = true;

@@ -503,21 +503,26 @@ void UFleshRingComponent::SetupRingMeshes()
 		// StaticMesh 설정
 		MeshComp->SetStaticMesh(RingMesh);
 
-		// 트랜스폼 설정 (MeshOffset, MeshRotation, MeshScale)
-		MeshComp->SetRelativeLocation(Ring.MeshOffset);
-		MeshComp->SetRelativeRotation(Ring.MeshRotation);
-		MeshComp->SetRelativeScale3D(Ring.MeshScale);
-
 		// Construction Script로 생성된 것처럼 처리 (에디터에서 삭제 시도해도 다시 생성됨)
 		MeshComp->CreationMethod = EComponentCreationMethod::Native;
 		MeshComp->bIsEditorOnly = false;  // 게임에서도 보임
 		MeshComp->SetCastShadow(true);    // 그림자 캐스팅
 
-		// SkeletalMeshComponent의 본에 부착
-		MeshComp->AttachToComponent(SkelMesh, FAttachmentTransformRules::KeepRelativeTransform, Ring.BoneName);
-
 		// 컴포넌트 등록
 		MeshComp->RegisterComponent();
+
+		// 본에 먼저 부착 (본 위치에 스냅)
+		MeshComp->AttachToComponent(SkelMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Ring.BoneName);
+
+		// 본 로컬 공간에서 Z축을 X축(Forward)으로 정렬하는 회전
+		// 본 로컬 공간에서는 X축이 항상 Forward이므로 이 회전은 항상 동일
+		FQuat LocalAlignRotation = FQuat::FindBetweenNormals(FVector::ZAxisVector, FVector::XAxisVector);
+		FQuat RelativeRotation = LocalAlignRotation * FQuat(Ring.MeshRotation);
+
+		// 상대 트랜스폼 설정 (본 로컬 공간 기준)
+		MeshComp->SetRelativeLocation(Ring.MeshOffset);
+		MeshComp->SetRelativeRotation(RelativeRotation.Rotator());
+		MeshComp->SetRelativeScale3D(Ring.MeshScale);
 
 		RingMeshComponents.Add(MeshComp);
 

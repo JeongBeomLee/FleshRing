@@ -35,9 +35,14 @@ void FDistanceBasedVertexSelector::SelectVertices(
     const FVector RingCenter = BoneTransform.GetLocation();
     const FVector RingAxis = BoneTransform.GetRotation().GetUpVector();
 
+    // MeshScale 반영: Ring Mesh가 스케일되면 영향 범위도 스케일됨
+    // 반경 방향 스케일 (X, Y 평균) 과 축 방향 스케일 (Z) 분리
+    const float RadialScale = (Ring.MeshScale.X + Ring.MeshScale.Y) * 0.5f;
+    const float AxialScale = Ring.MeshScale.Z;
+
     // Calculate maximum influence distance (from axis to outer ring surface)
     // 최대 영향 거리 = 내부 반지름 + 링 벽 두께 (축에서 링 바깥면까지)
-    const float MaxDistance = Ring.RingRadius + Ring.RingThickness;
+    const float MaxDistance = (Ring.RingRadius + Ring.RingThickness) * RadialScale;
 
     // Reserve estimated capacity (assume ~25% vertices affected)
     // 예상 용량 확보 (약 25% 버텍스가 영향받는다고 가정)
@@ -66,7 +71,7 @@ void FDistanceBasedVertexSelector::SelectVertices(
         // 영향 범위 내에 있는지 확인 (원통형 모델)
         // 1. Radial distance check (perpendicular to axis) - 반경 거리 체크
         // 2. Axial distance check (along axis) - 축 방향 거리 체크
-        const float HalfWidth = Ring.RingWidth / 2.0f;
+        const float HalfWidth = (Ring.RingWidth / 2.0f) * AxialScale;
 
         if (RadialDistance <= MaxDistance && FMath::Abs(AxisDistance) <= HalfWidth)
         {
@@ -74,8 +79,10 @@ void FDistanceBasedVertexSelector::SelectVertices(
             // 반경 방향 영향도 계산 (링 표면으로부터의 거리)
             // - 링 표면(RingRadius)에서 최대 영향도
             // - 축(axis) 또는 링 바깥(MaxDistance)으로 갈수록 감소
-            const float DistFromRingSurface = FMath::Abs(RadialDistance - Ring.RingRadius);
-            const float RadialInfluence = CalculateFalloff(DistFromRingSurface, Ring.RingThickness, Ring.FalloffType);
+            const float ScaledRingRadius = Ring.RingRadius * RadialScale;
+            const float ScaledRingThickness = Ring.RingThickness * RadialScale;
+            const float DistFromRingSurface = FMath::Abs(RadialDistance - ScaledRingRadius);
+            const float RadialInfluence = CalculateFalloff(DistFromRingSurface, ScaledRingThickness, Ring.FalloffType);
 
             // Calculate axial influence (distance from ring center along axis)
             // This ensures smooth falloff at ring edges (like stocking/band edges)
@@ -294,11 +301,15 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         // 본 방향(Forward/X축)을 링 축으로 사용 - 링이 본을 감싸는 형태
         RingData.RingAxis = BoneTransform.GetRotation().GetForwardVector();
 
-        // Ring Geometry (copy from asset)
-        // 링 지오메트리 (에셋에서 복사)
-        RingData.RingRadius = RingSettings.RingRadius;
-        RingData.RingThickness = RingSettings.RingThickness;
-        RingData.RingWidth = RingSettings.RingWidth;
+        // Ring Geometry (copy from asset with MeshScale applied)
+        // 링 지오메트리 (에셋에서 복사, MeshScale 반영)
+        // 반경 방향 스케일 (X, Y 평균) 과 축 방향 스케일 (Z) 분리
+        const float RadialScale = (RingSettings.MeshScale.X + RingSettings.MeshScale.Y) * 0.5f;
+        const float AxialScale = RingSettings.MeshScale.Z;
+
+        RingData.RingRadius = RingSettings.RingRadius * RadialScale;
+        RingData.RingThickness = RingSettings.RingThickness * RadialScale;
+        RingData.RingWidth = RingSettings.RingWidth * AxialScale;
 
         // Deformation Parameters (copy from asset)
         // 변형 파라미터 (에셋에서 복사)
