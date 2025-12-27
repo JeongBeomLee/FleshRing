@@ -144,14 +144,13 @@ FSDFVisualizationResult UFleshRingSDFVisualizer::VisualizeSDFSlice(
     // 6. GPU에서 SDF 생성 + 슬라이스 시각화
     TArray<FVector3f> Vertices = MeshData.Vertices;
     TArray<uint32> Indices = MeshData.Indices;
-    TArray<FVector3f> Normals = MeshData.TriangleNormals;
     FIntVector SDFResolution(Resolution, Resolution, Resolution);
     int32 CapturedSliceZ = Result.CurrentSliceZ;
     float MaxDisplayDist = BoundsSize.GetMax() * 0.5f;
     UTextureRenderTarget2D* RenderTarget = Result.SliceTexture;
 
     ENQUEUE_RENDER_COMMAND(GenerateSDFAndSlice)(
-        [Vertices, Indices, Normals, BoundsMin, BoundsMax, SDFResolution, CapturedSliceZ, MaxDisplayDist, RenderTarget](FRHICommandListImmediate& RHICmdList)
+        [Vertices, Indices, BoundsMin, BoundsMax, SDFResolution, CapturedSliceZ, MaxDisplayDist, RenderTarget](FRHICommandListImmediate& RHICmdList)
         {
             if (!RenderTarget)
             {
@@ -183,7 +182,6 @@ FSDFVisualizationResult UFleshRingSDFVisualizer::VisualizeSDFSlice(
                 SDFTexture,
                 Vertices,
                 Indices,
-                Normals,
                 BoundsMin,
                 BoundsMax,
                 SDFResolution

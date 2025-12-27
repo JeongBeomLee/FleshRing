@@ -54,7 +54,6 @@ void GenerateMeshSDF(
     FRDGTextureRef OutputTexture,
     const TArray<FVector3f>& Vertices,
     const TArray<uint32>& Indices,
-    const TArray<FVector3f>& TriangleNormals,
     FVector3f BoundsMin,
     FVector3f BoundsMax,
     FIntVector Resolution)
@@ -89,19 +88,13 @@ void GenerateMeshSDF(
     FRDGBufferRef IndexBuffer = GraphBuilder.CreateBuffer(IndexBufferDesc, TEXT("MeshSDFIndices"));
     GraphBuilder.QueueBufferUpload(IndexBuffer, PackedIndices.GetData(), TriangleCount * sizeof(FIntVector));
 
-    // 3. 노말 버퍼 생성 및 업로드
-    FRDGBufferDesc NormalBufferDesc = FRDGBufferDesc::CreateStructuredDesc(sizeof(FVector3f), TriangleCount);
-    FRDGBufferRef NormalBuffer = GraphBuilder.CreateBuffer(NormalBufferDesc, TEXT("MeshSDFNormals"));
-    GraphBuilder.QueueBufferUpload(NormalBuffer, TriangleNormals.GetData(), TriangleCount * sizeof(FVector3f));
-
-    // 4. 셰이더 가져오기
+    // 3. 셰이더 가져오기
     TShaderMapRef<FMeshSDFGenerateCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
 
-    // 5. 파라미터 설정
+    // 4. 파라미터 설정
     FMeshSDFGenerateCS::FParameters* Parameters = GraphBuilder.AllocParameters<FMeshSDFGenerateCS::FParameters>();
     Parameters->MeshVertices = GraphBuilder.CreateSRV(VertexBuffer);
     Parameters->MeshIndices = GraphBuilder.CreateSRV(IndexBuffer);
-    Parameters->TriangleNormals = GraphBuilder.CreateSRV(NormalBuffer);
     Parameters->TriangleCount = TriangleCount;
     Parameters->SDFBoundsMin = BoundsMin;
     Parameters->SDFBoundsMax = BoundsMax;

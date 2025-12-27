@@ -18,7 +18,6 @@ public:
         // 메시 데이터
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<FVector3f>, MeshVertices)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<FIntVector>, MeshIndices)
-        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<FVector3f>, TriangleNormals)
         SHADER_PARAMETER(uint32, TriangleCount)
         // SDF 파라미터
         SHADER_PARAMETER(FVector3f, SDFBoundsMin)
@@ -58,7 +57,6 @@ void GenerateMeshSDF(
     FRDGTextureRef OutputTexture,
     const TArray<FVector3f>& Vertices,
     const TArray<uint32>& Indices,
-    const TArray<FVector3f>& TriangleNormals,
     FVector3f BoundsMin,
     FVector3f BoundsMax,
     FIntVector Resolution);

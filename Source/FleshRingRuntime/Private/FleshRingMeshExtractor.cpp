@@ -114,45 +114,6 @@ bool UFleshRingMeshExtractor::ExtractMeshDataFromLOD(UStaticMesh* Mesh, int32 LO
         return false;
     }
 
-    // 5. 삼각형 노말 계산
-    const int32 TriangleCount = OutMeshData.Indices.Num() / 3;
-    OutMeshData.TriangleNormals.SetNum(TriangleCount);
-
-    for (int32 TriIdx = 0; TriIdx < TriangleCount; TriIdx++)
-    {
-        // 삼각형의 3개 버텍스 인덱스
-        uint32 Idx0 = OutMeshData.Indices[TriIdx * 3 + 0];
-        uint32 Idx1 = OutMeshData.Indices[TriIdx * 3 + 1];
-        uint32 Idx2 = OutMeshData.Indices[TriIdx * 3 + 2];
-
-        // 버텍스 위치
-        const FVector3f& V0 = OutMeshData.Vertices[Idx0];
-        const FVector3f& V1 = OutMeshData.Vertices[Idx1];
-        const FVector3f& V2 = OutMeshData.Vertices[Idx2];
-
-        // 두 변 벡터
-        FVector3f Edge1 = V1 - V0;
-        FVector3f Edge2 = V2 - V0;
-
-        // 외적으로 노말 계산 (Edge2 x Edge1로 외부 방향)
-        FVector3f Normal = FVector3f::CrossProduct(Edge2, Edge1);
-
-        // 정규화 (degenerate 삼각형 처리)
-        float Length = Normal.Size();
-        if (Length > KINDA_SMALL_NUMBER)
-        {
-            Normal /= Length;
-        }
-        else
-        {
-            // Degenerate 삼각형 - 기본 노말 사용
-            Normal = FVector3f(0.0f, 0.0f, 1.0f);
-            UE_LOG(LogTemp, Warning, TEXT("ExtractMeshData: Degenerate triangle at index %d"), TriIdx);
-        }
-
-        OutMeshData.TriangleNormals[TriIdx] = Normal;
-    }
-
     UE_LOG(LogTemp, Log, TEXT("ExtractMeshData: Success! Vertices=%d, Triangles=%d, Bounds=(%s) to (%s)"),
         OutMeshData.GetVertexCount(),
         OutMeshData.GetTriangleCount(),
@@ -190,10 +151,9 @@ void UFleshRingMeshExtractor::DebugPrintMeshData(const FFleshRingMeshData& MeshD
         uint32 Idx0 = MeshData.Indices[i * 3 + 0];
         uint32 Idx1 = MeshData.Indices[i * 3 + 1];
         uint32 Idx2 = MeshData.Indices[i * 3 + 2];
-        const FVector3f& N = MeshData.TriangleNormals[i];
 
-        UE_LOG(LogTemp, Warning, TEXT("  Triangle[%d]: Indices(%d, %d, %d), Normal(%.3f, %.3f, %.3f)"),
-            i, Idx0, Idx1, Idx2, N.X, N.Y, N.Z);
+        UE_LOG(LogTemp, Warning, TEXT("  Triangle[%d]: Indices(%d, %d, %d)"),
+            i, Idx0, Idx1, Idx2);
     }
     if (MeshData.GetTriangleCount() > MaxTrianglePrint)
     {

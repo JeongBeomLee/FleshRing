@@ -268,15 +268,7 @@ void UFleshRingComponent::GenerateSDF()
 				Vertex = FVector3f(WorldPos);
 			}
 
-			// 노말도 회전 변환 (SDF 부호 판정에 필요)
-			FQuat FullRotation = FullTransform.GetRotation();
-			for (FVector3f& Normal : MeshData.TriangleNormals)
-			{
-				FVector RotatedNormal = FullRotation.RotateVector(FVector(Normal));
-				Normal = FVector3f(RotatedNormal.GetSafeNormal());
-			}
-
-			// Bounds 재계산
+				// Bounds 재계산
 			FVector3f MinBounds(FLT_MAX, FLT_MAX, FLT_MAX);
 			FVector3f MaxBounds(-FLT_MAX, -FLT_MAX, -FLT_MAX);
 			for (const FVector3f& V : MeshData.Vertices)
@@ -303,7 +295,6 @@ void UFleshRingComponent::GenerateSDF()
 		// MeshData를 값으로 캡처 (렌더 스레드로 전달)
 		TArray<FVector3f> CapturedVertices = MoveTemp(MeshData.Vertices);
 		TArray<uint32> CapturedIndices = MoveTemp(MeshData.Indices);
-		TArray<FVector3f> CapturedNormals = MoveTemp(MeshData.TriangleNormals);
 		FIntVector CapturedResolution = SDFResolution;
 		FVector3f CapturedBoundsMin = BoundsMin;
 		FVector3f CapturedBoundsMax = BoundsMax;
@@ -320,7 +311,6 @@ void UFleshRingComponent::GenerateSDF()
 		ENQUEUE_RENDER_COMMAND(GenerateFleshRingSDF)(
 			[CapturedVertices = MoveTemp(CapturedVertices),
 			 CapturedIndices = MoveTemp(CapturedIndices),
-			 CapturedNormals = MoveTemp(CapturedNormals),
 			 CapturedResolution,
 			 CapturedBoundsMin,
 			 CapturedBoundsMax,
@@ -345,7 +335,6 @@ void UFleshRingComponent::GenerateSDF()
 					RawSDFTexture,
 					CapturedVertices,
 					CapturedIndices,
-					CapturedNormals,
 					CapturedBoundsMin,
 					CapturedBoundsMax,
 					CapturedResolution);

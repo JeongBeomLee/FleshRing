@@ -8,7 +8,6 @@
 // 입력 데이터 (CPU에서 업로드)
 StructuredBuffer<float3> MeshVertices;      // 버텍스 위치 배열
 StructuredBuffer<uint3> MeshIndices;        // 삼각형 인덱스 (v0, v1, v2)
-StructuredBuffer<float3> TriangleNormals;   // 삼각형별 면 노말
 uint TriangleCount;                         // 총 삼각형 개수
 
 // 출력

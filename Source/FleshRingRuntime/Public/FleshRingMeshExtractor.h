@@ -18,9 +18,6 @@ struct FLESHRINGRUNTIME_API FFleshRingMeshData
     // 삼각형 인덱스 (3개씩 = 1개 삼각형)
     TArray<uint32> Indices;
 
-    // 삼각형별 노말 (Indices.Num() / 3 개)
-    TArray<FVector3f> TriangleNormals;
-
     // 메시 바운딩 박스
     FBox3f Bounds;
 
@@ -35,8 +32,7 @@ struct FLESHRINGRUNTIME_API FFleshRingMeshData
     {
         return Vertices.Num() > 0 &&
                Indices.Num() > 0 &&
-               Indices.Num() % 3 == 0 &&
-               TriangleNormals.Num() == Indices.Num() / 3;
+               Indices.Num() % 3 == 0;
     }
 
     // 데이터 클리어
@@ -44,7 +40,6 @@ struct FLESHRINGRUNTIME_API FFleshRingMeshData
     {
         Vertices.Empty();
         Indices.Empty();
-        TriangleNormals.Empty();
         Bounds = FBox3f(ForceInit);
     }
 };
