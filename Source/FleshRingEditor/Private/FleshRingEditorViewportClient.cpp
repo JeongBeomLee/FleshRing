@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "FleshRingEditorViewportClient.h"
+#include "FleshRingEdMode.h"
 #include "FleshRingPreviewScene.h"
 #include "SFleshRingEditorViewport.h"
 #include "FleshRingAsset.h"
@@ -15,18 +16,28 @@
 #include "EngineUtils.h"
 #include "SkeletalDebugRendering.h"
 #include "Preferences/PersonaOptions.h"
+#include "UnrealWidget.h"
+#include "Editor.h"
+#include "Settings/LevelEditorViewportSettings.h"
 
 IMPLEMENT_HIT_PROXY(HFleshRingGizmoHitProxy, HHitProxy);
 IMPLEMENT_HIT_PROXY(HFleshRingMeshHitProxy, HHitProxy);
 IMPLEMENT_HIT_PROXY(HFleshRingAxisHitProxy, HHitProxy);
 
 FFleshRingEditorViewportClient::FFleshRingEditorViewportClient(
+	FEditorModeTools* InModeTools,
 	FFleshRingPreviewScene* InPreviewScene,
 	const TWeakPtr<SFleshRingEditorViewport>& InViewportWidget)
-	: FEditorViewportClient(nullptr, InPreviewScene, StaticCastSharedPtr<SEditorViewport>(InViewportWidget.Pin()))
+	: FEditorViewportClient(InModeTools, InPreviewScene, StaticCastSharedPtr<SEditorViewport>(InViewportWidget.Pin()))
 	, PreviewScene(InPreviewScene)
 	, ViewportWidget(InViewportWidget)
 {
+	// Widget에 ModeTools 연결 (ShouldDrawWidget 호출을 위해 필요)
+	if (Widget && ModeTools)
+	{
+		Widget->SetUsesEditorModeTools(ModeTools.Get());
+	}
+
 	// 기본 카메라 설정
 	SetViewLocation(FVector(-300, 200, 150));
 	SetViewRotation(FRotator(-15, -30, 0));
@@ -45,6 +56,9 @@ FFleshRingEditorViewportClient::FFleshRingEditorViewportClient(
 	// 조명 설정
 	EngineShowFlags.SetLighting(true);
 	EngineShowFlags.SetPostProcessing(true);
+
+	// Stats 표시 활성화 (FPS 등)
+	SetShowStats(true);
 }
 
 FFleshRingEditorViewportClient::~FFleshRingEditorViewportClient()
@@ -67,10 +81,16 @@ void FFleshRingEditorViewportClient::Draw(const FSceneView* View, FPrimitiveDraw
 	FEditorViewportClient::Draw(View, PDI);
 
 	// 본 렌더링 (Persona 스타일)
-	DrawMeshBones(PDI);
+	if (bShowBones)
+	{
+		DrawMeshBones(PDI);
+	}
 
 	// Ring 기즈모 그리기
-	DrawRingGizmos(PDI);
+	if (bShowRingGizmos)
+	{
+		DrawRingGizmos(PDI);
+	}
 }
 
 void FFleshRingEditorViewportClient::DrawCanvas(FViewport& InViewport, FSceneView& View, FCanvas& Canvas)
@@ -80,11 +100,47 @@ void FFleshRingEditorViewportClient::DrawCanvas(FViewport& InViewport, FSceneVie
 
 bool FFleshRingEditorViewportClient::InputKey(const FInputKeyEventArgs& EventArgs)
 {
-	// F키로 메시에 포커스
-	if (EventArgs.Key == EKeys::F && EventArgs.Event == IE_Pressed)
+	if (EventArgs.Event == IE_Pressed)
 	{
-		FocusOnMesh();
-		return true;
+		// F키로 메시에 포커스
+		if (EventArgs.Key == EKeys::F)
+		{
+			FocusOnMesh();
+			return true;
+		}
+
+		// 카메라 조작 중에는 QWER 키 무시 (우클릭 드래그 등)
+		if (!IsTracking())
+		{
+			// QWER 키로 위젯 모드 전환 (ModeTools 사용)
+			if (ModeTools)
+			{
+				if (EventArgs.Key == EKeys::Q)
+				{
+					ModeTools->SetWidgetMode(UE::Widget::WM_None);
+					Invalidate();
+					return true;
+				}
+				if (EventArgs.Key == EKeys::W)
+				{
+					ModeTools->SetWidgetMode(UE::Widget::WM_Translate);
+					Invalidate();
+					return true;
+				}
+				if (EventArgs.Key == EKeys::E)
+				{
+					ModeTools->SetWidgetMode(UE::Widget::WM_Rotate);
+					Invalidate();
+					return true;
+				}
+				if (EventArgs.Key == EKeys::R)
+				{
+					ModeTools->SetWidgetMode(UE::Widget::WM_Scale);
+					Invalidate();
+					return true;
+				}
+			}
+		}
 	}
 
 	return FEditorViewportClient::InputKey(EventArgs);
@@ -461,27 +517,55 @@ FMatrix FFleshRingEditorViewportClient::GetWidgetCoordSystem() const
 	return FMatrix::Identity;
 }
 
-UE::Widget::EWidgetMode FFleshRingEditorViewportClient::GetWidgetMode() const
+FMatrix FFleshRingEditorViewportClient::GetSelectedRingAlignMatrix() const
 {
-	// 선택이 없으면 Widget 숨김
-	if (SelectionType == EFleshRingSelectionType::None)
+	if (!PreviewScene || !EditingAsset.IsValid())
 	{
-		return UE::Widget::WM_None;
-	}
-
-	if (!PreviewScene)
-	{
-		return UE::Widget::WM_None;
+		return FMatrix::Identity;
 	}
 
 	int32 SelectedIndex = PreviewScene->GetSelectedRingIndex();
-	if (SelectedIndex < 0)
+	if (SelectedIndex < 0 || SelectionType == EFleshRingSelectionType::None)
 	{
-		return UE::Widget::WM_None;
+		return FMatrix::Identity;
 	}
 
-	// 선택되어 있으면 부모 클래스의 모드 사용 (W/E/R 키로 변경 가능)
-	return FEditorViewportClient::GetWidgetMode();
+	const TArray<FFleshRingSettings>& Rings = EditingAsset->Rings;
+	if (!Rings.IsValidIndex(SelectedIndex))
+	{
+		return FMatrix::Identity;
+	}
+
+	USkeletalMeshComponent* SkelMeshComp = PreviewScene->GetSkeletalMeshComponent();
+	if (!SkelMeshComp || !SkelMeshComp->GetSkeletalMeshAsset())
+	{
+		return FMatrix::Identity;
+	}
+
+	const FFleshRingSettings& Ring = Rings[SelectedIndex];
+	int32 BoneIndex = SkelMeshComp->GetBoneIndex(Ring.BoneName);
+	if (BoneIndex == INDEX_NONE)
+	{
+		return FMatrix::Identity;
+	}
+
+	FTransform BoneTransform = SkelMeshComp->GetBoneTransform(BoneIndex);
+
+	// 본의 Forward 방향으로 링 축(Z) 정렬
+	FVector BoneForward = BoneTransform.GetUnitAxis(EAxis::X);
+	FQuat AlignRotation = FQuat::FindBetweenNormals(FVector::ZAxisVector, BoneForward);
+
+	return FRotationMatrix(AlignRotation.Rotator());
+}
+
+UE::Widget::EWidgetMode FFleshRingEditorViewportClient::GetWidgetMode() const
+{
+	// ModeTools의 위젯 모드 사용 (툴바 하이라이트 동작)
+	if (ModeTools)
+	{
+		return ModeTools->GetWidgetMode();
+	}
+	return UE::Widget::WM_Translate;
 }
 
 bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAxisList::Type CurrentAxis, FVector& Drag, FRotator& Rot, FVector& Scale)
@@ -526,8 +610,41 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 	FTransform BoneTransform = SkelMeshComp->GetBoneTransform(BoneIndex);
 	FQuat BoneRotation = BoneTransform.GetRotation();
 
+	// 스냅 적용
+	const ULevelEditorViewportSettings* ViewportSettings = GetDefault<ULevelEditorViewportSettings>();
+
+	// 이동 스냅
+	FVector SnappedDrag = Drag;
+	if (ViewportSettings->GridEnabled && GEditor)
+	{
+		float GridSize = GEditor->GetGridSize();
+		SnappedDrag.X = FMath::GridSnap(Drag.X, GridSize);
+		SnappedDrag.Y = FMath::GridSnap(Drag.Y, GridSize);
+		SnappedDrag.Z = FMath::GridSnap(Drag.Z, GridSize);
+	}
+
+	// 회전 스냅
+	FRotator SnappedRot = Rot;
+	if (ViewportSettings->RotGridEnabled && GEditor)
+	{
+		FRotator RotGridSize = GEditor->GetRotGridSize();
+		SnappedRot.Pitch = FMath::GridSnap(Rot.Pitch, RotGridSize.Pitch);
+		SnappedRot.Yaw = FMath::GridSnap(Rot.Yaw, RotGridSize.Yaw);
+		SnappedRot.Roll = FMath::GridSnap(Rot.Roll, RotGridSize.Roll);
+	}
+
+	// 스케일 스냅
+	FVector SnappedScale = Scale;
+	if (ViewportSettings->SnapScaleEnabled && GEditor)
+	{
+		float ScaleGridSize = GEditor->GetScaleGridSize();
+		SnappedScale.X = FMath::GridSnap(Scale.X, ScaleGridSize);
+		SnappedScale.Y = FMath::GridSnap(Scale.Y, ScaleGridSize);
+		SnappedScale.Z = FMath::GridSnap(Scale.Z, ScaleGridSize);
+	}
+
 	// 월드 드래그를 본 로컬 좌표로 변환
-	FVector LocalDrag = BoneRotation.UnrotateVector(Drag);
+	FVector LocalDrag = BoneRotation.UnrotateVector(SnappedDrag);
 
 	// Forward 벡터 기준 정렬 회전 계산
 	FVector BoneForward = BoneTransform.GetUnitAxis(EAxis::X);
@@ -540,9 +657,9 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		Ring.RingOffset += LocalDrag;
 
 		// 회전 -> RingRotation 업데이트 (Forward 벡터 기준)
-		if (!Rot.IsZero())
+		if (!SnappedRot.IsZero())
 		{
-			FQuat DeltaRotation = FQuat(Rot);
+			FQuat DeltaRotation = FQuat(SnappedRot);
 			FQuat CurrentRingWorldRotation = AlignRotation * FQuat(Ring.RingRotation);
 			// 월드 좌표계 기준 회전 적용
 			FQuat NewRingWorldRotation = DeltaRotation * CurrentRingWorldRotation;
@@ -552,13 +669,13 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		}
 
 		// 스케일 -> RingRadius 조절 (Manual 모드에서만)
-		if (!Scale.IsZero() && Ring.InfluenceMode == EFleshRingInfluenceMode::Manual)
+		if (!SnappedScale.IsZero() && Ring.InfluenceMode == EFleshRingInfluenceMode::Manual)
 		{
 			// 균일 스케일 사용 (X, Y, Z 중 가장 큰 값)
-			float ScaleDelta = FMath::Max3(Scale.X, Scale.Y, Scale.Z);
+			float ScaleDelta = FMath::Max3(SnappedScale.X, SnappedScale.Y, SnappedScale.Z);
 			if (ScaleDelta == 0.0f)
 			{
-				ScaleDelta = FMath::Min3(Scale.X, Scale.Y, Scale.Z);
+				ScaleDelta = FMath::Min3(SnappedScale.X, SnappedScale.Y, SnappedScale.Z);
 			}
 			// 스케일을 반경 변화량으로 변환
 			Ring.RingRadius = FMath::Clamp(Ring.RingRadius * (1.0f + ScaleDelta), 0.1f, 100.0f);
@@ -570,9 +687,9 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		Ring.MeshOffset += LocalDrag;
 
 		// 회전도 적용 (Forward 벡터 기준)
-		if (!Rot.IsZero())
+		if (!SnappedRot.IsZero())
 		{
-			FQuat DeltaRotation = FQuat(Rot);
+			FQuat DeltaRotation = FQuat(SnappedRot);
 			FQuat CurrentMeshWorldRotation = AlignRotation * FQuat(Ring.MeshRotation);
 			// 월드 좌표계 기준 회전 적용
 			FQuat NewMeshWorldRotation = DeltaRotation * CurrentMeshWorldRotation;
@@ -582,13 +699,13 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		}
 
 		// 스케일 적용
-		if (!Scale.IsZero())
+		if (!SnappedScale.IsZero())
 		{
-			Ring.MeshScale += Scale;
-			// 최소/최대 클램프
-			Ring.MeshScale.X = FMath::Clamp(Ring.MeshScale.X, 0.01f, 10.0f);
-			Ring.MeshScale.Y = FMath::Clamp(Ring.MeshScale.Y, 0.01f, 10.0f);
-			Ring.MeshScale.Z = FMath::Clamp(Ring.MeshScale.Z, 0.01f, 10.0f);
+			Ring.MeshScale += SnappedScale;
+			// 최소값만 클램프
+			Ring.MeshScale.X = FMath::Max(Ring.MeshScale.X, 0.01f);
+			Ring.MeshScale.Y = FMath::Max(Ring.MeshScale.Y, 0.01f);
+			Ring.MeshScale.Z = FMath::Max(Ring.MeshScale.Z, 0.01f);
 		}
 
 		// StaticMeshComponent Transform 업데이트
@@ -629,4 +746,24 @@ void FFleshRingEditorViewportClient::TrackingStopped()
 	ScopedTransaction.Reset();
 
 	FEditorViewportClient::TrackingStopped();
+}
+
+void FFleshRingEditorViewportClient::ToggleShowRingMeshes()
+{
+	bShowRingMeshes = !bShowRingMeshes;
+
+	// Ring 메시 컴포넌트 Visibility 토글
+	if (PreviewScene)
+	{
+		const TArray<UStaticMeshComponent*>& RingMeshComponents = PreviewScene->GetRingMeshComponents();
+		for (UStaticMeshComponent* RingComp : RingMeshComponents)
+		{
+			if (RingComp)
+			{
+				RingComp->SetVisibility(bShowRingMeshes);
+			}
+		}
+	}
+
+	Invalidate();
 }

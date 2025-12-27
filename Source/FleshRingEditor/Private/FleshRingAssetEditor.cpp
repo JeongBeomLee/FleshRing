@@ -5,6 +5,7 @@
 #include "FleshRingAsset.h"
 #include "SFleshRingEditorViewport.h"
 #include "Widgets/Docking/SDockTab.h"
+#include "Widgets/SBoxPanel.h"
 #include "PropertyEditorModule.h"
 #include "IDetailsView.h"
 #include "Modules/ModuleManager.h"
@@ -161,8 +162,21 @@ TSharedRef<SDockTab> FFleshRingAssetEditor::SpawnTab_Viewport(const FSpawnTabArg
 
 	return SNew(SDockTab)
 		.Label(LOCTEXT("ViewportTabLabel", "Viewport"))
+		.ContentPadding(0)
 		[
-			ViewportWidget.ToSharedRef()
+			SNew(SVerticalBox)
+			// 툴바 (상단, 자동 높이)
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			[
+				ViewportWidget->MakeToolbar()
+			]
+			// 뷰포트 (나머지 공간)
+			+ SVerticalBox::Slot()
+			.FillHeight(1.0f)
+			[
+				ViewportWidget.ToSharedRef()
+			]
 		];
 }
 

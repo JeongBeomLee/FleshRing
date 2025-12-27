@@ -5,10 +5,12 @@
 #include "CoreMinimal.h"
 #include "SEditorViewport.h"
 #include "SCommonEditorViewportToolbarBase.h"
+#include "EditorModeManager.h"
 
 class FFleshRingPreviewScene;
 class FFleshRingEditorViewportClient;
 class UFleshRingAsset;
+class FFleshRingEdMode;
 
 /**
  * FleshRing 에디터 뷰포트 위젯
@@ -36,6 +38,9 @@ public:
 	/** 뷰포트 클라이언트 반환 */
 	TSharedPtr<FFleshRingEditorViewportClient> GetViewportClient() const { return ViewportClient; }
 
+	/** 툴바 위젯 생성 */
+	TSharedRef<SWidget> MakeToolbar();
+
 	// ICommonEditorViewportToolbarInfoProvider interface
 	virtual TSharedRef<SEditorViewport> GetViewportWidget() override;
 	virtual TSharedPtr<FExtender> GetExtenders() const override;
@@ -44,6 +49,7 @@ public:
 protected:
 	// SEditorViewport interface
 	virtual TSharedRef<FEditorViewportClient> MakeEditorViewportClient() override;
+	virtual void PopulateViewportOverlays(TSharedRef<SOverlay> Overlay) override;
 	virtual void OnFocusViewportToSelection() override;
 
 private:
@@ -52,6 +58,12 @@ private:
 
 	/** 뷰포트 클라이언트 */
 	TSharedPtr<FFleshRingEditorViewportClient> ViewportClient;
+
+	/** Editor Mode Tools */
+	TSharedPtr<FEditorModeTools> ModeTools;
+
+	/** FleshRing EdMode */
+	FFleshRingEdMode* FleshRingEdMode = nullptr;
 
 	/** 편집 중인 Asset */
 	TWeakObjectPtr<UFleshRingAsset> EditingAsset;

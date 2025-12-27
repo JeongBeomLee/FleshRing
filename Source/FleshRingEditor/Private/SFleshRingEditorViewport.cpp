@@ -1,15 +1,38 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "SFleshRingEditorViewport.h"
+#include "SFleshRingEditorViewportToolbar.h"
 #include "FleshRingPreviewScene.h"
 #include "FleshRingEditorViewportClient.h"
+#include "FleshRingEdMode.h"
 #include "FleshRingAsset.h"
 #include "Engine/SkeletalMesh.h"
 #include "Slate/SceneViewport.h"
+#include "EditorModeRegistry.h"
+#include "Styling/AppStyle.h"
+#include "Widgets/Layout/SBorder.h"
+#include "Widgets/Layout/SBox.h"
 
 void SFleshRingEditorViewport::Construct(const FArguments& InArgs)
 {
 	EditingAsset = InArgs._Asset;
+
+	// EdMode를 글로벌 레지스트리에 등록 (아직 안 되어 있으면)
+	if (!FEditorModeRegistry::Get().GetFactoryMap().Contains(FFleshRingEdMode::EM_FleshRingEdModeId))
+	{
+		FEditorModeRegistry::Get().RegisterMode<FFleshRingEdMode>(FFleshRingEdMode::EM_FleshRingEdModeId);
+	}
+
+	// ModeTools 생성 및 EdMode 활성화
+	ModeTools = MakeShared<FEditorModeTools>();
+	ModeTools->SetDefaultMode(FFleshRingEdMode::EM_FleshRingEdModeId);
+	ModeTools->ActivateDefaultMode();
+
+	// EdMode 캐싱 (static 인스턴스 사용)
+	FleshRingEdMode = FFleshRingEdMode::CurrentInstance;
+
+	// 기본 위젯 모드 설정
+	ModeTools->SetWidgetMode(UE::Widget::WM_Translate);
 
 	// 프리뷰 씬 생성
 	FAdvancedPreviewScene::ConstructionValues CVS;
@@ -33,6 +56,13 @@ SFleshRingEditorViewport::~SFleshRingEditorViewport()
 	if (ViewportClient.IsValid())
 	{
 		ViewportClient->Viewport = nullptr;
+	}
+
+	// ModeTools 정리
+	if (ModeTools.IsValid())
+	{
+		ModeTools->DeactivateAllModes();
+		ModeTools.Reset();
 	}
 }
 
@@ -78,8 +108,15 @@ void SFleshRingEditorViewport::OnFloatingButtonClicked()
 TSharedRef<FEditorViewportClient> SFleshRingEditorViewport::MakeEditorViewportClient()
 {
 	ViewportClient = MakeShared<FFleshRingEditorViewportClient>(
+		ModeTools.Get(),
 		PreviewScene.Get(),
 		SharedThis(this));
+
+	// EdMode에 ViewportClient 연결
+	if (FleshRingEdMode)
+	{
+		FleshRingEdMode->SetViewportClient(ViewportClient.Get());
+	}
 
 	if (EditingAsset.IsValid())
 	{
@@ -95,4 +132,15 @@ void SFleshRingEditorViewport::OnFocusViewportToSelection()
 	{
 		ViewportClient->FocusOnMesh();
 	}
+}
+
+void SFleshRingEditorViewport::PopulateViewportOverlays(TSharedRef<SOverlay> Overlay)
+{
+	// 오버레이에 툴바 추가하지 않음 - Asset Editor에서 별도로 배치
+	SEditorViewport::PopulateViewportOverlays(Overlay);
+}
+
+TSharedRef<SWidget> SFleshRingEditorViewport::MakeToolbar()
+{
+	return SNew(SFleshRingEditorViewportToolbar, SharedThis(this));
 }

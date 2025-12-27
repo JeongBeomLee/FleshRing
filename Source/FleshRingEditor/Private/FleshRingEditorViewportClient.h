@@ -26,6 +26,7 @@ class FFleshRingEditorViewportClient : public FEditorViewportClient
 {
 public:
 	FFleshRingEditorViewportClient(
+		FEditorModeTools* InModeTools,
 		FFleshRingPreviewScene* InPreviewScene,
 		const TWeakPtr<SFleshRingEditorViewport>& InViewportWidget);
 
@@ -58,8 +59,21 @@ public:
 	/** 현재 선택 타입 반환 */
 	EFleshRingSelectionType GetSelectionType() const { return SelectionType; }
 
+	/** 현재 선택된 Ring의 AlignRotation 반환 (기즈모 좌표계용) */
+	FMatrix GetSelectedRingAlignMatrix() const;
+
 	/** 선택 해제 */
 	void ClearSelection();
+
+	// Show 플래그 토글
+	void ToggleShowRingGizmos() { bShowRingGizmos = !bShowRingGizmos; Invalidate(); }
+	void ToggleShowRingMeshes();
+	void ToggleShowBones() { bShowBones = !bShowBones; Invalidate(); }
+
+	// Show 플래그 상태
+	bool ShouldShowRingGizmos() const { return bShowRingGizmos; }
+	bool ShouldShowRingMeshes() const { return bShowRingMeshes; }
+	bool ShouldShowBones() const { return bShowBones; }
 
 private:
 	/** 본 렌더링 (Persona 스타일) */
@@ -82,4 +96,9 @@ private:
 
 	/** Undo용 트랜잭션 */
 	TUniquePtr<FScopedTransaction> ScopedTransaction;
+
+	// Show 플래그
+	bool bShowRingGizmos = true;
+	bool bShowRingMeshes = true;
+	bool bShowBones = true;
 };
