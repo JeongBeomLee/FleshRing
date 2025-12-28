@@ -63,8 +63,15 @@ void UFleshRingComponent::BeginPlay()
 	if (bEnableFleshRing)
 	{
 		ResolveTargetMesh();
-		SetupDeformer();
+
+		// SDF를 먼저 생성하고 완료 대기
+		// AffectedVertices 등록 시 SDF Bounds 사용 가능하도록
 		GenerateSDF();
+		FlushRenderingCommands();  // SDF 생성 완료 대기
+
+		// Deformer 등록 (이 시점에 AffectedVertices 등록됨)
+		SetupDeformer();
+
 		// Ring 메시는 OnRegister()에서 이미 설정됨
 	}
 }

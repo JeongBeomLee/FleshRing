@@ -23,17 +23,27 @@ DEFINE_LOG_CATEGORY_STATIC(LogFleshRingVertices, Log, All);
 // ============================================================================
 
 void FDistanceBasedVertexSelector::SelectVertices(
-    const FFleshRingSettings& Ring,
-    const FTransform& BoneTransform,
-    const TArray<FVector3f>& AllVertices,
+    const FVertexSelectionContext& Context,
     TArray<FAffectedVertex>& OutAffected)
 {
     OutAffected.Reset();
 
+    // Context에서 필요한 데이터 추출
+    const FFleshRingSettings& Ring = Context.RingSettings;
+    const FTransform& BoneTransform = Context.BoneTransform;
+    const TArray<FVector3f>& AllVertices = Context.AllVertices;
+
     // Get Ring center and axis from bone transform
     // 본 트랜스폼에서 링 중심과 축 방향 추출
     const FVector RingCenter = BoneTransform.GetLocation();
-    const FVector RingAxis = BoneTransform.GetRotation().GetUpVector();
+
+    // 링 축 계산: 메시 회전을 반영하여 실제 토러스 구멍 방향 계산
+    // (RegisterAffectedVertices와 동일한 방식)
+    // BoneRotation * LocalAlignRotation * MeshRotation * ZAxis
+    FQuat LocalAlignRotation = FQuat::FindBetweenNormals(FVector::ZAxisVector, FVector::XAxisVector);
+    FQuat BoneRotation = BoneTransform.GetRotation();
+    FQuat WorldMeshRotation = BoneRotation * LocalAlignRotation * Ring.MeshRotation.Quaternion();
+    const FVector RingAxis = WorldMeshRotation.RotateVector(FVector::ZAxisVector);
 
     // MeshScale 반영: Ring Mesh가 스케일되면 영향 범위도 스케일됨
     // 반경 방향 스케일 (X, Y 평균) 과 축 방향 스케일 (Z) 분리
@@ -106,8 +116,8 @@ void FDistanceBasedVertexSelector::SelectVertices(
     }
 
     UE_LOG(LogFleshRingVertices, Verbose,
-        TEXT("DistanceBasedSelector: Selected %d vertices for Ring '%s' (Total: %d)"),
-        OutAffected.Num(), *Ring.BoneName.ToString(), AllVertices.Num());
+        TEXT("DistanceBasedSelector: Selected %d vertices for Ring[%d] '%s' (Total: %d)"),
+        OutAffected.Num(), Context.RingIndex, *Ring.BoneName.ToString(), AllVertices.Num());
 }
 
 // ============================================================================
@@ -144,6 +154,64 @@ float FDistanceBasedVertexSelector::CalculateFalloff(
         // 단순 선형 감쇠
         return T;
     }
+}
+
+// ============================================================================
+// SDF Bounds-Based Vertex Selector Implementation
+// SDF 바운드 기반 버텍스 선택기 구현
+// ============================================================================
+
+void FSDFBoundsBasedVertexSelector::SelectVertices(
+    const FVertexSelectionContext& Context,
+    TArray<FAffectedVertex>& OutAffected)
+{
+    OutAffected.Reset();
+
+    // Context에서 SDF 캐시 확인
+    // SDFCache가 nullptr이거나 유효하지 않으면 선택 안 함
+    if (!Context.SDFCache || !Context.SDFCache->IsValid())
+    {
+        UE_LOG(LogFleshRingVertices, Warning,
+            TEXT("SDFBoundsBasedSelector: No valid SDF cache for Ring[%d] '%s', skipping"),
+            Context.RingIndex, *Context.RingSettings.BoneName.ToString());
+        return;
+    }
+
+    const FVector3f& BoundsMin = Context.SDFCache->BoundsMin;
+    const FVector3f& BoundsMax = Context.SDFCache->BoundsMax;
+    const TArray<FVector3f>& AllVertices = Context.AllVertices;
+
+    // Reserve estimated capacity
+    // 예상 용량 확보
+    OutAffected.Reserve(AllVertices.Num() / 4);
+
+    // Select all vertices within SDF bounding box
+    // SDF 바운딩 박스 내 모든 버텍스 선택
+    for (int32 VertexIdx = 0; VertexIdx < AllVertices.Num(); ++VertexIdx)
+    {
+        const FVector3f& VertexPos = AllVertices[VertexIdx];
+
+        // Simple AABB containment test
+        // 단순 AABB 포함 테스트
+        if (VertexPos.X >= BoundsMin.X && VertexPos.X <= BoundsMax.X &&
+            VertexPos.Y >= BoundsMin.Y && VertexPos.Y <= BoundsMax.Y &&
+            VertexPos.Z >= BoundsMin.Z && VertexPos.Z <= BoundsMax.Z)
+        {
+            // Influence=1.0: GPU shader will determine actual influence via SDF sampling
+            // Influence=1.0: GPU 셰이더가 SDF 샘플링으로 실제 영향도 결정
+            OutAffected.Add(FAffectedVertex(
+                static_cast<uint32>(VertexIdx),
+                0.0f,  // RadialDistance: SDF 모드에서는 미사용
+                1.0f   // Influence: 최대값, GPU 셰이더가 CalculateInfluenceFromSDF()로 정제
+            ));
+        }
+    }
+
+    UE_LOG(LogFleshRingVertices, Verbose,
+        TEXT("SDFBoundsBasedSelector: Selected %d vertices for Ring[%d] '%s' (Bounds: [%.1f,%.1f,%.1f] - [%.1f,%.1f,%.1f])"),
+        OutAffected.Num(), Context.RingIndex, *Context.RingSettings.BoneName.ToString(),
+        BoundsMin.X, BoundsMin.Y, BoundsMin.Z,
+        BoundsMax.X, BoundsMax.Y, BoundsMax.Z);
 }
 
 // ============================================================================
@@ -294,12 +362,20 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         // RingData.RingCenter = BoneTransform.GetLocation() + WorldOffset;
         RingData.RingCenter = BoneTransform.GetLocation();
 
-        // [TODO] 링 회전 오프셋 지원 시 아래 코드로 교체 (Role D가 RingRotationOffset 추가 후)
-        // FQuat BoneRotation = BoneTransform.GetRotation();
-        // FQuat FinalRotation = BoneRotation * RingSettings.RingRotationOffset.Quaternion();
-        // RingData.RingAxis = FinalRotation.GetUpVector();
-        // 본 방향(Forward/X축)을 링 축으로 사용 - 링이 본을 감싸는 형태
-        RingData.RingAxis = BoneTransform.GetRotation().GetForwardVector();
+        // 링 축 계산: 메시 회전을 반영하여 실제 토러스 구멍 방향 계산
+        // (FleshRingComponent::SetupRingMeshes와 동일한 방식)
+        //
+        // SetupRingMeshes에서의 메시 회전:
+        //   LocalAlignRotation = FindBetweenNormals(Z, X)  // 본 로컬에서 Z→X 정렬
+        //   RelativeRotation = LocalAlignRotation * MeshRotation  // 본 로컬 공간
+        //
+        // 구멍 방향 (Component Space):
+        //   BoneRotation * RelativeRotation * ZAxis
+        // = BoneRotation * LocalAlignRotation * MeshRotation * ZAxis
+        FQuat LocalAlignRotation = FQuat::FindBetweenNormals(FVector::ZAxisVector, FVector::XAxisVector);
+        FQuat BoneRotation = BoneTransform.GetRotation();
+        FQuat WorldMeshRotation = BoneRotation * LocalAlignRotation * RingSettings.MeshRotation.Quaternion();
+        RingData.RingAxis = WorldMeshRotation.RotateVector(FVector::ZAxisVector);
 
         // Ring Geometry (copy from asset with MeshScale applied)
         // 링 지오메트리 (에셋에서 복사, MeshScale 반영)
@@ -316,14 +392,22 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         RingData.TightnessStrength = RingSettings.TightnessStrength;
         RingData.FalloffType = RingSettings.FalloffType;
 
-        // Select affected vertices using current strategy
-        // 현재 전략을 사용하여 영향받는 버텍스 선택
-        VertexSelector->SelectVertices(
+        // ================================================================
+        // Context 생성 및 버텍스 선택
+        // Build Context and select affected vertices
+        // ================================================================
+        const FRingSDFCache* SDFCache = Component->GetRingSDFCache(RingIdx);
+
+        FVertexSelectionContext Context(
             RingSettings,
+            RingIdx,
             BoneTransform,
             MeshVertices,
-            RingData.Vertices // (인덱스 + 영향도)
+            SDFCache  // nullptr이면 SDF 미사용 (Distance 기반 Selector는 무시)
         );
+
+        // 현재 전략을 사용하여 영향받는 버텍스 선택
+        VertexSelector->SelectVertices(Context, RingData.Vertices);
 
         // Pack for GPU (convert to flat arrays)
         // GPU용 패킹 (평면 배열로 변환)

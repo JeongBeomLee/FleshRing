@@ -8,9 +8,8 @@
 #include "FleshRingTypes.h"
 
 class UFleshRingComponent;
-
-// Forward declarations
 class USkeletalMeshComponent;
+struct FRingSDFCache;
 
 /**
  * Single 'affected vertex' data
@@ -163,26 +162,58 @@ struct FRingAffectedData
     }
 };
 
-// [FLEXIBLE] Vertex Selector Interface
-// 버텍스 선택 인터페이스 (Strategy Pattern)
-// 
-// Strategy pattern for vertex selection algorithm
-// Can be replaced with different implementations:
-// - Distance-based (default, Week 2)
-// - SDF-based (future, with Role A)
-// - Bone weight based (future)
-//
-// 버텍스 선택 알고리즘을 위한 전략 패턴
-// 다양한 구현체로 교체 가능:
-// - 거리 기반 (기본, Week 2)
-// - SDF 기반 (미래, Role A와 협업)
-// - 본 웨이트 기반 (미래)
+// ============================================================================
+// FVertexSelectionContext - 버텍스 선택 컨텍스트
+// ============================================================================
+// 모든 선택 전략에 필요한 데이터를 담는 컨텍스트
+// 각 Selector는 필요한 것만 사용. 확장 시 필드 추가만 하면 됨.
+
+struct FVertexSelectionContext
+{
+    // ===== Core (Always Present) =====
+
+    /** Ring settings from asset */
+    const FFleshRingSettings& RingSettings;
+
+    /** Ring index in the asset's Rings array */
+    int32 RingIndex;
+
+    /** Bone transform in bind pose component space */
+    const FTransform& BoneTransform;
+
+    /** All mesh vertices in bind pose component space */
+    const TArray<FVector3f>& AllVertices;
+
+    // ===== SDF Data (Optional - nullptr if not available) =====
+
+    /** SDF cache for this Ring */
+    const FRingSDFCache* SDFCache;
+
+    // ===== Future Extensions =====
+    // const TArray<FBoneWeight>* BoneWeights;
+
+    FVertexSelectionContext(
+        const FFleshRingSettings& InRingSettings,
+        int32 InRingIndex,
+        const FTransform& InBoneTransform,
+        const TArray<FVector3f>& InAllVertices,
+        const FRingSDFCache* InSDFCache = nullptr)
+        : RingSettings(InRingSettings)
+        , RingIndex(InRingIndex)
+        , BoneTransform(InBoneTransform)
+        , AllVertices(InAllVertices)
+        , SDFCache(InSDFCache)
+    {
+    }
+};
+
+// ============================================================================
+// IVertexSelector - 버텍스 선택 전략 인터페이스 (Strategy Pattern)
+// ============================================================================
 
 /**
  * Interface for vertex selection strategies
- * Implement this to create custom vertex selection algorithms
  * 버텍스 선택 전략 인터페이스
- * 커스텀 버텍스 선택 알고리즘 구현 시 이 인터페이스 상속
  */
 class IVertexSelector
 {
@@ -191,44 +222,30 @@ public:
 
     /**
      * Select vertices affected by a Ring
-     * 링에 영향받는 버텍스 선택
+     * Context provides all data - each selector uses what it needs
      *
-     * @param Ring - Ring settings from FleshRingComponent
-     *               링 설정 (FleshRingComponent에서 가져옴)
-     * @param BoneTransform - Bone transform in bind pose component space
-     *                        본 트랜스폼 (바인드 포즈 컴포넌트 스페이스)
-     * @param AllVertices - All mesh vertices in bind pose component space
-     *                      메시의 모든 버텍스 (바인드 포즈 컴포넌트 스페이스)
-     * @param OutAffected - Output: affected vertices with influence
-     *                      출력: 영향받는 버텍스 목록 (영향도 포함)
+     * @param Context - All selection-related data (Ring, Bone, Vertices, SDF, etc.)
+     * @param OutAffected - Output: selected vertices with influence
      */
     virtual void SelectVertices(
-        const FFleshRingSettings& Ring,
-        const FTransform& BoneTransform,
-        const TArray<FVector3f>& AllVertices,
+        const FVertexSelectionContext& Context,
         TArray<FAffectedVertex>& OutAffected) = 0;
 
-    /**
-     * Get the name of this selection strategy (for debugging)
-     * 선택 전략 이름 반환 (디버깅용)
-     */
+    /** Strategy name for debugging */
     virtual FString GetStrategyName() const = 0;
 };
 
-// [DEFAULT] Distance-Based Vertex Selector
-// 거리 기반 버텍스 선택기 (기본 구현)
-// 
-// Default implementation using cylindrical distance from Ring axis
-// This is the Week 2 basic implementation
-// 링 축으로부터의 원통형 거리를 사용하는 기본 구현
-// Week 2 기본 구현체
+// ============================================================================
+// FDistanceBasedVertexSelector - 거리 기반 선택 (기본)
+// ============================================================================
+// Uses: Context.RingSettings, Context.BoneTransform, Context.AllVertices
+// Ignores: Context.SDFCache
+
 class FDistanceBasedVertexSelector : public IVertexSelector
 {
 public:
     virtual void SelectVertices(
-        const FFleshRingSettings& Ring,
-        const FTransform& BoneTransform,
-        const TArray<FVector3f>& AllVertices,
+        const FVertexSelectionContext& Context,
         TArray<FAffectedVertex>& OutAffected) override;
 
     virtual FString GetStrategyName() const override
@@ -237,50 +254,31 @@ public:
     }
 
 protected:
-    /**
-     * Calculate falloff influence based on distance
-     * 거리에 따른 감쇠 영향도 계산
-     *
-     * @param Distance - Distance from Ring axis
-     *                   링 축으로부터의 거리
-     * @param MaxDistance - Maximum influence distance (RingRadius + RingThickness)
-     *                      최대 영향 거리 (내부 반지름 + 링 두께)
-     * @param InFalloffType - Falloff curve type (from Ring settings)
-     *                        감쇠 곡선 타입 (링 설정에서 전달)
-     * @return Influence value (0-1)
-     *         영향도 값 (0~1)
-     */
-    virtual float CalculateFalloff(float Distance, float MaxDistance, EFalloffType InFalloffType) const;
+    float CalculateFalloff(float Distance, float MaxDistance, EFalloffType InFalloffType) const;
 };
 
 // ============================================================================
-// [FUTURE] SDF-Based Vertex Selector (Placeholder)
-// SDF 기반 버텍스 선택기 (미래 구현 예정)
+// FSDFBoundsBasedVertexSelector - SDF 바운드 기반 선택
 // ============================================================================
-// Will be implemented after Role A completes SDF generation
-// Uses SDF texture to determine vertex influence
-// Role A의 SDF 생성 완료 후 구현 예정
-// SDF 텍스처를 사용하여 버텍스 영향도 결정
+// Uses: Context.SDFCache (BoundsMin, BoundsMax), Context.AllVertices
+// Ignores: Context.RingSettings geometry, Context.BoneTransform
+//
+// Design: Select all vertices within SDF bounding box.
+// GPU shader determines actual influence via SDF sampling.
+// If SDFCache is nullptr or invalid, selects nothing.
 
-// class FSdfBasedVertexSelector : public IVertexSelector
-// {
-// public:
-//     void SetSdfTexture(UVolumeTexture* InSdfTexture);
-//
-//     virtual void SelectVertices(
-//         const FFleshRingSettings& Ring,
-//         const FTransform& BoneTransform,
-//         const TArray<FVector3f>& AllVertices,
-//         TArray<FAffectedVertex>& OutAffected) override;
-//
-//     virtual FString GetStrategyName() const override
-//     {
-//         return TEXT("SdfBased");
-//     }
-//
-// private:
-//     UVolumeTexture* SdfTexture = nullptr;
-// };
+class FSDFBoundsBasedVertexSelector : public IVertexSelector
+{
+public:
+    virtual void SelectVertices(
+        const FVertexSelectionContext& Context,
+        TArray<FAffectedVertex>& OutAffected) override;
+
+    virtual FString GetStrategyName() const override
+    {
+        return TEXT("SDFBoundsBased");
+    }
+};
 
 // Affected Vertices Manager
 // 영향받는 버텍스 관리자

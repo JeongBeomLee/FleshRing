@@ -50,10 +50,24 @@ void UFleshRingDeformerInstance::SetupFromDeformer(UFleshRingDeformer* InDeforme
 						NumLODs = RenderData->LODRenderData.Num();
 						LODData.SetNum(NumLODs);
 
+						// SDF 유효 여부에 따라 Selector 결정
+						// SDF가 유효하면 SDF Bounds 기반, 아니면 Distance 기반
+						const bool bUseSDFSelector = FleshRingComponent->AreAllSDFCachesValid();
+						UE_LOG(LogFleshRing, Log, TEXT("VertexSelector: %s"),
+							bUseSDFSelector ? TEXT("SDFBoundsBased") : TEXT("DistanceBased"));
+
 						// 각 LOD에 대해 AffectedVertices 등록
 						int32 SuccessCount = 0;
 						for (int32 LODIndex = 0; LODIndex < NumLODs; ++LODIndex)
 						{
+							// Selector 설정 (SDF 유효 시 FSDFBoundsBasedVertexSelector 사용)
+							if (bUseSDFSelector)
+							{
+								LODData[LODIndex].AffectedVerticesManager.SetVertexSelector(
+									MakeShared<FSDFBoundsBasedVertexSelector>());
+							}
+							// else: 기본값 FDistanceBasedVertexSelector 유지
+
 							LODData[LODIndex].bAffectedVerticesRegistered =
 								LODData[LODIndex].AffectedVerticesManager.RegisterAffectedVertices(
 									FleshRingComponent.Get(), SkelMesh, LODIndex);
@@ -290,11 +304,12 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				DispatchData.Params.SDFBoundsMax = SDFCache->BoundsMax;
 				DispatchData.Params.bUseSDFInfluence = 1;
 
-				UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] SDF Mode: Bounds=(%.1f,%.1f,%.1f)~(%.1f,%.1f,%.1f), RingCenter=(%.1f,%.1f,%.1f)"),
+				UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] SDF Mode: Bounds=(%.1f,%.1f,%.1f)~(%.1f,%.1f,%.1f), RingCenter=(%.1f,%.1f,%.1f), RingRadius=%.2f"),
 					RingIndex,
 					SDFCache->BoundsMin.X, SDFCache->BoundsMin.Y, SDFCache->BoundsMin.Z,
 					SDFCache->BoundsMax.X, SDFCache->BoundsMax.Y, SDFCache->BoundsMax.Z,
-					DispatchData.Params.RingCenter.X, DispatchData.Params.RingCenter.Y, DispatchData.Params.RingCenter.Z);
+					DispatchData.Params.RingCenter.X, DispatchData.Params.RingCenter.Y, DispatchData.Params.RingCenter.Z,
+					DispatchData.Params.RingRadius);
 			}
 			else
 			{
@@ -303,9 +318,11 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			}
 		}
 
-		UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d]: AffectedVerts=%d, TightnessStrength=%.3f, RingCenter=(%.1f,%.1f,%.1f)"),
+		UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d]: AffectedVerts=%d, TightnessStrength=%.3f, RingCenter=(%.1f,%.1f,%.1f), RingAxis=(%.3f,%.3f,%.3f), RingRadius=%.2f"),
 			RingIndex, DispatchData.Params.NumAffectedVertices, DispatchData.Params.TightnessStrength,
-			DispatchData.Params.RingCenter.X, DispatchData.Params.RingCenter.Y, DispatchData.Params.RingCenter.Z);
+			DispatchData.Params.RingCenter.X, DispatchData.Params.RingCenter.Y, DispatchData.Params.RingCenter.Z,
+			DispatchData.Params.RingAxis.X, DispatchData.Params.RingAxis.Y, DispatchData.Params.RingAxis.Z,
+			DispatchData.Params.RingRadius);
 
 		RingDispatchDataPtr->Add(MoveTemp(DispatchData));
 	}
