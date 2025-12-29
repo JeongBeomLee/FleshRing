@@ -168,7 +168,7 @@ void FFleshRingPreviewScene::RefreshRings(const TArray<FFleshRingSettings>& Ring
 				// MeshOffset 적용 (본 로컬 좌표계)
 				FVector MeshLocation = BoneTransform.GetLocation() + BoneRotation.RotateVector(RingSetting.MeshOffset);
 
-				// 본 회전 * 메시 회전 = 월드 회전 (MeshRotation 기본값 90,0,0으로 본의 X축과 메시의 Z축이 일치)
+				// 본 회전 * 메시 회전 = 월드 회전 (기본값으로 본의 X축과 메시의 Z축이 일치)
 				FQuat MeshWorldRotation = BoneRotation * FQuat(RingSetting.MeshRotation);
 
 				RingComp->SetWorldLocationAndRotation(MeshLocation, MeshWorldRotation);

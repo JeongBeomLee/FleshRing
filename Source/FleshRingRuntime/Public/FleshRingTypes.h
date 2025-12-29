@@ -123,7 +123,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform")
 	FVector RingOffset = FVector::ZeroVector;
 
-	/** Ring 회전 (본 로컬 좌표계 기준, 기본값 -90,0,0으로 링의 Z축이 본의 X축과 일치) */
+	/** Ring 회전 (본 로컬 좌표계 기준, 기본값으로 링의 Z축이 본의 X축과 일치) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform")
 	FRotator RingRotation = FRotator(-90.0f, 0.0f, 0.0f);
 
@@ -131,7 +131,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform")
 	FVector MeshOffset = FVector::ZeroVector;
 
-	/** 메시 회전 (본 로컬 좌표계 기준, 기본값 -90,0,0으로 메시의 Z축이 본의 X축과 일치) */
+	/** 메시 회전 (본 로컬 좌표계 기준, 기본값으로 메시의 Z축이 본의 X축과 일치) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform")
 	FRotator MeshRotation = FRotator(-90.0f, 0.0f, 0.0f);
 

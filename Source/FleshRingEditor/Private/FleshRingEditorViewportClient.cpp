@@ -379,7 +379,7 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 		FVector BoneLocation = BoneTransform.GetLocation();
 		FQuat BoneRotation = BoneTransform.GetRotation();
 
-		// 본 회전 * 링 회전 = 월드 회전 (RingRotation 기본값 90,0,0으로 본의 X축과 링의 Z축이 일치)
+		// 본 회전 * 링 회전 = 월드 회전 (기본값으로 본의 X축과 링의 Z축이 일치)
 		FQuat RingWorldRotation = BoneRotation * FQuat(Ring.RingRotation);
 
 		// RingOffset 적용
@@ -555,6 +555,12 @@ FMatrix FFleshRingEditorViewportClient::GetSelectedRingAlignMatrix() const
 
 	if (CoordSystem == COORD_Local)
 	{
+		// 드래그 중이면 드래그 시작 시점의 회전 사용 (기즈모 고정)
+		if (bIsDraggingRotation)
+		{
+			return FQuatRotationMatrix(DragStartWorldRotation);
+		}
+
 		// 로컬 모드: 본 회전 * 링/메시 회전 = 현재 월드 회전
 		FQuat CurrentRotation;
 		if (SelectionType == EFleshRingSelectionType::Gizmo)
@@ -566,7 +572,7 @@ FMatrix FFleshRingEditorViewportClient::GetSelectedRingAlignMatrix() const
 			CurrentRotation = FQuat(Ring.MeshRotation);
 		}
 		FQuat WorldRotation = BoneRotation * CurrentRotation;
-		return FRotationMatrix(WorldRotation.Rotator());
+		return FQuatRotationMatrix(WorldRotation);
 	}
 	else
 	{
@@ -673,27 +679,58 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		Ring.RingOffset += LocalDrag;
 
 		// 회전 -> RingRotation 업데이트
-		if (!SnappedRot.IsZero())
+		// 스냅 여부와 관계없이 원본 Rot 값으로 처리 (스냅이 작은 회전을 0으로 만들 수 있음)
+		if (bIsDraggingRotation)
 		{
-			FQuat DeltaRotation = FQuat(SnappedRot);
-			// 현재 월드 회전 = 본 회전 * 링 회전
-			FQuat CurrentWorldRotation = BoneRotation * FQuat(Ring.RingRotation);
+			// 드래그 시작 시점의 회전에서 축을 가져옴 (기즈모 고정)
+			FQuat AxisSourceRotation = DragStartWorldRotation;
 
-			FQuat NewWorldRotation;
-			if (CoordSystem == COORD_Local)
+			// CurrentAxis에 따라 회전 축과 각도 결정
+			FVector RotationAxis = FVector::ZeroVector;
+			float RotationAngle = 0.0f;
+
+			if (CurrentAxis & EAxisList::X)
 			{
-				// 로컬 기준: 현재 회전 상태의 로컬 축 기준으로 회전
-				NewWorldRotation = CurrentWorldRotation * DeltaRotation;
+				RotationAxis = CoordSystem == COORD_Local ? AxisSourceRotation.GetAxisX() : FVector::XAxisVector;
+				RotationAngle = Rot.Roll;  // 스냅 전 원본 값 사용
 			}
-			else
+			else if (CurrentAxis & EAxisList::Y)
 			{
-				// 월드 기준: 월드 축 기준으로 회전
-				NewWorldRotation = DeltaRotation * CurrentWorldRotation;
+				RotationAxis = CoordSystem == COORD_Local ? AxisSourceRotation.GetAxisY() : FVector::YAxisVector;
+				RotationAngle = Rot.Pitch;  // 스냅 전 원본 값 사용
+			}
+			else if (CurrentAxis & EAxisList::Z)
+			{
+				RotationAxis = CoordSystem == COORD_Local ? AxisSourceRotation.GetAxisZ() : FVector::ZAxisVector;
+				RotationAngle = Rot.Yaw;  // 스냅 전 원본 값 사용
+			}
+			else if (CurrentAxis & EAxisList::Screen)
+			{
+				// Screen 회전: 카메라 시점 방향 축으로 회전
+				RotationAxis = GetViewRotation().Vector();
+				RotationAngle = Rot.Yaw;  // 스냅 전 원본 값 사용
 			}
 
-			// 월드 회전을 본 로컬 회전으로 변환: 링 회전 = 본 회전^-1 * 월드 회전
-			FQuat NewLocalRotation = BoneRotation.Inverse() * NewWorldRotation;
-			Ring.RingRotation = NewLocalRotation.Rotator();
+			if (!FMath::IsNearlyZero(RotationAngle) && !RotationAxis.IsNearlyZero())
+			{
+				// 축 정규화 (안전 체크)
+				RotationAxis.Normalize();
+
+				// 이번 프레임의 델타 회전
+				FQuat FrameDeltaRotation = FQuat(RotationAxis, FMath::DegreesToRadians(RotationAngle));
+
+				// 누적 델타에 추가 (짐벌락 방지: FRotator를 다시 읽지 않음)
+				AccumulatedDeltaRotation = FrameDeltaRotation * AccumulatedDeltaRotation;
+				AccumulatedDeltaRotation.Normalize();
+
+				// 드래그 시작 회전에 누적 델타 적용
+				FQuat NewWorldRotation = AccumulatedDeltaRotation * DragStartWorldRotation;
+				NewWorldRotation.Normalize();
+
+				// 월드 회전을 본 로컬 회전으로 변환 후 FRotator로 저장
+				FQuat NewLocalRotation = BoneRotation.Inverse() * NewWorldRotation;
+				Ring.RingRotation = NewLocalRotation.Rotator();
+			}
 		}
 
 		// 스케일 -> RingRadius 조절 (Manual 모드에서만)
@@ -715,27 +752,58 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		Ring.MeshOffset += LocalDrag;
 
 		// 회전도 적용
-		if (!SnappedRot.IsZero())
+		// 스냅 여부와 관계없이 원본 Rot 값으로 처리 (스냅이 작은 회전을 0으로 만들 수 있음)
+		if (bIsDraggingRotation)
 		{
-			FQuat DeltaRotation = FQuat(SnappedRot);
-			// 현재 월드 회전 = 본 회전 * 메시 회전
-			FQuat CurrentWorldRotation = BoneRotation * FQuat(Ring.MeshRotation);
+			// 드래그 시작 시점의 회전에서 축을 가져옴 (기즈모 고정)
+			FQuat AxisSourceRotation = DragStartWorldRotation;
 
-			FQuat NewWorldRotation;
-			if (CoordSystem == COORD_Local)
+			// CurrentAxis에 따라 회전 축과 각도 결정
+			FVector RotationAxis = FVector::ZeroVector;
+			float RotationAngle = 0.0f;
+
+			if (CurrentAxis & EAxisList::X)
 			{
-				// 로컬 기준: 현재 회전 상태의 로컬 축 기준으로 회전
-				NewWorldRotation = CurrentWorldRotation * DeltaRotation;
+				RotationAxis = CoordSystem == COORD_Local ? AxisSourceRotation.GetAxisX() : FVector::XAxisVector;
+				RotationAngle = Rot.Roll;  // 스냅 전 원본 값 사용
 			}
-			else
+			else if (CurrentAxis & EAxisList::Y)
 			{
-				// 월드 기준: 월드 축 기준으로 회전
-				NewWorldRotation = DeltaRotation * CurrentWorldRotation;
+				RotationAxis = CoordSystem == COORD_Local ? AxisSourceRotation.GetAxisY() : FVector::YAxisVector;
+				RotationAngle = Rot.Pitch;  // 스냅 전 원본 값 사용
+			}
+			else if (CurrentAxis & EAxisList::Z)
+			{
+				RotationAxis = CoordSystem == COORD_Local ? AxisSourceRotation.GetAxisZ() : FVector::ZAxisVector;
+				RotationAngle = Rot.Yaw;  // 스냅 전 원본 값 사용
+			}
+			else if (CurrentAxis & EAxisList::Screen)
+			{
+				// Screen 회전: 카메라 시점 방향 축으로 회전
+				RotationAxis = GetViewRotation().Vector();
+				RotationAngle = Rot.Yaw;  // 스냅 전 원본 값 사용
 			}
 
-			// 월드 회전을 본 로컬 회전으로 변환: 메시 회전 = 본 회전^-1 * 월드 회전
-			FQuat NewLocalRotation = BoneRotation.Inverse() * NewWorldRotation;
-			Ring.MeshRotation = NewLocalRotation.Rotator();
+			if (!FMath::IsNearlyZero(RotationAngle) && !RotationAxis.IsNearlyZero())
+			{
+				// 축 정규화 (안전 체크)
+				RotationAxis.Normalize();
+
+				// 이번 프레임의 델타 회전
+				FQuat FrameDeltaRotation = FQuat(RotationAxis, FMath::DegreesToRadians(RotationAngle));
+
+				// 누적 델타에 추가 (짐벌락 방지: FRotator를 다시 읽지 않음)
+				AccumulatedDeltaRotation = FrameDeltaRotation * AccumulatedDeltaRotation;
+				AccumulatedDeltaRotation.Normalize();
+
+				// 드래그 시작 회전에 누적 델타 적용
+				FQuat NewWorldRotation = AccumulatedDeltaRotation * DragStartWorldRotation;
+				NewWorldRotation.Normalize();
+
+				// 월드 회전을 본 로컬 회전으로 변환 후 FRotator로 저장
+				FQuat NewLocalRotation = BoneRotation.Inverse() * NewWorldRotation;
+				Ring.MeshRotation = NewLocalRotation.Rotator();
+			}
 		}
 
 		// 스케일 적용
@@ -775,6 +843,36 @@ void FFleshRingEditorViewportClient::TrackingStarted(const FInputEventState& InI
 	{
 		ScopedTransaction = MakeUnique<FScopedTransaction>(NSLOCTEXT("FleshRingEditor", "ModifyRingTransform", "Modify Ring Transform"));
 		EditingAsset->Modify();
+
+		// 회전 모드일 때만 회전 관련 초기화 수행
+		bool bIsRotationMode = ModeTools && ModeTools->GetWidgetMode() == UE::Widget::WM_Rotate;
+		if (bIsRotationMode)
+		{
+			// 드래그 시작 시 초기 회전 저장 (기즈모 좌표계 고정용)
+			USkeletalMeshComponent* SkelMeshComp = PreviewScene ? PreviewScene->GetSkeletalMeshComponent() : nullptr;
+			int32 SelectedIndex = PreviewScene ? PreviewScene->GetSelectedRingIndex() : -1;
+
+			if (SkelMeshComp && SkelMeshComp->GetSkeletalMeshAsset() && EditingAsset->Rings.IsValidIndex(SelectedIndex))
+			{
+				const FFleshRingSettings& Ring = EditingAsset->Rings[SelectedIndex];
+				int32 BoneIndex = SkelMeshComp->GetBoneIndex(Ring.BoneName);
+				if (BoneIndex != INDEX_NONE)
+				{
+					FQuat BoneRotation = SkelMeshComp->GetBoneTransform(BoneIndex).GetRotation();
+					// FRotator를 FQuat로 변환
+					FQuat CurrentRotation = (SelectionType == EFleshRingSelectionType::Gizmo)
+						? FQuat(Ring.RingRotation)
+						: FQuat(Ring.MeshRotation);
+					DragStartWorldRotation = BoneRotation * CurrentRotation;
+					DragStartWorldRotation.Normalize();  // 정규화
+
+					// 누적 델타 회전 초기화
+					AccumulatedDeltaRotation = FQuat::Identity;
+
+					bIsDraggingRotation = true;
+				}
+			}
+		}
 	}
 
 	FEditorViewportClient::TrackingStarted(InInputState, bIsDraggingWidget, bNudge);
@@ -784,6 +882,7 @@ void FFleshRingEditorViewportClient::TrackingStopped()
 {
 	// 드래그 종료 시 트랜잭션 종료
 	ScopedTransaction.Reset();
+	bIsDraggingRotation = false;
 
 	FEditorViewportClient::TrackingStopped();
 }

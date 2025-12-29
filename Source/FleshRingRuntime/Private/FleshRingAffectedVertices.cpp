@@ -38,11 +38,9 @@ void FDistanceBasedVertexSelector::SelectVertices(
     const FVector RingCenter = BoneTransform.GetLocation();
 
     // 링 축 계산: 메시 회전을 반영하여 실제 토러스 구멍 방향 계산
-    // (RegisterAffectedVertices와 동일한 방식)
-    // BoneRotation * LocalAlignRotation * MeshRotation * ZAxis
-    FQuat LocalAlignRotation = FQuat::FindBetweenNormals(FVector::ZAxisVector, FVector::XAxisVector);
+    // BoneRotation * MeshRotation * ZAxis (MeshRotation 기본값으로 Z축이 본 X축과 일치)
     FQuat BoneRotation = BoneTransform.GetRotation();
-    FQuat WorldMeshRotation = BoneRotation * LocalAlignRotation * Ring.MeshRotation.Quaternion();
+    FQuat WorldMeshRotation = BoneRotation * FQuat(Ring.MeshRotation);
     const FVector RingAxis = WorldMeshRotation.RotateVector(FVector::ZAxisVector);
 
     // MeshScale 반영: Ring Mesh가 스케일되면 영향 범위도 스케일됨
@@ -363,18 +361,9 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         RingData.RingCenter = BoneTransform.GetLocation();
 
         // 링 축 계산: 메시 회전을 반영하여 실제 토러스 구멍 방향 계산
-        // (FleshRingComponent::SetupRingMeshes와 동일한 방식)
-        //
-        // SetupRingMeshes에서의 메시 회전:
-        //   LocalAlignRotation = FindBetweenNormals(Z, X)  // 본 로컬에서 Z→X 정렬
-        //   RelativeRotation = LocalAlignRotation * MeshRotation  // 본 로컬 공간
-        //
-        // 구멍 방향 (Component Space):
-        //   BoneRotation * RelativeRotation * ZAxis
-        // = BoneRotation * LocalAlignRotation * MeshRotation * ZAxis
-        FQuat LocalAlignRotation = FQuat::FindBetweenNormals(FVector::ZAxisVector, FVector::XAxisVector);
+        // BoneRotation * MeshRotation * ZAxis (MeshRotation 기본값으로 Z축이 본 X축과 일치)
         FQuat BoneRotation = BoneTransform.GetRotation();
-        FQuat WorldMeshRotation = BoneRotation * LocalAlignRotation * RingSettings.MeshRotation.Quaternion();
+        FQuat WorldMeshRotation = BoneRotation * FQuat(RingSettings.MeshRotation);
         RingData.RingAxis = WorldMeshRotation.RotateVector(FVector::ZAxisVector);
 
         // Ring Geometry (copy from asset with MeshScale applied)

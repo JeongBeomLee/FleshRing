@@ -7,6 +7,7 @@
 #include "FleshRingComponent.h"
 #include "FleshRingAsset.h"
 #include "Widgets/Input/SComboBox.h"
+#include "Widgets/Input/SNumericEntryBox.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Images/SImage.h"
 #include "Widgets/SBoxPanel.h"
@@ -121,7 +122,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			continue;
 		}
 
-		// 나머지는 기본 위젯 사용
+		// 나머지는 기본 위젯 사용 (FRotator 포함)
 		ChildBuilder.AddProperty(ChildHandle);
 	}
 }

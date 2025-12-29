@@ -313,7 +313,7 @@ void UFleshRingComponent::GenerateSDF()
 			// Mesh Transform (Ring Local → Bone Local)
 			FTransform MeshTransform;
 			MeshTransform.SetLocation(Ring.MeshOffset);
-			MeshTransform.SetRotation(Ring.MeshRotation.Quaternion());
+			MeshTransform.SetRotation(FQuat(Ring.MeshRotation));
 			MeshTransform.SetScale3D(Ring.MeshScale);
 
 			// Bone Transform (Bone Local → Component Space)
@@ -528,14 +528,10 @@ void UFleshRingComponent::SetupRingMeshes()
 		// 본에 먼저 부착 (본 위치에 스냅)
 		MeshComp->AttachToComponent(SkelMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Ring.BoneName);
 
-		// 본 로컬 공간에서 Z축을 X축(Forward)으로 정렬하는 회전
-		// 본 로컬 공간에서는 X축이 항상 Forward이므로 이 회전은 항상 동일
-		FQuat LocalAlignRotation = FQuat::FindBetweenNormals(FVector::ZAxisVector, FVector::XAxisVector);
-		FQuat RelativeRotation = LocalAlignRotation * FQuat(Ring.MeshRotation);
-
 		// 상대 트랜스폼 설정 (본 로컬 공간 기준)
+		// MeshRotation 기본값 FRotator(-90, 0, 0)으로 메시 Z축이 본 X축과 일치
 		MeshComp->SetRelativeLocation(Ring.MeshOffset);
-		MeshComp->SetRelativeRotation(RelativeRotation.Rotator());
+		MeshComp->SetRelativeRotation(Ring.MeshRotation);
 		MeshComp->SetRelativeScale3D(Ring.MeshScale);
 
 		RingMeshComponents.Add(MeshComp);

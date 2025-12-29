@@ -97,6 +97,14 @@ private:
 	/** Undo용 트랜잭션 */
 	TUniquePtr<FScopedTransaction> ScopedTransaction;
 
+	/** 드래그 시작 시 초기 회전 (기즈모 고정용) */
+	FQuat DragStartWorldRotation = FQuat::Identity;
+
+	/** 드래그 중 누적 델타 회전 (짐벌락 방지용) */
+	FQuat AccumulatedDeltaRotation = FQuat::Identity;
+
+	bool bIsDraggingRotation = false;
+
 	// Show 플래그
 	bool bShowRingGizmos = true;
 	bool bShowRingMeshes = true;
