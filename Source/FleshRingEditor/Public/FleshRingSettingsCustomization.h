@@ -48,11 +48,40 @@ private:
 	/** 현재 본이 유효하지 않은지 확인 (경고 아이콘 표시용) */
 	bool IsBoneInvalid() const;
 
+	/** EulerRotation에서 FQuat으로 동기화 */
+	void SyncQuatFromEuler(
+		TSharedPtr<IPropertyHandle> EulerHandle,
+		TSharedPtr<IPropertyHandle> QuatHandle);
+
+	/** FQuat 핸들에서 Euler 각도 읽기 */
+	FRotator GetQuatAsEuler(TSharedPtr<IPropertyHandle> QuatHandle) const;
+
+	/** FVector용 선형 드래그 Row 추가 */
+	void AddLinearVectorRow(
+		IDetailChildrenBuilder& ChildBuilder,
+		TSharedRef<IPropertyHandle> VectorHandle,
+		const FText& DisplayName,
+		float Delta);
+
+	/** FRotator용 선형 드래그 Row 추가 */
+	void AddLinearRotatorRow(
+		IDetailChildrenBuilder& ChildBuilder,
+		TSharedRef<IPropertyHandle> RotatorHandle,
+		const FText& DisplayName,
+		float Delta);
+
+	/** Euler 각도를 FQuat 핸들에 쓰기 */
+	void SetEulerToQuat(TSharedPtr<IPropertyHandle> QuatHandle, const FRotator& Euler);
+
 	/** 프로퍼티 핸들 캐싱 */
 	TSharedPtr<IPropertyHandle> BoneNameHandle;
 
 	/** 메인 프로퍼티 핸들 (Asset 접근용) */
 	TSharedPtr<IPropertyHandle> MainPropertyHandle;
+
+	/** FQuat 프로퍼티 핸들 캐싱 (Euler 표시용) */
+	TSharedPtr<IPropertyHandle> RingRotationHandle;
+	TSharedPtr<IPropertyHandle> MeshRotationHandle;
 
 	/** 사용 가능한 Bone 이름 목록 */
 	TArray<TSharedPtr<FName>> BoneNameList;

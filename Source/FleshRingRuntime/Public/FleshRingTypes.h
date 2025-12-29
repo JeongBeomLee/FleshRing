@@ -123,20 +123,28 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform")
 	FVector RingOffset = FVector::ZeroVector;
 
-	/** Ring 회전 (본 로컬 좌표계 기준, 기본값으로 링의 Z축이 본의 X축과 일치) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform")
-	FRotator RingRotation = FRotator(-90.0f, 0.0f, 0.0f);
+	/** Ring 회전 (실제 적용되는 쿼터니언, 런타임에서 사용) */
+	UPROPERTY()
+	FQuat RingRotation = FRotator(-90.0f, 0.0f, 0.0f).Quaternion();
+
+	/** Ring 회전 Euler 각도 (UI 편집용, 제한 없음) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform", meta = (DisplayName = "Ring Rotation"))
+	FRotator RingEulerRotation = FRotator(-90.0f, 0.0f, 0.0f);
 
 	/** Bone 기준 메시 위치 오프셋 (시각적 + SDF) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform")
 	FVector MeshOffset = FVector::ZeroVector;
 
-	/** 메시 회전 (본 로컬 좌표계 기준, 기본값으로 메시의 Z축이 본의 X축과 일치) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform")
-	FRotator MeshRotation = FRotator(-90.0f, 0.0f, 0.0f);
+	/** 메시 회전 (실제 적용되는 쿼터니언, 런타임에서 사용) */
+	UPROPERTY()
+	FQuat MeshRotation = FRotator(-90.0f, 0.0f, 0.0f).Quaternion();
+
+	/** 메시 회전 Euler 각도 (UI 편집용, 제한 없음) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform", meta = (DisplayName = "Mesh Rotation"))
+	FRotator MeshEulerRotation = FRotator(-90.0f, 0.0f, 0.0f);
 
 	/** 메시 스케일 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform", meta = (ClampMin = "0.01", ClampMax = "10.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform", meta = (ClampMin = "0.01"))
 	FVector MeshScale = FVector::OneVector;
 
 	FFleshRingSettings()

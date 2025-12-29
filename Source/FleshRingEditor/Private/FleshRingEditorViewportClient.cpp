@@ -380,7 +380,7 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 		FQuat BoneRotation = BoneTransform.GetRotation();
 
 		// 본 회전 * 링 회전 = 월드 회전 (기본값으로 본의 X축과 링의 Z축이 일치)
-		FQuat RingWorldRotation = BoneRotation * FQuat(Ring.RingRotation);
+		FQuat RingWorldRotation = BoneRotation * Ring.RingRotation;
 
 		// RingOffset 적용
 		FVector GizmoLocation = BoneLocation + BoneRotation.RotateVector(Ring.RingOffset);
@@ -555,24 +555,29 @@ FMatrix FFleshRingEditorViewportClient::GetSelectedRingAlignMatrix() const
 
 	if (CoordSystem == COORD_Local)
 	{
-		// 드래그 중이면 드래그 시작 시점의 회전 사용 (기즈모 고정)
+		FQuat TargetRotation;
 		if (bIsDraggingRotation)
 		{
-			return FQuatRotationMatrix(DragStartWorldRotation);
+			// 드래그 중이면 드래그 시작 시점의 회전 사용 (기즈모 고정)
+			TargetRotation = DragStartWorldRotation;
+		}
+		else
+		{
+			// 로컬 모드: 본 회전 * 링/메시 회전 = 현재 월드 회전
+			FQuat CurrentRotation;
+			if (SelectionType == EFleshRingSelectionType::Gizmo)
+			{
+				CurrentRotation = Ring.RingRotation;
+			}
+			else // Mesh
+			{
+				CurrentRotation = Ring.MeshRotation;
+			}
+			TargetRotation = BoneRotation * CurrentRotation;
 		}
 
-		// 로컬 모드: 본 회전 * 링/메시 회전 = 현재 월드 회전
-		FQuat CurrentRotation;
-		if (SelectionType == EFleshRingSelectionType::Gizmo)
-		{
-			CurrentRotation = FQuat(Ring.RingRotation);
-		}
-		else // Mesh
-		{
-			CurrentRotation = FQuat(Ring.MeshRotation);
-		}
-		FQuat WorldRotation = BoneRotation * CurrentRotation;
-		return FQuatRotationMatrix(WorldRotation);
+		// FQuatRotationMatrix 사용 (FRotator 변환 시 Gimbal lock 문제 방지)
+		return FQuatRotationMatrix(TargetRotation);
 	}
 	else
 	{
@@ -636,14 +641,28 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 	// 스냅 적용
 	const ULevelEditorViewportSettings* ViewportSettings = GetDefault<ULevelEditorViewportSettings>();
 
-	// 이동 스냅
+	// 이동 스냅 - 기즈모 축 기준으로 적용
+	// Widget 시스템은 월드 좌표로 Drag를 전달하므로, 기즈모 로컬로 변환 후 스냅 적용
 	FVector SnappedDrag = Drag;
-	if (ViewportSettings->GridEnabled && GEditor)
+	if (ViewportSettings->GridEnabled && GEditor && !Drag.IsZero())
 	{
 		float GridSize = GEditor->GetGridSize();
-		SnappedDrag.X = FMath::GridSnap(Drag.X, GridSize);
-		SnappedDrag.Y = FMath::GridSnap(Drag.Y, GridSize);
-		SnappedDrag.Z = FMath::GridSnap(Drag.Z, GridSize);
+
+		// 기즈모 좌표계 행렬 가져오기
+		FMatrix GizmoMatrix = GetSelectedRingAlignMatrix();
+		FMatrix GizmoMatrixInverse = GizmoMatrix.Inverse();
+
+		// 월드 Drag를 기즈모 로컬 좌표로 변환
+		FVector LocalDragForSnap = GizmoMatrixInverse.TransformVector(Drag);
+
+		// 기즈모 로컬 좌표에서 스냅 적용
+		FVector SnappedLocalDrag;
+		SnappedLocalDrag.X = FMath::GridSnap(LocalDragForSnap.X, GridSize);
+		SnappedLocalDrag.Y = FMath::GridSnap(LocalDragForSnap.Y, GridSize);
+		SnappedLocalDrag.Z = FMath::GridSnap(LocalDragForSnap.Z, GridSize);
+
+		// 다시 월드 좌표로 변환
+		SnappedDrag = GizmoMatrix.TransformVector(SnappedLocalDrag);
 	}
 
 	// 회전 스냅
@@ -666,10 +685,8 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		SnappedScale.Z = FMath::GridSnap(Scale.Z, ScaleGridSize);
 	}
 
-	// 좌표계 모드 확인 (World vs Local)
-	ECoordSystem CoordSystem = ModeTools ? ModeTools->GetCoordSystem() : COORD_World;
-
 	// 월드 드래그를 본 로컬 좌표로 변환
+	// (Widget 시스템은 World/Local 모드 상관없이 항상 월드 좌표로 Drag를 전달함)
 	FVector LocalDrag = BoneRotation.UnrotateVector(SnappedDrag);
 
 	// 선택 타입에 따라 다른 오프셋 업데이트
@@ -679,47 +696,16 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		Ring.RingOffset += LocalDrag;
 
 		// 회전 -> RingRotation 업데이트
-		// 스냅 여부와 관계없이 원본 Rot 값으로 처리 (스냅이 작은 회전을 0으로 만들 수 있음)
 		if (bIsDraggingRotation)
 		{
-			// 드래그 시작 시점의 회전에서 축을 가져옴 (기즈모 고정)
-			FQuat AxisSourceRotation = DragStartWorldRotation;
+			// Widget이 주는 Rot는 월드 좌표계로 분해된 값
+			// 로컬 축 회전이 월드 FRotator로 변환되면서 Pitch/Yaw/Roll에 분산됨
+			// 따라서 Rot 전체를 쿼터니언으로 변환하여 사용해야 회전이 정확히 360도 누적됨
+			FQuat FrameDeltaRotation = Rot.Quaternion();
 
-			// CurrentAxis에 따라 회전 축과 각도 결정
-			FVector RotationAxis = FVector::ZeroVector;
-			float RotationAngle = 0.0f;
-
-			if (CurrentAxis & EAxisList::X)
+			if (!FrameDeltaRotation.IsIdentity())
 			{
-				RotationAxis = CoordSystem == COORD_Local ? AxisSourceRotation.GetAxisX() : FVector::XAxisVector;
-				RotationAngle = Rot.Roll;  // 스냅 전 원본 값 사용
-			}
-			else if (CurrentAxis & EAxisList::Y)
-			{
-				RotationAxis = CoordSystem == COORD_Local ? AxisSourceRotation.GetAxisY() : FVector::YAxisVector;
-				RotationAngle = Rot.Pitch;  // 스냅 전 원본 값 사용
-			}
-			else if (CurrentAxis & EAxisList::Z)
-			{
-				RotationAxis = CoordSystem == COORD_Local ? AxisSourceRotation.GetAxisZ() : FVector::ZAxisVector;
-				RotationAngle = Rot.Yaw;  // 스냅 전 원본 값 사용
-			}
-			else if (CurrentAxis & EAxisList::Screen)
-			{
-				// Screen 회전: 카메라 시점 방향 축으로 회전
-				RotationAxis = GetViewRotation().Vector();
-				RotationAngle = Rot.Yaw;  // 스냅 전 원본 값 사용
-			}
-
-			if (!FMath::IsNearlyZero(RotationAngle) && !RotationAxis.IsNearlyZero())
-			{
-				// 축 정규화 (안전 체크)
-				RotationAxis.Normalize();
-
-				// 이번 프레임의 델타 회전
-				FQuat FrameDeltaRotation = FQuat(RotationAxis, FMath::DegreesToRadians(RotationAngle));
-
-				// 누적 델타에 추가 (짐벌락 방지: FRotator를 다시 읽지 않음)
+				// 누적 델타에 추가 (짐벌락 방지: FRotator를 다시 읽지 않고 쿼터니언으로 누적)
 				AccumulatedDeltaRotation = FrameDeltaRotation * AccumulatedDeltaRotation;
 				AccumulatedDeltaRotation.Normalize();
 
@@ -727,9 +713,10 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 				FQuat NewWorldRotation = AccumulatedDeltaRotation * DragStartWorldRotation;
 				NewWorldRotation.Normalize();
 
-				// 월드 회전을 본 로컬 회전으로 변환 후 FRotator로 저장
+				// 월드 회전을 본 로컬 회전으로 변환 후 저장
 				FQuat NewLocalRotation = BoneRotation.Inverse() * NewWorldRotation;
-				Ring.RingRotation = NewLocalRotation.Rotator();
+				Ring.RingRotation = NewLocalRotation;
+				Ring.RingEulerRotation = NewLocalRotation.Rotator();  // EulerRotation 동기화
 			}
 		}
 
@@ -752,47 +739,16 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		Ring.MeshOffset += LocalDrag;
 
 		// 회전도 적용
-		// 스냅 여부와 관계없이 원본 Rot 값으로 처리 (스냅이 작은 회전을 0으로 만들 수 있음)
 		if (bIsDraggingRotation)
 		{
-			// 드래그 시작 시점의 회전에서 축을 가져옴 (기즈모 고정)
-			FQuat AxisSourceRotation = DragStartWorldRotation;
+			// Widget이 주는 Rot는 월드 좌표계로 분해된 값
+			// 로컬 축 회전이 월드 FRotator로 변환되면서 Pitch/Yaw/Roll에 분산됨
+			// 따라서 Rot 전체를 쿼터니언으로 변환하여 사용해야 회전이 정확히 360도 누적됨
+			FQuat FrameDeltaRotation = Rot.Quaternion();
 
-			// CurrentAxis에 따라 회전 축과 각도 결정
-			FVector RotationAxis = FVector::ZeroVector;
-			float RotationAngle = 0.0f;
-
-			if (CurrentAxis & EAxisList::X)
+			if (!FrameDeltaRotation.IsIdentity())
 			{
-				RotationAxis = CoordSystem == COORD_Local ? AxisSourceRotation.GetAxisX() : FVector::XAxisVector;
-				RotationAngle = Rot.Roll;  // 스냅 전 원본 값 사용
-			}
-			else if (CurrentAxis & EAxisList::Y)
-			{
-				RotationAxis = CoordSystem == COORD_Local ? AxisSourceRotation.GetAxisY() : FVector::YAxisVector;
-				RotationAngle = Rot.Pitch;  // 스냅 전 원본 값 사용
-			}
-			else if (CurrentAxis & EAxisList::Z)
-			{
-				RotationAxis = CoordSystem == COORD_Local ? AxisSourceRotation.GetAxisZ() : FVector::ZAxisVector;
-				RotationAngle = Rot.Yaw;  // 스냅 전 원본 값 사용
-			}
-			else if (CurrentAxis & EAxisList::Screen)
-			{
-				// Screen 회전: 카메라 시점 방향 축으로 회전
-				RotationAxis = GetViewRotation().Vector();
-				RotationAngle = Rot.Yaw;  // 스냅 전 원본 값 사용
-			}
-
-			if (!FMath::IsNearlyZero(RotationAngle) && !RotationAxis.IsNearlyZero())
-			{
-				// 축 정규화 (안전 체크)
-				RotationAxis.Normalize();
-
-				// 이번 프레임의 델타 회전
-				FQuat FrameDeltaRotation = FQuat(RotationAxis, FMath::DegreesToRadians(RotationAngle));
-
-				// 누적 델타에 추가 (짐벌락 방지: FRotator를 다시 읽지 않음)
+				// 누적 델타에 추가 (짐벌락 방지: FRotator를 다시 읽지 않고 쿼터니언으로 누적)
 				AccumulatedDeltaRotation = FrameDeltaRotation * AccumulatedDeltaRotation;
 				AccumulatedDeltaRotation.Normalize();
 
@@ -800,9 +756,10 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 				FQuat NewWorldRotation = AccumulatedDeltaRotation * DragStartWorldRotation;
 				NewWorldRotation.Normalize();
 
-				// 월드 회전을 본 로컬 회전으로 변환 후 FRotator로 저장
+				// 월드 회전을 본 로컬 회전으로 변환 후 저장
 				FQuat NewLocalRotation = BoneRotation.Inverse() * NewWorldRotation;
-				Ring.MeshRotation = NewLocalRotation.Rotator();
+				Ring.MeshRotation = NewLocalRotation;
+				Ring.MeshEulerRotation = NewLocalRotation.Rotator();  // EulerRotation 동기화
 			}
 		}
 
@@ -821,8 +778,8 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		if (RingMeshComponents.IsValidIndex(SelectedIndex) && RingMeshComponents[SelectedIndex])
 		{
 			FVector MeshLocation = BoneTransform.GetLocation() + BoneRotation.RotateVector(Ring.MeshOffset);
-			FQuat WorldRotation = BoneRotation * FQuat(Ring.MeshRotation);
-			RingMeshComponents[SelectedIndex]->SetWorldLocationAndRotation(MeshLocation, WorldRotation.Rotator());
+			FQuat WorldRotation = BoneRotation * Ring.MeshRotation;
+			RingMeshComponents[SelectedIndex]->SetWorldLocationAndRotation(MeshLocation, WorldRotation);
 			RingMeshComponents[SelectedIndex]->SetWorldScale3D(Ring.MeshScale);
 		}
 	}
@@ -859,10 +816,9 @@ void FFleshRingEditorViewportClient::TrackingStarted(const FInputEventState& InI
 				if (BoneIndex != INDEX_NONE)
 				{
 					FQuat BoneRotation = SkelMeshComp->GetBoneTransform(BoneIndex).GetRotation();
-					// FRotator를 FQuat로 변환
 					FQuat CurrentRotation = (SelectionType == EFleshRingSelectionType::Gizmo)
-						? FQuat(Ring.RingRotation)
-						: FQuat(Ring.MeshRotation);
+						? Ring.RingRotation
+						: Ring.MeshRotation;
 					DragStartWorldRotation = BoneRotation * CurrentRotation;
 					DragStartWorldRotation.Normalize();  // 정규화
 

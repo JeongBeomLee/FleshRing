@@ -313,7 +313,7 @@ void UFleshRingComponent::GenerateSDF()
 			// Mesh Transform (Ring Local → Bone Local)
 			FTransform MeshTransform;
 			MeshTransform.SetLocation(Ring.MeshOffset);
-			MeshTransform.SetRotation(FQuat(Ring.MeshRotation));
+			MeshTransform.SetRotation(Ring.MeshRotation);
 			MeshTransform.SetScale3D(Ring.MeshScale);
 
 			// Bone Transform (Bone Local → Component Space)

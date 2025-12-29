@@ -53,6 +53,13 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 
+	// EulerRotation 변경 시 FQuat 동기화
+	for (FFleshRingSettings& Ring : Rings)
+	{
+		Ring.RingRotation = Ring.RingEulerRotation.Quaternion();
+		Ring.MeshRotation = Ring.MeshEulerRotation.Quaternion();
+	}
+
 	// 에셋이 수정되었음을 표시
 	MarkPackageDirty();
 }
