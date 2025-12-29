@@ -655,12 +655,13 @@ void UFleshRingComponent::DrawSdfVolume(int32 RingIndex)
 	FVector Center = (BoundsMin + BoundsMax) * 0.5f;
 	FVector Extent = (BoundsMax - BoundsMin) * 0.5f;
 
-	// 노란색 와이어프레임 박스
-	DrawDebugBox(World, Center, Extent, FColor::Yellow, false, -1.0f, 0, 2.0f);
+	// 시안 와이어프레임 박스 (깔끔한 얇은 선)
+	FColor BoxColor = FColor(0, 200, 255, 255);  // 밝은 시안
+	DrawDebugBox(World, Center, Extent, BoxColor, false, -1.0f, 0, 0.3f);
 
-	// 코너 점 (Min = 파랑, Max = 빨강)
-	DrawDebugSphere(World, BoundsMin, 3.0f, 4, FColor::Blue, false, -1.0f);
-	DrawDebugSphere(World, BoundsMax, 3.0f, 4, FColor::Red, false, -1.0f);
+	// Min/Max 코너 강조 표시
+	DrawDebugSphere(World, BoundsMin, 1.0f, 8, FColor::Blue, false, -1.0f, 0, 0.5f);
+	DrawDebugSphere(World, BoundsMax, 1.0f, 8, FColor::Red, false, -1.0f, 0, 0.5f);
 
 	// 해상도 텍스트 표시
 	if (GEngine)
@@ -1063,8 +1064,8 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 	DebugAffectedData.Reset();
 	DebugAffectedData.SetNum(FleshRingAsset->Rings.Num());
 
-	// SDF Bounds 기반 선택기 사용
-	FSDFBoundsBasedVertexSelector Selector;
+	// 거리 기반 선택기 사용 (CPU에서 Influence 계산)
+	FDistanceBasedVertexSelector Selector;
 
 	const FReferenceSkeleton& RefSkeleton = Mesh->GetRefSkeleton();
 	const TArray<FTransform>& RefBonePose = RefSkeleton.GetRefBonePose();
