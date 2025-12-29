@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -8,6 +8,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "FleshRingTypes.h"
 #include "FleshRingDeformer.h"
+#include "FleshRingAffectedVertices.h"
 #include "RenderGraphResources.h"
 #include "FleshRingComponent.generated.h"
 
@@ -80,7 +81,7 @@ UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent), DisplayName="Fle
 class FLESHRINGRUNTIME_API UFleshRingComponent : public UActorComponent
 {
 	GENERATED_BODY()
-
+	
 public:
 	UFleshRingComponent();
 
@@ -138,20 +139,29 @@ public:
 	// =====================================
 
 #if WITH_EDITORONLY_DATA
-	/** SDF 볼륨 표시 */
+	/** 디버그 시각화 전체 활성화 (마스터 스위치) */
 	UPROPERTY(EditAnywhere, Category = "Debug")
-	bool bShowSdfVolume = false;
+	bool bShowDebugVisualization = true;
 
-	/** 영향받는 버텍스 표시 */
-	UPROPERTY(EditAnywhere, Category = "Debug")
-	bool bShowAffectedVertices = false;
+	/** SDF 볼륨 바운드 박스 표시 */
+	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
+	bool bShowSdfVolume = true;
 
-	/** Ring 기즈모 표시 */
-	UPROPERTY(EditAnywhere, Category = "Debug")
-	bool bShowRingGizmos = true;
+	/** 영향받는 버텍스 표시 (색상 = Influence 강도) */
+	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
+	bool bShowAffectedVertices = true;
 
+	/** SDF 슬라이스 평면 표시 */
+	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
+	bool bShowSDFSlice = true;
+
+	/** 표시할 SDF 슬라이스 Z 인덱스 (0 ~ Resolution-1) */
+	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization && bShowSDFSlice", ClampMin = "0", ClampMax = "63", UIMin = "0", UIMax = "63"))
+	int32 DebugSliceZ = 32;
+
+	// TODO: Bulge 히트맵 시각화 구현
 	/** Bulge 히트맵 표시 */
-	UPROPERTY(EditAnywhere, Category = "Debug")
+	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
 	bool bShowBulgeHeatmap = false;
 #endif
 
@@ -244,4 +254,56 @@ private:
 
 	/** Ring 메시 컴포넌트 제거 */
 	void CleanupRingMeshes();
+
+	// =====================================
+	// Debug Drawing (에디터 전용)
+	// =====================================
+
+#if WITH_EDITORONLY_DATA
+	/** SDF 슬라이스 시각화용 평면 액터 (Ring별) */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<AActor>> DebugSlicePlaneActors;
+
+	/** SDF 슬라이스 시각화용 렌더 타겟 (Ring별) */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UTextureRenderTarget2D>> DebugSliceRenderTargets;
+
+	/**
+	 * 디버그 시각화용 영향받는 버텍스 데이터 (Ring별)
+	 * GenerateSDF() 완료 후 CacheAffectedVerticesForDebug()에서 계산
+	 */
+	TArray<FRingAffectedData> DebugAffectedData;
+
+	/** 바인드 포즈 버텍스 위치 (컴포넌트 스페이스) */
+	TArray<FVector3f> DebugBindPoseVertices;
+
+	/** 디버그 데이터 캐싱 완료 여부 */
+	bool bDebugAffectedVerticesCached = false;
+#endif
+
+#if WITH_EDITOR
+	/** 디버그 시각화 메인 함수 (TickComponent에서 호출) */
+	void DrawDebugVisualization();
+
+	/** SDF 볼륨 바운드 박스 그리기 */
+	void DrawSdfVolume(int32 RingIndex);
+
+	/** 영향받는 버텍스 그리기 */
+	void DrawAffectedVertices(int32 RingIndex);
+
+	/** SDF 슬라이스 평면 그리기 */
+	void DrawSDFSlice(int32 RingIndex);
+
+	/** 슬라이스 평면 액터 생성 */
+	AActor* CreateDebugSlicePlane(int32 RingIndex);
+
+	/** 슬라이스 텍스처 업데이트 */
+	void UpdateSliceTexture(int32 RingIndex, int32 SliceZ);
+
+	/** 디버그 리소스 정리 */
+	void CleanupDebugResources();
+
+	/** 디버그용 영향받는 버텍스 데이터 캐싱 */
+	void CacheAffectedVerticesForDebug();
+#endif
 };

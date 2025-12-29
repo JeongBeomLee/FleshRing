@@ -10,6 +10,15 @@
 #include "RenderGraphBuilder.h"
 #include "RenderingThread.h"
 #include "TextureResource.h"
+#if WITH_EDITOR
+#include "DrawDebugHelpers.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "Engine/StaticMesh.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Components/StaticMeshComponent.h"
+#include "Rendering/SkeletalMeshRenderData.h"
+#include "Rendering/SkeletalMeshLODRenderData.h"
+#endif
 
 DEFINE_LOG_CATEGORY_STATIC(LogFleshRingComponent, Log, All);
 
@@ -80,6 +89,11 @@ void UFleshRingComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	// Ring 메시는 OnUnregister()에서 정리됨
 	CleanupDeformer();
+
+#if WITH_EDITOR
+	CleanupDebugResources();
+#endif
+
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -123,7 +137,7 @@ void UFleshRingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 	{
 		return;
 	}
-
+	
 	// NOTE: MarkRenderDynamicDataDirty/MarkRenderTransformDirty는 TickComponent에서 호출하지 않음
 	// Optimus 방식: 엔진의 SendRenderDynamicData_Concurrent()가 자동으로 deformer의 EnqueueWork를 호출
 	// 초기화 시점(SetupDeformer)에서만 MarkRenderStateDirty/MarkRenderDynamicDataDirty 호출
@@ -141,6 +155,11 @@ void UFleshRingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 			}
 		}
 	}
+
+#if WITH_EDITOR
+	// 디버그 시각화
+	DrawDebugVisualization();
+#endif
 }
 
 void UFleshRingComponent::ResolveTargetMesh()
@@ -552,3 +571,551 @@ void UFleshRingComponent::CleanupRingMeshes()
 	}
 	RingMeshComponents.Empty();
 }
+
+// =====================================
+// Debug Drawing (에디터 전용)
+// =====================================
+
+#if WITH_EDITOR
+
+void UFleshRingComponent::DrawDebugVisualization()
+{
+	// 마스터 스위치가 꺼지면 슬라이스 평면 숨기기
+	if (!bShowDebugVisualization || !bShowSDFSlice)
+	{
+		for (AActor* PlaneActor : DebugSlicePlaneActors)
+		{
+			if (PlaneActor)
+			{
+				PlaneActor->SetActorHiddenInGame(true);
+			}
+		}
+	}
+
+	if (!bShowDebugVisualization)
+	{
+		return;
+	}
+
+	const int32 NumRings = RingSDFCaches.Num();
+	for (int32 RingIndex = 0; RingIndex < NumRings; ++RingIndex)
+	{
+		if (bShowSdfVolume)
+		{
+			DrawSdfVolume(RingIndex);
+		}
+
+		if (bShowAffectedVertices)
+		{
+			DrawAffectedVertices(RingIndex);
+		}
+
+		if (bShowSDFSlice)
+		{
+			DrawSDFSlice(RingIndex);
+		}
+	}
+}
+
+void UFleshRingComponent::DrawSdfVolume(int32 RingIndex)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// SDF 캐시 가져오기
+	const FRingSDFCache* SDFCache = GetRingSDFCache(RingIndex);
+	if (!SDFCache || !SDFCache->IsValid())
+	{
+		// 캐시 없으면 화면에 경고 표시
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::Red,
+				FString::Printf(TEXT("Ring[%d]: SDF not cached!"), RingIndex));
+		}
+		return;
+	}
+
+	// 바운드 (컴포넌트 스페이스)
+	FVector BoundsMin = FVector(SDFCache->BoundsMin);
+	FVector BoundsMax = FVector(SDFCache->BoundsMax);
+
+	// 컴포넌트 → 월드 변환
+	USkeletalMeshComponent* SkelMesh = ResolvedTargetMesh.Get();
+	if (SkelMesh)
+	{
+		FTransform CompTransform = SkelMesh->GetComponentTransform();
+		BoundsMin = CompTransform.TransformPosition(BoundsMin);
+		BoundsMax = CompTransform.TransformPosition(BoundsMax);
+	}
+
+	// 바운딩 박스 그리기
+	FVector Center = (BoundsMin + BoundsMax) * 0.5f;
+	FVector Extent = (BoundsMax - BoundsMin) * 0.5f;
+
+	// 노란색 와이어프레임 박스
+	DrawDebugBox(World, Center, Extent, FColor::Yellow, false, -1.0f, 0, 2.0f);
+
+	// 코너 점 (Min = 파랑, Max = 빨강)
+	DrawDebugSphere(World, BoundsMin, 3.0f, 4, FColor::Blue, false, -1.0f);
+	DrawDebugSphere(World, BoundsMax, 3.0f, 4, FColor::Red, false, -1.0f);
+
+	// 해상도 텍스트 표시
+	if (GEngine)
+	{
+		FIntVector Res = SDFCache->Resolution;
+		GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::Yellow,
+			FString::Printf(TEXT("Ring[%d] SDF: %dx%dx%d"), RingIndex, Res.X, Res.Y, Res.Z));
+	}
+}
+
+void UFleshRingComponent::DrawAffectedVertices(int32 RingIndex)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// 캐싱되지 않았으면 먼저 캐싱
+	if (!bDebugAffectedVerticesCached)
+	{
+		CacheAffectedVerticesForDebug();
+	}
+
+	// 데이터 유효성 검사
+	if (!DebugAffectedData.IsValidIndex(RingIndex) ||
+		DebugBindPoseVertices.Num() == 0)
+	{
+		return;
+	}
+
+	const FRingAffectedData& RingData = DebugAffectedData[RingIndex];
+	if (RingData.Vertices.Num() == 0)
+	{
+		return;
+	}
+
+	// 현재 스켈레탈 메시 컴포넌트
+	USkeletalMeshComponent* SkelMesh = ResolvedTargetMesh.Get();
+	if (!SkelMesh)
+	{
+		return;
+	}
+
+	// 컴포넌트 → 월드 트랜스폼
+	FTransform CompTransform = SkelMesh->GetComponentTransform();
+
+	// 각 영향받는 버텍스에 대해
+	for (const FAffectedVertex& AffectedVert : RingData.Vertices)
+	{
+		if (!DebugBindPoseVertices.IsValidIndex(AffectedVert.VertexIndex))
+		{
+			continue;
+		}
+
+		// 바인드 포즈 위치 (컴포넌트 스페이스)
+		const FVector3f& BindPosePos = DebugBindPoseVertices[AffectedVert.VertexIndex];
+
+		// 월드 공간으로 변환 (바인드 포즈 기준 - 애니메이션 미반영)
+		FVector WorldPos = CompTransform.TransformPosition(FVector(BindPosePos));
+
+		// Influence에 따른 색상 (0=파랑, 0.5=초록, 1=빨강)
+		float Influence = AffectedVert.Influence;
+		FColor PointColor;
+		if (Influence < 0.5f)
+		{
+			// 파랑 → 초록
+			float T = Influence * 2.0f;
+			PointColor = FColor(
+				0,
+				FMath::RoundToInt(255 * T),
+				FMath::RoundToInt(255 * (1.0f - T))
+			);
+		}
+		else
+		{
+			// 초록 → 빨강
+			float T = (Influence - 0.5f) * 2.0f;
+			PointColor = FColor(
+				FMath::RoundToInt(255 * T),
+				FMath::RoundToInt(255 * (1.0f - T)),
+				0
+			);
+		}
+
+		// 점 그리기 (크기 = Influence에 비례)
+		float PointSize = 2.0f + Influence * 6.0f; // 2~8 범위
+		DrawDebugPoint(World, WorldPos, PointSize, PointColor, false, -1.0f, 0);
+	}
+
+	// 화면에 정보 표시
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::Green,
+			FString::Printf(TEXT("Ring[%d] Affected: %d vertices"),
+				RingIndex, RingData.Vertices.Num()));
+	}
+}
+
+void UFleshRingComponent::DrawSDFSlice(int32 RingIndex)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	const FRingSDFCache* SDFCache = GetRingSDFCache(RingIndex);
+	if (!SDFCache || !SDFCache->IsValid())
+	{
+		return;
+	}
+
+	// 배열 크기 확보
+	if (DebugSlicePlaneActors.Num() <= RingIndex)
+	{
+		DebugSlicePlaneActors.SetNum(RingIndex + 1);
+	}
+	if (DebugSliceRenderTargets.Num() <= RingIndex)
+	{
+		DebugSliceRenderTargets.SetNum(RingIndex + 1);
+	}
+
+	// 평면 액터가 없으면 생성
+	if (!DebugSlicePlaneActors[RingIndex])
+	{
+		DebugSlicePlaneActors[RingIndex] = CreateDebugSlicePlane(RingIndex);
+	}
+
+	AActor* PlaneActor = DebugSlicePlaneActors[RingIndex];
+	if (!PlaneActor)
+	{
+		return;
+	}
+
+	// 평면 보이게 설정
+	PlaneActor->SetActorHiddenInGame(false);
+
+	// 바운드 계산
+	FVector BoundsMin = FVector(SDFCache->BoundsMin);
+	FVector BoundsMax = FVector(SDFCache->BoundsMax);
+	FVector BoundsSize = BoundsMax - BoundsMin;
+
+	// Z 슬라이스 위치 계산
+	float ZRatio = (SDFCache->Resolution.Z > 1)
+		? (float)DebugSliceZ / (float)(SDFCache->Resolution.Z - 1)
+		: 0.5f;
+	ZRatio = FMath::Clamp(ZRatio, 0.0f, 1.0f);
+
+	FVector SliceCenter = BoundsMin + FVector(
+		BoundsSize.X * 0.5f,
+		BoundsSize.Y * 0.5f,
+		BoundsSize.Z * ZRatio
+	);
+
+	// 컴포넌트 → 월드 변환
+	USkeletalMeshComponent* SkelMesh = ResolvedTargetMesh.Get();
+	if (SkelMesh)
+	{
+		FTransform CompTransform = SkelMesh->GetComponentTransform();
+		SliceCenter = CompTransform.TransformPosition(SliceCenter);
+
+		// 평면 위치/회전 설정
+		PlaneActor->SetActorLocation(SliceCenter);
+		PlaneActor->SetActorRotation(CompTransform.GetRotation().Rotator());
+
+		// 평면 스케일 (바운드 크기에 맞춤, 기본 Plane은 100x100 유닛)
+		float ScaleX = BoundsSize.X / 100.0f;
+		float ScaleY = BoundsSize.Y / 100.0f;
+		PlaneActor->SetActorScale3D(FVector(ScaleX, ScaleY, 1.0f));
+	}
+
+	// 슬라이스 텍스처 업데이트
+	UpdateSliceTexture(RingIndex, DebugSliceZ);
+
+	// 화면에 슬라이스 정보 표시
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::Cyan,
+			FString::Printf(TEXT("Ring[%d] Slice Z: %d/%d"),
+				RingIndex, DebugSliceZ, SDFCache->Resolution.Z));
+	}
+}
+
+AActor* UFleshRingComponent::CreateDebugSlicePlane(int32 RingIndex)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return nullptr;
+	}
+
+	// 평면 액터 스폰
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.Name = FName(*FString::Printf(TEXT("DebugSDFSlice_%d"), RingIndex));
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	AActor* PlaneActor = World->SpawnActor<AActor>(AActor::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
+	if (!PlaneActor)
+	{
+		return nullptr;
+	}
+
+	// 루트 컴포넌트 생성
+	USceneComponent* RootComp = NewObject<USceneComponent>(PlaneActor, TEXT("RootComponent"));
+	PlaneActor->SetRootComponent(RootComp);
+	RootComp->RegisterComponent();
+
+	// StaticMeshComponent 생성 (기본 Plane 메시 사용)
+	UStaticMeshComponent* PlaneMesh = NewObject<UStaticMeshComponent>(PlaneActor, TEXT("PlaneMesh"));
+
+	// 엔진 기본 Plane 메시 로드
+	UStaticMesh* DefaultPlane = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"));
+	if (DefaultPlane)
+	{
+		PlaneMesh->SetStaticMesh(DefaultPlane);
+	}
+
+	// 충돌 비활성화
+	PlaneMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	PlaneMesh->SetCollisionResponseToAllChannels(ECR_Ignore);
+	PlaneMesh->SetGenerateOverlapEvents(false);
+
+	// 그림자 비활성화
+	PlaneMesh->SetCastShadow(false);
+
+	// 컴포넌트 등록 및 부착
+	PlaneMesh->AttachToComponent(RootComp, FAttachmentTransformRules::KeepRelativeTransform);
+	PlaneMesh->RegisterComponent();
+
+	// 렌더 타겟 생성
+	if (DebugSliceRenderTargets.Num() <= RingIndex)
+	{
+		DebugSliceRenderTargets.SetNum(RingIndex + 1);
+	}
+
+	const FRingSDFCache* SDFCache = GetRingSDFCache(RingIndex);
+	int32 Resolution = SDFCache ? SDFCache->Resolution.X : 64;
+
+	UTextureRenderTarget2D* RenderTarget = NewObject<UTextureRenderTarget2D>(this);
+	RenderTarget->InitCustomFormat(Resolution, Resolution, PF_B8G8R8A8, false);
+	RenderTarget->UpdateResourceImmediate(true);
+	DebugSliceRenderTargets[RingIndex] = RenderTarget;
+
+	// Widget3DPassThrough 머티리얼 사용 (텍스처를 그대로 표시)
+	UMaterial* BaseMaterial = LoadObject<UMaterial>(nullptr, TEXT("/Engine/EngineMaterials/Widget3DPassThrough.Widget3DPassThrough"));
+	if (!BaseMaterial)
+	{
+		BaseMaterial = LoadObject<UMaterial>(nullptr, TEXT("/Engine/EngineMaterials/DefaultMaterial.DefaultMaterial"));
+	}
+
+	UMaterialInstanceDynamic* DynMaterial = UMaterialInstanceDynamic::Create(BaseMaterial, PlaneActor);
+	if (DynMaterial && RenderTarget)
+	{
+		DynMaterial->SetTextureParameterValue(TEXT("SlateUI"), RenderTarget);
+		PlaneMesh->SetMaterial(0, DynMaterial);
+	}
+
+	UE_LOG(LogFleshRingComponent, Log, TEXT("Created debug slice plane for Ring[%d]"), RingIndex);
+
+	return PlaneActor;
+}
+
+void UFleshRingComponent::UpdateSliceTexture(int32 RingIndex, int32 SliceZ)
+{
+	if (!DebugSliceRenderTargets.IsValidIndex(RingIndex))
+	{
+		return;
+	}
+
+	UTextureRenderTarget2D* RenderTarget = DebugSliceRenderTargets[RingIndex];
+	if (!RenderTarget)
+	{
+		return;
+	}
+
+	const FRingSDFCache* SDFCache = GetRingSDFCache(RingIndex);
+	if (!SDFCache || !SDFCache->IsValid())
+	{
+		return;
+	}
+
+	// GPU 작업: 캐싱된 SDF에서 슬라이스 추출
+	TRefCountPtr<IPooledRenderTarget> SDFTexture = SDFCache->PooledTexture;
+	FTextureRenderTargetResource* RTResource = RenderTarget->GameThread_GetRenderTargetResource();
+	FIntVector Resolution = SDFCache->Resolution;
+	int32 CapturedSliceZ = FMath::Clamp(SliceZ, 0, Resolution.Z - 1);
+
+	ENQUEUE_RENDER_COMMAND(ExtractSDFSlice)(
+		[SDFTexture, RTResource, Resolution, CapturedSliceZ](FRHICommandListImmediate& RHICmdList)
+		{
+			if (!SDFTexture.IsValid() || !RTResource)
+			{
+				return;
+			}
+
+			FRDGBuilder GraphBuilder(RHICmdList);
+
+			// 캐싱된 SDF를 RDG에 등록
+			FRDGTextureRef SDFTextureRDG = GraphBuilder.RegisterExternalTexture(SDFTexture);
+
+			// 출력 텍스처 설정
+			FRDGTextureDesc OutputDesc = FRDGTextureDesc::Create2D(
+				FIntPoint(Resolution.X, Resolution.Y),
+				PF_B8G8R8A8,
+				FClearValueBinding::Black,
+				TexCreate_ShaderResource | TexCreate_UAV | TexCreate_RenderTargetable
+			);
+			FRDGTextureRef OutputSlice = GraphBuilder.CreateTexture(OutputDesc, TEXT("DebugSDFSlice"));
+
+			// 슬라이스 시각화 셰이더 실행
+			GenerateSDFSlice(
+				GraphBuilder,
+				SDFTextureRDG,
+				OutputSlice,
+				Resolution,
+				CapturedSliceZ,
+				10.0f  // MaxDisplayDist
+			);
+
+			// 렌더 타겟으로 복사
+			FRHITexture* DestTexture = RTResource->GetRenderTargetTexture();
+			if (DestTexture)
+			{
+				AddCopyTexturePass(GraphBuilder, OutputSlice,
+					GraphBuilder.RegisterExternalTexture(CreateRenderTarget(DestTexture, TEXT("DebugSliceRT"))));
+			}
+
+			GraphBuilder.Execute();
+		}
+	);
+}
+
+void UFleshRingComponent::CleanupDebugResources()
+{
+	// 슬라이스 평면 액터 제거
+	for (AActor* PlaneActor : DebugSlicePlaneActors)
+	{
+		if (PlaneActor)
+		{
+			PlaneActor->Destroy();
+		}
+	}
+	DebugSlicePlaneActors.Empty();
+
+	// 렌더 타겟 정리
+	DebugSliceRenderTargets.Empty();
+
+	// 디버그 영향 버텍스 데이터 정리
+	DebugAffectedData.Empty();
+	DebugBindPoseVertices.Empty();
+	bDebugAffectedVerticesCached = false;
+}
+
+void UFleshRingComponent::CacheAffectedVerticesForDebug()
+{
+	// 이미 캐싱되어 있으면 스킵
+	if (bDebugAffectedVerticesCached)
+	{
+		return;
+	}
+
+	// 유효성 검사
+	USkeletalMeshComponent* SkelMesh = ResolvedTargetMesh.Get();
+	if (!SkelMesh || !FleshRingAsset)
+	{
+		return;
+	}
+
+	USkeletalMesh* Mesh = SkelMesh->GetSkeletalMeshAsset();
+	if (!Mesh)
+	{
+		return;
+	}
+
+	// ===== 1. 바인드 포즈 버텍스 추출 =====
+	const FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
+	if (!RenderData || RenderData->LODRenderData.Num() == 0)
+	{
+		return;
+	}
+
+	// LOD 0 사용
+	const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[0];
+	const uint32 NumVertices = LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
+
+	if (NumVertices == 0)
+	{
+		return;
+	}
+
+	DebugBindPoseVertices.Reset(NumVertices);
+	for (uint32 VertexIdx = 0; VertexIdx < NumVertices; ++VertexIdx)
+	{
+		const FVector3f& Position = LODData.StaticVertexBuffers.PositionVertexBuffer.VertexPosition(VertexIdx);
+		DebugBindPoseVertices.Add(Position);
+	}
+
+	// ===== 2. Ring별 영향받는 버텍스 계산 =====
+	DebugAffectedData.Reset();
+	DebugAffectedData.SetNum(FleshRingAsset->Rings.Num());
+
+	// SDF Bounds 기반 선택기 사용
+	FSDFBoundsBasedVertexSelector Selector;
+
+	const FReferenceSkeleton& RefSkeleton = Mesh->GetRefSkeleton();
+	const TArray<FTransform>& RefBonePose = RefSkeleton.GetRefBonePose();
+
+	for (int32 RingIdx = 0; RingIdx < FleshRingAsset->Rings.Num(); ++RingIdx)
+	{
+		const FFleshRingSettings& RingSettings = FleshRingAsset->Rings[RingIdx];
+
+		// 본 인덱스 찾기
+		const int32 BoneIndex = SkelMesh->GetBoneIndex(RingSettings.BoneName);
+		if (BoneIndex == INDEX_NONE)
+		{
+			continue;
+		}
+
+		// 바인드 포즈 본 트랜스폼 계산 (부모 체인 누적)
+		FTransform BoneTransform = FTransform::Identity;
+		int32 CurrentBoneIdx = BoneIndex;
+		while (CurrentBoneIdx != INDEX_NONE)
+		{
+			BoneTransform = BoneTransform * RefBonePose[CurrentBoneIdx];
+			CurrentBoneIdx = RefSkeleton.GetParentIndex(CurrentBoneIdx);
+		}
+
+		// SDF 캐시 가져오기
+		const FRingSDFCache* SDFCache = GetRingSDFCache(RingIdx);
+
+		// Context 생성
+		FVertexSelectionContext Context(
+			RingSettings,
+			RingIdx,
+			BoneTransform,
+			DebugBindPoseVertices,
+			SDFCache
+		);
+
+		// 영향받는 버텍스 선택
+		FRingAffectedData& RingData = DebugAffectedData[RingIdx];
+		RingData.BoneName = RingSettings.BoneName;
+		RingData.RingCenter = BoneTransform.GetLocation();
+
+		Selector.SelectVertices(Context, RingData.Vertices);
+
+		UE_LOG(LogFleshRingComponent, Log, TEXT("CacheAffectedVerticesForDebug: Ring[%d] '%s' - %d affected vertices"),
+			RingIdx, *RingSettings.BoneName.ToString(), RingData.Vertices.Num());
+	}
+
+	bDebugAffectedVerticesCached = true;
+
+	UE_LOG(LogFleshRingComponent, Log, TEXT("CacheAffectedVerticesForDebug: Cached %d rings, %d total vertices"),
+		DebugAffectedData.Num(), DebugBindPoseVertices.Num());
+}
+
+#endif // WITH_EDITOR
