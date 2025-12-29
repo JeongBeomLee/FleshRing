@@ -193,25 +193,32 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
         return;
     }
 
-    const FVector3f& BoundsMin = Context.SDFCache->BoundsMin;
-    const FVector3f& BoundsMax = Context.SDFCache->BoundsMax;
+    // OBB 변환: Component Space → Local Space
+    // LocalToComponent의 역변환으로 버텍스를 로컬 스페이스로 변환 후 비교
+    const FTransform& LocalToComponent = Context.SDFCache->LocalToComponent;
+    const FTransform ComponentToLocal = LocalToComponent.Inverse();
+
+    const FVector BoundsMin = FVector(Context.SDFCache->BoundsMin);
+    const FVector BoundsMax = FVector(Context.SDFCache->BoundsMax);
     const TArray<FVector3f>& AllVertices = Context.AllVertices;
 
     // Reserve estimated capacity
     // 예상 용량 확보
     OutAffected.Reserve(AllVertices.Num() / 4);
 
-    // Select all vertices within SDF bounding box
-    // SDF 바운딩 박스 내 모든 버텍스 선택
+    // Select all vertices within SDF bounding box (OBB)
+    // SDF 바운딩 박스(OBB) 내 모든 버텍스 선택
     for (int32 VertexIdx = 0; VertexIdx < AllVertices.Num(); ++VertexIdx)
     {
-        const FVector3f& VertexPos = AllVertices[VertexIdx];
+        const FVector VertexPos = FVector(AllVertices[VertexIdx]);
 
-        // Simple AABB containment test
-        // 단순 AABB 포함 테스트
-        if (VertexPos.X >= BoundsMin.X && VertexPos.X <= BoundsMax.X &&
-            VertexPos.Y >= BoundsMin.Y && VertexPos.Y <= BoundsMax.Y &&
-            VertexPos.Z >= BoundsMin.Z && VertexPos.Z <= BoundsMax.Z)
+        // Component Space → Local Space 변환
+        const FVector LocalPos = ComponentToLocal.TransformPosition(VertexPos);
+
+        // Local Space에서 AABB 포함 테스트
+        if (LocalPos.X >= BoundsMin.X && LocalPos.X <= BoundsMax.X &&
+            LocalPos.Y >= BoundsMin.Y && LocalPos.Y <= BoundsMax.Y &&
+            LocalPos.Z >= BoundsMin.Z && LocalPos.Z <= BoundsMax.Z)
         {
             // Influence=1.0: GPU shader will determine actual influence via SDF sampling
             // Influence=1.0: GPU 셰이더가 SDF 샘플링으로 실제 영향도 결정
@@ -223,8 +230,8 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
         }
     }
 
-    UE_LOG(LogFleshRingVertices, Verbose,
-        TEXT("SDFBoundsBasedSelector: Selected %d vertices for Ring[%d] '%s' (Bounds: [%.1f,%.1f,%.1f] - [%.1f,%.1f,%.1f])"),
+    UE_LOG(LogFleshRingVertices, Log,
+        TEXT("SDFBoundsBasedSelector: Selected %d vertices for Ring[%d] '%s' (LocalBounds: [%.1f,%.1f,%.1f] - [%.1f,%.1f,%.1f])"),
         OutAffected.Num(), Context.RingIndex, *Context.RingSettings.BoneName.ToString(),
         BoundsMin.X, BoundsMin.Y, BoundsMin.Z,
         BoundsMax.X, BoundsMax.Y, BoundsMax.Z);
@@ -413,8 +420,32 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             SDFCache  // nullptr이면 SDF 미사용 (Distance 기반 Selector는 무시)
         );
 
-        // 현재 전략을 사용하여 영향받는 버텍스 선택
-        VertexSelector->SelectVertices(Context, RingData.Vertices);
+        // Ring별 InfluenceMode에 따라 Selector 결정
+        // Auto 모드 + SDF 유효 → SDFBoundsBasedSelector
+        // Manual 모드 또는 SDF 무효 → DistanceBasedSelector
+        TSharedPtr<IVertexSelector> RingSelector;
+        const bool bUseSDFForThisRing =
+            (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto) &&
+            (SDFCache && SDFCache->IsValid());
+
+        if (bUseSDFForThisRing)
+        {
+            RingSelector = MakeShared<FSDFBoundsBasedVertexSelector>();
+        }
+        else
+        {
+            RingSelector = MakeShared<FDistanceBasedVertexSelector>();
+        }
+
+        UE_LOG(LogFleshRingVertices, Log,
+            TEXT("Ring[%d] '%s': Using %s (InfluenceMode=%s, SDFValid=%s)"),
+            RingIdx, *RingSettings.BoneName.ToString(),
+            bUseSDFForThisRing ? TEXT("SDFBoundsBasedSelector") : TEXT("DistanceBasedSelector"),
+            RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto ? TEXT("Auto") : TEXT("Manual"),
+            (SDFCache && SDFCache->IsValid()) ? TEXT("Yes") : TEXT("No"));
+
+        // Ring별 Selector로 영향받는 버텍스 선택
+        RingSelector->SelectVertices(Context, RingData.Vertices);
 
         // Pack for GPU (convert to flat arrays)
         // GPU용 패킹 (평면 배열로 변환)

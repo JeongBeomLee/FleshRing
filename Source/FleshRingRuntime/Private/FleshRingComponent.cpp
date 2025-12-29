@@ -313,7 +313,7 @@ void UFleshRingComponent::GenerateSDF()
 			// Mesh Transform (Ring Local → Bone Local)
 			FTransform MeshTransform;
 			MeshTransform.SetLocation(Ring.MeshOffset);
-			MeshTransform.SetRotation(Ring.MeshRotation);
+			MeshTransform.SetRotation(FQuat(Ring.MeshRotation));
 			MeshTransform.SetScale3D(Ring.MeshScale);
 
 			// Bone Transform (Bone Local → Component Space)
@@ -855,7 +855,6 @@ AActor* UFleshRingComponent::CreateDebugSlicePlane(int32 RingIndex)
 
 	// 평면 액터 스폰
 	FActorSpawnParameters SpawnParams;
-	SpawnParams.Name = FName(*FString::Printf(TEXT("DebugSDFSlice_%d"), RingIndex));
 	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
 	AActor* PlaneActor = World->SpawnActor<AActor>(AActor::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
@@ -1078,9 +1077,6 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 	DebugAffectedData.Reset();
 	DebugAffectedData.SetNum(FleshRingAsset->Rings.Num());
 
-	// 거리 기반 선택기 사용 (CPU에서 Influence 계산)
-	FDistanceBasedVertexSelector Selector;
-
 	const FReferenceSkeleton& RefSkeleton = Mesh->GetRefSkeleton();
 	const TArray<FTransform>& RefBonePose = RefSkeleton.GetRefBonePose();
 
@@ -1121,10 +1117,26 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 		RingData.BoneName = RingSettings.BoneName;
 		RingData.RingCenter = BoneTransform.GetLocation();
 
-		Selector.SelectVertices(Context, RingData.Vertices);
+		// Ring별 InfluenceMode에 따라 Selector 결정 (RegisterAffectedVertices와 동일 로직)
+		TSharedPtr<IVertexSelector> RingSelector;
+		const bool bUseSDFForThisRing =
+			(RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto) &&
+			(SDFCache && SDFCache->IsValid());
 
-		UE_LOG(LogFleshRingComponent, Log, TEXT("CacheAffectedVerticesForDebug: Ring[%d] '%s' - %d affected vertices"),
-			RingIdx, *RingSettings.BoneName.ToString(), RingData.Vertices.Num());
+		if (bUseSDFForThisRing)
+		{
+			RingSelector = MakeShared<FSDFBoundsBasedVertexSelector>();
+		}
+		else
+		{
+			RingSelector = MakeShared<FDistanceBasedVertexSelector>();
+		}
+		RingSelector->SelectVertices(Context, RingData.Vertices);
+
+		UE_LOG(LogFleshRingComponent, Log, TEXT("CacheAffectedVerticesForDebug: Ring[%d] '%s' - %d affected vertices, Mode=%s, Selector=%s"),
+			RingIdx, *RingSettings.BoneName.ToString(), RingData.Vertices.Num(),
+			RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto ? TEXT("Auto") : TEXT("Manual"),
+			bUseSDFForThisRing ? TEXT("SDFBounds") : TEXT("Distance"));
 	}
 
 	bDebugAffectedVerticesCached = true;

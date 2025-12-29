@@ -3,6 +3,7 @@
 #include "FleshRingDeformerInstance.h"
 #include "FleshRingDeformer.h"
 #include "FleshRingComponent.h"
+#include "FleshRingAsset.h"
 #include "FleshRingTightnessShader.h"
 #include "FleshRingSkinningShader.h"
 #include "FleshRingComputeWorker.h"
@@ -15,6 +16,7 @@
 #include "Rendering/SkeletalMeshRenderData.h"
 #include "Rendering/SkeletalMeshLODRenderData.h"
 #include "Rendering/SkinWeightVertexBuffer.h"
+
 
 DEFINE_LOG_CATEGORY_STATIC(LogFleshRing, Log, All);
 
@@ -50,24 +52,11 @@ void UFleshRingDeformerInstance::SetupFromDeformer(UFleshRingDeformer* InDeforme
 						NumLODs = RenderData->LODRenderData.Num();
 						LODData.SetNum(NumLODs);
 
-						// SDF 유효 여부에 따라 Selector 결정
-						// SDF가 유효하면 SDF Bounds 기반, 아니면 Distance 기반
-						const bool bUseSDFSelector = FleshRingComponent->AreAllSDFCachesValid();
-						UE_LOG(LogFleshRing, Log, TEXT("VertexSelector: %s"),
-							bUseSDFSelector ? TEXT("SDFBoundsBased") : TEXT("DistanceBased"));
-
 						// 각 LOD에 대해 AffectedVertices 등록
+						// Ring별 InfluenceMode에 따라 Selector가 자동 결정됨 (RegisterAffectedVertices 내부)
 						int32 SuccessCount = 0;
 						for (int32 LODIndex = 0; LODIndex < NumLODs; ++LODIndex)
 						{
-							// Selector 설정 (SDF 유효 시 FSDFBoundsBasedVertexSelector 사용)
-							if (bUseSDFSelector)
-							{
-								LODData[LODIndex].AffectedVerticesManager.SetVertexSelector(
-									MakeShared<FSDFBoundsBasedVertexSelector>());
-							}
-							// else: 기본값 FDistanceBasedVertexSelector 유지
-
 							LODData[LODIndex].bAffectedVerticesRegistered =
 								LODData[LODIndex].AffectedVerticesManager.RegisterAffectedVertices(
 									FleshRingComponent.Get(), SkelMesh, LODIndex);
@@ -275,6 +264,13 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		MakeShared<TArray<FFleshRingWorkItem::FRingDispatchData>>();
 	RingDispatchDataPtr->Reserve(AllRingData.Num());
 
+	// FleshRingAsset에서 Ring 설정 가져오기
+	const TArray<FFleshRingSettings>* RingSettingsPtr = nullptr;
+	if (FleshRingComponent.IsValid() && FleshRingComponent->FleshRingAsset)
+	{
+		RingSettingsPtr = &FleshRingComponent->FleshRingAsset->Rings;
+	}
+
 	for (int32 RingIndex = 0; RingIndex < AllRingData.Num(); ++RingIndex)
 	{
 		const FRingAffectedData& RingData = AllRingData[RingIndex];
@@ -288,11 +284,23 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		DispatchData.Indices = RingData.PackedIndices;
 		DispatchData.Influences = RingData.PackedInfluences;
 
+		// Ring별 InfluenceMode 확인
+		EFleshRingInfluenceMode RingInfluenceMode = EFleshRingInfluenceMode::Auto;
+		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIndex))
+		{
+			RingInfluenceMode = (*RingSettingsPtr)[RingIndex].InfluenceMode;
+		}
+
 		// SDF 캐시 데이터 전달 (렌더 스레드로 안전하게 복사)
+		// Auto 모드 + SDF 유효할 때만 SDF 모드 사용
 		if (FleshRingComponent.IsValid())
 		{
 			const FRingSDFCache* SDFCache = FleshRingComponent->GetRingSDFCache(RingIndex);
-			if (SDFCache && SDFCache->IsValid())
+			const bool bUseSDFForThisRing =
+				(RingInfluenceMode == EFleshRingInfluenceMode::Auto) &&
+				(SDFCache && SDFCache->IsValid());
+
+			if (bUseSDFForThisRing)
 			{
 				DispatchData.SDFPooledTexture = SDFCache->PooledTexture;
 				DispatchData.SDFBoundsMin = SDFCache->BoundsMin;
@@ -307,7 +315,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				DispatchData.Params.SDFBoundsMax = SDFCache->BoundsMax;
 				DispatchData.Params.bUseSDFInfluence = 1;
 
-				UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] SDF Mode: Bounds=(%.1f,%.1f,%.1f)~(%.1f,%.1f,%.1f), RingCenter=(%.1f,%.1f,%.1f), RingRadius=%.2f"),
+				UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] SDF Mode (Auto): Bounds=(%.1f,%.1f,%.1f)~(%.1f,%.1f,%.1f), RingCenter=(%.1f,%.1f,%.1f), RingRadius=%.2f"),
 					RingIndex,
 					SDFCache->BoundsMin.X, SDFCache->BoundsMin.Y, SDFCache->BoundsMin.Z,
 					SDFCache->BoundsMax.X, SDFCache->BoundsMax.Y, SDFCache->BoundsMax.Z,
@@ -316,8 +324,10 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			}
 			else
 			{
-				// UE_LOG(LogFleshRing, Warning, TEXT("[DEBUG] Ring[%d] SDF NOT Valid! AffectedVerts: %d (Manual mode)"),
-				// 	RingIndex, DispatchData.Params.NumAffectedVertices);
+				UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] Manual Mode (InfluenceMode=%s, SDFValid=%s)"),
+					RingIndex,
+					RingInfluenceMode == EFleshRingInfluenceMode::Auto ? TEXT("Auto") : TEXT("Manual"),
+					(SDFCache && SDFCache->IsValid()) ? TEXT("Yes") : TEXT("No"));
 			}
 		}
 
