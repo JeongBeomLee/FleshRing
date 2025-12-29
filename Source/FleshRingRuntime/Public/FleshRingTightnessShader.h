@@ -98,25 +98,29 @@ public:
         SHADER_PARAMETER(uint32, NumAffectedVertices) // 영향받는 버텍스 수
         SHADER_PARAMETER(uint32, NumTotalVertices)    // 전체 버텍스 수 (범위 체크용)
 
-        // ===== SDF Parameters (Option C Design) =====
-        // ===== SDF 파라미터 (옵션 C 설계) =====
+        // ===== SDF Parameters (OBB Design) =====
+        // ===== SDF 파라미터 (OBB 설계) =====
         //
-        // Option C: SDF와 BindPos 모두 Component Space (Bind Pose)
-        // → 셰이더에서 좌표 변환 불필요, 직접 샘플링
-        // A 역할이 Ring 메시를 Component Space로 변환 후 SDF 생성
+        // OBB 방식: SDF는 Ring 로컬 스페이스에서 생성
+        // 셰이더에서 버텍스(컴포넌트 스페이스)를 로컬로 역변환 후 SDF 샘플링
+        // ComponentToSDFLocal = LocalToComponent.Inverse()
 
-        // SDF 3D 텍스처 (Component Space, Bind Pose)
+        // SDF 3D 텍스처 (Ring 로컬 스페이스)
         // SDF 값: negative = 내부, positive = 외부
         SHADER_PARAMETER_RDG_TEXTURE_SRV(Texture3D<float>, SDFTexture)
         SHADER_PARAMETER_SAMPLER(SamplerState, SDFSampler)
 
-        // SDF 볼륨 바운드 (Component Space, Bind Pose)
-        // UV 변환: (Pos - BoundsMin) / (BoundsMax - BoundsMin)
+        // SDF 볼륨 바운드 (Ring 로컬 스페이스)
+        // UV 변환: (LocalPos - BoundsMin) / (BoundsMax - BoundsMin)
         SHADER_PARAMETER(FVector3f, SDFBoundsMin)
         SHADER_PARAMETER(FVector3f, SDFBoundsMax)
 
         // SDF 영향 모드 (0 = Manual, 1 = Auto/SDF-based)
         SHADER_PARAMETER(uint32, bUseSDFInfluence)
+
+        // 컴포넌트 스페이스 → SDF 로컬 스페이스 변환 행렬 (OBB 지원)
+        // BindPos를 로컬로 역변환 후 SDF 샘플링에 사용
+        SHADER_PARAMETER(FMatrix44f, ComponentToSDFLocal)
     END_SHADER_PARAMETER_STRUCT()
 
     // Shader Compilation Settings
@@ -241,19 +245,18 @@ struct FTightnessDispatchParams
      */
     uint32 NumBoneInfluences;
 
-    // =========== SDF Parameters (Reserved for future use) ===========
-    // =========== SDF 파라미터 (향후 사용 예정) ===========
-    // NOTE: 현재 .usf에서 사용하지 않음. 팀원이 .usf 작업 완료 후 활성화
+    // =========== SDF Parameters (OBB Design) ===========
+    // =========== SDF 파라미터 (OBB 설계) ===========
 
     /**
-     * SDF volume minimum bounds (component space)
-     * SDF 볼륨 최소 바운드 (컴포넌트 스페이스)
+     * SDF volume minimum bounds (Ring 로컬 스페이스)
+     * SDF 볼륨 최소 바운드
      */
     FVector3f SDFBoundsMin;
 
     /**
-     * SDF volume maximum bounds (component space)
-     * SDF 볼륨 최대 바운드 (컴포넌트 스페이스)
+     * SDF volume maximum bounds (Ring 로컬 스페이스)
+     * SDF 볼륨 최대 바운드
      */
     FVector3f SDFBoundsMax;
 
@@ -262,6 +265,14 @@ struct FTightnessDispatchParams
      * SDF 기반 영향도 계산 사용 (0=수동, 1=SDF 자동)
      */
     uint32 bUseSDFInfluence;
+
+    /**
+     * Component space → SDF local space transform matrix (OBB support)
+     * 컴포넌트 스페이스 → SDF 로컬 스페이스 변환 행렬 (OBB 지원)
+     * = LocalToComponent.Inverse()
+     * BindPos를 로컬로 역변환 후 SDF 샘플링에 사용
+     */
+    FMatrix44f ComponentToSDFLocal;
 
     FTightnessDispatchParams()
         : RingCenter(FVector3f::ZeroVector)
@@ -278,6 +289,7 @@ struct FTightnessDispatchParams
         , SDFBoundsMin(FVector3f::ZeroVector)
         , SDFBoundsMax(FVector3f::ZeroVector)
         , bUseSDFInfluence(0)
+        , ComponentToSDFLocal(FMatrix44f::Identity)
     {
     }
 };

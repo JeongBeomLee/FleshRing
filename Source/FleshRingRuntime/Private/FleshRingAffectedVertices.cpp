@@ -33,73 +33,50 @@ void FDistanceBasedVertexSelector::SelectVertices(
     const FTransform& BoneTransform = Context.BoneTransform;
     const TArray<FVector3f>& AllVertices = Context.AllVertices;
 
-    // Get Ring center and axis from bone transform
-    // 본 트랜스폼에서 링 중심과 축 방향 추출
-    const FVector RingCenter = BoneTransform.GetLocation();
-
-    // 링 축 계산: 메시 회전을 반영하여 실제 토러스 구멍 방향 계산
-    // BoneRotation * MeshRotation * ZAxis (MeshRotation 기본값으로 Z축이 본 X축과 일치)
-    FQuat BoneRotation = BoneTransform.GetRotation();
-    FQuat WorldMeshRotation = BoneRotation * FQuat(Ring.MeshRotation);
-    const FVector RingAxis = WorldMeshRotation.RotateVector(FVector::ZAxisVector);
-
-    // MeshScale 반영: Ring Mesh가 스케일되면 영향 범위도 스케일됨
-    // 반경 방향 스케일 (X, Y 평균) 과 축 방향 스케일 (Z) 분리
-    const float RadialScale = (Ring.MeshScale.X + Ring.MeshScale.Y) * 0.5f;
-    const float AxialScale = Ring.MeshScale.Z;
-
-    // Calculate maximum influence distance (from axis to outer ring surface)
-    // 최대 영향 거리 = 내부 반지름 + 링 벽 두께 (축에서 링 바깥면까지)
-    const float MaxDistance = (Ring.RingRadius + Ring.RingThickness) * RadialScale;
+    // OBB 지원: SDFCache가 유효하면 BoundsMin/Max와 LocalToComponent 사용
+    const bool bUseOBB = Context.SDFCache && Context.SDFCache->bCached;
 
     // Reserve estimated capacity (assume ~25% vertices affected)
-    // 예상 용량 확보 (약 25% 버텍스가 영향받는다고 가정)
     OutAffected.Reserve(AllVertices.Num() / 4);
 
-    for (int32 VertexIdx = 0; VertexIdx < AllVertices.Num(); ++VertexIdx)
+    if (bUseOBB)
     {
-        // Get vertex position (bind pose local space)
-        // 버텍스 위치 (바인드 포즈 로컬 스페이스)
-        const FVector VertexPos = FVector(AllVertices[VertexIdx]);
+        // ===== OBB 기반 버텍스 선택 (GPU SDF와 정확히 일치) =====
+        const FTransform& LocalToComponent = Context.SDFCache->LocalToComponent;
+        const FTransform ComponentToLocal = LocalToComponent.Inverse();
+        const FVector BoundsMin = FVector(Context.SDFCache->BoundsMin);
+        const FVector BoundsMax = FVector(Context.SDFCache->BoundsMax);
 
-        // Calculate vector from Ring center to vertex
-        // 링 중심에서 버텍스까지의 벡터 계산
-        const FVector ToVertex = VertexPos - RingCenter;
+        // Influence 계산용 파라미터 (로컬 스페이스 기준, 스케일 미적용)
+        const float RingRadius = Ring.RingRadius;
+        const float RingThickness = Ring.RingThickness;
+        const float HalfWidth = Ring.RingWidth / 2.0f;
 
-        // Project onto Ring axis to find axial distance
-        // 링 축에 투영하여 축 방향 거리 계산
-        const float AxisDistance = FVector::DotProduct(ToVertex, RingAxis);
-
-        // Calculate radial distance (perpendicular to axis)
-        // 반경 방향 거리 계산 (축에 수직)
-        const FVector RadialVec = ToVertex - RingAxis * AxisDistance;
-        const float RadialDistance = RadialVec.Size();
-
-        // Check if within influence range (cylindrical model)
-        // 영향 범위 내에 있는지 확인 (원통형 모델)
-        // 1. Radial distance check (perpendicular to axis) - 반경 거리 체크
-        // 2. Axial distance check (along axis) - 축 방향 거리 체크
-        const float HalfWidth = (Ring.RingWidth / 2.0f) * AxialScale;
-
-        if (RadialDistance <= MaxDistance && FMath::Abs(AxisDistance) <= HalfWidth)
+        for (int32 VertexIdx = 0; VertexIdx < AllVertices.Num(); ++VertexIdx)
         {
-            // Calculate radial influence (distance from ring surface)
-            // 반경 방향 영향도 계산 (링 표면으로부터의 거리)
-            // - 링 표면(RingRadius)에서 최대 영향도
-            // - 축(axis) 또는 링 바깥(MaxDistance)으로 갈수록 감소
-            const float ScaledRingRadius = Ring.RingRadius * RadialScale;
-            const float ScaledRingThickness = Ring.RingThickness * RadialScale;
-            const float DistFromRingSurface = FMath::Abs(RadialDistance - ScaledRingRadius);
-            const float RadialInfluence = CalculateFalloff(DistFromRingSurface, ScaledRingThickness, Ring.FalloffType);
+            const FVector VertexPos = FVector(AllVertices[VertexIdx]);
 
-            // Calculate axial influence (distance from ring center along axis)
-            // This ensures smooth falloff at ring edges (like stocking/band edges)
-            // 축 방향 영향도 계산 (링 중심으로부터 축 방향 거리)
-            // 링 가장자리에서 부드러운 감쇠 보장 (스타킹/밴드 가장자리처럼)
+            // 컴포넌트 스페이스 → 링 로컬 스페이스로 변환
+            const FVector LocalPos = ComponentToLocal.TransformPosition(VertexPos);
+
+            // OBB 경계 체크 (SDF 볼륨 내부인지 확인)
+            if (LocalPos.X < BoundsMin.X || LocalPos.X > BoundsMax.X ||
+                LocalPos.Y < BoundsMin.Y || LocalPos.Y > BoundsMax.Y ||
+                LocalPos.Z < BoundsMin.Z || LocalPos.Z > BoundsMax.Z)
+            {
+                continue; // OBB 밖 - 스킵
+            }
+
+            // 로컬 스페이스에서 Ring 기하에 대한 거리 계산
+            // 링 축 = Z축 (로컬 스페이스), 링 중심 = 원점
+            const float AxisDistance = LocalPos.Z;
+            const FVector2D RadialVec(LocalPos.X, LocalPos.Y);
+            const float RadialDistance = RadialVec.Size();
+
+            // Influence 계산 (Ring 표면으로부터의 거리 기반)
+            const float DistFromRingSurface = FMath::Abs(RadialDistance - RingRadius);
+            const float RadialInfluence = CalculateFalloff(DistFromRingSurface, RingThickness, Ring.FalloffType);
             const float AxialInfluence = CalculateFalloff(FMath::Abs(AxisDistance), HalfWidth, Ring.FalloffType);
-
-            // Combine both influences for final effect
-            // 두 영향도를 곱하여 최종 효과 계산
             const float CombinedInfluence = RadialInfluence * AxialInfluence;
 
             if (CombinedInfluence > KINDA_SMALL_NUMBER)
@@ -112,10 +89,51 @@ void FDistanceBasedVertexSelector::SelectVertices(
             }
         }
     }
+    else
+    {
+        // ===== Fallback: 원통형 모델 (SDFCache 없을 때) =====
+        const FVector RingCenter = BoneTransform.GetLocation();
+        const FQuat WorldMeshRotation = BoneTransform.GetRotation() * FQuat(Ring.MeshRotation);
+        const FVector RingAxis = WorldMeshRotation.RotateVector(FVector::ZAxisVector);
+
+        const float RadialScale = (Ring.MeshScale.X + Ring.MeshScale.Y) * 0.5f;
+        const float AxialScale = Ring.MeshScale.Z;
+        const float MaxDistance = (Ring.RingRadius + Ring.RingThickness) * RadialScale;
+        const float HalfWidth = (Ring.RingWidth / 2.0f) * AxialScale;
+
+        for (int32 VertexIdx = 0; VertexIdx < AllVertices.Num(); ++VertexIdx)
+        {
+            const FVector VertexPos = FVector(AllVertices[VertexIdx]);
+            const FVector ToVertex = VertexPos - RingCenter;
+            const float AxisDistance = FVector::DotProduct(ToVertex, RingAxis);
+            const FVector RadialVec = ToVertex - RingAxis * AxisDistance;
+            const float RadialDistance = RadialVec.Size();
+
+            if (RadialDistance <= MaxDistance && FMath::Abs(AxisDistance) <= HalfWidth)
+            {
+                const float ScaledRingRadius = Ring.RingRadius * RadialScale;
+                const float ScaledRingThickness = Ring.RingThickness * RadialScale;
+                const float DistFromRingSurface = FMath::Abs(RadialDistance - ScaledRingRadius);
+                const float RadialInfluence = CalculateFalloff(DistFromRingSurface, ScaledRingThickness, Ring.FalloffType);
+                const float AxialInfluence = CalculateFalloff(FMath::Abs(AxisDistance), HalfWidth, Ring.FalloffType);
+                const float CombinedInfluence = RadialInfluence * AxialInfluence;
+
+                if (CombinedInfluence > KINDA_SMALL_NUMBER)
+                {
+                    OutAffected.Add(FAffectedVertex(
+                        static_cast<uint32>(VertexIdx),
+                        RadialDistance,
+                        CombinedInfluence
+                    ));
+                }
+            }
+        }
+    }
 
     UE_LOG(LogFleshRingVertices, Verbose,
-        TEXT("DistanceBasedSelector: Selected %d vertices for Ring[%d] '%s' (Total: %d)"),
-        OutAffected.Num(), Context.RingIndex, *Ring.BoneName.ToString(), AllVertices.Num());
+        TEXT("DistanceBasedSelector: Selected %d vertices for Ring[%d] '%s' (Total: %d, OBB: %s)"),
+        OutAffected.Num(), Context.RingIndex, *Ring.BoneName.ToString(), AllVertices.Num(),
+        bUseOBB ? TEXT("Yes") : TEXT("No"));
 }
 
 // ============================================================================

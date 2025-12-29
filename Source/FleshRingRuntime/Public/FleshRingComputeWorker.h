@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -39,6 +39,13 @@ struct FFleshRingWorkItem
 		FVector3f SDFBoundsMin = FVector3f::ZeroVector;
 		FVector3f SDFBoundsMax = FVector3f::ZeroVector;
 		bool bHasValidSDF = false;
+
+		/**
+		 * SDF 로컬 → 컴포넌트 스페이스 변환 (OBB 지원)
+		 * SDF는 로컬 스페이스에서 생성되므로, 셰이더에서 버텍스를
+		 * 컴포넌트 → 로컬로 역변환해야 올바른 SDF 샘플링 가능
+		 */
+		FTransform SDFLocalToComponent = FTransform::Identity;
 	};
 	TSharedPtr<TArray<FRingDispatchData>> RingDispatchDataPtr;
 
@@ -77,7 +84,7 @@ public:
 private:
 	// 실제 작업 실행
 	void ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshRingWorkItem& WorkItem);
-
+	
 	FSceneInterface const* Scene;
 
 	// 대기 중인 작업 목록 (렌더 스레드 전용)

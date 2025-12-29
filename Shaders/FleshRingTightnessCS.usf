@@ -67,43 +67,47 @@ float RingWidth;            // Ring height along axis
                             // 링 높이 (축 방향)
 
 // ============================================================================
-// SDF Parameters (Auto Influence Mode)
-// SDF 파라미터 (자동 영향도 모드)
+// SDF Parameters (OBB Design)
+// SDF 파라미터 (OBB 설계)
 // ============================================================================
 //
-// Design: SDF in Component Space (Option C)
-// 설계: SDF를 컴포넌트 스페이스에서 생성 (옵션 C)
+// Design: SDF in Ring Local Space (OBB)
+// 설계: SDF를 Ring 로컬 스페이스에서 생성 (OBB)
 //
 // ┌─────────────────────────────────────────────────────────────────────┐
-// │ SDF Generation (A 역할):                                            │
-// │   Ring Mesh Local → MeshTransform → BoneTransform → Component Space │
+// │ SDF Generation:                                                     │
+// │   Ring Mesh는 로컬 스페이스에서 SDF 생성 (회전 적용 X)               │
+// │   → 바운딩 박스가 AABB로 유지되어 효율적                             │
 // │                                                                     │
-// │ Shader Sampling (B 역할):                                           │
-// │   BindPos (Component Space) → 바로 SDF 샘플링 (변환 불필요)          │
+// │ Shader Sampling:                                                    │
+// │   BindPos (Component Space) → ComponentToSDFLocal 역변환            │
+// │   → LocalPos로 SDF 샘플링                                           │
 // └─────────────────────────────────────────────────────────────────────┘
 //
-// Benefit: No per-vertex matrix multiplication in shader
-// 장점: 셰이더에서 버텍스당 행렬 연산 불필요
+// Benefit: OBB 지원, Ring 회전 시에도 효율적인 바운딩 유지
 //
 
-// SDF 3D texture (Component Space, Bind Pose)
-// SDF 3D 텍스처 (컴포넌트 스페이스, 바인드 포즈)
-// A 역할이 Ring 메시를 Component Space로 변환 후 SDF 생성
+// SDF 3D texture (Ring 로컬 스페이스)
+// SDF 3D 텍스처
 Texture3D<float> SDFTexture;
 
 // Trilinear sampler for smooth SDF interpolation
 // 부드러운 SDF 보간용 삼선형 샘플러
 SamplerState SDFSampler;
 
-// SDF volume bounds (Component Space, Bind Pose)
-// SDF 볼륨 바운드 (컴포넌트 스페이스, 바인드 포즈)
-// A 역할이 변환된 Ring 메시의 바운드로 설정
+// SDF volume bounds (Ring 로컬 스페이스)
+// SDF 볼륨 바운드
 float3 SDFBoundsMin;        // Volume minimum corner / 볼륨 최소 코너
 float3 SDFBoundsMax;        // Volume maximum corner / 볼륨 최대 코너
 
 // Flag: 0 = Use Influences buffer (Manual), 1 = Use SDF sampling (Auto)
 // 플래그: 0 = Influences 버퍼 사용 (수동), 1 = SDF 샘플링 사용 (자동)
 uint bUseSDFInfluence;
+
+// Component space → SDF local space transform matrix (OBB support)
+// 컴포넌트 스페이스 → SDF 로컬 스페이스 변환 행렬 (OBB 지원)
+// BindPos를 로컬로 역변환 후 SDF 샘플링에 사용
+float4x4 ComponentToSDFLocal;
 
 // ============================================================================
 // Counts
@@ -214,34 +218,40 @@ void WritePosition(uint VertexIndex, float3 Pos)
 // SDF 샘플링 헬퍼 함수
 // ============================================================================
 //
-// Note: No coordinate transform needed! (Option C Design)
-// 참고: 좌표 변환 불필요! (옵션 C 설계)
+// OBB Design: Transform vertex to local space before sampling
+// OBB 설계: SDF 샘플링 전에 버텍스를 로컬 스페이스로 변환
 //
-// Both SDF and BindPos are in Component Space (Bind Pose),
-// so we can sample SDF directly with vertex position.
-// SDF와 BindPos 모두 컴포넌트 스페이스 (바인드 포즈)이므로
-// 버텍스 위치로 바로 SDF 샘플링 가능.
+// SDF는 Ring 로컬 스페이스에서 생성됨
+// BindPos(컴포넌트 스페이스)를 ComponentToSDFLocal로 역변환 후 샘플링
 //
 
-// Convert position to SDF UV coordinates [0, 1]
-// 위치를 SDF UV 좌표 [0, 1]로 변환
-float3 PositionToSDFUV(float3 Pos)
+// Transform component space position to SDF local space
+// 컴포넌트 스페이스 위치를 SDF 로컬 스페이스로 변환
+float3 TransformToSDFLocal(float3 ComponentPos)
+{
+    float4 LocalPos = mul(float4(ComponentPos, 1.0f), ComponentToSDFLocal);
+    return LocalPos.xyz;
+}
+
+// Convert local position to SDF UV coordinates [0, 1]
+// 로컬 위치를 SDF UV 좌표 [0, 1]로 변환
+float3 PositionToSDFUV(float3 LocalPos)
 {
     float3 Range = SDFBoundsMax - SDFBoundsMin;
 
     // Avoid division by zero / 0으로 나누기 방지
     Range = max(Range, float3(0.001, 0.001, 0.001));
 
-    return (Pos - SDFBoundsMin) / Range;
+    return (LocalPos - SDFBoundsMin) / Range;
 }
 
-// Sample SDF distance at position (Component Space)
-// 위치에서 SDF 거리 샘플링 (컴포넌트 스페이스)
+// Sample SDF distance at local position
+// 로컬 위치에서 SDF 거리 샘플링
 // Returns: Signed distance (negative = inside, positive = outside)
 // 반환: 부호 있는 거리 (음수 = 내부, 양수 = 외부)
-float SampleSDFDistance(float3 Pos)
+float SampleSDFDistance(float3 LocalPos)
 {
-    float3 UV = PositionToSDFUV(Pos);
+    float3 UV = PositionToSDFUV(LocalPos);
 
     // Clamp to valid range / 유효 범위로 클램프
     UV = saturate(UV);
@@ -250,12 +260,19 @@ float SampleSDFDistance(float3 Pos)
     return SDFTexture.SampleLevel(SDFSampler, UV, 0).r;
 }
 
-// Calculate influence from SDF distance
-// SDF 거리에서 영향도 계산
+// Calculate influence from SDF distance (OBB version)
+// SDF 거리에서 영향도 계산 (OBB 버전)
+// Input: ComponentPos (컴포넌트 스페이스 위치)
 // Returns: Influence [0, 1] / 반환: 영향도 [0, 1]
-float CalculateInfluenceFromSDF(float3 Pos)
+float CalculateInfluenceFromSDF(float3 ComponentPos)
 {
-    float Distance = SampleSDFDistance(Pos);
+    // Step 1: Transform to SDF local space (OBB)
+    // 1단계: SDF 로컬 스페이스로 역변환 (OBB)
+    float3 LocalPos = TransformToSDFLocal(ComponentPos);
+
+    // Step 2: Sample SDF at local position
+    // 2단계: 로컬 위치에서 SDF 샘플링
+    float Distance = SampleSDFDistance(LocalPos);
 
     // Inside ring mesh (negative SDF) = full influence
     // Ring 메시 내부 (음수 SDF) = 최대 영향도

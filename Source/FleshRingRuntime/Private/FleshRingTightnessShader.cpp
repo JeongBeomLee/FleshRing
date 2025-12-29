@@ -109,8 +109,8 @@ void DispatchFleshRingTightnessCS(
     PassParameters->NumAffectedVertices = Params.NumAffectedVertices;
     PassParameters->NumTotalVertices = Params.NumTotalVertices;
 
-    // ===== SDF Parameters =====
-    // ===== SDF 파라미터 =====
+    // ===== SDF Parameters (OBB Design) =====
+    // ===== SDF 파라미터 (OBB 설계) =====
     // SDFTexture가 유효하면 SDF Auto 모드, nullptr이면 Manual 모드
     if (SDFTexture)
     {
@@ -119,6 +119,8 @@ void DispatchFleshRingTightnessCS(
         PassParameters->SDFBoundsMin = Params.SDFBoundsMin;
         PassParameters->SDFBoundsMax = Params.SDFBoundsMax;
         PassParameters->bUseSDFInfluence = 1;
+        // OBB 지원: 컴포넌트 → 로컬 역변환 행렬
+        PassParameters->ComponentToSDFLocal = Params.ComponentToSDFLocal;
     }
     else
     {
@@ -138,6 +140,8 @@ void DispatchFleshRingTightnessCS(
         PassParameters->SDFBoundsMin = FVector3f::ZeroVector;
         PassParameters->SDFBoundsMax = FVector3f::OneVector;
         PassParameters->bUseSDFInfluence = 0;
+        // Manual 모드: Identity 행렬 (사용 안함)
+        PassParameters->ComponentToSDFLocal = FMatrix44f::Identity;
     }
 
     // Get shader reference

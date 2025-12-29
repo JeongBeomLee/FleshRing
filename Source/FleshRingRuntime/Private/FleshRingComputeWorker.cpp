@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "FleshRingComputeWorker.h"
 #include "FleshRingDeformerInstance.h"
@@ -191,7 +191,8 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 		{
 			for (const FFleshRingWorkItem::FRingDispatchData& DispatchData : *WorkItem.RingDispatchDataPtr)
 			{
-				const FTightnessDispatchParams& Params = DispatchData.Params;
+				// 로컬 복사본 생성 (역변환 행렬 설정을 위해)
+				FTightnessDispatchParams Params = DispatchData.Params;
 				if (Params.NumAffectedVertices == 0) continue;
 
 				FRDGBufferRef IndicesBuffer = GraphBuilder.CreateBuffer(
@@ -221,7 +222,13 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				if (DispatchData.bHasValidSDF && DispatchData.SDFPooledTexture.IsValid())
 				{
 					SDFTextureRDG = GraphBuilder.RegisterExternalTexture(DispatchData.SDFPooledTexture);
-					UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] TightnessCS Dispatch: SDF Mode, Verts=%d, Strength=%.2f"),
+
+					// OBB 지원: LocalToComponent의 역변환 계산
+					// 셰이더에서 버텍스(컴포넌트 스페이스)를 로컬 스페이스로 변환할 때 사용
+					FMatrix InverseMatrix = DispatchData.SDFLocalToComponent.Inverse().ToMatrixWithScale();
+					Params.ComponentToSDFLocal = FMatrix44f(InverseMatrix);
+
+					UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] TightnessCS Dispatch: SDF Mode (OBB), Verts=%d, Strength=%.2f"),
 						Params.NumAffectedVertices, Params.TightnessStrength);
 				}
 				else

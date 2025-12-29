@@ -299,6 +299,9 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				DispatchData.SDFBoundsMax = SDFCache->BoundsMax;
 				DispatchData.bHasValidSDF = true;
 
+				// OBB 지원: LocalToComponent 트랜스폼 복사
+				DispatchData.SDFLocalToComponent = SDFCache->LocalToComponent;
+
 				// Params에도 SDF 바운드 설정
 				DispatchData.Params.SDFBoundsMin = SDFCache->BoundsMin;
 				DispatchData.Params.SDFBoundsMax = SDFCache->BoundsMax;
