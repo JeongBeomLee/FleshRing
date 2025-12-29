@@ -74,6 +74,23 @@ void FFleshRingEditorViewportClient::Tick(float DeltaSeconds)
 	{
 		PreviewScene->GetWorld()->Tick(LEVELTICK_All, DeltaSeconds);
 	}
+
+	// 선택된 링이 삭제되었는지 확인하고 선택 해제
+	if (SelectionType != EFleshRingSelectionType::None && PreviewScene)
+	{
+		int32 SelectedIndex = PreviewScene->GetSelectedRingIndex();
+		bool bSelectionValid = false;
+
+		if (EditingAsset.IsValid() && SelectedIndex >= 0)
+		{
+			bSelectionValid = EditingAsset->Rings.IsValidIndex(SelectedIndex);
+		}
+
+		if (!bSelectionValid)
+		{
+			ClearSelection();
+		}
+	}
 }
 
 void FFleshRingEditorViewportClient::Draw(const FSceneView* View, FPrimitiveDrawInterface* PDI)
@@ -584,6 +601,14 @@ FMatrix FFleshRingEditorViewportClient::GetSelectedRingAlignMatrix() const
 		// 월드 모드: 순수 월드 축 기준
 		return FMatrix::Identity;
 	}
+}
+
+ECoordSystem FFleshRingEditorViewportClient::GetWidgetCoordSystemSpace() const
+{
+	// 항상 COORD_World를 반환하여 Widget 시스템의 Local Space 회전 반전 로직을 비활성화
+	// GetWidgetCoordSystem()에서 이미 회전된 좌표계를 반환하고 있으므로,
+	// 추가적인 Local Space 처리가 필요 없음
+	return COORD_World;
 }
 
 UE::Widget::EWidgetMode FFleshRingEditorViewportClient::GetWidgetMode() const
