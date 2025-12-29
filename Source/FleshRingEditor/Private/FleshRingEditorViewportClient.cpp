@@ -379,10 +379,8 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 		FVector BoneLocation = BoneTransform.GetLocation();
 		FQuat BoneRotation = BoneTransform.GetRotation();
 
-		// 본의 Forward 방향으로 링 축(Z) 정렬 + 사용자 회전
-		FVector BoneForward = BoneTransform.GetUnitAxis(EAxis::X);
-		FQuat AlignRotation = FQuat::FindBetweenNormals(FVector::ZAxisVector, BoneForward);
-		FQuat RingWorldRotation = AlignRotation * FQuat(Ring.RingRotation);
+		// 본 회전 * 링 회전 = 월드 회전 (RingRotation 기본값 90,0,0으로 본의 X축과 링의 Z축이 일치)
+		FQuat RingWorldRotation = BoneRotation * FQuat(Ring.RingRotation);
 
 		// RingOffset 적용
 		FVector GizmoLocation = BoneLocation + BoneRotation.RotateVector(Ring.RingOffset);
@@ -513,8 +511,8 @@ FMatrix FFleshRingEditorViewportClient::GetWidgetCoordSystem() const
 
 	FTransform BoneTransform = SkelMeshComp->GetBoneTransform(BoneIndex);
 
-	// 기즈모/메시 모두 월드 좌표계 사용 (회전 조작을 직관적으로)
-	return FMatrix::Identity;
+	// AlignRotation 좌표계 반환 (GetSelectedRingAlignMatrix와 동일)
+	return GetSelectedRingAlignMatrix();
 }
 
 FMatrix FFleshRingEditorViewportClient::GetSelectedRingAlignMatrix() const
@@ -550,12 +548,31 @@ FMatrix FFleshRingEditorViewportClient::GetSelectedRingAlignMatrix() const
 	}
 
 	FTransform BoneTransform = SkelMeshComp->GetBoneTransform(BoneIndex);
+	FQuat BoneRotation = BoneTransform.GetRotation();
 
-	// 본의 Forward 방향으로 링 축(Z) 정렬
-	FVector BoneForward = BoneTransform.GetUnitAxis(EAxis::X);
-	FQuat AlignRotation = FQuat::FindBetweenNormals(FVector::ZAxisVector, BoneForward);
+	// 좌표계 모드 확인 (World vs Local)
+	ECoordSystem CoordSystem = ModeTools ? ModeTools->GetCoordSystem() : COORD_World;
 
-	return FRotationMatrix(AlignRotation.Rotator());
+	if (CoordSystem == COORD_Local)
+	{
+		// 로컬 모드: 본 회전 * 링/메시 회전 = 현재 월드 회전
+		FQuat CurrentRotation;
+		if (SelectionType == EFleshRingSelectionType::Gizmo)
+		{
+			CurrentRotation = FQuat(Ring.RingRotation);
+		}
+		else // Mesh
+		{
+			CurrentRotation = FQuat(Ring.MeshRotation);
+		}
+		FQuat WorldRotation = BoneRotation * CurrentRotation;
+		return FRotationMatrix(WorldRotation.Rotator());
+	}
+	else
+	{
+		// 월드 모드: 순수 월드 축 기준
+		return FMatrix::Identity;
+	}
 }
 
 UE::Widget::EWidgetMode FFleshRingEditorViewportClient::GetWidgetMode() const
@@ -643,12 +660,11 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		SnappedScale.Z = FMath::GridSnap(Scale.Z, ScaleGridSize);
 	}
 
+	// 좌표계 모드 확인 (World vs Local)
+	ECoordSystem CoordSystem = ModeTools ? ModeTools->GetCoordSystem() : COORD_World;
+
 	// 월드 드래그를 본 로컬 좌표로 변환
 	FVector LocalDrag = BoneRotation.UnrotateVector(SnappedDrag);
-
-	// Forward 벡터 기준 정렬 회전 계산
-	FVector BoneForward = BoneTransform.GetUnitAxis(EAxis::X);
-	FQuat AlignRotation = FQuat::FindBetweenNormals(FVector::ZAxisVector, BoneForward);
 
 	// 선택 타입에 따라 다른 오프셋 업데이트
 	if (SelectionType == EFleshRingSelectionType::Gizmo)
@@ -656,16 +672,28 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		// 이동 -> RingOffset 업데이트
 		Ring.RingOffset += LocalDrag;
 
-		// 회전 -> RingRotation 업데이트 (Forward 벡터 기준)
+		// 회전 -> RingRotation 업데이트
 		if (!SnappedRot.IsZero())
 		{
 			FQuat DeltaRotation = FQuat(SnappedRot);
-			FQuat CurrentRingWorldRotation = AlignRotation * FQuat(Ring.RingRotation);
-			// 월드 좌표계 기준 회전 적용
-			FQuat NewRingWorldRotation = DeltaRotation * CurrentRingWorldRotation;
-			// 월드 회전을 사용자 로컬 회전으로 변환
-			FQuat NewRingLocalRotation = AlignRotation.Inverse() * NewRingWorldRotation;
-			Ring.RingRotation = NewRingLocalRotation.Rotator();
+			// 현재 월드 회전 = 본 회전 * 링 회전
+			FQuat CurrentWorldRotation = BoneRotation * FQuat(Ring.RingRotation);
+
+			FQuat NewWorldRotation;
+			if (CoordSystem == COORD_Local)
+			{
+				// 로컬 기준: 현재 회전 상태의 로컬 축 기준으로 회전
+				NewWorldRotation = CurrentWorldRotation * DeltaRotation;
+			}
+			else
+			{
+				// 월드 기준: 월드 축 기준으로 회전
+				NewWorldRotation = DeltaRotation * CurrentWorldRotation;
+			}
+
+			// 월드 회전을 본 로컬 회전으로 변환: 링 회전 = 본 회전^-1 * 월드 회전
+			FQuat NewLocalRotation = BoneRotation.Inverse() * NewWorldRotation;
+			Ring.RingRotation = NewLocalRotation.Rotator();
 		}
 
 		// 스케일 -> RingRadius 조절 (Manual 모드에서만)
@@ -686,16 +714,28 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		// Ring 메시 이동 -> MeshOffset 업데이트
 		Ring.MeshOffset += LocalDrag;
 
-		// 회전도 적용 (Forward 벡터 기준)
+		// 회전도 적용
 		if (!SnappedRot.IsZero())
 		{
 			FQuat DeltaRotation = FQuat(SnappedRot);
-			FQuat CurrentMeshWorldRotation = AlignRotation * FQuat(Ring.MeshRotation);
-			// 월드 좌표계 기준 회전 적용
-			FQuat NewMeshWorldRotation = DeltaRotation * CurrentMeshWorldRotation;
-			// 월드 회전을 사용자 로컬 회전으로 변환
-			FQuat NewMeshLocalRotation = AlignRotation.Inverse() * NewMeshWorldRotation;
-			Ring.MeshRotation = NewMeshLocalRotation.Rotator();
+			// 현재 월드 회전 = 본 회전 * 메시 회전
+			FQuat CurrentWorldRotation = BoneRotation * FQuat(Ring.MeshRotation);
+
+			FQuat NewWorldRotation;
+			if (CoordSystem == COORD_Local)
+			{
+				// 로컬 기준: 현재 회전 상태의 로컬 축 기준으로 회전
+				NewWorldRotation = CurrentWorldRotation * DeltaRotation;
+			}
+			else
+			{
+				// 월드 기준: 월드 축 기준으로 회전
+				NewWorldRotation = DeltaRotation * CurrentWorldRotation;
+			}
+
+			// 월드 회전을 본 로컬 회전으로 변환: 메시 회전 = 본 회전^-1 * 월드 회전
+			FQuat NewLocalRotation = BoneRotation.Inverse() * NewWorldRotation;
+			Ring.MeshRotation = NewLocalRotation.Rotator();
 		}
 
 		// 스케일 적용
@@ -713,7 +753,7 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		if (RingMeshComponents.IsValidIndex(SelectedIndex) && RingMeshComponents[SelectedIndex])
 		{
 			FVector MeshLocation = BoneTransform.GetLocation() + BoneRotation.RotateVector(Ring.MeshOffset);
-			FQuat WorldRotation = AlignRotation * FQuat(Ring.MeshRotation);
+			FQuat WorldRotation = BoneRotation * FQuat(Ring.MeshRotation);
 			RingMeshComponents[SelectedIndex]->SetWorldLocationAndRotation(MeshLocation, WorldRotation.Rotator());
 			RingMeshComponents[SelectedIndex]->SetWorldScale3D(Ring.MeshScale);
 		}

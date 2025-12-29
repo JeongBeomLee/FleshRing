@@ -123,17 +123,17 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform")
 	FVector RingOffset = FVector::ZeroVector;
 
-	/** Ring 회전 오프셋 (본 forward 기준 추가 회전) */
+	/** Ring 회전 (본 로컬 좌표계 기준, 기본값 -90,0,0으로 링의 Z축이 본의 X축과 일치) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform")
-	FRotator RingRotation = FRotator::ZeroRotator;
+	FRotator RingRotation = FRotator(-90.0f, 0.0f, 0.0f);
 
 	/** Bone 기준 메시 위치 오프셋 (시각적 + SDF) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform")
 	FVector MeshOffset = FVector::ZeroVector;
 
-	/** 메시 회전 오프셋 (본 forward 기준 추가 회전) */
+	/** 메시 회전 (본 로컬 좌표계 기준, 기본값 -90,0,0으로 메시의 Z축이 본의 X축과 일치) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform")
-	FRotator MeshRotation = FRotator::ZeroRotator;
+	FRotator MeshRotation = FRotator(-90.0f, 0.0f, 0.0f);
 
 	/** 메시 스케일 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform", meta = (ClampMin = "0.01", ClampMax = "10.0"))

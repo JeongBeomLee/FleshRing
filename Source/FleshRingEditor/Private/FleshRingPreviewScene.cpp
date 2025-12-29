@@ -156,7 +156,7 @@ void FFleshRingPreviewScene::RefreshRings(const TArray<FFleshRingSettings>& Ring
 			RingComp->SetStaticMesh(RingMesh);
 		}
 
-		// 본 위치에 배치 (Forward 벡터 정렬 + MeshOffset, MeshRotation 적용)
+		// 본 위치에 배치 (MeshOffset, MeshRotation 적용)
 		if (SkeletalMeshComponent && SkeletalMeshComponent->GetSkeletalMeshAsset())
 		{
 			int32 BoneIndex = SkeletalMeshComponent->GetBoneIndex(RingSetting.BoneName);
@@ -168,10 +168,8 @@ void FFleshRingPreviewScene::RefreshRings(const TArray<FFleshRingSettings>& Ring
 				// MeshOffset 적용 (본 로컬 좌표계)
 				FVector MeshLocation = BoneTransform.GetLocation() + BoneRotation.RotateVector(RingSetting.MeshOffset);
 
-				// 본의 Forward 방향으로 메시 축(Z) 정렬 + 사용자 회전
-				FVector BoneForward = BoneTransform.GetUnitAxis(EAxis::X);
-				FQuat AlignRotation = FQuat::FindBetweenNormals(FVector::ZAxisVector, BoneForward);
-				FQuat MeshWorldRotation = AlignRotation * FQuat(RingSetting.MeshRotation);
+				// 본 회전 * 메시 회전 = 월드 회전 (MeshRotation 기본값 90,0,0으로 본의 X축과 메시의 Z축이 일치)
+				FQuat MeshWorldRotation = BoneRotation * FQuat(RingSetting.MeshRotation);
 
 				RingComp->SetWorldLocationAndRotation(MeshLocation, MeshWorldRotation);
 				RingComp->SetWorldScale3D(RingSetting.MeshScale);
