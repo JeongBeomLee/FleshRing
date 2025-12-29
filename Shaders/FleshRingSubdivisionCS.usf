@@ -1,0 +1,204 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+// FleshRing Subdivision - Barycentric Interpolation Compute Shader
+//
+// CPU가 Red-Green Refinement / LEB로 토폴로지를 결정하고,
+// GPU는 실제 버텍스 데이터 보간만 수행
+//
+// 역할 분담:
+// - CPU: Half-Edge 구축, LEB subdivision, Red-Green refinement, 토폴로지 결정
+// - GPU: Position, Normal, UV, BoneWeight 보간 (대량 병렬 처리)
+
+#include "/Engine/Private/Common.ush"
+
+// ============================================================================
+// Input: Source Mesh Data (원본 메시)
+// ============================================================================
+
+Buffer<float> SourcePositions;      // x,y,z per vertex
+Buffer<float> SourceNormals;        // x,y,z per vertex
+Buffer<float2> SourceUVs;           // u,v per vertex
+Buffer<float> SourceBoneWeights;    // NumBoneInfluences floats per vertex
+Buffer<uint> SourceBoneIndices;     // NumBoneInfluences uints per vertex
+
+// ============================================================================
+// Input: Subdivision Topology (CPU에서 계산)
+// ============================================================================
+
+// 새 버텍스의 부모 정보 (Structured Buffer)
+// x: ParentV0, y: ParentV1, z: ParentV2
+Buffer<uint> VertexParentIndices;   // 3 uints per output vertex
+
+// Barycentric 좌표
+// x: u, y: v, z: w (u + v + w = 1)
+Buffer<float> VertexBarycentrics;   // 3 floats per output vertex
+
+// ============================================================================
+// Output: Subdivided Mesh Data
+// ============================================================================
+
+RWBuffer<float> OutputPositions;
+RWBuffer<float> OutputNormals;
+RWBuffer<float2> OutputUVs;
+RWBuffer<float> OutputBoneWeights;
+RWBuffer<uint> OutputBoneIndices;
+
+// ============================================================================
+// Parameters
+// ============================================================================
+
+uint NumOutputVertices;
+uint NumBoneInfluences;
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+float3 ReadSourcePosition(uint VertexIndex)
+{
+    return float3(
+        SourcePositions[VertexIndex * 3 + 0],
+        SourcePositions[VertexIndex * 3 + 1],
+        SourcePositions[VertexIndex * 3 + 2]
+    );
+}
+
+float3 ReadSourceNormal(uint VertexIndex)
+{
+    return float3(
+        SourceNormals[VertexIndex * 3 + 0],
+        SourceNormals[VertexIndex * 3 + 1],
+        SourceNormals[VertexIndex * 3 + 2]
+    );
+}
+
+void WriteOutputPosition(uint VertexIndex, float3 Position)
+{
+    OutputPositions[VertexIndex * 3 + 0] = Position.x;
+    OutputPositions[VertexIndex * 3 + 1] = Position.y;
+    OutputPositions[VertexIndex * 3 + 2] = Position.z;
+}
+
+void WriteOutputNormal(uint VertexIndex, float3 Normal)
+{
+    OutputNormals[VertexIndex * 3 + 0] = Normal.x;
+    OutputNormals[VertexIndex * 3 + 1] = Normal.y;
+    OutputNormals[VertexIndex * 3 + 2] = Normal.z;
+}
+
+// ============================================================================
+// Main Kernel: Barycentric Interpolation
+// ============================================================================
+
+[numthreads(64, 1, 1)]
+void BarycentricInterpolationCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    uint OutputVertexIndex = DispatchThreadId.x;
+
+    if (OutputVertexIndex >= NumOutputVertices)
+        return;
+
+    // 부모 버텍스 인덱스 읽기
+    uint ParentV0 = VertexParentIndices[OutputVertexIndex * 3 + 0];
+    uint ParentV1 = VertexParentIndices[OutputVertexIndex * 3 + 1];
+    uint ParentV2 = VertexParentIndices[OutputVertexIndex * 3 + 2];
+
+    // Barycentric 좌표 읽기
+    float u = VertexBarycentrics[OutputVertexIndex * 3 + 0];
+    float v = VertexBarycentrics[OutputVertexIndex * 3 + 1];
+    float w = VertexBarycentrics[OutputVertexIndex * 3 + 2];
+
+    // ===== Position Interpolation =====
+    float3 P0 = ReadSourcePosition(ParentV0);
+    float3 P1 = ReadSourcePosition(ParentV1);
+    float3 P2 = ReadSourcePosition(ParentV2);
+
+    float3 InterpolatedPosition = P0 * u + P1 * v + P2 * w;
+    WriteOutputPosition(OutputVertexIndex, InterpolatedPosition);
+
+    // ===== Normal Interpolation =====
+    float3 N0 = ReadSourceNormal(ParentV0);
+    float3 N1 = ReadSourceNormal(ParentV1);
+    float3 N2 = ReadSourceNormal(ParentV2);
+
+    float3 InterpolatedNormal = normalize(N0 * u + N1 * v + N2 * w);
+    WriteOutputNormal(OutputVertexIndex, InterpolatedNormal);
+
+    // ===== UV Interpolation =====
+    float2 UV0 = SourceUVs[ParentV0];
+    float2 UV1 = SourceUVs[ParentV1];
+    float2 UV2 = SourceUVs[ParentV2];
+
+    float2 InterpolatedUV = UV0 * u + UV1 * v + UV2 * w;
+    OutputUVs[OutputVertexIndex] = InterpolatedUV;
+
+    // ===== Bone Weight Interpolation =====
+    for (uint i = 0; i < NumBoneInfluences; ++i)
+    {
+        float W0 = SourceBoneWeights[ParentV0 * NumBoneInfluences + i];
+        float W1 = SourceBoneWeights[ParentV1 * NumBoneInfluences + i];
+        float W2 = SourceBoneWeights[ParentV2 * NumBoneInfluences + i];
+
+        float InterpolatedWeight = W0 * u + W1 * v + W2 * w;
+        OutputBoneWeights[OutputVertexIndex * NumBoneInfluences + i] = InterpolatedWeight;
+    }
+
+    // ===== Bone Index Selection =====
+    // Bone index는 가중치가 가장 높은 부모에서 가져옴
+    // (보간할 수 없으므로 discrete 선택)
+    uint DominantParent = ParentV0;
+    if (v > u && v > w) DominantParent = ParentV1;
+    else if (w > u && w > v) DominantParent = ParentV2;
+
+    for (uint j = 0; j < NumBoneInfluences; ++j)
+    {
+        OutputBoneIndices[OutputVertexIndex * NumBoneInfluences + j] =
+            SourceBoneIndices[DominantParent * NumBoneInfluences + j];
+    }
+}
+
+// ============================================================================
+// Alternative: Edge Midpoint Only (최적화 버전)
+// Edge midpoint만 있는 경우 더 간단한 커널
+// ============================================================================
+
+[numthreads(64, 1, 1)]
+void EdgeMidpointInterpolationCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    uint OutputVertexIndex = DispatchThreadId.x;
+
+    if (OutputVertexIndex >= NumOutputVertices)
+        return;
+
+    // Edge midpoint는 2개의 부모만 사용 (V2는 무시)
+    uint ParentV0 = VertexParentIndices[OutputVertexIndex * 3 + 0];
+    uint ParentV1 = VertexParentIndices[OutputVertexIndex * 3 + 1];
+
+    // 0.5, 0.5 보간
+    float3 P0 = ReadSourcePosition(ParentV0);
+    float3 P1 = ReadSourcePosition(ParentV1);
+    WriteOutputPosition(OutputVertexIndex, (P0 + P1) * 0.5);
+
+    float3 N0 = ReadSourceNormal(ParentV0);
+    float3 N1 = ReadSourceNormal(ParentV1);
+    WriteOutputNormal(OutputVertexIndex, normalize(N0 + N1));
+
+    float2 UV0 = SourceUVs[ParentV0];
+    float2 UV1 = SourceUVs[ParentV1];
+    OutputUVs[OutputVertexIndex] = (UV0 + UV1) * 0.5;
+
+    // Bone weights 평균
+    for (uint i = 0; i < NumBoneInfluences; ++i)
+    {
+        float W0 = SourceBoneWeights[ParentV0 * NumBoneInfluences + i];
+        float W1 = SourceBoneWeights[ParentV1 * NumBoneInfluences + i];
+        OutputBoneWeights[OutputVertexIndex * NumBoneInfluences + i] = (W0 + W1) * 0.5;
+    }
+
+    // Bone index는 weight가 더 높은 쪽에서 가져옴
+    // 간단히 V0에서 가져옴 (또는 weight 비교 로직 추가 가능)
+    for (uint j = 0; j < NumBoneInfluences; ++j)
+    {
+        OutputBoneIndices[OutputVertexIndex * NumBoneInfluences + j] =
+            SourceBoneIndices[ParentV0 * NumBoneInfluences + j];
+    }
+}
