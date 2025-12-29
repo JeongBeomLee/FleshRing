@@ -40,14 +40,20 @@ struct FRingSDFCache
 	 */
 	TRefCountPtr<IPooledRenderTarget> PooledTexture;
 
-	/** SDF 볼륨 최소 바운드 (컴포넌트 스페이스) */
+	/** SDF 볼륨 최소 바운드 (Ring 로컬 스페이스) */
 	FVector3f BoundsMin = FVector3f::ZeroVector;
 
-	/** SDF 볼륨 최대 바운드 (컴포넌트 스페이스) */
+	/** SDF 볼륨 최대 바운드 (Ring 로컬 스페이스) */
 	FVector3f BoundsMax = FVector3f::ZeroVector;
 
 	/** SDF 해상도 */
 	FIntVector Resolution = FIntVector(64, 64, 64);
+
+	/**
+	 * Ring 로컬 → 컴포넌트 스페이스 트랜스폼 (OBB용)
+	 * SDF는 로컬 스페이스에서 생성, 샘플링 시 역변환 사용
+	 */
+	FTransform LocalToComponent = FTransform::Identity;
 
 	/** 캐싱 완료 여부 */
 	bool bCached = false;
@@ -59,6 +65,7 @@ struct FRingSDFCache
 		BoundsMin = FVector3f::ZeroVector;
 		BoundsMax = FVector3f::ZeroVector;
 		Resolution = FIntVector(64, 64, 64);
+		LocalToComponent = FTransform::Identity;
 		bCached = false;
 	}
 

@@ -306,8 +306,9 @@ void UFleshRingComponent::GenerateSDF()
 		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] extracted %d vertices, %d triangles from '%s'"),
 			RingIndex, MeshData.GetVertexCount(), MeshData.GetTriangleCount(), *RingMesh->GetName());
 
-		// 2. Ring Mesh를 Component Space로 변환
+		// 2. OBB 방식: 로컬 스페이스 유지, 트랜스폼은 별도 저장
 		// Ring Mesh Local → MeshTransform → BoneTransform → Component Space
+		FTransform LocalToComponentTransform;
 		{
 			// Mesh Transform (Ring Local → Bone Local)
 			FTransform MeshTransform;
@@ -318,40 +319,26 @@ void UFleshRingComponent::GenerateSDF()
 			// Bone Transform (Bone Local → Component Space)
 			FTransform BoneTransform = GetBoneBindPoseTransform(ResolvedTargetMesh.Get(), Ring.BoneName);
 
-			// Full Transform: Ring Local → Component Space
-			FTransform FullTransform = MeshTransform * BoneTransform;
+			// Full Transform: Ring Local → Component Space (OBB용으로 저장)
+			LocalToComponentTransform = MeshTransform * BoneTransform;
 
-			// 버텍스 변환
-			for (FVector3f& Vertex : MeshData.Vertices)
-			{
-				FVector WorldPos = FullTransform.TransformPosition(FVector(Vertex));
-				Vertex = FVector3f(WorldPos);
-			}
+			// 버텍스는 변환하지 않음 (로컬 스페이스 유지)
+			// SDF는 로컬 스페이스에서 생성, 샘플링 시 역변환 사용
 
-			// Bounds 재계산
-			FVector3f MinBounds(FLT_MAX, FLT_MAX, FLT_MAX);
-			FVector3f MaxBounds(-FLT_MAX, -FLT_MAX, -FLT_MAX);
-			for (const FVector3f& V : MeshData.Vertices)
-			{
-				MinBounds = FVector3f::Min(MinBounds, V);
-				MaxBounds = FVector3f::Max(MaxBounds, V);
-			}
-			MeshData.Bounds = FBox3f(MinBounds, MaxBounds);
-
-			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] transformed to Component Space. Bounds: (%s) to (%s)"),
-				RingIndex, *MinBounds.ToString(), *MaxBounds.ToString());
+			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] OBB Transform saved. Local Bounds: (%s) to (%s)"),
+				RingIndex, *MeshData.Bounds.Min.ToString(), *MeshData.Bounds.Max.ToString());
 		}
 
 		// 3. SDF 해상도 결정
 		const int32 Resolution = Ring.SdfSettings.Resolution;
 		const FIntVector SDFResolution(Resolution, Resolution, Resolution);
 
-		// 4. Bounds 계산 (메시 bounds + 패딩)
+		// 4. Bounds 계산 (로컬 스페이스 메시 bounds + 패딩)
 		const float BoundsPadding = 2.0f; // SDF 경계 여유 공간
 		FVector3f BoundsMin = MeshData.Bounds.Min - FVector3f(BoundsPadding);
 		FVector3f BoundsMax = MeshData.Bounds.Max + FVector3f(BoundsPadding);
 
-		// 4. GPU SDF 생성 (렌더 스레드에서 실행)
+		// 5. GPU SDF 생성 (렌더 스레드에서 실행)
 		// MeshData를 값으로 캡처 (렌더 스레드로 전달)
 		TArray<FVector3f> CapturedVertices = MoveTemp(MeshData.Vertices);
 		TArray<uint32> CapturedIndices = MoveTemp(MeshData.Indices);
@@ -367,6 +354,7 @@ void UFleshRingComponent::GenerateSDF()
 		CachePtr->BoundsMin = BoundsMin;
 		CachePtr->BoundsMax = BoundsMax;
 		CachePtr->Resolution = SDFResolution;
+		CachePtr->LocalToComponent = LocalToComponentTransform;
 
 		ENQUEUE_RENDER_COMMAND(GenerateFleshRingSDF)(
 			[CapturedVertices = MoveTemp(CapturedVertices),
@@ -638,30 +626,40 @@ void UFleshRingComponent::DrawSdfVolume(int32 RingIndex)
 		return;
 	}
 
-	// 바운드 (컴포넌트 스페이스)
-	FVector BoundsMin = FVector(SDFCache->BoundsMin);
-	FVector BoundsMax = FVector(SDFCache->BoundsMax);
+	// OBB 방식: 로컬 바운드 + 트랜스폼
+	FVector LocalBoundsMin = FVector(SDFCache->BoundsMin);
+	FVector LocalBoundsMax = FVector(SDFCache->BoundsMax);
 
-	// 컴포넌트 → 월드 변환
+	// 로컬 스페이스에서 Center와 Extent 계산
+	FVector LocalCenter = (LocalBoundsMin + LocalBoundsMax) * 0.5f;
+	FVector LocalExtent = (LocalBoundsMax - LocalBoundsMin) * 0.5f;
+
+	// 전체 트랜스폼: Local → Component → World
 	USkeletalMeshComponent* SkelMesh = ResolvedTargetMesh.Get();
+	FTransform LocalToWorld = SDFCache->LocalToComponent;
 	if (SkelMesh)
 	{
-		FTransform CompTransform = SkelMesh->GetComponentTransform();
-		BoundsMin = CompTransform.TransformPosition(BoundsMin);
-		BoundsMax = CompTransform.TransformPosition(BoundsMax);
+		LocalToWorld = LocalToWorld * SkelMesh->GetComponentTransform();
 	}
 
-	// 바운딩 박스 그리기
-	FVector Center = (BoundsMin + BoundsMax) * 0.5f;
-	FVector Extent = (BoundsMax - BoundsMin) * 0.5f;
+	// 월드 공간에서의 Center
+	FVector WorldCenter = LocalToWorld.TransformPosition(LocalCenter);
 
-	// 시안 와이어프레임 박스 (깔끔한 얇은 선)
+	// OBB 회전
+	FQuat WorldRotation = LocalToWorld.GetRotation();
+
+	// 스케일 적용된 Extent
+	FVector ScaledExtent = LocalExtent * LocalToWorld.GetScale3D();
+
+	// OBB 와이어프레임 박스 (회전 포함)
 	FColor BoxColor = FColor(0, 200, 255, 255);  // 밝은 시안
-	DrawDebugBox(World, Center, Extent, BoxColor, false, -1.0f, 0, 0.3f);
+	DrawDebugBox(World, WorldCenter, ScaledExtent, WorldRotation, BoxColor, false, -1.0f, 0, 0.3f);
 
-	// Min/Max 코너 강조 표시
-	DrawDebugSphere(World, BoundsMin, 1.0f, 8, FColor::Blue, false, -1.0f, 0, 0.5f);
-	DrawDebugSphere(World, BoundsMax, 1.0f, 8, FColor::Red, false, -1.0f, 0, 0.5f);
+	// Min/Max 코너 강조 표시 (월드 공간)
+	FVector WorldMin = LocalToWorld.TransformPosition(LocalBoundsMin);
+	FVector WorldMax = LocalToWorld.TransformPosition(LocalBoundsMax);
+	DrawDebugSphere(World, WorldMin, 1.0f, 8, FColor::Blue, false, -1.0f, 0, 0.5f);
+	DrawDebugSphere(World, WorldMax, 1.0f, 8, FColor::Red, false, -1.0f, 0, 0.5f);
 
 	// 해상도 텍스트 표시
 	if (GEngine)
@@ -800,39 +798,44 @@ void UFleshRingComponent::DrawSDFSlice(int32 RingIndex)
 	// 평면 보이게 설정
 	PlaneActor->SetActorHiddenInGame(false);
 
-	// 바운드 계산
-	FVector BoundsMin = FVector(SDFCache->BoundsMin);
-	FVector BoundsMax = FVector(SDFCache->BoundsMax);
-	FVector BoundsSize = BoundsMax - BoundsMin;
+	// OBB 방식: 로컬 바운드 계산
+	FVector LocalBoundsMin = FVector(SDFCache->BoundsMin);
+	FVector LocalBoundsMax = FVector(SDFCache->BoundsMax);
+	FVector LocalBoundsSize = LocalBoundsMax - LocalBoundsMin;
 
-	// Z 슬라이스 위치 계산
+	// Z 슬라이스 위치 계산 (로컬 스페이스)
 	float ZRatio = (SDFCache->Resolution.Z > 1)
 		? (float)DebugSliceZ / (float)(SDFCache->Resolution.Z - 1)
 		: 0.5f;
 	ZRatio = FMath::Clamp(ZRatio, 0.0f, 1.0f);
 
-	FVector SliceCenter = BoundsMin + FVector(
-		BoundsSize.X * 0.5f,
-		BoundsSize.Y * 0.5f,
-		BoundsSize.Z * ZRatio
+	FVector LocalSliceCenter = LocalBoundsMin + FVector(
+		LocalBoundsSize.X * 0.5f,
+		LocalBoundsSize.Y * 0.5f,
+		LocalBoundsSize.Z * ZRatio
 	);
 
-	// 컴포넌트 → 월드 변환
+	// OBB 트랜스폼: Local → Component → World
 	USkeletalMeshComponent* SkelMesh = ResolvedTargetMesh.Get();
+	FTransform LocalToWorld = SDFCache->LocalToComponent;
 	if (SkelMesh)
 	{
-		FTransform CompTransform = SkelMesh->GetComponentTransform();
-		SliceCenter = CompTransform.TransformPosition(SliceCenter);
-
-		// 평면 위치/회전 설정
-		PlaneActor->SetActorLocation(SliceCenter);
-		PlaneActor->SetActorRotation(CompTransform.GetRotation().Rotator());
-
-		// 평면 스케일 (바운드 크기에 맞춤, 기본 Plane은 100x100 유닛)
-		float ScaleX = BoundsSize.X / 100.0f;
-		float ScaleY = BoundsSize.Y / 100.0f;
-		PlaneActor->SetActorScale3D(FVector(ScaleX, ScaleY, 1.0f));
+		LocalToWorld = LocalToWorld * SkelMesh->GetComponentTransform();
 	}
+
+	// 월드 공간에서의 슬라이스 위치/회전
+	FVector WorldSliceCenter = LocalToWorld.TransformPosition(LocalSliceCenter);
+	FQuat WorldRotation = LocalToWorld.GetRotation();
+
+	// 평면 위치/회전 설정
+	PlaneActor->SetActorLocation(WorldSliceCenter);
+	PlaneActor->SetActorRotation(WorldRotation.Rotator());
+
+	// 평면 스케일 (로컬 바운드 크기 + OBB 스케일 적용, 기본 Plane은 100x100 유닛)
+	FVector OBBScale = LocalToWorld.GetScale3D();
+	float ScaleX = (LocalBoundsSize.X * OBBScale.X) / 100.0f;
+	float ScaleY = (LocalBoundsSize.Y * OBBScale.Y) / 100.0f;
+	PlaneActor->SetActorScale3D(FVector(ScaleX, ScaleY, 1.0f));
 
 	// 슬라이스 텍스처 업데이트
 	UpdateSliceTexture(RingIndex, DebugSliceZ);
@@ -870,27 +873,41 @@ AActor* UFleshRingComponent::CreateDebugSlicePlane(int32 RingIndex)
 	PlaneActor->SetRootComponent(RootComp);
 	RootComp->RegisterComponent();
 
-	// StaticMeshComponent 생성 (기본 Plane 메시 사용)
-	UStaticMeshComponent* PlaneMesh = NewObject<UStaticMeshComponent>(PlaneActor, TEXT("PlaneMesh"));
+	// StaticMeshComponent 생성 (기본 Plane 메시 사용) - 앞면
+	UStaticMeshComponent* PlaneMeshFront = NewObject<UStaticMeshComponent>(PlaneActor, TEXT("PlaneMeshFront"));
 
 	// 엔진 기본 Plane 메시 로드
 	UStaticMesh* DefaultPlane = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"));
 	if (DefaultPlane)
 	{
-		PlaneMesh->SetStaticMesh(DefaultPlane);
+		PlaneMeshFront->SetStaticMesh(DefaultPlane);
 	}
 
 	// 충돌 비활성화
-	PlaneMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	PlaneMesh->SetCollisionResponseToAllChannels(ECR_Ignore);
-	PlaneMesh->SetGenerateOverlapEvents(false);
+	PlaneMeshFront->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	PlaneMeshFront->SetCollisionResponseToAllChannels(ECR_Ignore);
+	PlaneMeshFront->SetGenerateOverlapEvents(false);
 
 	// 그림자 비활성화
-	PlaneMesh->SetCastShadow(false);
+	PlaneMeshFront->SetCastShadow(false);
 
 	// 컴포넌트 등록 및 부착
-	PlaneMesh->AttachToComponent(RootComp, FAttachmentTransformRules::KeepRelativeTransform);
-	PlaneMesh->RegisterComponent();
+	PlaneMeshFront->AttachToComponent(RootComp, FAttachmentTransformRules::KeepRelativeTransform);
+	PlaneMeshFront->RegisterComponent();
+
+	// 뒷면용 평면 추가 (180도 회전)
+	UStaticMeshComponent* PlaneMeshBack = NewObject<UStaticMeshComponent>(PlaneActor, TEXT("PlaneMeshBack"));
+	if (DefaultPlane)
+	{
+		PlaneMeshBack->SetStaticMesh(DefaultPlane);
+	}
+	PlaneMeshBack->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	PlaneMeshBack->SetCollisionResponseToAllChannels(ECR_Ignore);
+	PlaneMeshBack->SetGenerateOverlapEvents(false);
+	PlaneMeshBack->SetCastShadow(false);
+	PlaneMeshBack->AttachToComponent(RootComp, FAttachmentTransformRules::KeepRelativeTransform);
+	PlaneMeshBack->SetRelativeRotation(FRotator(180.0f, 0.0f, 0.0f));  // X축으로 180도 회전
+	PlaneMeshBack->RegisterComponent();
 
 	// 렌더 타겟 생성
 	if (DebugSliceRenderTargets.Num() <= RingIndex)
@@ -917,7 +934,8 @@ AActor* UFleshRingComponent::CreateDebugSlicePlane(int32 RingIndex)
 	if (DynMaterial && RenderTarget)
 	{
 		DynMaterial->SetTextureParameterValue(TEXT("SlateUI"), RenderTarget);
-		PlaneMesh->SetMaterial(0, DynMaterial);
+		PlaneMeshFront->SetMaterial(0, DynMaterial);
+		PlaneMeshBack->SetMaterial(0, DynMaterial);  // 뒷면에도 동일 머티리얼
 	}
 
 	UE_LOG(LogFleshRingComponent, Log, TEXT("Created debug slice plane for Ring[%d]"), RingIndex);
