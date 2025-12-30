@@ -103,6 +103,15 @@ void FFleshRingComputeWorker::AbortWork(UFleshRingDeformerInstance* InDeformerIn
 
 void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshRingWorkItem& WorkItem)
 {
+	// DeformerInstance 유효성 검사 (PIE 종료 시 dangling pointer 방지)
+	// MeshObject는 DeformerInstance의 수명에 종속되므로, DeformerInstance가 무효화되면
+	// MeshObject도 dangling 상태일 가능성이 높음
+	if (!WorkItem.DeformerInstance.IsValid())
+	{
+		UE_LOG(LogFleshRingWorker, Verbose, TEXT("FleshRing: DeformerInstance 무효화됨 - 작업 건너뜀"));
+		return;
+	}
+
 	FSkeletalMeshObject* MeshObject = WorkItem.MeshObject;
 	const int32 LODIndex = WorkItem.LODIndex;
 	const uint32 TotalVertexCount = WorkItem.TotalVertexCount;

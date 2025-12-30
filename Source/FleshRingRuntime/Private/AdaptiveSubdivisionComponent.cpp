@@ -1347,7 +1347,8 @@ void UAdaptiveSubdivisionComponent::PerformLEBSubdivision(FSubdivisionMeshData& 
 		TArray<int32> OutTris;
 		TArray<FVector2D> OutUVs;
 		TArray<FVector> OutNormals;
-		HalfEdgeMeshData.ExportToTriangles(OutVerts, OutTris, OutUVs, OutNormals);
+		TArray<int32> OutMaterialIndices;
+		HalfEdgeMeshData.ExportToTriangles(OutVerts, OutTris, OutUVs, OutNormals, OutMaterialIndices);
 
 		InOutMesh.Vertices = MoveTemp(OutVerts);
 		InOutMesh.Triangles = MoveTemp(OutTris);
@@ -1389,7 +1390,8 @@ void UAdaptiveSubdivisionComponent::PerformLEBSubdivision(FSubdivisionMeshData& 
 	TArray<int32> OutTris;
 	TArray<FVector2D> OutUVs;
 	TArray<FVector> OutNormals;
-	HalfEdgeMeshData.ExportToTriangles(OutVerts, OutTris, OutUVs, OutNormals);
+	TArray<int32> OutMaterialIndices;
+	HalfEdgeMeshData.ExportToTriangles(OutVerts, OutTris, OutUVs, OutNormals, OutMaterialIndices);
 
 	InOutMesh.Vertices = MoveTemp(OutVerts);
 	InOutMesh.Triangles = MoveTemp(OutTris);

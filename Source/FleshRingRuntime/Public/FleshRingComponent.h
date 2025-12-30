@@ -1,4 +1,4 @@
-﻿// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -88,18 +88,29 @@ UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent), DisplayName="Fle
 class FLESHRINGRUNTIME_API UFleshRingComponent : public UActorComponent
 {
 	GENERATED_BODY()
-	
+
 public:
 	UFleshRingComponent();
 
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void BeginDestroy() override;
 	virtual void OnRegister() override;
 	virtual void OnUnregister() override;
 
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+
+	/** 에셋 변경 델리게이트 핸들 */
+	FDelegateHandle AssetChangedDelegateHandle;
+
+	/** 에셋 변경 델리게이트 구독/해제 */
+	void BindToAssetDelegate();
+	void UnbindFromAssetDelegate();
+
+	/** 에셋 변경 콜백 */
+	void OnFleshRingAssetChanged(UFleshRingAsset* ChangedAsset);
 #endif
 
 public:
@@ -136,6 +147,10 @@ public:
 	/** 전체 기능 활성화 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General")
 	bool bEnableFleshRing = true;
+
+	/** Ring 메시 표시 (SDF 소스 메시) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General")
+	bool bShowRingMesh = true;
 
 	/** Bounds 확장 배율 (VSM 캐싱을 위해 Deformer 변형량에 맞게 조정) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General", meta = (ClampMin = "1.0", ClampMax = "3.0"))
@@ -284,6 +299,9 @@ private:
 
 	/** Ring 메시 컴포넌트 제거 */
 	void CleanupRingMeshes();
+
+	/** Ring 메시 가시성 업데이트 */
+	void UpdateRingMeshVisibility();
 
 	// =====================================
 	// Debug Drawing (에디터 전용)

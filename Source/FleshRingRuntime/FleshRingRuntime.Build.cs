@@ -43,7 +43,11 @@ public class FleshRingRuntime : ModuleRules
                 "Renderer",
                 "RHI",
                 "Projects",
-                "ProceduralMeshComponent"
+                "ProceduralMeshComponent",
+                "MeshDescription",
+                "StaticMeshDescription",
+                "SkeletalMeshDescription",
+                "AnimationCore"
 				// ... add private dependencies that you statically link with here ...
 			}
             );

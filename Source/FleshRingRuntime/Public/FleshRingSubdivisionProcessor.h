@@ -95,6 +95,9 @@ struct FSubdivisionTopologyResult
 	// 최종 삼각형 인덱스 (새 버텍스 인덱스 기준)
 	TArray<uint32> Indices;
 
+	// 삼각형별 머티리얼 인덱스 (섹션 추적용)
+	TArray<int32> TriangleMaterialIndices;
+
 	// 통계
 	uint32 OriginalVertexCount = 0;
 	uint32 OriginalTriangleCount = 0;
@@ -105,6 +108,7 @@ struct FSubdivisionTopologyResult
 	{
 		VertexData.Empty();
 		Indices.Empty();
+		TriangleMaterialIndices.Empty();
 		OriginalVertexCount = 0;
 		OriginalTriangleCount = 0;
 		SubdividedVertexCount = 0;
@@ -122,16 +126,58 @@ struct FSubdivisionTopologyResult
  */
 struct FSubdivisionRingParams
 {
+	/** SDF 기반 모드 (true) vs 수동 기하학 모드 (false) */
+	bool bUseSDFBounds = false;
+
+	// =====================================
+	// Manual 모드용 파라미터
+	// =====================================
 	FVector Center = FVector::ZeroVector;
 	FVector Axis = FVector::UpVector;
 	float Radius = 10.0f;
 	float Width = 5.0f;
 	float InfluenceMultiplier = 2.0f;  // Width 기준 영향 범위 배율
 
-	// 영향 범위 반환
+	// =====================================
+	// SDF 모드용 파라미터 (OBB 바운드)
+	// =====================================
+	/** SDF 볼륨 최소 바운드 (Ring 로컬 스페이스) */
+	FVector SDFBoundsMin = FVector::ZeroVector;
+
+	/** SDF 볼륨 최대 바운드 (Ring 로컬 스페이스) */
+	FVector SDFBoundsMax = FVector::ZeroVector;
+
+	/** Ring 로컬 → 컴포넌트 스페이스 트랜스폼 (OBB) */
+	FTransform SDFLocalToComponent = FTransform::Identity;
+
+	/** SDF 영향 범위 확장 배율 */
+	float SDFInfluenceMultiplier = 1.5f;
+
+	// 영향 범위 반환 (Manual 모드)
 	float GetInfluenceRadius() const
 	{
 		return Width * InfluenceMultiplier;
+	}
+
+	// SDF 바운드 기반 영향 검사 (버텍스가 영향 범위 내인지)
+	bool IsVertexInSDFInfluence(const FVector& VertexPosition) const
+	{
+		if (!bUseSDFBounds)
+		{
+			return false;
+		}
+
+		// 컴포넌트 스페이스 → 로컬 스페이스로 변환
+		FVector LocalPos = SDFLocalToComponent.InverseTransformPosition(VertexPosition);
+
+		// 확장된 바운드 계산
+		FVector ExpandedMin = SDFBoundsMin * SDFInfluenceMultiplier;
+		FVector ExpandedMax = SDFBoundsMax * SDFInfluenceMultiplier;
+
+		// 바운드 내인지 확인
+		return LocalPos.X >= ExpandedMin.X && LocalPos.X <= ExpandedMax.X &&
+			   LocalPos.Y >= ExpandedMin.Y && LocalPos.Y <= ExpandedMax.Y &&
+			   LocalPos.Z >= ExpandedMin.Z && LocalPos.Z <= ExpandedMax.Z;
 	}
 };
 
@@ -184,12 +230,14 @@ public:
 	 * @param InPositions - 버텍스 위치 배열
 	 * @param InIndices - 삼각형 인덱스 배열
 	 * @param InUVs - UV 좌표 배열 (optional)
+	 * @param InMaterialIndices - 삼각형별 머티리얼 인덱스 (optional)
 	 * @return 성공 여부
 	 */
 	bool SetSourceMesh(
 		const TArray<FVector>& InPositions,
 		const TArray<uint32>& InIndices,
-		const TArray<FVector2D>& InUVs = TArray<FVector2D>());
+		const TArray<FVector2D>& InUVs = TArray<FVector2D>(),
+		const TArray<int32>& InMaterialIndices = TArray<int32>());
 
 	/**
 	 * SkeletalMesh LOD에서 소스 메시 추출
@@ -265,6 +313,7 @@ private:
 	TArray<FVector> SourcePositions;
 	TArray<uint32> SourceIndices;
 	TArray<FVector2D> SourceUVs;
+	TArray<int32> SourceMaterialIndices;  // 삼각형별 머티리얼 인덱스
 
 	// Ring 파라미터
 	FSubdivisionRingParams CurrentRingParams;

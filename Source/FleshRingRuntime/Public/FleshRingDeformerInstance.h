@@ -24,6 +24,9 @@ class FLESHRINGRUNTIME_API UFleshRingDeformerInstance : public UMeshDeformerInst
 public:
 	UFleshRingDeformerInstance();
 
+	// UObject interface
+	virtual void BeginDestroy() override;
+
 	void SetupFromDeformer(UFleshRingDeformer* InDeformer, UMeshComponent* InMeshComponent);
 
 	// UMeshDeformerInstance interface

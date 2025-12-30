@@ -98,9 +98,23 @@ void UFleshRingComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	Super::EndPlay(EndPlayReason);
 }
 
+void UFleshRingComponent::BeginDestroy()
+{
+	// GC 시점에 Deformer 정리 보장
+	// 에셋 전환 시 FMeshBatch 유효성 문제 방지
+	CleanupDeformer();
+
+	Super::BeginDestroy();
+}
+
 void UFleshRingComponent::OnRegister()
 {
 	Super::OnRegister();
+
+#if WITH_EDITOR
+	// 에셋 변경 델리게이트 구독
+	BindToAssetDelegate();
+#endif
 
 	// 에디터 및 런타임 모두에서 Ring 메시 설정
 	// OnRegister는 컴포넌트가 월드에 등록될 때 호출됨 (에디터 포함)
@@ -110,6 +124,11 @@ void UFleshRingComponent::OnRegister()
 
 void UFleshRingComponent::OnUnregister()
 {
+#if WITH_EDITOR
+	// 에셋 변경 델리게이트 구독 해제
+	UnbindFromAssetDelegate();
+#endif
+
 	CleanupRingMeshes();
 	Super::OnUnregister();
 }
@@ -124,8 +143,48 @@ void UFleshRingComponent::PostEditChangeProperty(FPropertyChangedEvent& Property
 	if (PropertyName == GET_MEMBER_NAME_CHECKED(UFleshRingComponent, FleshRingAsset) ||
 		PropertyName == GET_MEMBER_NAME_CHECKED(UFleshRingComponent, bEnableFleshRing))
 	{
+		// 에셋 변경 시 델리게이트 재바인딩
+		UnbindFromAssetDelegate();
+		BindToAssetDelegate();
+
 		ResolveTargetMesh();
 		SetupRingMeshes();
+	}
+
+	// Ring 메시 가시성 변경
+	if (PropertyName == GET_MEMBER_NAME_CHECKED(UFleshRingComponent, bShowRingMesh))
+	{
+		UpdateRingMeshVisibility();
+	}
+}
+
+void UFleshRingComponent::BindToAssetDelegate()
+{
+	if (FleshRingAsset && !AssetChangedDelegateHandle.IsValid())
+	{
+		AssetChangedDelegateHandle = FleshRingAsset->OnAssetChanged.AddUObject(
+			this, &UFleshRingComponent::OnFleshRingAssetChanged);
+	}
+}
+
+void UFleshRingComponent::UnbindFromAssetDelegate()
+{
+	if (FleshRingAsset && AssetChangedDelegateHandle.IsValid())
+	{
+		FleshRingAsset->OnAssetChanged.Remove(AssetChangedDelegateHandle);
+		AssetChangedDelegateHandle.Reset();
+	}
+}
+
+void UFleshRingComponent::OnFleshRingAssetChanged(UFleshRingAsset* ChangedAsset)
+{
+	// 동일한 에셋인지 확인
+	if (ChangedAsset == FleshRingAsset)
+	{
+		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Asset changed, reapplying..."));
+
+		// 전체 재설정 (SubdividedMesh 적용 포함)
+		ApplyAsset();
 	}
 }
 #endif
@@ -134,16 +193,11 @@ void UFleshRingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-#if WITH_EDITOR
-	// 디버그 시각화 (변형 활성화 여부와 무관하게 동작)
-	DrawDebugVisualization();
-#endif
-
 	if (!bEnableFleshRing)
 	{
 		return;
 	}
-
+	
 	// NOTE: MarkRenderDynamicDataDirty/MarkRenderTransformDirty는 TickComponent에서 호출하지 않음
 	// Optimus 방식: 엔진의 SendRenderDynamicData_Concurrent()가 자동으로 deformer의 EnqueueWork를 호출
 	// 초기화 시점(SetupDeformer)에서만 MarkRenderStateDirty/MarkRenderDynamicDataDirty 호출
@@ -161,6 +215,16 @@ void UFleshRingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 			}
 		}
 	}
+
+#if WITH_EDITOR
+	// 디버그 시각화
+	DrawDebugVisualization();
+#endif
+
+#if WITH_EDITOR
+	// 디버그 시각화
+	DrawDebugVisualization();
+#endif
 }
 
 void UFleshRingComponent::ResolveTargetMesh()
@@ -178,37 +242,85 @@ void UFleshRingComponent::ResolveTargetMesh()
 		{
 			UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: bUseCustomTarget is true but CustomTargetMesh is null"));
 		}
-		return;
+		// SubdividedMesh 적용을 위해 return하지 않고 아래로 계속
+	}
+	else
+	{
+		// 자동 탐색 모드: Owner에서 SkeletalMeshComponent 찾기
+		AActor* Owner = GetOwner();
+		if (!Owner)
+		{
+			UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: No owner actor found"));
+			return;
+		}
+
+		// Owner의 모든 컴포넌트에서 SkeletalMeshComponent 탐색
+		TArray<USkeletalMeshComponent*> SkeletalMeshComponents;
+		Owner->GetComponents<USkeletalMeshComponent>(SkeletalMeshComponents);
+
+		if (SkeletalMeshComponents.Num() == 0)
+		{
+			UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: No SkeletalMeshComponent found on owner '%s'"),
+				*Owner->GetName());
+			return;
+		}
+
+		// 첫 번째 SkeletalMeshComponent 사용
+		ResolvedTargetMesh = SkeletalMeshComponents[0];
+		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Auto-discovered target mesh '%s' on owner '%s'"),
+			*SkeletalMeshComponents[0]->GetName(), *Owner->GetName());
+
+		if (SkeletalMeshComponents.Num() > 1)
+		{
+			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Found %d SkeletalMeshComponents, using first one. Use bUseCustomTarget for manual selection."),
+				SkeletalMeshComponents.Num());
+		}
 	}
 
-	// 자동 탐색 모드: Owner에서 SkeletalMeshComponent 찾기
-	AActor* Owner = GetOwner();
-	if (!Owner)
+	// SubdividedMesh 또는 원본 메시 적용
+	UE_LOG(LogFleshRingComponent, Log, TEXT("ResolveTargetMesh: Checking SubdividedMesh... ResolvedTargetMesh.IsValid()=%d, FleshRingAsset=%p"),
+		ResolvedTargetMesh.IsValid(), FleshRingAsset.Get());
+
+	if (ResolvedTargetMesh.IsValid() && FleshRingAsset)
 	{
-		UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: No owner actor found"));
-		return;
+		USkeletalMeshComponent* TargetMeshComp = ResolvedTargetMesh.Get();
+		USkeletalMesh* CurrentMesh = TargetMeshComp->GetSkeletalMeshAsset();
+
+		UE_LOG(LogFleshRingComponent, Log, TEXT("ResolveTargetMesh: HasSubdividedMesh=%d, SubdividedMesh=%p, CurrentMesh='%s'"),
+			FleshRingAsset->HasSubdividedMesh(),
+			FleshRingAsset->SubdividedMesh.Get(),
+			CurrentMesh ? *CurrentMesh->GetName() : TEXT("null"));
+
+		if (FleshRingAsset->HasSubdividedMesh())
+		{
+			// SubdividedMesh가 있으면 적용
+			USkeletalMesh* SubdivMesh = FleshRingAsset->SubdividedMesh;
+			if (CurrentMesh != SubdivMesh)
+			{
+				TargetMeshComp->SetSkeletalMesh(SubdivMesh);
+				UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Applied SubdividedMesh '%s' to target mesh component"),
+					*SubdivMesh->GetName());
+			}
+			else
+			{
+				UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: SubdividedMesh already applied"));
+			}
+		}
+		else if (!FleshRingAsset->TargetSkeletalMesh.IsNull())
+		{
+			// SubdividedMesh가 없으면 원본 메시로 복원
+			USkeletalMesh* OriginalMesh = FleshRingAsset->TargetSkeletalMesh.LoadSynchronous();
+			if (OriginalMesh && CurrentMesh != OriginalMesh)
+			{
+				TargetMeshComp->SetSkeletalMesh(OriginalMesh);
+				UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Restored original mesh '%s' to target mesh component"),
+					*OriginalMesh->GetName());
+			}
+		}
 	}
-
-	// Owner의 모든 컴포넌트에서 SkeletalMeshComponent 탐색
-	TArray<USkeletalMeshComponent*> SkeletalMeshComponents;
-	Owner->GetComponents<USkeletalMeshComponent>(SkeletalMeshComponents);
-
-	if (SkeletalMeshComponents.Num() == 0)
+	else
 	{
-		UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: No SkeletalMeshComponent found on owner '%s'"),
-			*Owner->GetName());
-		return;
-	}
-
-	// 첫 번째 SkeletalMeshComponent 사용
-	ResolvedTargetMesh = SkeletalMeshComponents[0];
-	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Auto-discovered target mesh '%s' on owner '%s'"),
-		*SkeletalMeshComponents[0]->GetName(), *Owner->GetName());
-
-	if (SkeletalMeshComponents.Num() > 1)
-	{
-		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Found %d SkeletalMeshComponents, using first one. Use bUseCustomTarget for manual selection."),
-			SkeletalMeshComponents.Num());
+		UE_LOG(LogFleshRingComponent, Warning, TEXT("ResolveTargetMesh: Cannot apply SubdividedMesh - ResolvedTargetMesh or FleshRingAsset is invalid"));
 	}
 }
 
@@ -252,7 +364,20 @@ void UFleshRingComponent::CleanupDeformer()
 	USkeletalMeshComponent* TargetMesh = ResolvedTargetMesh.Get();
 	if (TargetMesh && InternalDeformer)
 	{
+		// 1. 먼저 진행중인 렌더 작업 완료 대기
+		FlushRenderingCommands();
+
+		// 2. Deformer 해제
 		TargetMesh->SetMeshDeformer(nullptr);
+
+		// 3. Render State를 dirty로 마킹하여 Scene Proxy 재생성 트리거
+		// VertexFactory가 올바르게 재초기화되도록 함
+		TargetMesh->MarkRenderStateDirty();
+
+		// 4. 새 렌더 스테이트가 적용될 때까지 대기
+		// FMeshBatch 유효성 문제 방지
+		FlushRenderingCommands();
+
 		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Deformer unregistered from target mesh"));
 	}
 
@@ -513,11 +638,6 @@ void UFleshRingComponent::UpdateRingTransforms()
 			}
 		}
 	}
-
-#if WITH_EDITORONLY_DATA
-	// 4. 디버그용 영향받는 버텍스 캐시 무효화 (다음 프레임에 재계산)
-	bDebugAffectedVerticesCached = false;
-#endif
 }
 
 void UFleshRingComponent::ApplyAsset()
@@ -548,7 +668,10 @@ void UFleshRingComponent::ApplyAsset()
 			USkeletalMesh* ExpectedMesh = FleshRingAsset->TargetSkeletalMesh.LoadSynchronous();
 			USkeletalMesh* ActualMesh = TargetMesh->GetSkeletalMeshAsset();
 
-			if (ExpectedMesh && ActualMesh && ExpectedMesh != ActualMesh)
+			// SubdividedMesh가 적용된 경우는 정상이므로 검증 통과
+			bool bIsSubdividedMesh = FleshRingAsset->HasSubdividedMesh() && ActualMesh == FleshRingAsset->SubdividedMesh;
+
+			if (ExpectedMesh && ActualMesh && ExpectedMesh != ActualMesh && !bIsSubdividedMesh)
 			{
 				UE_LOG(LogFleshRingComponent, Warning,
 					TEXT("FleshRingComponent: SkeletalMesh mismatch! Asset expects '%s' but target has '%s'. Effect may differ from editor preview."),
@@ -663,19 +786,30 @@ void UFleshRingComponent::CleanupRingMeshes()
 	RingMeshComponents.Empty();
 }
 
+void UFleshRingComponent::UpdateRingMeshVisibility()
+{
+	for (UStaticMeshComponent* MeshComp : RingMeshComponents)
+	{
+		if (MeshComp)
+		{
+			MeshComp->SetVisibility(bShowRingMesh, true);
+		}
+	}
+}
+
 // =====================================
 // Debug Drawing (에디터 전용)
 // =====================================
 
 void UFleshRingComponent::SetDebugSlicePlanesVisible(bool bVisible)
 {
-#if WITH_EDITOR
+#if WITH_EDITORONLY_DATA
 	for (AActor* PlaneActor : DebugSlicePlaneActors)
 	{
 		if (PlaneActor)
 		{
-			// 에디터에서는 SetIsTemporarilyHiddenInEditor 사용
-			PlaneActor->SetIsTemporarilyHiddenInEditor(!bVisible);
+			PlaneActor->SetActorHiddenInGame(!bVisible);
+			PlaneActor->SetHidden(!bVisible);
 		}
 	}
 #endif
@@ -692,7 +826,7 @@ void UFleshRingComponent::DrawDebugVisualization()
 		{
 			if (PlaneActor)
 			{
-				PlaneActor->SetIsTemporarilyHiddenInEditor(true);
+				PlaneActor->SetActorHiddenInGame(true);
 			}
 		}
 	}
@@ -767,6 +901,43 @@ void UFleshRingComponent::DrawSdfVolume(int32 RingIndex)
 
 	// 스케일 적용된 Extent
 	FVector ScaledExtent = LocalExtent * LocalToWorld.GetScale3D();
+
+	// DrawSdfVolume Debug - SubdivideRegion과 비교용
+	UE_LOG(LogTemp, Log, TEXT(""));
+	UE_LOG(LogTemp, Log, TEXT("======== DrawSdfVolume OBB Debug ========"));
+	UE_LOG(LogTemp, Log, TEXT("  [Local Space]"));
+	UE_LOG(LogTemp, Log, TEXT("    LocalBoundsMin: %s"), *LocalBoundsMin.ToString());
+	UE_LOG(LogTemp, Log, TEXT("    LocalBoundsMax: %s"), *LocalBoundsMax.ToString());
+	UE_LOG(LogTemp, Log, TEXT("    LocalSize: %s"), *(LocalBoundsMax - LocalBoundsMin).ToString());
+	UE_LOG(LogTemp, Log, TEXT("  [LocalToComponent Transform]"));
+	UE_LOG(LogTemp, Log, TEXT("    Location: %s"), *SDFCache->LocalToComponent.GetLocation().ToString());
+	UE_LOG(LogTemp, Log, TEXT("    Rotation: %s"), *SDFCache->LocalToComponent.GetRotation().Rotator().ToString());
+	UE_LOG(LogTemp, Log, TEXT("    Scale: %s"), *SDFCache->LocalToComponent.GetScale3D().ToString());
+	// SubdivideRegion과 비교용 - Component Space OBB
+	{
+		FVector CompCenter = SDFCache->LocalToComponent.TransformPosition(LocalCenter);
+		FQuat CompRotation = SDFCache->LocalToComponent.GetRotation();
+		FVector CompAxisX = CompRotation.RotateVector(FVector(1, 0, 0));
+		FVector CompAxisY = CompRotation.RotateVector(FVector(0, 1, 0));
+		FVector CompAxisZ = CompRotation.RotateVector(FVector(0, 0, 1));
+		FVector CompHalfExtents = LocalExtent * SDFCache->LocalToComponent.GetScale3D();
+		UE_LOG(LogTemp, Log, TEXT("  [Component Space OBB (SubdivideRegion과 비교)]"));
+		UE_LOG(LogTemp, Log, TEXT("    Center: %s"), *CompCenter.ToString());
+		UE_LOG(LogTemp, Log, TEXT("    HalfExtents: %s"), *CompHalfExtents.ToString());
+		UE_LOG(LogTemp, Log, TEXT("    AxisX: %s"), *CompAxisX.ToString());
+		UE_LOG(LogTemp, Log, TEXT("    AxisY: %s"), *CompAxisY.ToString());
+		UE_LOG(LogTemp, Log, TEXT("    AxisZ: %s"), *CompAxisZ.ToString());
+	}
+	UE_LOG(LogTemp, Log, TEXT("  [LocalToWorld (includes ComponentToWorld)]"));
+	UE_LOG(LogTemp, Log, TEXT("    Location: %s"), *LocalToWorld.GetLocation().ToString());
+	UE_LOG(LogTemp, Log, TEXT("    Rotation: %s"), *LocalToWorld.GetRotation().Rotator().ToString());
+	UE_LOG(LogTemp, Log, TEXT("    Scale: %s"), *LocalToWorld.GetScale3D().ToString());
+	UE_LOG(LogTemp, Log, TEXT("  [Visualization]"));
+	UE_LOG(LogTemp, Log, TEXT("    WorldCenter: %s"), *WorldCenter.ToString());
+	UE_LOG(LogTemp, Log, TEXT("    ScaledExtent: %s"), *ScaledExtent.ToString());
+	UE_LOG(LogTemp, Log, TEXT("    WorldRotation: %s"), *WorldRotation.Rotator().ToString());
+	UE_LOG(LogTemp, Log, TEXT("=========================================="));
+	UE_LOG(LogTemp, Log, TEXT(""));
 
 	// OBB 와이어프레임 박스 (회전 포함)
 	FColor BoxColor = FColor(0, 200, 255, 255);  // 밝은 시안
@@ -912,8 +1083,8 @@ void UFleshRingComponent::DrawSDFSlice(int32 RingIndex)
 		return;
 	}
 
-	// 평면 보이게 설정 (에디터용)
-	PlaneActor->SetIsTemporarilyHiddenInEditor(false);
+	// 평면 보이게 설정
+	PlaneActor->SetActorHiddenInGame(false);
 
 	// OBB 방식: 로컬 바운드 계산
 	FVector LocalBoundsMin = FVector(SDFCache->BoundsMin);

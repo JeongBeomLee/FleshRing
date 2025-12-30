@@ -164,6 +164,20 @@ public:
 	float SubdivisionFullDistance = 500.0f;
 
 	// =====================================
+	// Bake Settings (Editor Only)
+	// =====================================
+
+#if WITH_EDITORONLY_DATA
+	/** Bake된 SkeletalMesh 저장 경로 (패키지 경로) */
+	UPROPERTY(EditAnywhere, Category = "Subdivision|Bake")
+	FString BakedMeshSavePath = TEXT("/Game/BakedMeshes/");
+
+	/** Bake된 메시 이름 접미사 */
+	UPROPERTY(EditAnywhere, Category = "Subdivision|Bake")
+	FString BakedMeshSuffix = TEXT("_Subdivided");
+#endif
+
+	// =====================================
 	// Debug
 	// =====================================
 
@@ -171,6 +185,28 @@ public:
 	/** Subdivision 통계 로그 출력 */
 	UPROPERTY(EditAnywhere, Category = "Debug")
 	bool bLogSubdivisionStats = false;
+
+	/** Subdivision으로 추가된 버텍스 시각화 (흰색 점) */
+	UPROPERTY(EditAnywhere, Category = "Debug")
+	bool bShowSubdividedVertices = false;
+
+	/** 시각화 점 크기 */
+	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowSubdividedVertices", ClampMin = "1.0", ClampMax = "20.0"))
+	float DebugPointSize = 5.0f;
+
+	/** Subdivision으로 변경된 와이어프레임 표시 (빨간색) */
+	UPROPERTY(EditAnywhere, Category = "Debug")
+	bool bShowSubdividedWireframe = false;
+
+	/** Subdivided 버텍스 디버그 시각화 */
+	void DrawSubdividedVerticesDebug();
+
+	/** Subdivided 와이어프레임 디버그 시각화 */
+	void DrawSubdividedWireframeDebug();
+
+	/** Subdivided SkeletalMesh를 에셋으로 Bake */
+	UFUNCTION(CallInEditor, Category = "Subdivision|Bake")
+	void BakeSubdividedMesh();
 #endif
 
 	// =====================================

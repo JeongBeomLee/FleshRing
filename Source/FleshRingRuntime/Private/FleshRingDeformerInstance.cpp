@@ -26,6 +26,25 @@ UFleshRingDeformerInstance::UFleshRingDeformerInstance()
 {
 }
 
+void UFleshRingDeformerInstance::BeginDestroy()
+{
+	// 렌더 스레드의 pending work items 취소
+	// PIE 종료 시 MeshObject dangling pointer 크래시 방지
+	if (Scene)
+	{
+		if (FFleshRingComputeWorker* Worker = FFleshRingComputeSystem::Get().GetWorker(Scene))
+		{
+			Worker->AbortWork(this);
+		}
+	}
+
+	// 렌더 스레드가 현재 작업을 완료할 때까지 대기
+	// 이미 큐잉된 작업이 실행 중일 수 있으므로 flush 필요
+	FlushRenderingCommands();
+
+	Super::BeginDestroy();
+}
+
 void UFleshRingDeformerInstance::SetupFromDeformer(UFleshRingDeformer* InDeformer, UMeshComponent* InMeshComponent)
 {
 	Deformer = InDeformer;
@@ -401,27 +420,27 @@ EMeshDeformerOutputBuffer UFleshRingDeformerInstance::GetOutputBuffers() const
 
 void UFleshRingDeformerInstance::InvalidateTightnessCache()
 {
-	// 1. AffectedVertices 재등록 (Ring 트랜스폼 변경 시 영향받는 정점이 달라질 수 있음)
-	if (FleshRingComponent.IsValid())
-	{
-		USkeletalMeshComponent* SkelMesh = Cast<USkeletalMeshComponent>(MeshComponent.Get());
-		if (SkelMesh)
-		{
-			for (int32 LODIndex = 0; LODIndex < NumLODs; ++LODIndex)
-			{
-				LODData[LODIndex].bAffectedVerticesRegistered =
-					LODData[LODIndex].AffectedVerticesManager.RegisterAffectedVertices(
-						FleshRingComponent.Get(), SkelMesh, LODIndex);
-			}
-		}
-	}
+    // 1. AffectedVertices 재등록 (Ring 트랜스폼 변경 시 영향받는 정점이 달라질 수 있음)
+    if (FleshRingComponent.IsValid())
+    {
+        USkeletalMeshComponent* SkelMesh = Cast<USkeletalMeshComponent>(MeshComponent.Get());
+        if (SkelMesh)
+        {
+            for (int32 LODIndex = 0; LODIndex < NumLODs; ++LODIndex)
+            {
+                LODData[LODIndex].bAffectedVerticesRegistered =
+                    LODData[LODIndex].AffectedVerticesManager.RegisterAffectedVertices(
+                        FleshRingComponent.Get(), SkelMesh, LODIndex);
+            }
+        }
+    }
 
-	// 2. 모든 LOD의 TightenedBindPose 캐시 무효화
-	// 다음 프레임에서 TightnessCS가 새 트랜스폼으로 재계산됨
-	for (FLODDeformationData& Data : LODData)
-	{
-		Data.bTightenedBindPoseCached = false;
-	}
+    // 2. 모든 LOD의 TightenedBindPose 캐시 무효화
+    // 다음 프레임에서 TightnessCS가 새 트랜스폼으로 재계산됨
+    for (FLODDeformationData& Data : LODData)
+    {
+        Data.bTightenedBindPoseCached = false;
+    }
 
-	UE_LOG(LogFleshRing, Log, TEXT("AffectedVertices re-registered and TightnessCache invalidated for all LODs"));
+    UE_LOG(LogFleshRing, Log, TEXT("AffectedVertices re-registered and TightnessCache invalidated for all LODs"));
 }

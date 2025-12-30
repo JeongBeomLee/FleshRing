@@ -20,7 +20,8 @@ FFleshRingSubdivisionProcessor::~FFleshRingSubdivisionProcessor()
 bool FFleshRingSubdivisionProcessor::SetSourceMesh(
 	const TArray<FVector>& InPositions,
 	const TArray<uint32>& InIndices,
-	const TArray<FVector2D>& InUVs)
+	const TArray<FVector2D>& InUVs,
+	const TArray<int32>& InMaterialIndices)
 {
 	if (InPositions.Num() == 0 || InIndices.Num() == 0 || InIndices.Num() % 3 != 0)
 	{
@@ -31,11 +32,19 @@ bool FFleshRingSubdivisionProcessor::SetSourceMesh(
 	SourcePositions = InPositions;
 	SourceIndices = InIndices;
 	SourceUVs = InUVs;
+	SourceMaterialIndices = InMaterialIndices;
 
 	// UV가 없으면 빈 배열로 초기화
 	if (SourceUVs.Num() != SourcePositions.Num())
 	{
 		SourceUVs.SetNumZeroed(SourcePositions.Num());
+	}
+
+	// MaterialIndices가 없으면 모두 0으로 초기화
+	const int32 NumTriangles = SourceIndices.Num() / 3;
+	if (SourceMaterialIndices.Num() != NumTriangles)
+	{
+		SourceMaterialIndices.SetNumZeroed(NumTriangles);
 	}
 
 	InvalidateCache();
@@ -155,7 +164,7 @@ bool FFleshRingSubdivisionProcessor::Process(FSubdivisionTopologyResult& OutResu
 		IndicesInt32[i] = static_cast<int32>(SourceIndices[i]);
 	}
 
-	if (!HalfEdgeMesh.BuildFromTriangles(SourcePositions, IndicesInt32, SourceUVs))
+	if (!HalfEdgeMesh.BuildFromTriangles(SourcePositions, IndicesInt32, SourceUVs, SourceMaterialIndices))
 	{
 		UE_LOG(LogFleshRingSubdivisionProcessor, Warning, TEXT("Failed to build Half-Edge mesh"));
 		return false;
@@ -167,19 +176,62 @@ bool FFleshRingSubdivisionProcessor::Process(FSubdivisionTopologyResult& OutResu
 	// 2. LEB/Red-Green Refinement 수행
 	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("Performing LEB subdivision..."));
 
-	FTorusParams TorusParams;
-	TorusParams.Center = CurrentRingParams.Center;
-	TorusParams.Axis = CurrentRingParams.Axis.GetSafeNormal();
-	TorusParams.MajorRadius = CurrentRingParams.Radius;
-	TorusParams.MinorRadius = CurrentRingParams.Width * 0.5f;
-	TorusParams.InfluenceMargin = CurrentRingParams.GetInfluenceRadius();
+	int32 FacesAdded = 0;
 
-	int32 FacesAdded = FLEBSubdivision::SubdivideRegion(
-		HalfEdgeMesh,
-		TorusParams,
-		CurrentSettings.MaxSubdivisionLevel,
-		CurrentSettings.MinEdgeLength
-	);
+	if (CurrentRingParams.bUseSDFBounds)
+	{
+		// SDF 모드: OBB 기반 영역 검사 (정확한 방식)
+		FSubdivisionOBB OBB = FSubdivisionOBB::CreateFromSDFBounds(
+			CurrentRingParams.SDFBoundsMin,
+			CurrentRingParams.SDFBoundsMax,
+			CurrentRingParams.SDFLocalToComponent,
+			CurrentRingParams.SDFInfluenceMultiplier
+		);
+
+		// 디버그 출력
+		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+			TEXT("=== OBB Subdivision Debug (Local-Space AABB approach) ==="));
+		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+			TEXT("  Local BoundsMin: %s"), *OBB.LocalBoundsMin.ToString());
+		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+			TEXT("  Local BoundsMax: %s"), *OBB.LocalBoundsMax.ToString());
+		FVector LocalSize = OBB.LocalBoundsMax - OBB.LocalBoundsMin;
+		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+			TEXT("  Local Size: %s"), *LocalSize.ToString());
+		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+			TEXT("  InfluenceMargin: %.2f"), OBB.InfluenceMargin);
+		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+			TEXT("  Total influence size: %s"),
+			*(LocalSize + FVector(OBB.InfluenceMargin * 2.0f)).ToString());
+
+		FacesAdded = FLEBSubdivision::SubdivideRegion(
+			HalfEdgeMesh,
+			OBB,
+			CurrentSettings.MaxSubdivisionLevel,
+			CurrentSettings.MinEdgeLength
+		);
+	}
+	else
+	{
+		// Manual 모드: 기존 Torus 방식 (Legacy)
+		FTorusParams TorusParams;
+		TorusParams.Center = CurrentRingParams.Center;
+		TorusParams.Axis = CurrentRingParams.Axis.GetSafeNormal();
+		TorusParams.MajorRadius = CurrentRingParams.Radius;
+		TorusParams.MinorRadius = CurrentRingParams.Width * 0.5f;
+		TorusParams.InfluenceMargin = CurrentRingParams.GetInfluenceRadius();
+
+		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+			TEXT("Manual mode: Torus Center=%s, MajorR=%.2f, MinorR=%.2f"),
+			*TorusParams.Center.ToString(), TorusParams.MajorRadius, TorusParams.MinorRadius);
+
+		FacesAdded = FLEBSubdivision::SubdivideRegion(
+			HalfEdgeMesh,
+			TorusParams,
+			CurrentSettings.MaxSubdivisionLevel,
+			CurrentSettings.MinEdgeLength
+		);
+	}
 
 	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("LEB subdivision complete: %d faces added, total %d faces"),
 		FacesAdded, HalfEdgeMesh.GetFaceCount());
@@ -217,67 +269,233 @@ bool FFleshRingSubdivisionProcessor::ExtractTopologyResult(FSubdivisionTopologyR
 		return false;
 	}
 
-	// Half-Edge 메시의 버텍스를 FSubdivisionVertexData로 변환
-	// 원본 버텍스는 그대로, 새 버텍스는 부모 정보 필요
-
-	// 원본 버텍스 수만큼은 그대로 복사
 	const int32 OriginalVertexCount = SourcePositions.Num();
-
 	OutResult.VertexData.Reserve(HEVertexCount);
 
-	// 모든 Half-Edge 버텍스에 대해 처리
+	// ========================================================================
+	// 단순화된 부모 버텍스 추출: HalfEdgeMesh에서 직접 읽기 - O(N)
+	// (Subdivision 시점에 이미 기록됨)
+	// ========================================================================
+
+	// 1단계: HalfEdgeMesh에서 직접 부모 정보 읽기
+	TArray<TPair<int32, int32>> ImmediateParents;
+	ImmediateParents.SetNum(HEVertexCount);
+
+	for (int32 i = 0; i < HEVertexCount; ++i)
+	{
+		const FHalfEdgeVertex& Vert = HalfEdgeMesh.Vertices[i];
+
+		if (Vert.IsOriginalVertex())
+		{
+			// 원본 버텍스: 자기 자신이 부모
+			ImmediateParents[i] = TPair<int32, int32>(i, i);
+		}
+		else
+		{
+			// 서브디비전 버텍스: 저장된 부모 정보 사용
+			ImmediateParents[i] = TPair<int32, int32>(Vert.ParentIndex0, Vert.ParentIndex1);
+		}
+	}
+
+	UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+		TEXT("Parent extraction: %d original, %d subdivided vertices (direct read from HalfEdgeMesh)"),
+		OriginalVertexCount, HEVertexCount - OriginalVertexCount);
+
+	// ========================================================================
+	// 검증: 부모 인덱스가 유효한지 확인
+	// ========================================================================
+	int32 InvalidParentCount = 0;
+	int32 OutOfOrderCount = 0;
+	for (int32 i = OriginalVertexCount; i < HEVertexCount; ++i)
+	{
+		const TPair<int32, int32>& Parents = ImmediateParents[i];
+		int32 P0 = Parents.Key;
+		int32 P1 = Parents.Value;
+
+		// 부모 인덱스가 유효 범위인지 확인
+		if (P0 < 0 || P0 >= HEVertexCount || P1 < 0 || P1 >= HEVertexCount)
+		{
+			InvalidParentCount++;
+			if (InvalidParentCount <= 5)
+			{
+				UE_LOG(LogFleshRingSubdivisionProcessor, Error,
+					TEXT("BUG: Vertex %d has INVALID parent indices P0=%d, P1=%d (valid range: 0-%d)"),
+					i, P0, P1, HEVertexCount - 1);
+			}
+		}
+		// 부모가 자신보다 나중에 생성됐는지 확인 (토폴로지 순서 위반)
+		else if (P0 >= i || P1 >= i)
+		{
+			OutOfOrderCount++;
+			if (OutOfOrderCount <= 5)
+			{
+				UE_LOG(LogFleshRingSubdivisionProcessor, Error,
+					TEXT("BUG: Vertex %d has OUT-OF-ORDER parent P0=%d, P1=%d (must be < %d)"),
+					i, P0, P1, i);
+			}
+		}
+	}
+
+	if (InvalidParentCount > 0 || OutOfOrderCount > 0)
+	{
+		UE_LOG(LogFleshRingSubdivisionProcessor, Error,
+			TEXT("CRITICAL: %d invalid parents, %d out-of-order parents detected!"),
+			InvalidParentCount, OutOfOrderCount);
+	}
+
+	// 2단계: 재귀적으로 원본 버텍스까지 추적하여 최종 기여도 계산
+	TArray<TMap<uint32, float>> OriginalContributions;
+	OriginalContributions.SetNum(HEVertexCount);
+
+	// 원본 버텍스 초기화
+	for (int32 i = 0; i < OriginalVertexCount; ++i)
+	{
+		OriginalContributions[i].Add(i, 1.0f);
+	}
+
+	// 서브디비전 버텍스의 기여도를 재귀적으로 계산
+	for (int32 i = OriginalVertexCount; i < HEVertexCount; ++i)
+	{
+		const TPair<int32, int32>& Parents = ImmediateParents[i];
+		int32 P0 = Parents.Key;
+		int32 P1 = Parents.Value;
+
+		// 안전 체크
+		if (P0 < 0 || P0 >= i || P1 < 0 || P1 >= i)
+		{
+			// 잘못된 부모 - 원점 기준 fallback
+			OriginalContributions[i].Add(0, 1.0f);
+			continue;
+		}
+
+		// 각 부모의 기여도를 0.5씩 상속
+		for (const auto& Contrib : OriginalContributions[P0])
+		{
+			OriginalContributions[i].FindOrAdd(Contrib.Key) += Contrib.Value * 0.5f;
+		}
+		for (const auto& Contrib : OriginalContributions[P1])
+		{
+			OriginalContributions[i].FindOrAdd(Contrib.Key) += Contrib.Value * 0.5f;
+		}
+	}
+
+	// 검증: 기여도 합계가 1.0인지 확인
+	int32 EmptyContribCount = 0;
+	int32 InvalidTotalCount = 0;
+	for (int32 i = OriginalVertexCount; i < HEVertexCount; ++i)
+	{
+		const TMap<uint32, float>& Contribs = OriginalContributions[i];
+
+		if (Contribs.Num() == 0)
+		{
+			EmptyContribCount++;
+			if (EmptyContribCount <= 5)
+			{
+				UE_LOG(LogFleshRingSubdivisionProcessor, Error,
+					TEXT("BUG: Vertex %d has EMPTY contributions! Parents=(%d,%d)"),
+					i, ImmediateParents[i].Key, ImmediateParents[i].Value);
+			}
+		}
+		else
+		{
+			float Total = 0.0f;
+			for (const auto& C : Contribs)
+			{
+				Total += C.Value;
+				// 기여도의 키(원본 버텍스 인덱스)가 유효 범위인지 확인
+				if (C.Key >= (uint32)OriginalVertexCount)
+				{
+					UE_LOG(LogFleshRingSubdivisionProcessor, Error,
+						TEXT("BUG: Vertex %d has contrib key %u >= OriginalCount %d"),
+						i, C.Key, OriginalVertexCount);
+				}
+			}
+			if (FMath::Abs(Total - 1.0f) > 0.01f)
+			{
+				InvalidTotalCount++;
+				if (InvalidTotalCount <= 5)
+				{
+					UE_LOG(LogFleshRingSubdivisionProcessor, Warning,
+						TEXT("Vertex %d: Total contribution = %.4f (expected 1.0)"),
+						i, Total);
+				}
+			}
+		}
+	}
+
+	if (EmptyContribCount > 0 || InvalidTotalCount > 0)
+	{
+		UE_LOG(LogFleshRingSubdivisionProcessor, Error,
+			TEXT("CONTRIBUTION ERRORS: %d empty, %d invalid totals"),
+			EmptyContribCount, InvalidTotalCount);
+	}
+
+	// 디버그: 샘플 버텍스의 기여도 출력
+	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("=== Sample Vertex Contributions ==="));
+	for (int32 i = OriginalVertexCount; i < FMath::Min(OriginalVertexCount + 5, HEVertexCount); ++i)
+	{
+		FString ContribStr;
+		for (const auto& C : OriginalContributions[i])
+		{
+			ContribStr += FString::Printf(TEXT("[%d:%.3f] "), C.Key, C.Value);
+		}
+		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+			TEXT("  V[%d] parents=(%d,%d) -> contribs: %s"),
+			i, ImmediateParents[i].Key, ImmediateParents[i].Value, *ContribStr);
+	}
+
+	// 3단계: 기여도를 FSubdivisionVertexData로 변환 (최대 3개 원본 버텍스)
 	for (int32 i = 0; i < HEVertexCount; ++i)
 	{
 		if (i < OriginalVertexCount)
 		{
-			// 원본 버텍스
 			OutResult.VertexData.Add(FSubdivisionVertexData::CreateOriginal(i));
 		}
 		else
 		{
-			// 새로 생성된 버텍스 - 부모 정보 필요
-			// Half-Edge 메시에서 이 버텍스가 어떤 엣지의 중점인지 추적해야 함
-			// 현재 FHalfEdgeMesh 구조에서는 이 정보가 직접 저장되어 있지 않으므로
-			// 위치 기반으로 가장 가까운 엣지의 중점으로 판단
+			const TMap<uint32, float>& Contribs = OriginalContributions[i];
 
-			const FVector& NewVertexPos = HalfEdgeMesh.Vertices[i].Position;
-
-			// 원본 메시의 모든 엣지를 검사하여 가장 가까운 중점 찾기
-			float MinDist = FLT_MAX;
-			uint32 BestV0 = 0, BestV1 = 0;
-
-			for (int32 TriIdx = 0; TriIdx < SourceIndices.Num(); TriIdx += 3)
+			// 기여도 순으로 정렬
+			TArray<TPair<uint32, float>> SortedContribs;
+			for (const auto& C : Contribs)
 			{
-				uint32 V0 = SourceIndices[TriIdx + 0];
-				uint32 V1 = SourceIndices[TriIdx + 1];
-				uint32 V2 = SourceIndices[TriIdx + 2];
+				SortedContribs.Add(TPair<uint32, float>(C.Key, C.Value));
+			}
+			SortedContribs.Sort([](const TPair<uint32, float>& A, const TPair<uint32, float>& B)
+			{
+				return A.Value > B.Value;
+			});
 
-				// 3개의 엣지 검사
-				TPair<uint32, uint32> Edges[3] = {
-					{V0, V1}, {V1, V2}, {V2, V0}
-				};
+			// 상위 3개 사용
+			uint32 P0 = 0, P1 = 0, P2 = 0;
+			float W0 = 0, W1 = 0, W2 = 0;
 
-				for (const auto& Edge : Edges)
-				{
-					FVector Midpoint = (SourcePositions[Edge.Key] + SourcePositions[Edge.Value]) * 0.5f;
-					float Dist = FVector::DistSquared(NewVertexPos, Midpoint);
+			if (SortedContribs.Num() >= 1) { P0 = SortedContribs[0].Key; W0 = SortedContribs[0].Value; }
+			if (SortedContribs.Num() >= 2) { P1 = SortedContribs[1].Key; W1 = SortedContribs[1].Value; }
+			if (SortedContribs.Num() >= 3) { P2 = SortedContribs[2].Key; W2 = SortedContribs[2].Value; }
 
-					if (Dist < MinDist)
-					{
-						MinDist = Dist;
-						BestV0 = Edge.Key;
-						BestV1 = Edge.Value;
-					}
-				}
+			// 정규화
+			float TotalWeight = W0 + W1 + W2;
+			if (TotalWeight > 0.0f)
+			{
+				W0 /= TotalWeight;
+				W1 /= TotalWeight;
+				W2 /= TotalWeight;
+			}
+			else
+			{
+				W0 = 1.0f;
 			}
 
-			// Edge midpoint로 간주
-			OutResult.VertexData.Add(FSubdivisionVertexData::CreateEdgeMidpoint(BestV0, BestV1));
+			FSubdivisionVertexData Data = FSubdivisionVertexData::CreateBarycentric(
+				P0, P1, P2, FVector3f(W0, W1, W2));
+			OutResult.VertexData.Add(Data);
 		}
 	}
 
-	// 삼각형 인덱스 추출
+	// 삼각형 인덱스 및 머티리얼 인덱스 추출
 	OutResult.Indices.Reserve(HEFaceCount * 3);
+	OutResult.TriangleMaterialIndices.Reserve(HEFaceCount);
 
 	for (int32 FaceIdx = 0; FaceIdx < HEFaceCount; ++FaceIdx)
 	{
@@ -287,6 +505,9 @@ bool FFleshRingSubdivisionProcessor::ExtractTopologyResult(FSubdivisionTopologyR
 		OutResult.Indices.Add(static_cast<uint32>(V0));
 		OutResult.Indices.Add(static_cast<uint32>(V1));
 		OutResult.Indices.Add(static_cast<uint32>(V2));
+
+		// 머티리얼 인덱스 (subdivision 과정에서 상속됨)
+		OutResult.TriangleMaterialIndices.Add(HalfEdgeMesh.Faces[FaceIdx].MaterialIndex);
 	}
 
 	OutResult.SubdividedVertexCount = OutResult.VertexData.Num();
@@ -302,24 +523,49 @@ bool FFleshRingSubdivisionProcessor::NeedsRecomputation(const FSubdivisionRingPa
 		return true;
 	}
 
-	// 위치 변화 검사
-	float CenterDist = FVector::Dist(CachedRingParams.Center, NewRingParams.Center);
-	if (CenterDist > Threshold)
+	// 모드 변경 검사
+	if (CachedRingParams.bUseSDFBounds != NewRingParams.bUseSDFBounds)
 	{
 		return true;
 	}
 
-	// 반지름 변화 검사
-	if (FMath::Abs(CachedRingParams.Radius - NewRingParams.Radius) > Threshold * 0.1f)
+	if (NewRingParams.bUseSDFBounds)
 	{
-		return true;
-	}
+		// SDF 모드: 바운드 변화 검사
+		float BoundsMinDist = FVector::Dist(CachedRingParams.SDFBoundsMin, NewRingParams.SDFBoundsMin);
+		float BoundsMaxDist = FVector::Dist(CachedRingParams.SDFBoundsMax, NewRingParams.SDFBoundsMax);
+		if (BoundsMinDist > Threshold || BoundsMaxDist > Threshold)
+		{
+			return true;
+		}
 
-	// 축 방향 변화 검사
-	float AxisDot = FVector::DotProduct(CachedRingParams.Axis.GetSafeNormal(), NewRingParams.Axis.GetSafeNormal());
-	if (AxisDot < 0.99f)
+		// 트랜스폼 변화 검사
+		FVector CachedPos = CachedRingParams.SDFLocalToComponent.GetLocation();
+		FVector NewPos = NewRingParams.SDFLocalToComponent.GetLocation();
+		if (FVector::Dist(CachedPos, NewPos) > Threshold)
+		{
+			return true;
+		}
+	}
+	else
 	{
-		return true;
+		// Manual 모드: 기존 방식
+		float CenterDist = FVector::Dist(CachedRingParams.Center, NewRingParams.Center);
+		if (CenterDist > Threshold)
+		{
+			return true;
+		}
+
+		if (FMath::Abs(CachedRingParams.Radius - NewRingParams.Radius) > Threshold * 0.1f)
+		{
+			return true;
+		}
+
+		float AxisDot = FVector::DotProduct(CachedRingParams.Axis.GetSafeNormal(), NewRingParams.Axis.GetSafeNormal());
+		if (AxisDot < 0.99f)
+		{
+			return true;
+		}
 	}
 
 	return false;

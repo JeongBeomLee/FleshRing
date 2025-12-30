@@ -7,6 +7,9 @@
 #include "FleshRingTypes.h"
 #include "FleshRingAsset.generated.h"
 
+/** 에셋 변경 시 브로드캐스트되는 델리게이트 */
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnFleshRingAssetChanged, UFleshRingAsset*);
+
 /**
  * FleshRing 설정을 저장하는 에셋
  * Content Browser에서 생성하여 여러 캐릭터에 재사용 가능
@@ -36,6 +39,41 @@ public:
 	TArray<FFleshRingSettings> Rings;
 
 	// =====================================
+	// Subdivision Settings
+	// =====================================
+
+	/** Subdivision 활성화 (Low-Poly 메시용) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision")
+	bool bEnableSubdivision = false;
+
+	/** 최대 Subdivision 레벨 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision", meta = (ClampMin = "1", ClampMax = "6", EditCondition = "bEnableSubdivision"))
+	int32 MaxSubdivisionLevel = 4;
+
+	/** 최소 엣지 길이 (이보다 작으면 subdivision 중단) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision", meta = (ClampMin = "0.1", EditCondition = "bEnableSubdivision"))
+	float MinEdgeLength = 1.0f;
+
+	/** Ring 영향 범위 배율 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision", meta = (ClampMin = "1.0", ClampMax = "5.0", EditCondition = "bEnableSubdivision"))
+	float InfluenceRadiusMultiplier = 2.0f;
+
+	// =====================================
+	// Subdivided Mesh (Embedded Asset)
+	// =====================================
+
+	/**
+	 * Subdivision된 SkeletalMesh (이 에셋 안에 내장됨)
+	 * GenerateSubdividedMesh()로 생성됨
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Subdivision|Generated")
+	TObjectPtr<USkeletalMesh> SubdividedMesh;
+
+	/** Subdivision 생성 시점의 파라미터 해시 (재생성 필요 여부 판단용) */
+	UPROPERTY()
+	uint32 SubdivisionParamsHash = 0;
+
+	// =====================================
 	// Utility Functions
 	// =====================================
 
@@ -55,8 +93,35 @@ public:
 	UFUNCTION(BlueprintPure, Category = "FleshRing")
 	bool IsValid() const;
 
+	/** Subdivided 메시가 생성되어 있는지 */
+	UFUNCTION(BlueprintPure, Category = "FleshRing|Subdivision")
+	bool HasSubdividedMesh() const { return SubdividedMesh != nullptr; }
+
+	/** Subdivision 파라미터 변경으로 재생성 필요한지 */
+	UFUNCTION(BlueprintPure, Category = "FleshRing|Subdivision")
+	bool NeedsSubdivisionRegeneration() const;
+
+	/** 현재 파라미터 해시 계산 */
+	uint32 CalculateSubdivisionParamsHash() const;
+
+#if WITH_EDITOR
+	/**
+	 * Subdivided SkeletalMesh 생성 (에디터 전용)
+	 * Ring 영향 영역의 삼각형을 subdivision하고 SkinWeight를 barycentric 보간
+	 */
+	UFUNCTION(CallInEditor, Category = "Subdivision")
+	void GenerateSubdividedMesh();
+
+	/** Subdivided 메시 제거 */
+	UFUNCTION(CallInEditor, Category = "Subdivision")
+	void ClearSubdividedMesh();
+#endif
+
 #if WITH_EDITOR
 	/** 에디터에서 프로퍼티 변경 시 호출 */
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+
+	/** 에셋 변경 델리게이트 (컴포넌트들이 구독) */
+	FOnFleshRingAssetChanged OnAssetChanged;
 #endif
 };
