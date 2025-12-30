@@ -192,13 +192,12 @@ void FFleshRingEditorModule::StartupModule()
 			}));
 		}
 
-		// Transform 메뉴에서 FleshRing 뷰포트일 때 기본 좌표계 컨트롤 숨기고 커스텀 메뉴 추가
+		// Transform 메뉴에서 FleshRing 뷰포트일 때 기본 좌표계 컨트롤 숨기기
 		UToolMenu* TransformMenu = UToolMenus::Get()->ExtendMenu("UnrealEd.ViewportToolbar.Transform");
 		if (TransformMenu)
 		{
-			TransformMenu->AddDynamicSection("FleshRingCoordSystem", FNewToolMenuDelegate::CreateLambda([](UToolMenu* InMenu)
+			TransformMenu->AddDynamicSection("FleshRingHideDefaultCoordSystem", FNewToolMenuDelegate::CreateLambda([](UToolMenu* InMenu)
 			{
-				// Context에서 FleshRing 뷰포트인지 확인
 				UUnrealEdViewportToolbarContext* Context = InMenu->FindContext<UUnrealEdViewportToolbarContext>();
 				if (!Context)
 				{
@@ -217,72 +216,8 @@ void FFleshRingEditorModule::StartupModule()
 					return;
 				}
 
-				// 기본 좌표계 컨트롤 숨기기
+				// 기본 좌표계 컨트롤 숨기기 (우리 커스텀 버튼 사용)
 				Context->bShowCoordinateSystemControls = false;
-
-				// FleshRing 전용 좌표계 메뉴 추가
-				TWeakPtr<FEditorViewportClient> WeakClient = BaseClient;
-
-				FToolMenuSection& CoordSection = InMenu->FindOrAddSection("FleshRingCoordinateSystem");
-				CoordSection.Label = LOCTEXT("FleshRingCoordSystemLabel", "Coordinate System");
-
-				// Local 옵션
-				CoordSection.AddMenuEntry(
-					"FleshRingCoordLocal",
-					LOCTEXT("FleshRingCoordLocal", "Local"),
-					LOCTEXT("FleshRingCoordLocalTooltip", "Use local coordinate system"),
-					FSlateIcon(FAppStyle::GetAppStyleSetName(), "EditorViewport.RelativeCoordinateSystem_Local"),
-					FUIAction(
-						FExecuteAction::CreateLambda([WeakClient]()
-						{
-							if (TSharedPtr<FEditorViewportClient> C = WeakClient.Pin())
-							{
-								FFleshRingEditorViewportClient* FC = static_cast<FFleshRingEditorViewportClient*>(C.Get());
-								FC->SetLocalCoordSystem(true);
-							}
-						}),
-						FCanExecuteAction(),
-						FIsActionChecked::CreateLambda([WeakClient]()
-						{
-							if (TSharedPtr<FEditorViewportClient> C = WeakClient.Pin())
-							{
-								FFleshRingEditorViewportClient* FC = static_cast<FFleshRingEditorViewportClient*>(C.Get());
-								return FC->IsUsingLocalCoordSystem();
-							}
-							return false;
-						})
-					),
-					EUserInterfaceActionType::RadioButton
-				);
-
-				// World 옵션
-				CoordSection.AddMenuEntry(
-					"FleshRingCoordWorld",
-					LOCTEXT("FleshRingCoordWorld", "World"),
-					LOCTEXT("FleshRingCoordWorldTooltip", "Use world coordinate system"),
-					FSlateIcon(FAppStyle::GetAppStyleSetName(), "EditorViewport.RelativeCoordinateSystem_World"),
-					FUIAction(
-						FExecuteAction::CreateLambda([WeakClient]()
-						{
-							if (TSharedPtr<FEditorViewportClient> C = WeakClient.Pin())
-							{
-								FFleshRingEditorViewportClient* FC = static_cast<FFleshRingEditorViewportClient*>(C.Get());
-								FC->SetLocalCoordSystem(false);
-							}
-						}),
-						FCanExecuteAction(),
-						FIsActionChecked::CreateLambda([WeakClient]()
-						{
-							if (TSharedPtr<FEditorViewportClient> C = WeakClient.Pin())
-							{
-								FFleshRingEditorViewportClient* FC = static_cast<FFleshRingEditorViewportClient*>(C.Get());
-								return !FC->IsUsingLocalCoordSystem();
-							}
-							return false;
-						})
-					),
-					EUserInterfaceActionType::RadioButton
-				);
 			}));
 		}
 	}));
