@@ -79,8 +79,11 @@ void UFleshRingComponent::BeginPlay()
 		GenerateSDF();
 		FlushRenderingCommands();  // SDF 생성 완료 대기
 
-		// Deformer 등록 (이 시점에 AffectedVertices 등록됨)
-		SetupDeformer();
+		// 유효한 SDF 캐시가 있을 때만 Deformer 설정 (Ring 메쉬가 없으면 스킵)
+		if (AreAllSDFCachesValid())
+		{
+			SetupDeformer();
+		}
 
 		// Ring 메시는 OnRegister()에서 이미 설정됨
 	}
@@ -571,6 +574,14 @@ void UFleshRingComponent::InitializeForEditorPreview()
 	GenerateSDF();
 	FlushRenderingCommands();
 
+	// 유효한 SDF 캐시가 있을 때만 Deformer 설정 (Ring 메쉬가 없으면 SDF 캐시가 비어있음)
+	if (!AreAllSDFCachesValid())
+	{
+		UE_LOG(LogFleshRingComponent, Warning, TEXT("InitializeForEditorPreview: No valid SDF caches, skipping Deformer setup"));
+		bEditorPreviewInitialized = true;
+		return;
+	}
+
 	// Deformer 설정
 	SetupDeformer();
 
@@ -638,6 +649,11 @@ void UFleshRingComponent::UpdateRingTransforms()
 			}
 		}
 	}
+
+#if WITH_EDITORONLY_DATA
+	// 4. 디버그 시각화 캐시 무효화 (Ring 이동 시 AffectedVertices 재계산)
+	bDebugAffectedVerticesCached = false;
+#endif
 }
 
 void UFleshRingComponent::ApplyAsset()
@@ -679,8 +695,16 @@ void UFleshRingComponent::ApplyAsset()
 			}
 		}
 
-		SetupDeformer();
+		// SDF를 먼저 생성 (Deformer가 SDF 데이터를 필요로 함)
 		GenerateSDF();
+		FlushRenderingCommands();
+
+		// 유효한 SDF 캐시가 있을 때만 Deformer 설정
+		if (AreAllSDFCachesValid())
+		{
+			SetupDeformer();
+		}
+
 		SetupRingMeshes();
 	}
 }
@@ -808,8 +832,8 @@ void UFleshRingComponent::SetDebugSlicePlanesVisible(bool bVisible)
 	{
 		if (PlaneActor)
 		{
-			PlaneActor->SetActorHiddenInGame(!bVisible);
-			PlaneActor->SetHidden(!bVisible);
+			// 에디터에서는 SetIsTemporarilyHiddenInEditor 사용 (SetActorHiddenInGame은 에디터에서 동작 안 함)
+			PlaneActor->SetIsTemporarilyHiddenInEditor(!bVisible);
 		}
 	}
 #endif
