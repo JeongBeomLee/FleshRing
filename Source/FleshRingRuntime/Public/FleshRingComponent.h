@@ -148,19 +148,19 @@ public:
 #if WITH_EDITORONLY_DATA
 	/** 디버그 시각화 전체 활성화 (마스터 스위치) */
 	UPROPERTY(EditAnywhere, Category = "Debug")
-	bool bShowDebugVisualization = true;
+	bool bShowDebugVisualization = false;
 
 	/** SDF 볼륨 바운드 박스 표시 */
 	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
-	bool bShowSdfVolume = true;
+	bool bShowSdfVolume = false;
 
 	/** 영향받는 버텍스 표시 (색상 = Influence 강도) */
 	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
-	bool bShowAffectedVertices = true;
+	bool bShowAffectedVertices = false;
 
 	/** SDF 슬라이스 평면 표시 */
 	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
-	bool bShowSDFSlice = true;
+	bool bShowSDFSlice = false;
 
 	/** 표시할 SDF 슬라이스 Z 인덱스 (0 ~ Resolution-1) */
 	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization && bShowSDFSlice", ClampMin = "0", ClampMax = "63", UIMin = "0", UIMax = "63"))
@@ -187,6 +187,13 @@ public:
 	/** 내부 Deformer 반환 */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing")
 	UFleshRingDeformer* GetDeformer() const { return InternalDeformer; }
+
+	/**
+	 * 에디터 프리뷰 환경에서 Deformer를 초기화합니다.
+	 * BeginPlay()가 호출되지 않는 에디터 환경에서 사용합니다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FleshRing|Editor")
+	void InitializeForEditorPreview();
 
 	// =====================================
 	// SDF 캐시 접근 (Deformer에서 사용)
@@ -219,6 +226,9 @@ public:
 	}
 
 private:
+	/** 에디터 프리뷰 초기화 완료 여부 */
+	bool bEditorPreviewInitialized = false;
+
 	/** 자동/수동 검색된 실제 대상 */
 	UPROPERTY(Transient)
 	TWeakObjectPtr<USkeletalMeshComponent> ResolvedTargetMesh;

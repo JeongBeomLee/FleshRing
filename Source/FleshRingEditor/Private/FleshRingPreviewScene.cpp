@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "FleshRingPreviewScene.h"
 #include "FleshRingComponent.h"
@@ -8,6 +8,7 @@
 #include "Engine/SkeletalMesh.h"
 #include "Engine/StaticMesh.h"
 #include "GameFramework/Actor.h"
+#include "TimerManager.h"
 
 FFleshRingPreviewScene::FFleshRingPreviewScene(const ConstructionValues& CVS)
 	: FAdvancedPreviewScene(CVS)
@@ -69,11 +70,11 @@ void FFleshRingPreviewScene::CreatePreviewActor()
 	SkeletalMeshComponent->RegisterComponent();
 	PreviewActor->AddInstanceComponent(SkeletalMeshComponent);
 
-	// FleshRing 컴포넌트 생성 (에디터에서는 Deformer 비활성화)
+	// FleshRing 컴포넌트 생성 (에디터에서도 Deformer 활성화)
 	FleshRingComponent = NewObject<UFleshRingComponent>(PreviewActor, TEXT("FleshRingComponent"));
 	FleshRingComponent->bUseCustomTarget = true;
 	FleshRingComponent->CustomTargetMesh = SkeletalMeshComponent;
-	FleshRingComponent->bEnableFleshRing = false;  // 에디터 프리뷰에서는 Deformer 비활성화
+	FleshRingComponent->bEnableFleshRing = true;  // 에디터 프리뷰에서도 Deformer 활성화
 	FleshRingComponent->RegisterComponent();
 	PreviewActor->AddInstanceComponent(FleshRingComponent);
 }
@@ -96,10 +97,36 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	{
 		FleshRingComponent->FleshRingAsset = InAsset;
 		FleshRingComponent->ApplyAsset();
+
+		// 딜레이된 초기화 (SkeletalMesh 렌더 완료 후 Deformer 초기화)
+		if (FleshRingComponent->bEnableFleshRing)
+		{
+			UWorld* World = GetWorld();
+			if (World)
+			{
+				FTimerHandle TimerHandle;
+				TWeakObjectPtr<UFleshRingComponent> WeakComponent = FleshRingComponent;
+				World->GetTimerManager().SetTimer(
+					TimerHandle,
+					[WeakComponent]()
+					{
+						if (WeakComponent.IsValid())
+						{
+							WeakComponent->InitializeForEditorPreview();
+						}
+					},
+					0.1f,  // 0.1초 딜레이
+					false  // 반복 안 함
+				);
+			}
+		}
 	}
 
-	// Ring 시각화 갱신
-	RefreshRings(InAsset->Rings);
+	// Deformer 비활성화 시에만 Ring 시각화 (활성화 시 FleshRingComponent가 관리)
+	if (!FleshRingComponent || !FleshRingComponent->bEnableFleshRing)
+	{
+		RefreshRings(InAsset->Rings);
+	}
 }
 
 void FFleshRingPreviewScene::SetSkeletalMesh(USkeletalMesh* InMesh)

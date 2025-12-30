@@ -416,6 +416,49 @@ void UFleshRingComponent::UpdateSDF()
 	GenerateSDF();
 }
 
+void UFleshRingComponent::InitializeForEditorPreview()
+{
+	// 비활성화 상태면 스킵
+	if (!bEnableFleshRing)
+	{
+		return;
+	}
+
+	// 이미 초기화되었으면 스킵
+	if (bEditorPreviewInitialized)
+	{
+		return;
+	}
+
+	UE_LOG(LogFleshRingComponent, Log, TEXT("InitializeForEditorPreview: Starting..."));
+
+	// 대상 메시 해석
+	ResolveTargetMesh();
+
+	if (!ResolvedTargetMesh.IsValid())
+	{
+		UE_LOG(LogFleshRingComponent, Warning, TEXT("InitializeForEditorPreview: No target mesh"));
+		return;
+	}
+
+	// SDF 생성 및 완료 대기
+	GenerateSDF();
+	FlushRenderingCommands();
+
+	// Deformer 설정
+	SetupDeformer();
+
+	// Ring 메시 설정 (이미 OnRegister에서 호출되었을 수 있음)
+	if (RingMeshComponents.Num() == 0)
+	{
+		SetupRingMeshes();
+	}
+
+	bEditorPreviewInitialized = true;
+
+	UE_LOG(LogFleshRingComponent, Log, TEXT("InitializeForEditorPreview: Completed"));
+}
+
 void UFleshRingComponent::ApplyAsset()
 {
 	if (!FleshRingAsset)
@@ -429,6 +472,9 @@ void UFleshRingComponent::ApplyAsset()
 	// 기존 설정 정리 후 재설정
 	CleanupRingMeshes();
 	CleanupDeformer();
+
+	// 에디터 프리뷰 상태 리셋
+	bEditorPreviewInitialized = false;
 
 	if (bEnableFleshRing)
 	{
