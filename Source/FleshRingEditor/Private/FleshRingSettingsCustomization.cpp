@@ -198,7 +198,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 				.ValueContent()
 				.MinDesiredWidth(300.0f)
 				[
-					CreateLinearVectorWidget(ChildHandle, 1.0f)
+					CreateLinearVectorWidget(ChildHandle, 0.1f)
 				]
 				.OverrideResetToDefault(
 					FResetToDefaultOverride::Create(
@@ -498,7 +498,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			.ValueContent()
 			.MinDesiredWidth(300.0f)
 			[
-				CreateLinearVectorWidget(RingOffsetHandle.ToSharedRef(), 1.0f)
+				CreateLinearVectorWidget(RingOffsetHandle.ToSharedRef(), 0.1f)
 			]
 			.OverrideResetToDefault(
 				FResetToDefaultOverride::Create(

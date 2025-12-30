@@ -99,6 +99,18 @@ bool FFleshRingEditorViewportClient::IsUsingLocalCoordSystem() const
 	return bUseLocalCoordSystem;
 }
 
+void FFleshRingEditorViewportClient::SetLocalCoordSystem(bool bLocal)
+{
+	// 스케일 모드일 때는 변경하지 않음 (항상 로컬 유지)
+	if (GetWidgetMode() == UE::Widget::WM_Scale)
+	{
+		return;
+	}
+
+	bUseLocalCoordSystem = bLocal;
+	Invalidate();
+}
+
 void FFleshRingEditorViewportClient::Tick(float DeltaSeconds)
 {
 	FEditorViewportClient::Tick(DeltaSeconds);

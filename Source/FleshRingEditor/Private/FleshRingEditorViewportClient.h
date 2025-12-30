@@ -116,6 +116,7 @@ public:
 
 	// Local/World 좌표계 (커스텀 관리 - 툴바 버튼과 연동)
 	void ToggleLocalCoordSystem();
+	void SetLocalCoordSystem(bool bLocal);
 	bool IsUsingLocalCoordSystem() const;
 
 private:
