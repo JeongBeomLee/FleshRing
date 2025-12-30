@@ -6,8 +6,10 @@
 #include "IPropertyTypeCustomization.h"
 #include "PropertyHandle.h"
 #include "Widgets/SWidget.h"
+#include "Widgets/Views/SListView.h"
 
 class IDetailChildrenBuilder;
+class SComboButton;
 
 /**
  * FFleshRingSettings 구조체의 프로퍼티 타입 커스터마이저
@@ -37,11 +39,20 @@ private:
 	/** Bone 이름 목록 가져오기 */
 	void UpdateBoneNameList();
 
-	/** 드롭다운 열릴 때 호출 - 본 목록 갱신 */
-	void OnComboBoxOpening();
+	/** 검색 가능한 Bone 드롭다운 위젯 생성 */
+	TSharedRef<SWidget> CreateSearchableBoneDropdown();
 
-	/** Bone 드롭다운에서 선택 시 호출 */
-	void OnBoneNameSelected(TSharedPtr<FName> NewSelection, ESelectInfo::Type SelectInfo);
+	/** 검색 텍스트 변경 시 호출 */
+	void OnBoneSearchTextChanged(const FText& NewText);
+
+	/** 필터링된 Bone 목록 갱신 */
+	void UpdateFilteredBoneList();
+
+	/** ListView 행 생성 */
+	TSharedRef<ITableRow> GenerateBoneRow(TSharedPtr<FName> InItem, const TSharedRef<STableViewBase>& OwnerTable);
+
+	/** ListView에서 선택 시 호출 */
+	void OnBoneListSelectionChanged(TSharedPtr<FName> NewSelection, ESelectInfo::Type SelectInfo);
 
 	/** 현재 선택된 Bone 이름 가져오기 */
 	FText GetCurrentBoneName() const;
@@ -150,6 +161,18 @@ private:
 
 	/** 사용 가능한 Bone 이름 목록 */
 	TArray<TSharedPtr<FName>> BoneNameList;
+
+	/** 검색 필터링된 Bone 이름 목록 */
+	TArray<TSharedPtr<FName>> FilteredBoneNameList;
+
+	/** 검색 텍스트 */
+	FString BoneSearchText;
+
+	/** Bone ListView 위젯 참조 (갱신용) */
+	TSharedPtr<SListView<TSharedPtr<FName>>> BoneListView;
+
+	/** ComboButton 위젯 참조 (닫기용) */
+	TSharedPtr<SComboButton> BoneComboButton;
 
 	/** Asset에서 TargetSkeletalMesh 가져오기 */
 	class USkeletalMesh* GetTargetSkeletalMesh() const;

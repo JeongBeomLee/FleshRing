@@ -59,10 +59,38 @@ FFleshRingEditorViewportClient::FFleshRingEditorViewportClient(
 
 	// Stats 표시 활성화 (FPS 등)
 	SetShowStats(true);
+
+	// 정적 인스턴스 레지스트리에 등록 (타입 안전 확인용)
+	GetAllInstances().Add(this);
 }
 
 FFleshRingEditorViewportClient::~FFleshRingEditorViewportClient()
 {
+	// 정적 인스턴스 레지스트리에서 제거
+	GetAllInstances().Remove(this);
+}
+
+void FFleshRingEditorViewportClient::ToggleLocalCoordSystem()
+{
+	// 스케일 모드일 때는 토글하지 않음 (항상 로컬 유지)
+	if (GetWidgetMode() == UE::Widget::WM_Scale)
+	{
+		return;
+	}
+
+	bUseLocalCoordSystem = !bUseLocalCoordSystem;
+	Invalidate();
+}
+
+bool FFleshRingEditorViewportClient::IsUsingLocalCoordSystem() const
+{
+	// 스케일 모드일 때는 항상 로컬
+	if (GetWidgetMode() == UE::Widget::WM_Scale)
+	{
+		return true;
+	}
+
+	return bUseLocalCoordSystem;
 }
 
 void FFleshRingEditorViewportClient::Tick(float DeltaSeconds)
@@ -123,6 +151,14 @@ bool FFleshRingEditorViewportClient::InputKey(const FInputKeyEventArgs& EventArg
 		if (EventArgs.Key == EKeys::F)
 		{
 			FocusOnMesh();
+			return true;
+		}
+
+		// Ctrl+` 로 Local/World 좌표계 전환
+		if (EventArgs.Key == EKeys::Tilde &&
+			(EventArgs.Viewport->KeyState(EKeys::LeftControl) || EventArgs.Viewport->KeyState(EKeys::RightControl)))
+		{
+			ToggleLocalCoordSystem();
 			return true;
 		}
 
@@ -590,10 +626,8 @@ FMatrix FFleshRingEditorViewportClient::GetSelectedRingAlignMatrix() const
 	FTransform BoneTransform = SkelMeshComp->GetBoneTransform(BoneIndex);
 	FQuat BoneRotation = BoneTransform.GetRotation();
 
-	// 좌표계 모드 확인 (World vs Local)
-	ECoordSystem CoordSystem = ModeTools ? ModeTools->GetCoordSystem() : COORD_World;
-
-	if (CoordSystem == COORD_Local)
+	// 좌표계 모드 확인 (World vs Local) - 커스텀 플래그 사용
+	if (bUseLocalCoordSystem)
 	{
 		FQuat TargetRotation;
 		if (bIsDraggingRotation)
@@ -632,6 +666,13 @@ ECoordSystem FFleshRingEditorViewportClient::GetWidgetCoordSystemSpace() const
 	// GetWidgetCoordSystem()에서 이미 회전된 좌표계를 반환하고 있으므로,
 	// 추가적인 Local Space 처리가 필요 없음
 	return COORD_World;
+}
+
+void FFleshRingEditorViewportClient::SetWidgetCoordSystemSpace(ECoordSystem NewCoordSystem)
+{
+	// 기본 툴바 버튼 클릭 시 호출됨 - 커스텀 플래그 토글
+	bUseLocalCoordSystem = (NewCoordSystem == COORD_Local);
+	Invalidate();
 }
 
 UE::Widget::EWidgetMode FFleshRingEditorViewportClient::GetWidgetMode() const

@@ -10,9 +10,8 @@
 #include "Engine/SkeletalMesh.h"
 #include "Slate/SceneViewport.h"
 #include "EditorModeRegistry.h"
-#include "Styling/AppStyle.h"
-#include "Widgets/Layout/SBorder.h"
-#include "Widgets/Layout/SBox.h"
+
+#define LOCTEXT_NAMESPACE "FleshRingEditorViewport"
 
 void SFleshRingEditorViewport::Construct(const FArguments& InArgs)
 {
@@ -155,7 +154,7 @@ void SFleshRingEditorViewport::OnFocusViewportToSelection()
 
 void SFleshRingEditorViewport::PopulateViewportOverlays(TSharedRef<SOverlay> Overlay)
 {
-	// 오버레이에 툴바 추가하지 않음 - Asset Editor에서 별도로 배치
+	// 기본 오버레이 구성
 	SEditorViewport::PopulateViewportOverlays(Overlay);
 }
 
@@ -163,3 +162,5 @@ TSharedRef<SWidget> SFleshRingEditorViewport::MakeToolbar()
 {
 	return SNew(SFleshRingEditorViewportToolbar, SharedThis(this));
 }
+
+#undef LOCTEXT_NAMESPACE

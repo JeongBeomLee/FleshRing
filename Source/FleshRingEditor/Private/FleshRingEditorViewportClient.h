@@ -25,6 +25,19 @@ enum class EFleshRingSelectionType : uint8
 class FFleshRingEditorViewportClient : public FEditorViewportClient
 {
 public:
+	/** 모든 활성 인스턴스 추적 (타입 확인용) */
+	static TSet<FFleshRingEditorViewportClient*>& GetAllInstances()
+	{
+		static TSet<FFleshRingEditorViewportClient*> Instances;
+		return Instances;
+	}
+
+	/** 특정 ViewportClient가 FleshRing 타입인지 확인 */
+	static bool IsFleshRingViewportClient(FEditorViewportClient* Client)
+	{
+		return Client && GetAllInstances().Contains(static_cast<FFleshRingEditorViewportClient*>(Client));
+	}
+
 	FFleshRingEditorViewportClient(
 		FEditorModeTools* InModeTools,
 		FFleshRingPreviewScene* InPreviewScene,
@@ -43,6 +56,7 @@ public:
 	virtual FVector GetWidgetLocation() const override;
 	virtual FMatrix GetWidgetCoordSystem() const override;
 	virtual ECoordSystem GetWidgetCoordSystemSpace() const override;
+	virtual void SetWidgetCoordSystemSpace(ECoordSystem NewCoordSystem) override;
 	virtual UE::Widget::EWidgetMode GetWidgetMode() const override;
 	virtual bool InputWidgetDelta(FViewport* InViewport, EAxisList::Type CurrentAxis, FVector& Drag, FRotator& Rot, FVector& Scale) override;
 	virtual void TrackingStarted(const FInputEventState& InInputState, bool bIsDraggingWidget, bool bNudge) override;
@@ -75,6 +89,10 @@ public:
 	bool ShouldShowRingGizmos() const { return bShowRingGizmos; }
 	bool ShouldShowRingMeshes() const { return bShowRingMeshes; }
 	bool ShouldShowBones() const { return bShowBones; }
+
+	// Local/World 좌표계 (커스텀 관리 - 툴바 버튼과 연동)
+	void ToggleLocalCoordSystem();
+	bool IsUsingLocalCoordSystem() const;
 
 private:
 	/** 본 렌더링 (Persona 스타일) */
@@ -110,4 +128,7 @@ private:
 	bool bShowRingGizmos = true;
 	bool bShowRingMeshes = true;
 	bool bShowBones = true;
+
+	// Local/World 좌표계 플래그 (커스텀 관리)
+	bool bUseLocalCoordSystem = true;
 };

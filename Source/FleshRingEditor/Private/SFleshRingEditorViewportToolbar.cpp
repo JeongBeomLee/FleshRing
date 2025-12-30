@@ -1,17 +1,13 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "SFleshRingEditorViewportToolbar.h"
 #include "SFleshRingEditorViewport.h"
 #include "FleshRingEditorViewportClient.h"
 #include "FleshRingPreviewScene.h"
 #include "FleshRingComponent.h"
-#include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
-#include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Input/SSpinBox.h"
 #include "Widgets/Text/STextBlock.h"
-#include "Framework/MultiBox/MultiBoxBuilder.h"
-#include "EditorViewportCommands.h"
 
 #define LOCTEXT_NAMESPACE "FleshRingEditorViewportToolbar"
 

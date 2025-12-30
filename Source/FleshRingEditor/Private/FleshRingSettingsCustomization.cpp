@@ -9,12 +9,15 @@
 #include "FleshRingAsset.h"
 #include "FleshRingTypes.h"
 #include "Widgets/Input/SComboBox.h"
+#include "Widgets/Input/SComboButton.h"
+#include "Widgets/Input/SSearchBox.h"
 #include "Widgets/Input/SSpinBox.h"
 #include "Widgets/Input/SNumericEntryBox.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Images/SImage.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/SBoxPanel.h"
+#include "Widgets/Views/SListView.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "ReferenceSkeleton.h"
@@ -83,7 +86,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	// Bone 목록 업데이트
 	UpdateBoneNameList();
 
-	// BoneName을 드롭다운으로 커스터마이징
+	// BoneName을 검색 가능한 드롭다운으로 커스터마이징
 	if (BoneNameHandle.IsValid())
 	{
 		ChildBuilder.AddCustomRow(LOCTEXT("BoneNameRow", "Bone Name"))
@@ -96,41 +99,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		.ValueContent()
 		.MinDesiredWidth(200.0f)
 		[
-			SNew(SComboBox<TSharedPtr<FName>>)
-			.OptionsSource(&BoneNameList)
-			.OnComboBoxOpening(this, &FFleshRingSettingsCustomization::OnComboBoxOpening)
-			.OnSelectionChanged(this, &FFleshRingSettingsCustomization::OnBoneNameSelected)
-			.OnGenerateWidget_Lambda([](TSharedPtr<FName> InItem)
-			{
-				return SNew(STextBlock)
-					.Text(FText::FromName(*InItem))
-					.Font(IDetailLayoutBuilder::GetDetailFont());
-			})
-			.Content()
-			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.VAlign(VAlign_Center)
-				.Padding(0, 0, 4, 0)
-				[
-					SNew(SImage)
-					.Image(FAppStyle::GetBrush("Icons.Warning"))
-					.Visibility_Lambda([this]()
-					{
-						return IsBoneInvalid() ? EVisibility::Visible : EVisibility::Collapsed;
-					})
-					.ColorAndOpacity(FLinearColor::Yellow)
-				]
-				+ SHorizontalBox::Slot()
-				.FillWidth(1.0f)
-				.VAlign(VAlign_Center)
-				[
-					SNew(STextBlock)
-					.Text(this, &FFleshRingSettingsCustomization::GetCurrentBoneName)
-					.Font(IDetailLayoutBuilder::GetDetailFont())
-				]
-			]
+			CreateSearchableBoneDropdown()
 		];
 	}
 
@@ -217,60 +186,233 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			continue;
 		}
 
-		// Transform 프로퍼티들은 선형 드래그 감도 적용 + Reset 버튼
+		// Transform 프로퍼티들은 선형 드래그 감도 적용 + 기본 리셋 화살표
 		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshOffset))
 		{
-			ChildBuilder.AddCustomRow(LOCTEXT("MeshOffsetRow", "Mesh Offset"))
-			.NameContent()
-			[
-				SNew(STextBlock)
-				.Text(LOCTEXT("MeshOffset", "Mesh Offset"))
-				.Font(IDetailLayoutBuilder::GetDetailFont())
-			]
-			.ValueContent()
-			.MinDesiredWidth(300.0f)
-			[
-				CreateVectorWidgetWithResetButton(ChildHandle, 1.0f, FVector::ZeroVector)
-			];
+			ChildBuilder.AddProperty(ChildHandle)
+				.CustomWidget()
+				.NameContent()
+				[
+					ChildHandle->CreatePropertyNameWidget()
+				]
+				.ValueContent()
+				.MinDesiredWidth(300.0f)
+				[
+					CreateLinearVectorWidget(ChildHandle, 1.0f)
+				]
+				.OverrideResetToDefault(
+					FResetToDefaultOverride::Create(
+						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							FVector Value;
+							Handle->GetValue(Value);
+							return !Value.IsNearlyZero();
+						}),
+						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							Handle->SetValue(FVector::ZeroVector);
+						})
+					)
+				);
 			continue;
 		}
 		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshEulerRotation))
 		{
-			ChildBuilder.AddCustomRow(LOCTEXT("MeshRotationRow", "Mesh Rotation"))
-			.NameContent()
-			[
-				SNew(STextBlock)
-				.Text(LOCTEXT("MeshRotation", "Mesh Rotation"))
-				.Font(IDetailLayoutBuilder::GetDetailFont())
-			]
-			.ValueContent()
-			.MinDesiredWidth(300.0f)
-			[
-				CreateRotatorWidgetWithResetButton(ChildHandle, 1.0f, FRotator(-90.0f, 0.0f, 0.0f))
-			];
+			ChildBuilder.AddProperty(ChildHandle)
+				.CustomWidget()
+				.NameContent()
+				[
+					ChildHandle->CreatePropertyNameWidget()
+				]
+				.ValueContent()
+				.MinDesiredWidth(300.0f)
+				[
+					CreateLinearRotatorWidget(ChildHandle, 1.0f)
+				]
+				.OverrideResetToDefault(
+					FResetToDefaultOverride::Create(
+						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							FRotator Value;
+							Handle->GetValue(Value);
+							return !Value.Equals(FRotator(-90.0f, 0.0f, 0.0f), 0.01f);
+						}),
+						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							Handle->SetValue(FRotator(-90.0f, 0.0f, 0.0f));
+						})
+					)
+				);
 			continue;
 		}
 		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshScale))
 		{
-			ChildBuilder.AddCustomRow(LOCTEXT("MeshScaleRow", "Mesh Scale"))
-			.NameContent()
-			[
-				SNew(STextBlock)
-				.Text(LOCTEXT("MeshScale", "Mesh Scale"))
-				.Font(IDetailLayoutBuilder::GetDetailFont())
-			]
-			.ValueContent()
-			.MinDesiredWidth(300.0f)
-			[
-				CreateVectorWidgetWithResetButton(ChildHandle, 0.0025f, FVector::OneVector)
-			];
+			ChildBuilder.AddProperty(ChildHandle)
+				.CustomWidget()
+				.NameContent()
+				[
+					ChildHandle->CreatePropertyNameWidget()
+				]
+				.ValueContent()
+				.MinDesiredWidth(300.0f)
+				[
+					CreateLinearVectorWidget(ChildHandle, 0.0025f)
+				]
+				.OverrideResetToDefault(
+					FResetToDefaultOverride::Create(
+						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							FVector Value;
+							Handle->GetValue(Value);
+							return !Value.Equals(FVector::OneVector, 0.0001f);
+						}),
+						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							Handle->SetValue(FVector::OneVector);
+						})
+					)
+				);
 			continue;
 		}
 
-		// SDF Settings는 Manual 모드일 때 비활성화
+		// SDF Settings는 Manual 모드일 때 비활성화 + 자식 프로퍼티 리셋 오버라이드
 		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SdfSettings))
 		{
-			ChildBuilder.AddProperty(ChildHandle).IsEnabled(IsSdfModeAttr);
+			// SDF Settings 그룹 생성
+			IDetailGroup& SdfGroup = ChildBuilder.AddGroup(TEXT("SdfSettings"), LOCTEXT("SdfSettingsGroup", "SDF Settings"));
+
+			// 자식 프로퍼티들 가져오기
+			TSharedPtr<IPropertyHandle> ResolutionHandle = ChildHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSdfSettings, Resolution));
+			TSharedPtr<IPropertyHandle> JfaIterationsHandle = ChildHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSdfSettings, JfaIterations));
+			TSharedPtr<IPropertyHandle> UpdateModeHandle = ChildHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSdfSettings, UpdateMode));
+
+			// Resolution - 기본값: 64
+			if (ResolutionHandle.IsValid())
+			{
+				SdfGroup.AddPropertyRow(ResolutionHandle.ToSharedRef())
+					.IsEnabled(IsSdfModeAttr)
+					.OverrideResetToDefault(
+						FResetToDefaultOverride::Create(
+							FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+								int32 Value;
+								Handle->GetValue(Value);
+								return Value != 64;
+							}),
+							FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+								Handle->SetValue(64);
+							})
+						)
+					);
+			}
+
+			// JfaIterations - 기본값: 8
+			if (JfaIterationsHandle.IsValid())
+			{
+				SdfGroup.AddPropertyRow(JfaIterationsHandle.ToSharedRef())
+					.IsEnabled(IsSdfModeAttr)
+					.OverrideResetToDefault(
+						FResetToDefaultOverride::Create(
+							FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+								int32 Value;
+								Handle->GetValue(Value);
+								return Value != 8;
+							}),
+							FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+								Handle->SetValue(8);
+							})
+						)
+					);
+			}
+
+			// UpdateMode - 기본값: OnChange
+			if (UpdateModeHandle.IsValid())
+			{
+				SdfGroup.AddPropertyRow(UpdateModeHandle.ToSharedRef())
+					.IsEnabled(IsSdfModeAttr)
+					.OverrideResetToDefault(
+						FResetToDefaultOverride::Create(
+							FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+								uint8 Value;
+								Handle->GetValue(Value);
+								return Value != static_cast<uint8>(EFleshRingSdfUpdateMode::OnChange);
+							}),
+							FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+								Handle->SetValue(static_cast<uint8>(EFleshRingSdfUpdateMode::OnChange));
+							})
+						)
+					);
+			}
+
+			continue;
+		}
+
+		// InfluenceMode - 기본값: Auto
+		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, InfluenceMode))
+		{
+			ChildBuilder.AddProperty(ChildHandle)
+				.OverrideResetToDefault(
+					FResetToDefaultOverride::Create(
+						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							uint8 Value;
+							Handle->GetValue(Value);
+							return Value != static_cast<uint8>(EFleshRingInfluenceMode::Auto);
+						}),
+						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							Handle->SetValue(static_cast<uint8>(EFleshRingInfluenceMode::Auto));
+						})
+					)
+				);
+			continue;
+		}
+
+		// BulgeIntensity - 기본값: 0.5
+		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeIntensity))
+		{
+			ChildBuilder.AddProperty(ChildHandle)
+				.OverrideResetToDefault(
+					FResetToDefaultOverride::Create(
+						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							float Value;
+							Handle->GetValue(Value);
+							return !FMath::IsNearlyEqual(Value, 0.5f);
+						}),
+						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							Handle->SetValue(0.5f);
+						})
+					)
+				);
+			continue;
+		}
+
+		// TightnessStrength - 기본값: 1.0
+		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, TightnessStrength))
+		{
+			ChildBuilder.AddProperty(ChildHandle)
+				.OverrideResetToDefault(
+					FResetToDefaultOverride::Create(
+						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							float Value;
+							Handle->GetValue(Value);
+							return !FMath::IsNearlyEqual(Value, 1.0f);
+						}),
+						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							Handle->SetValue(1.0f);
+						})
+					)
+				);
+			continue;
+		}
+
+		// FalloffType - 기본값: Linear
+		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, FalloffType))
+		{
+			ChildBuilder.AddProperty(ChildHandle)
+				.OverrideResetToDefault(
+					FResetToDefaultOverride::Create(
+						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							uint8 Value;
+							Handle->GetValue(Value);
+							return Value != static_cast<uint8>(EFalloffType::Linear);
+						}),
+						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							Handle->SetValue(static_cast<uint8>(EFalloffType::Linear));
+						})
+					)
+				);
 			continue;
 		}
 
@@ -278,53 +420,125 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		ChildBuilder.AddProperty(ChildHandle);
 	}
 
-	// Ring Transform 그룹 생성
+	// Ring Transform 그룹 생성 (Auto 모드일 때 헤더 텍스트도 어둡게)
 	IDetailGroup& RingGroup = ChildBuilder.AddGroup(TEXT("RingTransform"), LOCTEXT("RingTransformGroup", "Ring Transform"));
+	RingGroup.HeaderRow()
+		.NameContent()
+		[
+			SNew(STextBlock)
+			.Text(LOCTEXT("RingTransformHeader", "Ring Transform"))
+			.Font(IDetailLayoutBuilder::GetDetailFontBold())
+			.ColorAndOpacity_Lambda([IsManualModeAttr]() -> FSlateColor
+			{
+				return IsManualModeAttr.Get() ? FSlateColor::UseForeground() : FSlateColor::UseSubduedForeground();
+			})
+		];
 
 	// Ring 그룹에 프로퍼티 추가
 	if (RingRadiusHandle.IsValid())
 	{
-		RingGroup.AddPropertyRow(RingRadiusHandle.ToSharedRef()).IsEnabled(IsManualModeAttr);
+		RingGroup.AddPropertyRow(RingRadiusHandle.ToSharedRef())
+			.IsEnabled(IsManualModeAttr)
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyEqual(Value, 5.0f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(5.0f);
+					})
+				)
+			);
 	}
 	if (RingThicknessHandle.IsValid())
 	{
-		RingGroup.AddPropertyRow(RingThicknessHandle.ToSharedRef()).IsEnabled(IsManualModeAttr);
+		RingGroup.AddPropertyRow(RingThicknessHandle.ToSharedRef())
+			.IsEnabled(IsManualModeAttr)
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyEqual(Value, 1.0f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(1.0f);
+					})
+				)
+			);
 	}
 	if (RingWidthHandle.IsValid())
 	{
-		RingGroup.AddPropertyRow(RingWidthHandle.ToSharedRef()).IsEnabled(IsManualModeAttr);
+		RingGroup.AddPropertyRow(RingWidthHandle.ToSharedRef())
+			.IsEnabled(IsManualModeAttr)
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyEqual(Value, 2.0f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(2.0f);
+					})
+				)
+			);
 	}
 	if (RingOffsetHandle.IsValid())
 	{
-		RingGroup.AddWidgetRow()
-		.IsEnabled(IsManualModeAttr)
-		.NameContent()
-		[
-			SNew(STextBlock)
-			.Text(LOCTEXT("RingOffset", "Ring Offset"))
-			.Font(IDetailLayoutBuilder::GetDetailFont())
-		]
-		.ValueContent()
-		.MinDesiredWidth(300.0f)
-		[
-			CreateVectorWidgetWithResetButton(RingOffsetHandle.ToSharedRef(), 1.0f, FVector::ZeroVector)
-		];
+		RingGroup.AddPropertyRow(RingOffsetHandle.ToSharedRef())
+			.IsEnabled(IsManualModeAttr)
+			.CustomWidget()
+			.NameContent()
+			[
+				RingOffsetHandle->CreatePropertyNameWidget()
+			]
+			.ValueContent()
+			.MinDesiredWidth(300.0f)
+			[
+				CreateLinearVectorWidget(RingOffsetHandle.ToSharedRef(), 1.0f)
+			]
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						FVector Value;
+						Handle->GetValue(Value);
+						return !Value.IsNearlyZero();
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(FVector::ZeroVector);
+					})
+				)
+			);
 	}
 	if (RingEulerHandle.IsValid())
 	{
-		RingGroup.AddWidgetRow()
-		.IsEnabled(IsManualModeAttr)
-		.NameContent()
-		[
-			SNew(STextBlock)
-			.Text(LOCTEXT("RingRotation", "Ring Rotation"))
-			.Font(IDetailLayoutBuilder::GetDetailFont())
-		]
-		.ValueContent()
-		.MinDesiredWidth(300.0f)
-		[
-			CreateRotatorWidgetWithResetButton(RingEulerHandle.ToSharedRef(), 1.0f, FRotator(-90.0f, 0.0f, 0.0f))
-		];
+		RingGroup.AddPropertyRow(RingEulerHandle.ToSharedRef())
+			.IsEnabled(IsManualModeAttr)
+			.CustomWidget()
+			.NameContent()
+			[
+				RingEulerHandle->CreatePropertyNameWidget()
+			]
+			.ValueContent()
+			.MinDesiredWidth(300.0f)
+			[
+				CreateLinearRotatorWidget(RingEulerHandle.ToSharedRef(), 1.0f)
+			]
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						FRotator Value;
+						Handle->GetValue(Value);
+						return !Value.Equals(FRotator(-90.0f, 0.0f, 0.0f), 0.01f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(FRotator(-90.0f, 0.0f, 0.0f));
+					})
+				)
+			);
 	}
 }
 
@@ -378,18 +592,111 @@ void FFleshRingSettingsCustomization::UpdateBoneNameList()
 	}
 }
 
-void FFleshRingSettingsCustomization::OnComboBoxOpening()
+TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateSearchableBoneDropdown()
 {
-	// 드롭다운 열릴 때마다 본 목록 갱신
-	// TargetSkeletalMesh가 변경되었을 경우 최신 목록 반영
-	UpdateBoneNameList();
+	// 필터링된 목록 초기화
+	UpdateFilteredBoneList();
+
+	return SAssignNew(BoneComboButton, SComboButton)
+		.OnGetMenuContent_Lambda([this]() -> TSharedRef<SWidget>
+		{
+			// 드롭다운 열릴 때 본 목록 갱신
+			UpdateBoneNameList();
+			BoneSearchText.Empty();
+			UpdateFilteredBoneList();
+
+			return SNew(SVerticalBox)
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(4.0f)
+				[
+					SNew(SSearchBox)
+					.HintText(LOCTEXT("SearchBoneHint", "Search Bone..."))
+					.OnTextChanged(this, &FFleshRingSettingsCustomization::OnBoneSearchTextChanged)
+				]
+				+ SVerticalBox::Slot()
+				.MaxHeight(300.0f)
+				[
+					SAssignNew(BoneListView, SListView<TSharedPtr<FName>>)
+					.ListItemsSource(&FilteredBoneNameList)
+					.OnGenerateRow(this, &FFleshRingSettingsCustomization::GenerateBoneRow)
+					.OnSelectionChanged(this, &FFleshRingSettingsCustomization::OnBoneListSelectionChanged)
+					.SelectionMode(ESelectionMode::Single)
+				];
+		})
+		.ButtonContent()
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			.Padding(0, 0, 4, 0)
+			[
+				SNew(SImage)
+				.Image(FAppStyle::GetBrush("Icons.Warning"))
+				.Visibility_Lambda([this]()
+				{
+					return IsBoneInvalid() ? EVisibility::Visible : EVisibility::Collapsed;
+				})
+				.ColorAndOpacity(FLinearColor::Yellow)
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			.VAlign(VAlign_Center)
+			[
+				SNew(STextBlock)
+				.Text(this, &FFleshRingSettingsCustomization::GetCurrentBoneName)
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		];
 }
 
-void FFleshRingSettingsCustomization::OnBoneNameSelected(TSharedPtr<FName> NewSelection, ESelectInfo::Type SelectInfo)
+void FFleshRingSettingsCustomization::OnBoneSearchTextChanged(const FText& NewText)
+{
+	BoneSearchText = NewText.ToString();
+	UpdateFilteredBoneList();
+
+	if (BoneListView.IsValid())
+	{
+		BoneListView->RequestListRefresh();
+	}
+}
+
+void FFleshRingSettingsCustomization::UpdateFilteredBoneList()
+{
+	FilteredBoneNameList.Empty();
+
+	for (const TSharedPtr<FName>& BoneName : BoneNameList)
+	{
+		if (BoneSearchText.IsEmpty() || BoneName->ToString().Contains(BoneSearchText, ESearchCase::IgnoreCase))
+		{
+			FilteredBoneNameList.Add(BoneName);
+		}
+	}
+}
+
+TSharedRef<ITableRow> FFleshRingSettingsCustomization::GenerateBoneRow(TSharedPtr<FName> InItem, const TSharedRef<STableViewBase>& OwnerTable)
+{
+	return SNew(STableRow<TSharedPtr<FName>>, OwnerTable)
+		.Padding(FMargin(4.0f, 2.0f))
+		[
+			SNew(STextBlock)
+			.Text(FText::FromName(*InItem))
+			.Font(IDetailLayoutBuilder::GetDetailFont())
+		];
+}
+
+void FFleshRingSettingsCustomization::OnBoneListSelectionChanged(TSharedPtr<FName> NewSelection, ESelectInfo::Type SelectInfo)
 {
 	if (BoneNameHandle.IsValid() && NewSelection.IsValid())
 	{
 		BoneNameHandle->SetValue(*NewSelection);
+
+		// 드롭다운 닫기
+		if (BoneComboButton.IsValid())
+		{
+			BoneComboButton->SetIsOpen(false);
+		}
 	}
 }
 
