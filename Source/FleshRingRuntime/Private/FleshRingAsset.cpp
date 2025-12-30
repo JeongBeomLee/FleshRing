@@ -244,11 +244,53 @@ void UFleshRingAsset::GenerateSubdividedMesh()
 
 	// 본 웨이트 추출
 	const int32 MaxBoneInfluences = SourceLODData.GetVertexBufferMaxBoneInfluences();
-	TArray<TArray<uint16>> SourceBoneIndices;  // BoneMap 인덱스
+	TArray<TArray<uint16>> SourceBoneIndices;  // 실제 스켈레톤 본 인덱스로 변환됨
 	TArray<TArray<uint8>> SourceBoneWeights;
 
 	SourceBoneIndices.SetNum(SourceVertexCount);
 	SourceBoneWeights.SetNum(SourceVertexCount);
+
+	// ★ 버텍스별 섹션 인덱스 맵 생성 (BoneMap 변환용)
+	TArray<int32> VertexToSectionIndex;
+	VertexToSectionIndex.SetNum(SourceVertexCount);
+	for (int32& SectionIdx : VertexToSectionIndex)
+	{
+		SectionIdx = INDEX_NONE;
+	}
+
+	// 인덱스 버퍼를 순회하여 각 버텍스가 속한 섹션 파악
+	for (int32 SectionIdx = 0; SectionIdx < SourceLODData.RenderSections.Num(); ++SectionIdx)
+	{
+		const FSkelMeshRenderSection& Section = SourceLODData.RenderSections[SectionIdx];
+		const int32 StartIndex = Section.BaseIndex;
+		const int32 EndIndex = StartIndex + Section.NumTriangles * 3;
+
+		for (int32 IdxPos = StartIndex; IdxPos < EndIndex; ++IdxPos)
+		{
+			uint32 VertexIdx = SourceIndices[IdxPos];
+			if (VertexIdx < SourceVertexCount && VertexToSectionIndex[VertexIdx] == INDEX_NONE)
+			{
+				VertexToSectionIndex[VertexIdx] = SectionIdx;
+			}
+		}
+	}
+
+	// ★ 디버그: 섹션별 BoneMap 정보 출력
+	UE_LOG(LogFleshRingAsset, Log, TEXT("=== Section BoneMap Debug ==="));
+	for (int32 SectionIdx = 0; SectionIdx < SourceLODData.RenderSections.Num(); ++SectionIdx)
+	{
+		const FSkelMeshRenderSection& Section = SourceLODData.RenderSections[SectionIdx];
+		UE_LOG(LogFleshRingAsset, Log, TEXT("Section %d: BoneMap size=%d, BaseVertex=%d, NumVertices=%d"),
+			SectionIdx, Section.BoneMap.Num(), Section.BaseVertexIndex, Section.NumVertices);
+
+		// 처음 5개 BoneMap 엔트리 출력
+		FString BoneMapStr;
+		for (int32 k = 0; k < FMath::Min(5, Section.BoneMap.Num()); ++k)
+		{
+			BoneMapStr += FString::Printf(TEXT("[%d->%d] "), k, Section.BoneMap[k]);
+		}
+		UE_LOG(LogFleshRingAsset, Log, TEXT("  BoneMap (first 5): %s"), *BoneMapStr);
+	}
 
 	const FSkinWeightVertexBuffer* SkinWeightBuffer = SourceLODData.GetSkinWeightVertexBuffer();
 	if (SkinWeightBuffer && SkinWeightBuffer->GetNumVertices() > 0)
@@ -258,11 +300,46 @@ void UFleshRingAsset::GenerateSubdividedMesh()
 			SourceBoneIndices[i].SetNum(MaxBoneInfluences);
 			SourceBoneWeights[i].SetNum(MaxBoneInfluences);
 
+			// 버텍스가 속한 섹션 찾기
+			int32 SectionIdx = VertexToSectionIndex[i];
+			const TArray<FBoneIndexType>* BoneMap = nullptr;
+			if (SectionIdx != INDEX_NONE && SectionIdx < SourceLODData.RenderSections.Num())
+			{
+				BoneMap = &SourceLODData.RenderSections[SectionIdx].BoneMap;
+			}
+
 			for (int32 j = 0; j < MaxBoneInfluences; ++j)
 			{
-				SourceBoneIndices[i][j] = SkinWeightBuffer->GetBoneIndex(i, j);
-				SourceBoneWeights[i][j] = SkinWeightBuffer->GetBoneWeight(i, j);
+				uint16 LocalBoneIdx = SkinWeightBuffer->GetBoneIndex(i, j);
+				uint8 Weight = SkinWeightBuffer->GetBoneWeight(i, j);
+
+				// ★ BoneMap을 사용하여 실제 스켈레톤 본 인덱스로 변환
+				uint16 GlobalBoneIdx = LocalBoneIdx;
+				if (BoneMap && LocalBoneIdx < BoneMap->Num())
+				{
+					GlobalBoneIdx = (*BoneMap)[LocalBoneIdx];
+				}
+
+				SourceBoneIndices[i][j] = GlobalBoneIdx;
+				SourceBoneWeights[i][j] = Weight;
 			}
+		}
+
+		// ★ 디버그: 처음 5개 버텍스의 본 웨이트 출력
+		UE_LOG(LogFleshRingAsset, Log, TEXT("=== Sample Vertex Bone Weights ==="));
+		for (uint32 i = 0; i < FMath::Min(5u, SourceVertexCount); ++i)
+		{
+			FString WeightStr;
+			for (int32 j = 0; j < MaxBoneInfluences; ++j)
+			{
+				if (SourceBoneWeights[i][j] > 0)
+				{
+					WeightStr += FString::Printf(TEXT("[Bone%d:%.2f] "),
+						SourceBoneIndices[i][j], SourceBoneWeights[i][j] / 255.0f);
+				}
+			}
+			UE_LOG(LogFleshRingAsset, Log, TEXT("Vertex %d (Section %d): %s"),
+				i, VertexToSectionIndex[i], *WeightStr);
 		}
 	}
 

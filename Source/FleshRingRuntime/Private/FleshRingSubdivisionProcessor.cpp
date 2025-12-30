@@ -111,15 +111,48 @@ bool FFleshRingSubdivisionProcessor::SetSourceMeshFromSkeletalMesh(
 	return SetSourceMesh(Positions, Indices, UVs);
 }
 
-void FFleshRingSubdivisionProcessor::SetRingParams(const FSubdivisionRingParams& RingParams)
+void FFleshRingSubdivisionProcessor::SetRingParamsArray(const TArray<FSubdivisionRingParams>& InRingParamsArray)
 {
-	// 파라미터가 크게 변경되었으면 캐시 무효화
-	if (NeedsRecomputation(RingParams))
+	// 배열이 변경되었으면 캐시 무효화
+	if (InRingParamsArray.Num() != RingParamsArray.Num())
 	{
 		InvalidateCache();
 	}
+	else
+	{
+		for (int32 i = 0; i < InRingParamsArray.Num(); ++i)
+		{
+			if (NeedsRecomputation(InRingParamsArray[i]))
+			{
+				InvalidateCache();
+				break;
+			}
+		}
+	}
 
-	CurrentRingParams = RingParams;
+	RingParamsArray = InRingParamsArray;
+}
+
+void FFleshRingSubdivisionProcessor::AddRingParams(const FSubdivisionRingParams& RingParams)
+{
+	InvalidateCache();
+	RingParamsArray.Add(RingParams);
+}
+
+void FFleshRingSubdivisionProcessor::ClearRingParams()
+{
+	if (RingParamsArray.Num() > 0)
+	{
+		InvalidateCache();
+		RingParamsArray.Empty();
+	}
+}
+
+void FFleshRingSubdivisionProcessor::SetRingParams(const FSubdivisionRingParams& RingParams)
+{
+	// 하위 호환: 기존 파라미터 초기화 후 단일 Ring 추가
+	ClearRingParams();
+	AddRingParams(RingParams);
 }
 
 void FFleshRingSubdivisionProcessor::SetSettings(const FSubdivisionProcessorSettings& Settings)
@@ -173,68 +206,70 @@ bool FFleshRingSubdivisionProcessor::Process(FSubdivisionTopologyResult& OutResu
 	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("Half-Edge mesh built: %d vertices, %d faces, %d half-edges"),
 		HalfEdgeMesh.GetVertexCount(), HalfEdgeMesh.GetFaceCount(), HalfEdgeMesh.GetHalfEdgeCount());
 
-	// 2. LEB/Red-Green Refinement 수행
-	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("Performing LEB subdivision..."));
+	// 2. LEB/Red-Green Refinement 수행 (모든 Ring에 대해)
+	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("Performing LEB subdivision for %d Ring(s)..."), RingParamsArray.Num());
 
-	int32 FacesAdded = 0;
+	int32 TotalFacesAdded = 0;
 
-	if (CurrentRingParams.bUseSDFBounds)
+	for (int32 RingIdx = 0; RingIdx < RingParamsArray.Num(); ++RingIdx)
 	{
-		// SDF 모드: OBB 기반 영역 검사 (정확한 방식)
-		FSubdivisionOBB OBB = FSubdivisionOBB::CreateFromSDFBounds(
-			CurrentRingParams.SDFBoundsMin,
-			CurrentRingParams.SDFBoundsMax,
-			CurrentRingParams.SDFLocalToComponent,
-			CurrentRingParams.SDFInfluenceMultiplier
-		);
+		const FSubdivisionRingParams& CurrentRingParams = RingParamsArray[RingIdx];
+		int32 FacesAdded = 0;
 
-		// 디버그 출력
-		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-			TEXT("=== OBB Subdivision Debug (Local-Space AABB approach) ==="));
-		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-			TEXT("  Local BoundsMin: %s"), *OBB.LocalBoundsMin.ToString());
-		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-			TEXT("  Local BoundsMax: %s"), *OBB.LocalBoundsMax.ToString());
-		FVector LocalSize = OBB.LocalBoundsMax - OBB.LocalBoundsMin;
-		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-			TEXT("  Local Size: %s"), *LocalSize.ToString());
-		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-			TEXT("  InfluenceMargin: %.2f"), OBB.InfluenceMargin);
-		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-			TEXT("  Total influence size: %s"),
-			*(LocalSize + FVector(OBB.InfluenceMargin * 2.0f)).ToString());
+		UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("=== Processing Ring %d/%d ==="), RingIdx + 1, RingParamsArray.Num());
 
-		FacesAdded = FLEBSubdivision::SubdivideRegion(
-			HalfEdgeMesh,
-			OBB,
-			CurrentSettings.MaxSubdivisionLevel,
-			CurrentSettings.MinEdgeLength
-		);
+		if (CurrentRingParams.bUseSDFBounds)
+		{
+			// SDF 모드: OBB 기반 영역 검사 (정확한 방식)
+			FSubdivisionOBB OBB = FSubdivisionOBB::CreateFromSDFBounds(
+				CurrentRingParams.SDFBoundsMin,
+				CurrentRingParams.SDFBoundsMax,
+				CurrentRingParams.SDFLocalToComponent,
+				CurrentRingParams.SDFInfluenceMultiplier
+			);
+
+			// 디버그 출력
+			UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+				TEXT("  OBB Mode - Local BoundsMin: %s, Max: %s"),
+				*OBB.LocalBoundsMin.ToString(), *OBB.LocalBoundsMax.ToString());
+			UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+				TEXT("  InfluenceMargin: %.2f"), OBB.InfluenceMargin);
+
+			FacesAdded = FLEBSubdivision::SubdivideRegion(
+				HalfEdgeMesh,
+				OBB,
+				CurrentSettings.MaxSubdivisionLevel,
+				CurrentSettings.MinEdgeLength
+			);
+		}
+		else
+		{
+			// Manual 모드: 기존 Torus 방식 (Legacy)
+			FTorusParams TorusParams;
+			TorusParams.Center = CurrentRingParams.Center;
+			TorusParams.Axis = CurrentRingParams.Axis.GetSafeNormal();
+			TorusParams.MajorRadius = CurrentRingParams.Radius;
+			TorusParams.MinorRadius = CurrentRingParams.Width * 0.5f;
+			TorusParams.InfluenceMargin = CurrentRingParams.GetInfluenceRadius();
+
+			UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+				TEXT("  Torus Mode - Center=%s, MajorR=%.2f, MinorR=%.2f"),
+				*TorusParams.Center.ToString(), TorusParams.MajorRadius, TorusParams.MinorRadius);
+
+			FacesAdded = FLEBSubdivision::SubdivideRegion(
+				HalfEdgeMesh,
+				TorusParams,
+				CurrentSettings.MaxSubdivisionLevel,
+				CurrentSettings.MinEdgeLength
+			);
+		}
+
+		UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("  Ring %d: %d faces added"), RingIdx + 1, FacesAdded);
+		TotalFacesAdded += FacesAdded;
 	}
-	else
-	{
-		// Manual 모드: 기존 Torus 방식 (Legacy)
-		FTorusParams TorusParams;
-		TorusParams.Center = CurrentRingParams.Center;
-		TorusParams.Axis = CurrentRingParams.Axis.GetSafeNormal();
-		TorusParams.MajorRadius = CurrentRingParams.Radius;
-		TorusParams.MinorRadius = CurrentRingParams.Width * 0.5f;
-		TorusParams.InfluenceMargin = CurrentRingParams.GetInfluenceRadius();
 
-		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-			TEXT("Manual mode: Torus Center=%s, MajorR=%.2f, MinorR=%.2f"),
-			*TorusParams.Center.ToString(), TorusParams.MajorRadius, TorusParams.MinorRadius);
-
-		FacesAdded = FLEBSubdivision::SubdivideRegion(
-			HalfEdgeMesh,
-			TorusParams,
-			CurrentSettings.MaxSubdivisionLevel,
-			CurrentSettings.MinEdgeLength
-		);
-	}
-
-	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("LEB subdivision complete: %d faces added, total %d faces"),
-		FacesAdded, HalfEdgeMesh.GetFaceCount());
+	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("LEB subdivision complete: %d total faces added, %d total faces"),
+		TotalFacesAdded, HalfEdgeMesh.GetFaceCount());
 
 	// 3. 토폴로지 결과 추출
 	if (!ExtractTopologyResult(OutResult))
@@ -354,6 +389,7 @@ bool FFleshRingSubdivisionProcessor::ExtractTopologyResult(FSubdivisionTopologyR
 	}
 
 	// 서브디비전 버텍스의 기여도를 재귀적으로 계산
+	int32 FallbackCount = 0;
 	for (int32 i = OriginalVertexCount; i < HEVertexCount; ++i)
 	{
 		const TPair<int32, int32>& Parents = ImmediateParents[i];
@@ -363,7 +399,14 @@ bool FFleshRingSubdivisionProcessor::ExtractTopologyResult(FSubdivisionTopologyR
 		// 안전 체크
 		if (P0 < 0 || P0 >= i || P1 < 0 || P1 >= i)
 		{
-			// 잘못된 부모 - 원점 기준 fallback
+			// ★ 경고: 이 fallback이 발생하면 본웨이트가 vertex 0의 것으로 설정됨!
+			FallbackCount++;
+			if (FallbackCount <= 10)
+			{
+				UE_LOG(LogFleshRingSubdivisionProcessor, Error,
+					TEXT("BONE WEIGHT FALLBACK! Vertex %d: P0=%d, P1=%d (must be 0 <= P < %d)"),
+					i, P0, P1, i);
+			}
 			OriginalContributions[i].Add(0, 1.0f);
 			continue;
 		}
@@ -377,6 +420,20 @@ bool FFleshRingSubdivisionProcessor::ExtractTopologyResult(FSubdivisionTopologyR
 		{
 			OriginalContributions[i].FindOrAdd(Contrib.Key) += Contrib.Value * 0.5f;
 		}
+	}
+
+	// ★ Fallback 발생 수 출력 (0이어야 정상)
+	if (FallbackCount > 0)
+	{
+		UE_LOG(LogFleshRingSubdivisionProcessor, Error,
+			TEXT("★★★ CRITICAL: %d vertices fell back to vertex 0's bone weights! Animation will break! ★★★"),
+			FallbackCount);
+	}
+	else
+	{
+		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+			TEXT("✓ All %d subdivided vertices have valid parent info (no fallback)"),
+			HEVertexCount - OriginalVertexCount);
 	}
 
 	// 검증: 기여도 합계가 1.0인지 확인
