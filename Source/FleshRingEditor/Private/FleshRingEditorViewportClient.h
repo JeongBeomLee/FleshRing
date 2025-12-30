@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -90,11 +90,38 @@ public:
 	bool ShouldShowRingMeshes() const { return bShowRingMeshes; }
 	bool ShouldShowBones() const { return bShowBones; }
 
+	// 디버그 시각화 토글
+	void ToggleShowDebugVisualization();
+	void ToggleShowSdfVolume();
+	void ToggleShowAffectedVertices();
+	void ToggleShowSDFSlice();
+	void ToggleShowBulgeHeatmap();
+
+	// 디버그 시각화 상태
+	bool ShouldShowDebugVisualization() const;
+	bool ShouldShowSdfVolume() const;
+	bool ShouldShowAffectedVertices() const;
+	bool ShouldShowSDFSlice() const;
+	bool ShouldShowBulgeHeatmap() const;
+
+	// Debug Slice Z
+	int32 GetDebugSliceZ() const;
+	void SetDebugSliceZ(int32 NewValue);
+
+	/** 설정 저장 (카메라, 쇼플래그) */
+	void SaveSettings();
+
+	/** 설정 로드 (카메라, 쇼플래그) */
+	void LoadSettings();
+
 	// Local/World 좌표계 (커스텀 관리 - 툴바 버튼과 연동)
 	void ToggleLocalCoordSystem();
 	bool IsUsingLocalCoordSystem() const;
 
 private:
+	/** 에셋별 Config 섹션 이름 생성 */
+	FString GetConfigSectionName() const;
+
 	/** 본 렌더링 (Persona 스타일) */
 	void DrawMeshBones(FPrimitiveDrawInterface* PDI);
 
@@ -131,4 +158,7 @@ private:
 
 	// Local/World 좌표계 플래그 (커스텀 관리)
 	bool bUseLocalCoordSystem = true;
+
+	// 설정 로드 완료 플래그 (첫 Tick에서 로드)
+	bool bSettingsLoaded = false;
 };

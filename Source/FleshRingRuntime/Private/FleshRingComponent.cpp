@@ -134,11 +134,16 @@ void UFleshRingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
+#if WITH_EDITOR
+	// 디버그 시각화 (변형 활성화 여부와 무관하게 동작)
+	DrawDebugVisualization();
+#endif
+
 	if (!bEnableFleshRing)
 	{
 		return;
 	}
-	
+
 	// NOTE: MarkRenderDynamicDataDirty/MarkRenderTransformDirty는 TickComponent에서 호출하지 않음
 	// Optimus 방식: 엔진의 SendRenderDynamicData_Concurrent()가 자동으로 deformer의 EnqueueWork를 호출
 	// 초기화 시점(SetupDeformer)에서만 MarkRenderStateDirty/MarkRenderDynamicDataDirty 호출
@@ -156,11 +161,6 @@ void UFleshRingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 			}
 		}
 	}
-
-#if WITH_EDITOR
-	// 디버그 시각화
-	DrawDebugVisualization();
-#endif
 }
 
 void UFleshRingComponent::ResolveTargetMesh()
@@ -513,6 +513,11 @@ void UFleshRingComponent::UpdateRingTransforms()
 			}
 		}
 	}
+
+#if WITH_EDITORONLY_DATA
+	// 4. 디버그용 영향받는 버텍스 캐시 무효화 (다음 프레임에 재계산)
+	bDebugAffectedVerticesCached = false;
+#endif
 }
 
 void UFleshRingComponent::ApplyAsset()
@@ -662,6 +667,20 @@ void UFleshRingComponent::CleanupRingMeshes()
 // Debug Drawing (에디터 전용)
 // =====================================
 
+void UFleshRingComponent::SetDebugSlicePlanesVisible(bool bVisible)
+{
+#if WITH_EDITOR
+	for (AActor* PlaneActor : DebugSlicePlaneActors)
+	{
+		if (PlaneActor)
+		{
+			// 에디터에서는 SetIsTemporarilyHiddenInEditor 사용
+			PlaneActor->SetIsTemporarilyHiddenInEditor(!bVisible);
+		}
+	}
+#endif
+}
+
 #if WITH_EDITOR
 
 void UFleshRingComponent::DrawDebugVisualization()
@@ -673,7 +692,7 @@ void UFleshRingComponent::DrawDebugVisualization()
 		{
 			if (PlaneActor)
 			{
-				PlaneActor->SetActorHiddenInGame(true);
+				PlaneActor->SetIsTemporarilyHiddenInEditor(true);
 			}
 		}
 	}
@@ -893,8 +912,8 @@ void UFleshRingComponent::DrawSDFSlice(int32 RingIndex)
 		return;
 	}
 
-	// 평면 보이게 설정
-	PlaneActor->SetActorHiddenInGame(false);
+	// 평면 보이게 설정 (에디터용)
+	PlaneActor->SetIsTemporarilyHiddenInEditor(false);
 
 	// OBB 방식: 로컬 바운드 계산
 	FVector LocalBoundsMin = FVector(SDFCache->BoundsMin);

@@ -158,4 +158,18 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		, FalloffType(EFalloffType::Linear)
 	{
 	}
+
+	/**
+	 * Ring 메시의 월드 트랜스폼 계산
+	 * @param BoneTransform 본의 컴포넌트 스페이스 트랜스폼
+	 * @return Ring 메시의 월드 트랜스폼 (Location, Rotation, Scale)
+	 */
+	FTransform CalculateWorldTransform(const FTransform& BoneTransform) const
+	{
+		const FQuat BoneRotation = BoneTransform.GetRotation();
+		const FVector WorldLocation = BoneTransform.GetLocation() + BoneRotation.RotateVector(MeshOffset);
+		const FQuat WorldRotation = BoneRotation * MeshRotation;
+
+		return FTransform(WorldRotation, WorldLocation, MeshScale);
+	}
 };

@@ -124,34 +124,25 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 	// Debug / Visualization 섹션
 	MenuBuilder.BeginSection("DebugVisualization", LOCTEXT("DebugVisualizationHeader", "Debug / Visualization"));
 	{
-		// FleshRingComponent 가져오기
-		TWeakPtr<FFleshRingPreviewScene> WeakPreviewScene = ViewportPtr->GetPreviewScene();
-
 		// Show Debug Visualization (마스터 스위치)
 		MenuBuilder.AddMenuEntry(
 			LOCTEXT("ShowDebugVisualization", "Show Debug Visualization"),
 			LOCTEXT("ShowDebugVisualizationTooltip", "Enable/Disable all debug visualization"),
 			FSlateIcon(),
 			FUIAction(
-				FExecuteAction::CreateLambda([WeakPreviewScene]()
+				FExecuteAction::CreateLambda([WeakViewportClient]()
 				{
-					if (TSharedPtr<FFleshRingPreviewScene> Scene = WeakPreviewScene.Pin())
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
 					{
-						if (UFleshRingComponent* Comp = Scene->GetFleshRingComponent())
-						{
-							Comp->bShowDebugVisualization = !Comp->bShowDebugVisualization;
-						}
+						Client->ToggleShowDebugVisualization();
 					}
 				}),
 				FCanExecuteAction(),
-				FIsActionChecked::CreateLambda([WeakPreviewScene]()
+				FIsActionChecked::CreateLambda([WeakViewportClient]()
 				{
-					if (TSharedPtr<FFleshRingPreviewScene> Scene = WeakPreviewScene.Pin())
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
 					{
-						if (UFleshRingComponent* Comp = Scene->GetFleshRingComponent())
-						{
-							return Comp->bShowDebugVisualization;
-						}
+						return Client->ShouldShowDebugVisualization();
 					}
 					return false;
 				})
@@ -168,35 +159,26 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 			LOCTEXT("ShowSdfVolumeTooltip", "Show/Hide SDF volume bounding box"),
 			FSlateIcon(),
 			FUIAction(
-				FExecuteAction::CreateLambda([WeakPreviewScene]()
+				FExecuteAction::CreateLambda([WeakViewportClient]()
 				{
-					if (TSharedPtr<FFleshRingPreviewScene> Scene = WeakPreviewScene.Pin())
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
 					{
-						if (UFleshRingComponent* Comp = Scene->GetFleshRingComponent())
-						{
-							Comp->bShowSdfVolume = !Comp->bShowSdfVolume;
-						}
+						Client->ToggleShowSdfVolume();
 					}
 				}),
-				FCanExecuteAction::CreateLambda([WeakPreviewScene]()
+				FCanExecuteAction::CreateLambda([WeakViewportClient]()
 				{
-					if (TSharedPtr<FFleshRingPreviewScene> Scene = WeakPreviewScene.Pin())
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
 					{
-						if (UFleshRingComponent* Comp = Scene->GetFleshRingComponent())
-						{
-							return Comp->bShowDebugVisualization;
-						}
+						return Client->ShouldShowDebugVisualization();
 					}
 					return false;
 				}),
-				FIsActionChecked::CreateLambda([WeakPreviewScene]()
+				FIsActionChecked::CreateLambda([WeakViewportClient]()
 				{
-					if (TSharedPtr<FFleshRingPreviewScene> Scene = WeakPreviewScene.Pin())
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
 					{
-						if (UFleshRingComponent* Comp = Scene->GetFleshRingComponent())
-						{
-							return Comp->bShowSdfVolume;
-						}
+						return Client->ShouldShowSdfVolume();
 					}
 					return false;
 				})
@@ -211,35 +193,26 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 			LOCTEXT("ShowAffectedVerticesTooltip", "Show/Hide affected vertices (color = influence strength)"),
 			FSlateIcon(),
 			FUIAction(
-				FExecuteAction::CreateLambda([WeakPreviewScene]()
+				FExecuteAction::CreateLambda([WeakViewportClient]()
 				{
-					if (TSharedPtr<FFleshRingPreviewScene> Scene = WeakPreviewScene.Pin())
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
 					{
-						if (UFleshRingComponent* Comp = Scene->GetFleshRingComponent())
-						{
-							Comp->bShowAffectedVertices = !Comp->bShowAffectedVertices;
-						}
+						Client->ToggleShowAffectedVertices();
 					}
 				}),
-				FCanExecuteAction::CreateLambda([WeakPreviewScene]()
+				FCanExecuteAction::CreateLambda([WeakViewportClient]()
 				{
-					if (TSharedPtr<FFleshRingPreviewScene> Scene = WeakPreviewScene.Pin())
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
 					{
-						if (UFleshRingComponent* Comp = Scene->GetFleshRingComponent())
-						{
-							return Comp->bShowDebugVisualization;
-						}
+						return Client->ShouldShowDebugVisualization();
 					}
 					return false;
 				}),
-				FIsActionChecked::CreateLambda([WeakPreviewScene]()
+				FIsActionChecked::CreateLambda([WeakViewportClient]()
 				{
-					if (TSharedPtr<FFleshRingPreviewScene> Scene = WeakPreviewScene.Pin())
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
 					{
-						if (UFleshRingComponent* Comp = Scene->GetFleshRingComponent())
-						{
-							return Comp->bShowAffectedVertices;
-						}
+						return Client->ShouldShowAffectedVertices();
 					}
 					return false;
 				})
@@ -254,35 +227,26 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 			LOCTEXT("ShowSDFSliceTooltip", "Show/Hide SDF slice plane"),
 			FSlateIcon(),
 			FUIAction(
-				FExecuteAction::CreateLambda([WeakPreviewScene]()
+				FExecuteAction::CreateLambda([WeakViewportClient]()
 				{
-					if (TSharedPtr<FFleshRingPreviewScene> Scene = WeakPreviewScene.Pin())
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
 					{
-						if (UFleshRingComponent* Comp = Scene->GetFleshRingComponent())
-						{
-							Comp->bShowSDFSlice = !Comp->bShowSDFSlice;
-						}
+						Client->ToggleShowSDFSlice();
 					}
 				}),
-				FCanExecuteAction::CreateLambda([WeakPreviewScene]()
+				FCanExecuteAction::CreateLambda([WeakViewportClient]()
 				{
-					if (TSharedPtr<FFleshRingPreviewScene> Scene = WeakPreviewScene.Pin())
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
 					{
-						if (UFleshRingComponent* Comp = Scene->GetFleshRingComponent())
-						{
-							return Comp->bShowDebugVisualization;
-						}
+						return Client->ShouldShowDebugVisualization();
 					}
 					return false;
 				}),
-				FIsActionChecked::CreateLambda([WeakPreviewScene]()
+				FIsActionChecked::CreateLambda([WeakViewportClient]()
 				{
-					if (TSharedPtr<FFleshRingPreviewScene> Scene = WeakPreviewScene.Pin())
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
 					{
-						if (UFleshRingComponent* Comp = Scene->GetFleshRingComponent())
-						{
-							return Comp->bShowSDFSlice;
-						}
+						return Client->ShouldShowSDFSlice();
 					}
 					return false;
 				})
@@ -312,35 +276,26 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 					SNew(SSpinBox<int32>)
 					.MinValue(0)
 					.MaxValue(63)
-					.Value_Lambda([WeakPreviewScene]()
+					.Value_Lambda([WeakViewportClient]()
 					{
-						if (TSharedPtr<FFleshRingPreviewScene> Scene = WeakPreviewScene.Pin())
+						if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
 						{
-							if (UFleshRingComponent* Comp = Scene->GetFleshRingComponent())
-							{
-								return Comp->DebugSliceZ;
-							}
+							return Client->GetDebugSliceZ();
 						}
 						return 32;
 					})
-					.OnValueChanged_Lambda([WeakPreviewScene](int32 NewValue)
+					.OnValueChanged_Lambda([WeakViewportClient](int32 NewValue)
 					{
-						if (TSharedPtr<FFleshRingPreviewScene> Scene = WeakPreviewScene.Pin())
+						if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
 						{
-							if (UFleshRingComponent* Comp = Scene->GetFleshRingComponent())
-							{
-								Comp->DebugSliceZ = NewValue;
-							}
+							Client->SetDebugSliceZ(NewValue);
 						}
 					})
-					.IsEnabled_Lambda([WeakPreviewScene]()
+					.IsEnabled_Lambda([WeakViewportClient]()
 					{
-						if (TSharedPtr<FFleshRingPreviewScene> Scene = WeakPreviewScene.Pin())
+						if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
 						{
-							if (UFleshRingComponent* Comp = Scene->GetFleshRingComponent())
-							{
-								return Comp->bShowDebugVisualization && Comp->bShowSDFSlice;
-							}
+							return Client->ShouldShowDebugVisualization() && Client->ShouldShowSDFSlice();
 						}
 						return false;
 					})
@@ -357,35 +312,26 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 			LOCTEXT("ShowBulgeHeatmapTooltip", "Show/Hide bulge heatmap visualization"),
 			FSlateIcon(),
 			FUIAction(
-				FExecuteAction::CreateLambda([WeakPreviewScene]()
+				FExecuteAction::CreateLambda([WeakViewportClient]()
 				{
-					if (TSharedPtr<FFleshRingPreviewScene> Scene = WeakPreviewScene.Pin())
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
 					{
-						if (UFleshRingComponent* Comp = Scene->GetFleshRingComponent())
-						{
-							Comp->bShowBulgeHeatmap = !Comp->bShowBulgeHeatmap;
-						}
+						Client->ToggleShowBulgeHeatmap();
 					}
 				}),
-				FCanExecuteAction::CreateLambda([WeakPreviewScene]()
+				FCanExecuteAction::CreateLambda([WeakViewportClient]()
 				{
-					if (TSharedPtr<FFleshRingPreviewScene> Scene = WeakPreviewScene.Pin())
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
 					{
-						if (UFleshRingComponent* Comp = Scene->GetFleshRingComponent())
-						{
-							return Comp->bShowDebugVisualization;
-						}
+						return Client->ShouldShowDebugVisualization();
 					}
 					return false;
 				}),
-				FIsActionChecked::CreateLambda([WeakPreviewScene]()
+				FIsActionChecked::CreateLambda([WeakViewportClient]()
 				{
-					if (TSharedPtr<FFleshRingPreviewScene> Scene = WeakPreviewScene.Pin())
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
 					{
-						if (UFleshRingComponent* Comp = Scene->GetFleshRingComponent())
-						{
-							return Comp->bShowBulgeHeatmap;
-						}
+						return Client->ShouldShowBulgeHeatmap();
 					}
 					return false;
 				})

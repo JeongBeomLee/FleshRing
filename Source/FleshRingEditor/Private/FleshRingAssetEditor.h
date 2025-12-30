@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Toolkits/AssetEditorToolkit.h"
+#include "UObject/UObjectGlobals.h"
 
 class UFleshRingAsset;
 class SFleshRingEditorViewport;
@@ -57,8 +58,11 @@ private:
 	/** Details View 생성 */
 	void CreateDetailsView();
 
-	/** 프로퍼티 변경 콜백 (Undo/Redo 포함) */
+	/** 프로퍼티 변경 콜백 */
 	void OnObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& PropertyChangedEvent);
+
+	/** Undo/Redo 콜백 */
+	void OnObjectTransacted(UObject* Object, const FTransactionObjectEvent& TransactionEvent);
 
 private:
 	/** 편집 중인 Asset */
@@ -72,4 +76,7 @@ private:
 
 	/** 프로퍼티 변경 델리게이트 핸들 */
 	FDelegateHandle OnPropertyChangedHandle;
+
+	/** Undo/Redo 델리게이트 핸들 */
+	FDelegateHandle OnObjectTransactedHandle;
 };

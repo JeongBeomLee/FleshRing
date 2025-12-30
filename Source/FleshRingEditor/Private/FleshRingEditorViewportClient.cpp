@@ -24,6 +24,9 @@ IMPLEMENT_HIT_PROXY(HFleshRingGizmoHitProxy, HHitProxy);
 IMPLEMENT_HIT_PROXY(HFleshRingMeshHitProxy, HHitProxy);
 IMPLEMENT_HIT_PROXY(HFleshRingAxisHitProxy, HHitProxy);
 
+// 에셋별 설정 저장용 Config 섹션 베이스
+static const FString FleshRingViewportConfigSectionBase = TEXT("FleshRingEditorViewport");
+
 FFleshRingEditorViewportClient::FFleshRingEditorViewportClient(
 	FEditorModeTools* InModeTools,
 	FFleshRingPreviewScene* InPreviewScene,
@@ -66,6 +69,9 @@ FFleshRingEditorViewportClient::FFleshRingEditorViewportClient(
 
 FFleshRingEditorViewportClient::~FFleshRingEditorViewportClient()
 {
+	// 설정 저장
+	SaveSettings();
+
 	// 정적 인스턴스 레지스트리에서 제거
 	GetAllInstances().Remove(this);
 }
@@ -96,6 +102,13 @@ bool FFleshRingEditorViewportClient::IsUsingLocalCoordSystem() const
 void FFleshRingEditorViewportClient::Tick(float DeltaSeconds)
 {
 	FEditorViewportClient::Tick(DeltaSeconds);
+
+	// 첫 Tick에서 저장된 설정 로드 (생성자에서는 뷰포트가 아직 준비되지 않음)
+	if (!bSettingsLoaded)
+	{
+		LoadSettings();
+		bSettingsLoaded = true;
+	}
 
 	// 프리뷰 씬 틱
 	if (PreviewScene)
@@ -974,4 +987,202 @@ void FFleshRingEditorViewportClient::ToggleShowRingMeshes()
 	}
 
 	Invalidate();
+}
+
+FString FFleshRingEditorViewportClient::GetConfigSectionName() const
+{
+	if (EditingAsset.IsValid())
+	{
+		// 에셋 경로를 섹션 이름에 포함 (예: FleshRingEditorViewport:/Game/FleshRings/MyAsset)
+		return FString::Printf(TEXT("%s:%s"), *FleshRingViewportConfigSectionBase, *EditingAsset->GetPathName());
+	}
+	return FleshRingViewportConfigSectionBase;
+}
+
+void FFleshRingEditorViewportClient::SaveSettings()
+{
+	const FString SectionName = GetConfigSectionName();
+
+	// 카메라 설정 저장
+	GConfig->SetVector(*SectionName, TEXT("ViewLocation"), GetViewLocation(), GEditorPerProjectIni);
+	GConfig->SetRotator(*SectionName, TEXT("ViewRotation"), GetViewRotation(), GEditorPerProjectIni);
+
+	// 커스텀 쇼플래그 저장
+	GConfig->SetBool(*SectionName, TEXT("ShowRingGizmos"), bShowRingGizmos, GEditorPerProjectIni);
+	GConfig->SetBool(*SectionName, TEXT("ShowRingMeshes"), bShowRingMeshes, GEditorPerProjectIni);
+	GConfig->SetBool(*SectionName, TEXT("ShowBones"), bShowBones, GEditorPerProjectIni);
+
+	// Config 파일에 즉시 저장
+	GConfig->Flush(false, GEditorPerProjectIni);
+}
+
+void FFleshRingEditorViewportClient::LoadSettings()
+{
+	const FString SectionName = GetConfigSectionName();
+
+	// 카메라 설정 로드
+	FVector SavedLocation;
+	if (GConfig->GetVector(*SectionName, TEXT("ViewLocation"), SavedLocation, GEditorPerProjectIni))
+	{
+		SetViewLocation(SavedLocation);
+	}
+
+	FRotator SavedRotation;
+	if (GConfig->GetRotator(*SectionName, TEXT("ViewRotation"), SavedRotation, GEditorPerProjectIni))
+	{
+		SetViewRotation(SavedRotation);
+	}
+
+	// 커스텀 쇼플래그 로드
+	GConfig->GetBool(*SectionName, TEXT("ShowRingGizmos"), bShowRingGizmos, GEditorPerProjectIni);
+	GConfig->GetBool(*SectionName, TEXT("ShowRingMeshes"), bShowRingMeshes, GEditorPerProjectIni);
+	GConfig->GetBool(*SectionName, TEXT("ShowBones"), bShowBones, GEditorPerProjectIni);
+}
+
+void FFleshRingEditorViewportClient::ToggleShowDebugVisualization()
+{
+	if (PreviewScene)
+	{
+		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
+		{
+			Comp->bShowDebugVisualization = !Comp->bShowDebugVisualization;
+			// 평면 액터 즉시 숨기기/보이기
+			Comp->SetDebugSlicePlanesVisible(Comp->bShowSDFSlice && Comp->bShowDebugVisualization);
+			Invalidate();
+		}
+	}
+}
+
+void FFleshRingEditorViewportClient::ToggleShowSdfVolume()
+{
+	if (PreviewScene)
+	{
+		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
+		{
+			Comp->bShowSdfVolume = !Comp->bShowSdfVolume;
+			Invalidate();
+		}
+	}
+}
+
+void FFleshRingEditorViewportClient::ToggleShowAffectedVertices()
+{
+	if (PreviewScene)
+	{
+		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
+		{
+			Comp->bShowAffectedVertices = !Comp->bShowAffectedVertices;
+			Invalidate();
+		}
+	}
+}
+
+bool FFleshRingEditorViewportClient::ShouldShowDebugVisualization() const
+{
+	if (PreviewScene)
+	{
+		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
+		{
+			return Comp->bShowDebugVisualization;
+		}
+	}
+	return false;
+}
+
+bool FFleshRingEditorViewportClient::ShouldShowSdfVolume() const
+{
+	if (PreviewScene)
+	{
+		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
+		{
+			return Comp->bShowSdfVolume;
+		}
+	}
+	return false;
+}
+
+bool FFleshRingEditorViewportClient::ShouldShowAffectedVertices() const
+{
+	if (PreviewScene)
+	{
+		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
+		{
+			return Comp->bShowAffectedVertices;
+		}
+	}
+	return false;
+}
+
+void FFleshRingEditorViewportClient::ToggleShowSDFSlice()
+{
+	if (PreviewScene)
+	{
+		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
+		{
+			Comp->bShowSDFSlice = !Comp->bShowSDFSlice;
+			// 평면 액터 즉시 숨기기/보이기
+			Comp->SetDebugSlicePlanesVisible(Comp->bShowSDFSlice && Comp->bShowDebugVisualization);
+			Invalidate();
+		}
+	}
+}
+
+bool FFleshRingEditorViewportClient::ShouldShowSDFSlice() const
+{
+	if (PreviewScene)
+	{
+		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
+		{
+			return Comp->bShowSDFSlice;
+		}
+	}
+	return false;
+}
+
+int32 FFleshRingEditorViewportClient::GetDebugSliceZ() const
+{
+	if (PreviewScene)
+	{
+		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
+		{
+			return Comp->DebugSliceZ;
+		}
+	}
+	return 32;
+}
+
+void FFleshRingEditorViewportClient::SetDebugSliceZ(int32 NewValue)
+{
+	if (PreviewScene)
+	{
+		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
+		{
+			Comp->DebugSliceZ = NewValue;
+			Invalidate();
+		}
+	}
+}
+
+void FFleshRingEditorViewportClient::ToggleShowBulgeHeatmap()
+{
+	if (PreviewScene)
+	{
+		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
+		{
+			Comp->bShowBulgeHeatmap = !Comp->bShowBulgeHeatmap;
+			Invalidate();
+		}
+	}
+}
+
+bool FFleshRingEditorViewportClient::ShouldShowBulgeHeatmap() const
+{
+	if (PreviewScene)
+	{
+		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
+		{
+			return Comp->bShowBulgeHeatmap;
+		}
+	}
+	return false;
 }

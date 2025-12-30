@@ -25,6 +25,12 @@ FFleshRingAssetEditor::~FFleshRingAssetEditor()
 	{
 		FCoreUObjectDelegates::OnObjectPropertyChanged.Remove(OnPropertyChangedHandle);
 	}
+
+	// Undo/Redo 델리게이트 해제
+	if (OnObjectTransactedHandle.IsValid())
+	{
+		FCoreUObjectDelegates::OnObjectTransacted.Remove(OnObjectTransactedHandle);
+	}
 }
 
 void FFleshRingAssetEditor::InitFleshRingAssetEditor(
@@ -71,9 +77,13 @@ void FFleshRingAssetEditor::InitFleshRingAssetEditor(
 		true,  // bCreateDefaultToolbar
 		ObjectsToEdit);
 
-	// 프로퍼티 변경 델리게이트 구독 (Undo/Redo 포함)
+	// 프로퍼티 변경 델리게이트 구독
 	OnPropertyChangedHandle = FCoreUObjectDelegates::OnObjectPropertyChanged.AddRaw(
 		this, &FFleshRingAssetEditor::OnObjectPropertyChanged);
+
+	// Undo/Redo 델리게이트 구독
+	OnObjectTransactedHandle = FCoreUObjectDelegates::OnObjectTransacted.AddRaw(
+		this, &FFleshRingAssetEditor::OnObjectTransacted);
 }
 
 
@@ -219,7 +229,7 @@ void FFleshRingAssetEditor::OnObjectPropertyChanged(UObject* Object, FPropertyCh
 	{
 		// 구조적 변경 (Ring 추가/삭제, RingMesh 변경) 감지
 		bool bNeedsFullRefresh = false;
-
+		
 		if (PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayAdd ||
 			PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayRemove ||
 			PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayClear)
@@ -230,8 +240,24 @@ void FFleshRingAssetEditor::OnObjectPropertyChanged(UObject* Object, FPropertyCh
 		else if (PropertyChangedEvent.Property)
 		{
 			FName PropName = PropertyChangedEvent.Property->GetFName();
+
+			// TargetSkeletalMesh 변경 시 스켈레탈 메시 교체 필요
+			if (PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, TargetSkeletalMesh))
+			{
+				bNeedsFullRefresh = true;
+			}
 			// RingMesh 변경 시 SDF 재생성 필요
-			if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingMesh))
+			else if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingMesh))
+			{
+				bNeedsFullRefresh = true;
+			}
+			// BoneName 변경 시 Ring 부착 위치 변경 → SDF/AffectedVertices 재계산
+			else if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BoneName))
+			{
+				bNeedsFullRefresh = true;
+			}
+			// InfluenceMode 변경 시 AffectedVertices 재계산
+			else if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, InfluenceMode))
 			{
 				bNeedsFullRefresh = true;
 			}
@@ -262,6 +288,20 @@ void FFleshRingAssetEditor::UpdateRingTransformsOnly()
 	if (ViewportWidget.IsValid())
 	{
 		ViewportWidget->UpdateRingTransformsOnly();
+	}
+}
+
+void FFleshRingAssetEditor::OnObjectTransacted(UObject* Object, const FTransactionObjectEvent& TransactionEvent)
+{
+	// Undo/Redo 시 EditingAsset이 변경되었으면 뷰포트 갱신
+	if (Object == EditingAsset)
+	{
+		// UndoRedo 이벤트일 때 갱신 (Ctrl+Z / Ctrl+Y)
+		if (TransactionEvent.GetEventType() == ETransactionObjectEventType::UndoRedo)
+		{
+			// Undo/Redo는 어떤 프로퍼티가 변경되었는지 알 수 없으므로 전체 갱신
+			RefreshViewport();
+		}
 	}
 }
 

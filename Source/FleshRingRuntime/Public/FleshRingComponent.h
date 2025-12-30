@@ -202,6 +202,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "FleshRing|Editor")
 	void UpdateRingTransforms();
 
+	/** 디버그 슬라이스 평면 숨기기/보이기 */
+	void SetDebugSlicePlanesVisible(bool bVisible);
+
 	/** Ring 메시 컴포넌트 배열 반환 (에디터 피킹용) */
 	const TArray<TObjectPtr<UStaticMeshComponent>>& GetRingMeshComponents() const { return RingMeshComponents; }
 
