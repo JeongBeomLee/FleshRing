@@ -100,8 +100,16 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	float RingThickness = 1.0f;
 
 	/** 링 높이 - 축 방향 전체 높이 (위아래 각각 RingWidth/2) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.1", ClampMax = "50.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::Manual", ClampMin = "0.1", ClampMax = "50.0"))
 	float RingWidth = 2.0f;
+
+	/** Bone 기준 Ring 위치 오프셋 (변형 영역) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::Manual"))
+	FVector RingOffset = FVector::ZeroVector;
+
+	/** Ring 회전 Euler 각도 (UI 편집용, 제한 없음) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::Manual", DisplayName = "Ring Rotation"))
+	FRotator RingEulerRotation = FRotator(-90.0f, 0.0f, 0.0f);
 
 	/** 볼록 효과 강도 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "2.0"))
@@ -119,17 +127,9 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF")
 	FFleshRingSdfSettings SdfSettings;
 
-	/** Bone 기준 Ring 위치 오프셋 (변형 영역) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform")
-	FVector RingOffset = FVector::ZeroVector;
-
 	/** Ring 회전 (실제 적용되는 쿼터니언, 런타임에서 사용) */
 	UPROPERTY()
 	FQuat RingRotation = FRotator(-90.0f, 0.0f, 0.0f).Quaternion();
-
-	/** Ring 회전 Euler 각도 (UI 편집용, 제한 없음) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform", meta = (DisplayName = "Ring Rotation"))
-	FRotator RingEulerRotation = FRotator(-90.0f, 0.0f, 0.0f);
 
 	/** Bone 기준 메시 위치 오프셋 (시각적 + SDF) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform")

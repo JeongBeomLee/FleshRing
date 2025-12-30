@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "IPropertyTypeCustomization.h"
 #include "PropertyHandle.h"
+#include "Widgets/SWidget.h"
 
 class IDetailChildrenBuilder;
 
@@ -61,17 +62,81 @@ private:
 		IDetailChildrenBuilder& ChildBuilder,
 		TSharedRef<IPropertyHandle> VectorHandle,
 		const FText& DisplayName,
-		float Delta);
+		float Delta,
+		TAttribute<bool> IsEnabled = true);
 
 	/** FRotator용 선형 드래그 Row 추가 */
 	void AddLinearRotatorRow(
 		IDetailChildrenBuilder& ChildBuilder,
 		TSharedRef<IPropertyHandle> RotatorHandle,
 		const FText& DisplayName,
-		float Delta);
+		float Delta,
+		TAttribute<bool> IsEnabled = true);
 
 	/** Euler 각도를 FQuat 핸들에 쓰기 */
 	void SetEulerToQuat(TSharedPtr<IPropertyHandle> QuatHandle, const FRotator& Euler);
+
+	/** FVector용 선형 드래그 위젯 생성 (그룹용) */
+	TSharedRef<SWidget> CreateLinearVectorWidget(
+		TSharedRef<IPropertyHandle> VectorHandle,
+		float Delta);
+
+	/** FRotator용 선형 드래그 위젯 생성 (그룹용) */
+	TSharedRef<SWidget> CreateLinearRotatorWidget(
+		TSharedRef<IPropertyHandle> RotatorHandle,
+		float Delta);
+
+	/** FVector용 선형 드래그 Row + Reset 버튼 추가 */
+	void AddLinearVectorRowWithReset(
+		IDetailChildrenBuilder& ChildBuilder,
+		TSharedRef<IPropertyHandle> VectorHandle,
+		const FText& DisplayName,
+		float Delta,
+		const FVector& DefaultValue,
+		TAttribute<bool> IsEnabled = true);
+
+	/** FRotator용 선형 드래그 Row + Reset 버튼 추가 */
+	void AddLinearRotatorRowWithReset(
+		IDetailChildrenBuilder& ChildBuilder,
+		TSharedRef<IPropertyHandle> RotatorHandle,
+		const FText& DisplayName,
+		float Delta,
+		const FRotator& DefaultValue,
+		TAttribute<bool> IsEnabled = true);
+
+	/** FVector용 선형 드래그 위젯 + Reset 버튼 생성 (그룹용) */
+	TSharedRef<SWidget> CreateLinearVectorWidgetWithReset(
+		TSharedRef<IPropertyHandle> VectorHandle,
+		float Delta,
+		const FVector& DefaultValue);
+
+	/** FRotator용 선형 드래그 위젯 + Reset 버튼 생성 (그룹용) */
+	TSharedRef<SWidget> CreateLinearRotatorWidgetWithReset(
+		TSharedRef<IPropertyHandle> RotatorHandle,
+		float Delta,
+		const FRotator& DefaultValue);
+
+	/** FVector용 Reset 버튼 생성 */
+	TSharedRef<SWidget> CreateResetButton(
+		TSharedRef<IPropertyHandle> VectorHandle,
+		const FVector& DefaultValue);
+
+	/** FRotator용 Reset 버튼 생성 */
+	TSharedRef<SWidget> CreateResetButton(
+		TSharedRef<IPropertyHandle> RotatorHandle,
+		const FRotator& DefaultValue);
+
+	/** FVector 위젯 + Reset 버튼 (우측 끝 배치) */
+	TSharedRef<SWidget> CreateVectorWidgetWithResetButton(
+		TSharedRef<IPropertyHandle> VectorHandle,
+		float Delta,
+		const FVector& DefaultValue);
+
+	/** FRotator 위젯 + Reset 버튼 (우측 끝 배치) */
+	TSharedRef<SWidget> CreateRotatorWidgetWithResetButton(
+		TSharedRef<IPropertyHandle> RotatorHandle,
+		float Delta,
+		const FRotator& DefaultValue);
 
 	/** 프로퍼티 핸들 캐싱 */
 	TSharedPtr<IPropertyHandle> BoneNameHandle;

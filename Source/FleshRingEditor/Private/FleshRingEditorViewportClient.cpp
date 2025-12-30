@@ -385,6 +385,12 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 	{
 		const FFleshRingSettings& Ring = Rings[i];
 
+		// Manual 모드일 때만 Ring 기즈모 표시 (SDF 모드에서는 Radius가 의미 없음)
+		if (Ring.InfluenceMode != EFleshRingInfluenceMode::Manual)
+		{
+			continue;
+		}
+
 		// 본 Transform 가져오기
 		int32 BoneIndex = SkelMeshComp->GetBoneIndex(Ring.BoneName);
 		if (BoneIndex == INDEX_NONE)

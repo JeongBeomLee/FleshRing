@@ -4,13 +4,16 @@
 #include "DetailLayoutBuilder.h"
 #include "DetailWidgetRow.h"
 #include "IDetailChildrenBuilder.h"
+#include "IDetailGroup.h"
 #include "FleshRingComponent.h"
 #include "FleshRingAsset.h"
+#include "FleshRingTypes.h"
 #include "Widgets/Input/SComboBox.h"
 #include "Widgets/Input/SSpinBox.h"
 #include "Widgets/Input/SNumericEntryBox.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Images/SImage.h"
+#include "Widgets/Input/SButton.h"
 #include "Widgets/SBoxPanel.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
@@ -135,7 +138,58 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	RingRotationHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingRotation));
 	MeshRotationHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshRotation));
 
-	// 나머지 프로퍼티들은 기본 표시
+	// InfluenceMode 핸들 가져오기
+	TSharedPtr<IPropertyHandle> InfluenceModeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, InfluenceMode));
+
+	// 현재 InfluenceMode가 Manual인지 확인 (초기 상태용)
+	bool bIsManualMode = false;
+	if (InfluenceModeHandle.IsValid())
+	{
+		uint8 ModeValue = 0;
+		InfluenceModeHandle->GetValue(ModeValue);
+		bIsManualMode = (static_cast<EFleshRingInfluenceMode>(ModeValue) == EFleshRingInfluenceMode::Manual);
+	}
+
+	// Manual 모드 동적 체크용 TAttribute (Ring Transform에 사용)
+	TAttribute<bool> IsManualModeAttr = TAttribute<bool>::Create([InfluenceModeHandle]() -> bool
+	{
+		if (!InfluenceModeHandle.IsValid())
+		{
+			return true;
+		}
+		uint8 ModeValue = 0;
+		InfluenceModeHandle->GetValue(ModeValue);
+		return static_cast<EFleshRingInfluenceMode>(ModeValue) == EFleshRingInfluenceMode::Manual;
+	});
+
+	// SDF 모드 동적 체크용 TAttribute (SDF Settings에 사용 - Manual이 아닐 때 활성화)
+	TAttribute<bool> IsSdfModeAttr = TAttribute<bool>::Create([InfluenceModeHandle]() -> bool
+	{
+		if (!InfluenceModeHandle.IsValid())
+		{
+			return true;
+		}
+		uint8 ModeValue = 0;
+		InfluenceModeHandle->GetValue(ModeValue);
+		return static_cast<EFleshRingInfluenceMode>(ModeValue) != EFleshRingInfluenceMode::Manual;
+	});
+
+	// Ring Transform 그룹에 넣을 프로퍼티들 수집
+	TSharedPtr<IPropertyHandle> RingRadiusHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingRadius));
+	TSharedPtr<IPropertyHandle> RingThicknessHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingThickness));
+	TSharedPtr<IPropertyHandle> RingWidthHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingWidth));
+	TSharedPtr<IPropertyHandle> RingOffsetHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingOffset));
+	TSharedPtr<IPropertyHandle> RingEulerHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingEulerRotation));
+
+	// Ring Transform 그룹에 들어갈 프로퍼티 이름들
+	TSet<FName> RingGroupProperties;
+	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingRadius));
+	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingThickness));
+	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingWidth));
+	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingOffset));
+	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingEulerRotation));
+
+	// 나머지 프로퍼티들 먼저 표시 (Ring 그룹 제외)
 	uint32 NumChildren;
 	PropertyHandle->GetNumChildren(NumChildren);
 
@@ -157,35 +211,120 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			continue;
 		}
 
-		// Transform 프로퍼티들은 선형 드래그 감도 적용
-		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingOffset))
+		// Ring 그룹에 넣을 프로퍼티는 여기서 스킵
+		if (RingGroupProperties.Contains(PropertyName))
 		{
-			AddLinearVectorRow(ChildBuilder, ChildHandle, LOCTEXT("RingOffset", "Ring Offset"), 1.0f);
 			continue;
 		}
-		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingEulerRotation))
-		{
-			AddLinearRotatorRow(ChildBuilder, ChildHandle, LOCTEXT("RingRotation", "Ring Rotation"), 1.0f);
-			continue;
-		}
+
+		// Transform 프로퍼티들은 선형 드래그 감도 적용 + Reset 버튼
 		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshOffset))
 		{
-			AddLinearVectorRow(ChildBuilder, ChildHandle, LOCTEXT("MeshOffset", "Mesh Offset"), 1.0f);
+			ChildBuilder.AddCustomRow(LOCTEXT("MeshOffsetRow", "Mesh Offset"))
+			.NameContent()
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("MeshOffset", "Mesh Offset"))
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+			.ValueContent()
+			.MinDesiredWidth(300.0f)
+			[
+				CreateVectorWidgetWithResetButton(ChildHandle, 1.0f, FVector::ZeroVector)
+			];
 			continue;
 		}
 		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshEulerRotation))
 		{
-			AddLinearRotatorRow(ChildBuilder, ChildHandle, LOCTEXT("MeshRotation", "Mesh Rotation"), 1.0f);
+			ChildBuilder.AddCustomRow(LOCTEXT("MeshRotationRow", "Mesh Rotation"))
+			.NameContent()
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("MeshRotation", "Mesh Rotation"))
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+			.ValueContent()
+			.MinDesiredWidth(300.0f)
+			[
+				CreateRotatorWidgetWithResetButton(ChildHandle, 1.0f, FRotator(-90.0f, 0.0f, 0.0f))
+			];
 			continue;
 		}
 		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshScale))
 		{
-			AddLinearVectorRow(ChildBuilder, ChildHandle, LOCTEXT("MeshScale", "Mesh Scale"), 0.0025f);
+			ChildBuilder.AddCustomRow(LOCTEXT("MeshScaleRow", "Mesh Scale"))
+			.NameContent()
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("MeshScale", "Mesh Scale"))
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+			.ValueContent()
+			.MinDesiredWidth(300.0f)
+			[
+				CreateVectorWidgetWithResetButton(ChildHandle, 0.0025f, FVector::OneVector)
+			];
+			continue;
+		}
+
+		// SDF Settings는 Manual 모드일 때 비활성화
+		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SdfSettings))
+		{
+			ChildBuilder.AddProperty(ChildHandle).IsEnabled(IsSdfModeAttr);
 			continue;
 		}
 
 		// 나머지는 기본 위젯 사용
 		ChildBuilder.AddProperty(ChildHandle);
+	}
+
+	// Ring Transform 그룹 생성
+	IDetailGroup& RingGroup = ChildBuilder.AddGroup(TEXT("RingTransform"), LOCTEXT("RingTransformGroup", "Ring Transform"));
+
+	// Ring 그룹에 프로퍼티 추가
+	if (RingRadiusHandle.IsValid())
+	{
+		RingGroup.AddPropertyRow(RingRadiusHandle.ToSharedRef()).IsEnabled(IsManualModeAttr);
+	}
+	if (RingThicknessHandle.IsValid())
+	{
+		RingGroup.AddPropertyRow(RingThicknessHandle.ToSharedRef()).IsEnabled(IsManualModeAttr);
+	}
+	if (RingWidthHandle.IsValid())
+	{
+		RingGroup.AddPropertyRow(RingWidthHandle.ToSharedRef()).IsEnabled(IsManualModeAttr);
+	}
+	if (RingOffsetHandle.IsValid())
+	{
+		RingGroup.AddWidgetRow()
+		.IsEnabled(IsManualModeAttr)
+		.NameContent()
+		[
+			SNew(STextBlock)
+			.Text(LOCTEXT("RingOffset", "Ring Offset"))
+			.Font(IDetailLayoutBuilder::GetDetailFont())
+		]
+		.ValueContent()
+		.MinDesiredWidth(300.0f)
+		[
+			CreateVectorWidgetWithResetButton(RingOffsetHandle.ToSharedRef(), 1.0f, FVector::ZeroVector)
+		];
+	}
+	if (RingEulerHandle.IsValid())
+	{
+		RingGroup.AddWidgetRow()
+		.IsEnabled(IsManualModeAttr)
+		.NameContent()
+		[
+			SNew(STextBlock)
+			.Text(LOCTEXT("RingRotation", "Ring Rotation"))
+			.Font(IDetailLayoutBuilder::GetDetailFont())
+		]
+		.ValueContent()
+		.MinDesiredWidth(300.0f)
+		[
+			CreateRotatorWidgetWithResetButton(RingEulerHandle.ToSharedRef(), 1.0f, FRotator(-90.0f, 0.0f, 0.0f))
+		];
 	}
 }
 
@@ -397,7 +536,8 @@ void FFleshRingSettingsCustomization::AddLinearVectorRow(
 	IDetailChildrenBuilder& ChildBuilder,
 	TSharedRef<IPropertyHandle> VectorHandle,
 	const FText& DisplayName,
-	float Delta)
+	float Delta,
+	TAttribute<bool> IsEnabled)
 {
 	TSharedPtr<IPropertyHandle> VecHandlePtr = VectorHandle.ToSharedPtr();
 
@@ -438,6 +578,7 @@ void FFleshRingSettingsCustomization::AddLinearVectorRow(
 	};
 
 	ChildBuilder.AddCustomRow(DisplayName)
+	.IsEnabled(IsEnabled)
 	.NameContent()
 	[
 		SNew(STextBlock)
@@ -575,7 +716,8 @@ void FFleshRingSettingsCustomization::AddLinearRotatorRow(
 	IDetailChildrenBuilder& ChildBuilder,
 	TSharedRef<IPropertyHandle> RotatorHandle,
 	const FText& DisplayName,
-	float Delta)
+	float Delta,
+	TAttribute<bool> IsEnabled)
 {
 	TSharedPtr<IPropertyHandle> RotHandlePtr = RotatorHandle.ToSharedPtr();
 
@@ -619,6 +761,7 @@ void FFleshRingSettingsCustomization::AddLinearRotatorRow(
 	auto DegreeInterface = MakeShared<FDegreeTypeInterface>();
 
 	ChildBuilder.AddCustomRow(DisplayName)
+	.IsEnabled(IsEnabled)
 	.NameContent()
 	[
 		SNew(STextBlock)
@@ -753,6 +896,1159 @@ void FFleshRingSettingsCustomization::AddLinearRotatorRow(
 			]
 		]
 	];
+}
+
+TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidget(
+	TSharedRef<IPropertyHandle> VectorHandle,
+	float Delta)
+{
+	TSharedPtr<IPropertyHandle> VecHandlePtr = VectorHandle.ToSharedPtr();
+
+	auto GetVector = [VecHandlePtr]() -> FVector
+	{
+		FVector Result = FVector::ZeroVector;
+		if (VecHandlePtr.IsValid())
+		{
+			VecHandlePtr->EnumerateRawData([&Result](void* RawData, const int32 DataIndex, const int32 NumDatas)
+			{
+				if (RawData)
+				{
+					Result = *static_cast<FVector*>(RawData);
+					return false;
+				}
+				return true;
+			});
+		}
+		return Result;
+	};
+
+	auto SetVector = [VecHandlePtr](const FVector& NewValue)
+	{
+		if (VecHandlePtr.IsValid())
+		{
+			VecHandlePtr->EnumerateRawData([&NewValue](void* RawData, const int32 DataIndex, const int32 NumDatas)
+			{
+				if (RawData)
+				{
+					*static_cast<FVector*>(RawData) = NewValue;
+				}
+				return true;
+			});
+			VecHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+		}
+	};
+
+	return SNew(SHorizontalBox)
+		// X
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(0, 0, 2, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.594f, 0.0197f, 0.0f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.Value_Lambda([GetVector]() -> double { return GetVector().X; })
+				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
+				{
+					FVector Vec = GetVector();
+					Vec.X = NewValue;
+					SetVector(Vec);
+				})
+				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				{
+					FVector Vec = GetVector();
+					Vec.X = NewValue;
+					SetVector(Vec);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		]
+		// Y
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(2, 0, 2, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.1144f, 0.4456f, 0.0f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.Value_Lambda([GetVector]() -> double { return GetVector().Y; })
+				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
+				{
+					FVector Vec = GetVector();
+					Vec.Y = NewValue;
+					SetVector(Vec);
+				})
+				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				{
+					FVector Vec = GetVector();
+					Vec.Y = NewValue;
+					SetVector(Vec);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		]
+		// Z
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(2, 0, 0, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.0251f, 0.207f, 0.85f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.Value_Lambda([GetVector]() -> double { return GetVector().Z; })
+				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
+				{
+					FVector Vec = GetVector();
+					Vec.Z = NewValue;
+					SetVector(Vec);
+				})
+				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				{
+					FVector Vec = GetVector();
+					Vec.Z = NewValue;
+					SetVector(Vec);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		];
+}
+
+TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidget(
+	TSharedRef<IPropertyHandle> RotatorHandle,
+	float Delta)
+{
+	TSharedPtr<IPropertyHandle> RotHandlePtr = RotatorHandle.ToSharedPtr();
+
+	auto GetRotator = [RotHandlePtr]() -> FRotator
+	{
+		FRotator Result = FRotator::ZeroRotator;
+		if (RotHandlePtr.IsValid())
+		{
+			RotHandlePtr->EnumerateRawData([&Result](void* RawData, const int32 DataIndex, const int32 NumDatas)
+			{
+				if (RawData)
+				{
+					Result = *static_cast<FRotator*>(RawData);
+					return false;
+				}
+				return true;
+			});
+		}
+		return Result;
+	};
+
+	auto SetRotator = [RotHandlePtr](const FRotator& NewValue)
+	{
+		if (RotHandlePtr.IsValid())
+		{
+			RotHandlePtr->EnumerateRawData([&NewValue](void* RawData, const int32 DataIndex, const int32 NumDatas)
+			{
+				if (RawData)
+				{
+					*static_cast<FRotator*>(RawData) = NewValue;
+				}
+				return true;
+			});
+			RotHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+		}
+	};
+
+	auto DegreeInterface = MakeShared<FDegreeTypeInterface>();
+
+	return SNew(SHorizontalBox)
+		// Roll (X)
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(0, 0, 2, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.594f, 0.0197f, 0.0f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.TypeInterface(DegreeInterface)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.Value_Lambda([GetRotator]() -> double { return GetRotator().Roll; })
+				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
+				{
+					FRotator Rot = GetRotator();
+					Rot.Roll = NewValue;
+					SetRotator(Rot);
+				})
+				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				{
+					FRotator Rot = GetRotator();
+					Rot.Roll = NewValue;
+					SetRotator(Rot);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		]
+		// Pitch (Y)
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(2, 0, 2, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.1144f, 0.4456f, 0.0f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.TypeInterface(DegreeInterface)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.Value_Lambda([GetRotator]() -> double { return GetRotator().Pitch; })
+				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
+				{
+					FRotator Rot = GetRotator();
+					Rot.Pitch = NewValue;
+					SetRotator(Rot);
+				})
+				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				{
+					FRotator Rot = GetRotator();
+					Rot.Pitch = NewValue;
+					SetRotator(Rot);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		]
+		// Yaw (Z)
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(2, 0, 0, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.0251f, 0.207f, 0.85f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.TypeInterface(DegreeInterface)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.Value_Lambda([GetRotator]() -> double { return GetRotator().Yaw; })
+				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
+				{
+					FRotator Rot = GetRotator();
+					Rot.Yaw = NewValue;
+					SetRotator(Rot);
+				})
+				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				{
+					FRotator Rot = GetRotator();
+					Rot.Yaw = NewValue;
+					SetRotator(Rot);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		];
+}
+
+void FFleshRingSettingsCustomization::AddLinearVectorRowWithReset(
+	IDetailChildrenBuilder& ChildBuilder,
+	TSharedRef<IPropertyHandle> VectorHandle,
+	const FText& DisplayName,
+	float Delta,
+	const FVector& DefaultValue,
+	TAttribute<bool> IsEnabled)
+{
+	ChildBuilder.AddCustomRow(DisplayName)
+	.IsEnabled(IsEnabled)
+	.NameContent()
+	[
+		SNew(STextBlock)
+		.Text(DisplayName)
+		.Font(IDetailLayoutBuilder::GetDetailFont())
+	]
+	.ValueContent()
+	.MinDesiredWidth(300.0f)
+	[
+		CreateLinearVectorWidgetWithReset(VectorHandle, Delta, DefaultValue)
+	];
+}
+
+void FFleshRingSettingsCustomization::AddLinearRotatorRowWithReset(
+	IDetailChildrenBuilder& ChildBuilder,
+	TSharedRef<IPropertyHandle> RotatorHandle,
+	const FText& DisplayName,
+	float Delta,
+	const FRotator& DefaultValue,
+	TAttribute<bool> IsEnabled)
+{
+	ChildBuilder.AddCustomRow(DisplayName)
+	.IsEnabled(IsEnabled)
+	.NameContent()
+	[
+		SNew(STextBlock)
+		.Text(DisplayName)
+		.Font(IDetailLayoutBuilder::GetDetailFont())
+	]
+	.ValueContent()
+	.MinDesiredWidth(300.0f)
+	[
+		CreateLinearRotatorWidgetWithReset(RotatorHandle, Delta, DefaultValue)
+	];
+}
+
+TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidgetWithReset(
+	TSharedRef<IPropertyHandle> VectorHandle,
+	float Delta,
+	const FVector& DefaultValue)
+{
+	TSharedPtr<IPropertyHandle> VecHandlePtr = VectorHandle.ToSharedPtr();
+
+	auto GetVector = [VecHandlePtr]() -> FVector
+	{
+		FVector Result = FVector::ZeroVector;
+		if (VecHandlePtr.IsValid())
+		{
+			VecHandlePtr->EnumerateRawData([&Result](void* RawData, const int32 DataIndex, const int32 NumDatas)
+			{
+				if (RawData)
+				{
+					Result = *static_cast<FVector*>(RawData);
+					return false;
+				}
+				return true;
+			});
+		}
+		return Result;
+	};
+
+	auto SetVector = [VecHandlePtr](const FVector& NewValue)
+	{
+		if (VecHandlePtr.IsValid())
+		{
+			VecHandlePtr->EnumerateRawData([&NewValue](void* RawData, const int32 DataIndex, const int32 NumDatas)
+			{
+				if (RawData)
+				{
+					*static_cast<FVector*>(RawData) = NewValue;
+				}
+				return true;
+			});
+			VecHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+		}
+	};
+
+	return SNew(SHorizontalBox)
+		// X
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(0, 0, 2, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.594f, 0.0197f, 0.0f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.Value_Lambda([GetVector]() -> double { return GetVector().X; })
+				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
+				{
+					FVector Vec = GetVector();
+					Vec.X = NewValue;
+					SetVector(Vec);
+				})
+				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				{
+					FVector Vec = GetVector();
+					Vec.X = NewValue;
+					SetVector(Vec);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		]
+		// Y
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(2, 0, 2, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.1144f, 0.4456f, 0.0f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.Value_Lambda([GetVector]() -> double { return GetVector().Y; })
+				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
+				{
+					FVector Vec = GetVector();
+					Vec.Y = NewValue;
+					SetVector(Vec);
+				})
+				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				{
+					FVector Vec = GetVector();
+					Vec.Y = NewValue;
+					SetVector(Vec);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		]
+		// Z
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(2, 0, 2, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.0251f, 0.207f, 0.85f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.Value_Lambda([GetVector]() -> double { return GetVector().Z; })
+				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
+				{
+					FVector Vec = GetVector();
+					Vec.Z = NewValue;
+					SetVector(Vec);
+				})
+				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				{
+					FVector Vec = GetVector();
+					Vec.Z = NewValue;
+					SetVector(Vec);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		]
+		// Reset Button
+		+ SHorizontalBox::Slot()
+		.AutoWidth()
+		.VAlign(VAlign_Center)
+		.Padding(4, 0, 0, 0)
+		[
+			SNew(SButton)
+			.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+			.OnClicked_Lambda([SetVector, DefaultValue]() -> FReply
+			{
+				SetVector(DefaultValue);
+				return FReply::Handled();
+			})
+			.ContentPadding(FMargin(1, 0))
+			.ToolTipText(LOCTEXT("ResetToDefault", "Reset to Default"))
+			[
+				SNew(SImage)
+				.Image(FAppStyle::GetBrush("PropertyWindow.DiffersFromDefault"))
+				.ColorAndOpacity(FSlateColor::UseForeground())
+			]
+		];
+}
+
+TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidgetWithReset(
+	TSharedRef<IPropertyHandle> RotatorHandle,
+	float Delta,
+	const FRotator& DefaultValue)
+{
+	TSharedPtr<IPropertyHandle> RotHandlePtr = RotatorHandle.ToSharedPtr();
+
+	auto GetRotator = [RotHandlePtr]() -> FRotator
+	{
+		FRotator Result = FRotator::ZeroRotator;
+		if (RotHandlePtr.IsValid())
+		{
+			RotHandlePtr->EnumerateRawData([&Result](void* RawData, const int32 DataIndex, const int32 NumDatas)
+			{
+				if (RawData)
+				{
+					Result = *static_cast<FRotator*>(RawData);
+					return false;
+				}
+				return true;
+			});
+		}
+		return Result;
+	};
+
+	auto SetRotator = [RotHandlePtr](const FRotator& NewValue)
+	{
+		if (RotHandlePtr.IsValid())
+		{
+			RotHandlePtr->EnumerateRawData([&NewValue](void* RawData, const int32 DataIndex, const int32 NumDatas)
+			{
+				if (RawData)
+				{
+					*static_cast<FRotator*>(RawData) = NewValue;
+				}
+				return true;
+			});
+			RotHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+		}
+	};
+
+	auto DegreeInterface = MakeShared<FDegreeTypeInterface>();
+
+	return SNew(SHorizontalBox)
+		// Roll (X)
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(0, 0, 2, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.594f, 0.0197f, 0.0f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.TypeInterface(DegreeInterface)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.Value_Lambda([GetRotator]() -> double { return GetRotator().Roll; })
+				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
+				{
+					FRotator Rot = GetRotator();
+					Rot.Roll = NewValue;
+					SetRotator(Rot);
+				})
+				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				{
+					FRotator Rot = GetRotator();
+					Rot.Roll = NewValue;
+					SetRotator(Rot);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		]
+		// Pitch (Y)
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(2, 0, 2, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.1144f, 0.4456f, 0.0f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.TypeInterface(DegreeInterface)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.Value_Lambda([GetRotator]() -> double { return GetRotator().Pitch; })
+				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
+				{
+					FRotator Rot = GetRotator();
+					Rot.Pitch = NewValue;
+					SetRotator(Rot);
+				})
+				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				{
+					FRotator Rot = GetRotator();
+					Rot.Pitch = NewValue;
+					SetRotator(Rot);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		]
+		// Yaw (Z)
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(2, 0, 2, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.0251f, 0.207f, 0.85f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.TypeInterface(DegreeInterface)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.Value_Lambda([GetRotator]() -> double { return GetRotator().Yaw; })
+				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
+				{
+					FRotator Rot = GetRotator();
+					Rot.Yaw = NewValue;
+					SetRotator(Rot);
+				})
+				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				{
+					FRotator Rot = GetRotator();
+					Rot.Yaw = NewValue;
+					SetRotator(Rot);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		]
+		// Reset Button
+		+ SHorizontalBox::Slot()
+		.AutoWidth()
+		.VAlign(VAlign_Center)
+		.Padding(4, 0, 0, 0)
+		[
+			SNew(SButton)
+			.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+			.OnClicked_Lambda([SetRotator, DefaultValue]() -> FReply
+			{
+				SetRotator(DefaultValue);
+				return FReply::Handled();
+			})
+			.ContentPadding(FMargin(1, 0))
+			.ToolTipText(LOCTEXT("ResetToDefault", "Reset to Default"))
+			[
+				SNew(SImage)
+				.Image(FAppStyle::GetBrush("PropertyWindow.DiffersFromDefault"))
+				.ColorAndOpacity(FSlateColor::UseForeground())
+			]
+		];
+}
+
+TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateResetButton(
+	TSharedRef<IPropertyHandle> VectorHandle,
+	const FVector& DefaultValue)
+{
+	TSharedPtr<IPropertyHandle> VecHandlePtr = VectorHandle.ToSharedPtr();
+
+	auto SetVector = [VecHandlePtr](const FVector& NewValue)
+	{
+		if (VecHandlePtr.IsValid())
+		{
+			VecHandlePtr->EnumerateRawData([&NewValue](void* RawData, const int32 DataIndex, const int32 NumDatas)
+			{
+				if (RawData)
+				{
+					*static_cast<FVector*>(RawData) = NewValue;
+				}
+				return true;
+			});
+			VecHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+		}
+	};
+
+	return SNew(SButton)
+		.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+		.OnClicked_Lambda([SetVector, DefaultValue]() -> FReply
+		{
+			SetVector(DefaultValue);
+			return FReply::Handled();
+		})
+		.ContentPadding(FMargin(1, 0))
+		.ToolTipText(LOCTEXT("ResetToDefaultVector", "Reset to Default"))
+		[
+			SNew(SImage)
+			.Image(FAppStyle::GetBrush("PropertyWindow.DiffersFromDefault"))
+			.ColorAndOpacity(FSlateColor::UseForeground())
+		];
+}
+
+TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateResetButton(
+	TSharedRef<IPropertyHandle> RotatorHandle,
+	const FRotator& DefaultValue)
+{
+	TSharedPtr<IPropertyHandle> RotHandlePtr = RotatorHandle.ToSharedPtr();
+
+	auto SetRotator = [RotHandlePtr](const FRotator& NewValue)
+	{
+		if (RotHandlePtr.IsValid())
+		{
+			RotHandlePtr->EnumerateRawData([&NewValue](void* RawData, const int32 DataIndex, const int32 NumDatas)
+			{
+				if (RawData)
+				{
+					*static_cast<FRotator*>(RawData) = NewValue;
+				}
+				return true;
+			});
+			RotHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+		}
+	};
+
+	return SNew(SButton)
+		.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+		.OnClicked_Lambda([SetRotator, DefaultValue]() -> FReply
+		{
+			SetRotator(DefaultValue);
+			return FReply::Handled();
+		})
+		.ContentPadding(FMargin(1, 0))
+		.ToolTipText(LOCTEXT("ResetToDefaultRotator", "Reset to Default"))
+		[
+			SNew(SImage)
+			.Image(FAppStyle::GetBrush("PropertyWindow.DiffersFromDefault"))
+			.ColorAndOpacity(FSlateColor::UseForeground())
+		];
+}
+
+TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateVectorWidgetWithResetButton(
+	TSharedRef<IPropertyHandle> VectorHandle,
+	float Delta,
+	const FVector& DefaultValue)
+{
+	TSharedPtr<IPropertyHandle> VecHandlePtr = VectorHandle.ToSharedPtr();
+
+	auto GetVector = [VecHandlePtr]() -> FVector
+	{
+		FVector Result = FVector::ZeroVector;
+		if (VecHandlePtr.IsValid())
+		{
+			VecHandlePtr->EnumerateRawData([&Result](void* RawData, const int32 DataIndex, const int32 NumDatas)
+			{
+				if (RawData)
+				{
+					Result = *static_cast<FVector*>(RawData);
+					return false;
+				}
+				return true;
+			});
+		}
+		return Result;
+	};
+
+	auto SetVector = [VecHandlePtr](const FVector& NewValue)
+	{
+		if (VecHandlePtr.IsValid())
+		{
+			VecHandlePtr->NotifyPreChange();
+			VecHandlePtr->EnumerateRawData([&NewValue](void* RawData, const int32 DataIndex, const int32 NumDatas)
+			{
+				if (RawData)
+				{
+					*static_cast<FVector*>(RawData) = NewValue;
+				}
+				return true;
+			});
+			VecHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+			VecHandlePtr->NotifyFinishedChangingProperties();
+		}
+	};
+
+	return SNew(SHorizontalBox)
+		// X
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(0, 0, 2, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.594f, 0.0197f, 0.0f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.Value_Lambda([GetVector]() -> double { return GetVector().X; })
+				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
+				{
+					FVector Vec = GetVector();
+					Vec.X = NewValue;
+					SetVector(Vec);
+				})
+				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				{
+					FVector Vec = GetVector();
+					Vec.X = NewValue;
+					SetVector(Vec);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		]
+		// Y
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(2, 0, 2, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.1144f, 0.4456f, 0.0f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.Value_Lambda([GetVector]() -> double { return GetVector().Y; })
+				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
+				{
+					FVector Vec = GetVector();
+					Vec.Y = NewValue;
+					SetVector(Vec);
+				})
+				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				{
+					FVector Vec = GetVector();
+					Vec.Y = NewValue;
+					SetVector(Vec);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		]
+		// Z
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(2, 0, 0, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.0251f, 0.207f, 0.85f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.Value_Lambda([GetVector]() -> double { return GetVector().Z; })
+				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
+				{
+					FVector Vec = GetVector();
+					Vec.Z = NewValue;
+					SetVector(Vec);
+				})
+				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				{
+					FVector Vec = GetVector();
+					Vec.Z = NewValue;
+					SetVector(Vec);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		]
+		// Reset Button (우측 끝)
+		+ SHorizontalBox::Slot()
+		.AutoWidth()
+		.VAlign(VAlign_Center)
+		.Padding(8, 0, 0, 0)
+		[
+			SNew(SButton)
+			.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+			.OnClicked_Lambda([SetVector, DefaultValue]() -> FReply
+			{
+				SetVector(DefaultValue);
+				return FReply::Handled();
+			})
+			.ContentPadding(FMargin(1, 0))
+			.ToolTipText(LOCTEXT("ResetVectorToDefault", "Reset to Default"))
+			[
+				SNew(SImage)
+				.Image(FAppStyle::GetBrush("PropertyWindow.DiffersFromDefault"))
+				.ColorAndOpacity(FSlateColor::UseForeground())
+			]
+		];
+}
+
+TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateRotatorWidgetWithResetButton(
+	TSharedRef<IPropertyHandle> RotatorHandle,
+	float Delta,
+	const FRotator& DefaultValue)
+{
+	TSharedPtr<IPropertyHandle> RotHandlePtr = RotatorHandle.ToSharedPtr();
+
+	auto GetRotator = [RotHandlePtr]() -> FRotator
+	{
+		FRotator Result = FRotator::ZeroRotator;
+		if (RotHandlePtr.IsValid())
+		{
+			RotHandlePtr->EnumerateRawData([&Result](void* RawData, const int32 DataIndex, const int32 NumDatas)
+			{
+				if (RawData)
+				{
+					Result = *static_cast<FRotator*>(RawData);
+					return false;
+				}
+				return true;
+			});
+		}
+		return Result;
+	};
+
+	auto SetRotator = [RotHandlePtr](const FRotator& NewValue)
+	{
+		if (RotHandlePtr.IsValid())
+		{
+			RotHandlePtr->NotifyPreChange();
+			RotHandlePtr->EnumerateRawData([&NewValue](void* RawData, const int32 DataIndex, const int32 NumDatas)
+			{
+				if (RawData)
+				{
+					*static_cast<FRotator*>(RawData) = NewValue;
+				}
+				return true;
+			});
+			RotHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+			RotHandlePtr->NotifyFinishedChangingProperties();
+		}
+	};
+
+	auto DegreeInterface = MakeShared<FDegreeTypeInterface>();
+
+	return SNew(SHorizontalBox)
+		// Roll (X)
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(0, 0, 2, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.594f, 0.0197f, 0.0f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.TypeInterface(DegreeInterface)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.Value_Lambda([GetRotator]() -> double { return GetRotator().Roll; })
+				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
+				{
+					FRotator Rot = GetRotator();
+					Rot.Roll = NewValue;
+					SetRotator(Rot);
+				})
+				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				{
+					FRotator Rot = GetRotator();
+					Rot.Roll = NewValue;
+					SetRotator(Rot);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		]
+		// Pitch (Y)
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(2, 0, 2, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.1144f, 0.4456f, 0.0f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.TypeInterface(DegreeInterface)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.Value_Lambda([GetRotator]() -> double { return GetRotator().Pitch; })
+				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
+				{
+					FRotator Rot = GetRotator();
+					Rot.Pitch = NewValue;
+					SetRotator(Rot);
+				})
+				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				{
+					FRotator Rot = GetRotator();
+					Rot.Pitch = NewValue;
+					SetRotator(Rot);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		]
+		// Yaw (Z)
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(2, 0, 0, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.0251f, 0.207f, 0.85f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.TypeInterface(DegreeInterface)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.Value_Lambda([GetRotator]() -> double { return GetRotator().Yaw; })
+				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
+				{
+					FRotator Rot = GetRotator();
+					Rot.Yaw = NewValue;
+					SetRotator(Rot);
+				})
+				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				{
+					FRotator Rot = GetRotator();
+					Rot.Yaw = NewValue;
+					SetRotator(Rot);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		]
+		// Reset Button (우측 끝)
+		+ SHorizontalBox::Slot()
+		.AutoWidth()
+		.VAlign(VAlign_Center)
+		.Padding(8, 0, 0, 0)
+		[
+			SNew(SButton)
+			.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+			.OnClicked_Lambda([SetRotator, DefaultValue]() -> FReply
+			{
+				SetRotator(DefaultValue);
+				return FReply::Handled();
+			})
+			.ContentPadding(FMargin(1, 0))
+			.ToolTipText(LOCTEXT("ResetRotatorToDefault", "Reset to Default"))
+			[
+				SNew(SImage)
+				.Image(FAppStyle::GetBrush("PropertyWindow.DiffersFromDefault"))
+				.ColorAndOpacity(FSlateColor::UseForeground())
+			]
+		];
 }
 
 #undef LOCTEXT_NAMESPACE
