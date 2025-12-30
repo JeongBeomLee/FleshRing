@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "FleshRingEditorViewportClient.h"
 #include "FleshRingEdMode.h"
@@ -199,7 +199,7 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 				HActor* ActorProxy = static_cast<HActor*>(HitProxy);
 				if (PreviewScene && ActorProxy->PrimComponent)
 				{
-					// RingMeshComponents에서 해당 컴포넌트 찾기
+					// 1. PreviewScene의 RingMeshComponents에서 찾기 (Deformer 비활성화 시)
 					const TArray<UStaticMeshComponent*>& RingMeshComponents = PreviewScene->GetRingMeshComponents();
 					for (int32 i = 0; i < RingMeshComponents.Num(); ++i)
 					{
@@ -209,6 +209,23 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 							SelectionType = EFleshRingSelectionType::Mesh;
 							Invalidate();
 							return;
+						}
+					}
+
+					// 2. FleshRingComponent의 RingMeshComponents에서 찾기 (Deformer 활성화 시)
+					UFleshRingComponent* FleshRingComp = PreviewScene->GetFleshRingComponent();
+					if (FleshRingComp)
+					{
+						const TArray<TObjectPtr<UStaticMeshComponent>>& ComponentRingMeshes = FleshRingComp->GetRingMeshComponents();
+						for (int32 i = 0; i < ComponentRingMeshes.Num(); ++i)
+						{
+							if (ComponentRingMeshes[i] == ActorProxy->PrimComponent)
+							{
+								PreviewScene->SetSelectedRingIndex(i);
+								SelectionType = EFleshRingSelectionType::Mesh;
+								Invalidate();
+								return;
+							}
 						}
 					}
 				}
@@ -805,18 +822,42 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		}
 
 		// StaticMeshComponent Transform 업데이트
+		FVector MeshLocation = BoneTransform.GetLocation() + BoneRotation.RotateVector(Ring.MeshOffset);
+		FQuat WorldRotation = BoneRotation * Ring.MeshRotation;
+
+		// 1. PreviewScene의 RingMeshComponents 업데이트 (Deformer 비활성화 시)
 		const TArray<UStaticMeshComponent*>& RingMeshComponents = PreviewScene->GetRingMeshComponents();
 		if (RingMeshComponents.IsValidIndex(SelectedIndex) && RingMeshComponents[SelectedIndex])
 		{
-			FVector MeshLocation = BoneTransform.GetLocation() + BoneRotation.RotateVector(Ring.MeshOffset);
-			FQuat WorldRotation = BoneRotation * Ring.MeshRotation;
 			RingMeshComponents[SelectedIndex]->SetWorldLocationAndRotation(MeshLocation, WorldRotation);
 			RingMeshComponents[SelectedIndex]->SetWorldScale3D(Ring.MeshScale);
+		}
+
+		// 2. FleshRingComponent의 RingMeshComponents 업데이트 (Deformer 활성화 시)
+		UFleshRingComponent* FleshRingComp = PreviewScene->GetFleshRingComponent();
+		if (FleshRingComp)
+		{
+			const TArray<TObjectPtr<UStaticMeshComponent>>& ComponentRingMeshes = FleshRingComp->GetRingMeshComponents();
+			if (ComponentRingMeshes.IsValidIndex(SelectedIndex) && ComponentRingMeshes[SelectedIndex])
+			{
+				ComponentRingMeshes[SelectedIndex]->SetWorldLocationAndRotation(MeshLocation, WorldRotation);
+				ComponentRingMeshes[SelectedIndex]->SetWorldScale3D(Ring.MeshScale);
+			}
 		}
 	}
 
 	// Asset 변경 알림
 	EditingAsset->MarkPackageDirty();
+
+	// 트랜스폼만 업데이트 (Deformer 유지, 깜빡임 방지)
+	if (PreviewScene)
+	{
+		UFleshRingComponent* FleshRingComp = PreviewScene->GetFleshRingComponent();
+		if (FleshRingComp)
+		{
+			FleshRingComp->UpdateRingTransforms();
+		}
+	}
 
 	// 뷰포트 갱신
 	Invalidate();

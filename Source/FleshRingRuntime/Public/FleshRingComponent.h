@@ -195,6 +195,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "FleshRing|Editor")
 	void InitializeForEditorPreview();
 
+	/**
+	 * Ring 트랜스폼만 업데이트 (Deformer 유지, SDF 텍스처 유지)
+	 * 기즈모 드래그나 프로퍼티 변경 시 깜빡임 없이 실시간 갱신용
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FleshRing|Editor")
+	void UpdateRingTransforms();
+
+	/** Ring 메시 컴포넌트 배열 반환 (에디터 피킹용) */
+	const TArray<TObjectPtr<UStaticMeshComponent>>& GetRingMeshComponents() const { return RingMeshComponents; }
+
 	// =====================================
 	// SDF 캐시 접근 (Deformer에서 사용)
 	// =====================================

@@ -33,6 +33,9 @@ public:
 	virtual EMeshDeformerOutputBuffer GetOutputBuffers() const override;
 	virtual UMeshDeformerInstance* GetInstanceForSourceDeformer() override { return this; }
 
+	/** TightenedBindPose 캐시 무효화 (트랜스폼 변경 시 재계산 트리거) */
+	void InvalidateTightnessCache();
+
 #if WITH_EDITORONLY_DATA
 	virtual bool RequestReadbackDeformerGeometry(TUniquePtr<FMeshDeformerGeometryReadbackRequest> InRequest) override { return false; }
 #endif

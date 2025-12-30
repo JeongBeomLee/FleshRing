@@ -1,8 +1,9 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "FleshRingAssetEditor.h"
 #include "FleshRingAssetEditorToolkit.h"
 #include "FleshRingAsset.h"
+#include "FleshRingTypes.h"
 #include "SFleshRingEditorViewport.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "Widgets/SBoxPanel.h"
@@ -216,7 +217,35 @@ void FFleshRingAssetEditor::OnObjectPropertyChanged(UObject* Object, FPropertyCh
 	// EditingAsset이 변경되었을 때만 갱신
 	if (Object == EditingAsset)
 	{
-		RefreshViewport();
+		// 구조적 변경 (Ring 추가/삭제, RingMesh 변경) 감지
+		bool bNeedsFullRefresh = false;
+
+		if (PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayAdd ||
+			PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayRemove ||
+			PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayClear)
+		{
+			// Ring 배열 구조 변경 시 전체 갱신 필요
+			bNeedsFullRefresh = true;
+		}
+		else if (PropertyChangedEvent.Property)
+		{
+			FName PropName = PropertyChangedEvent.Property->GetFName();
+			// RingMesh 변경 시 SDF 재생성 필요
+			if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingMesh))
+			{
+				bNeedsFullRefresh = true;
+			}
+		}
+
+		if (bNeedsFullRefresh)
+		{
+			RefreshViewport();
+		}
+		else
+		{
+			// 트랜스폼/파라미터 변경: 경량 업데이트 (깜빡임 방지)
+			UpdateRingTransformsOnly();
+		}
 	}
 }
 
@@ -225,6 +254,14 @@ void FFleshRingAssetEditor::RefreshViewport()
 	if (ViewportWidget.IsValid())
 	{
 		ViewportWidget->RefreshPreview();
+	}
+}
+
+void FFleshRingAssetEditor::UpdateRingTransformsOnly()
+{
+	if (ViewportWidget.IsValid())
+	{
+		ViewportWidget->UpdateRingTransformsOnly();
 	}
 }
 

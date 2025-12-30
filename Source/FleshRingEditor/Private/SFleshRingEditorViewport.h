@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -29,8 +29,11 @@ public:
 	/** Asset 설정 */
 	void SetAsset(UFleshRingAsset* InAsset);
 
-	/** 프리뷰 씬 갱신 */
+	/** 프리뷰 씬 갱신 (전체 재생성 - 슬라이더 드래그 종료 시) */
 	void RefreshPreview();
+
+	/** Ring 트랜스폼만 업데이트 (깜빡임 없이 - 슬라이더 드래그 중) */
+	void UpdateRingTransformsOnly();
 
 	/** 프리뷰 씬 반환 */
 	TSharedPtr<FFleshRingPreviewScene> GetPreviewScene() const { return PreviewScene; }

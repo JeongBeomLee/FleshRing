@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "SFleshRingEditorViewport.h"
 #include "SFleshRingEditorViewportToolbar.h"
@@ -6,6 +6,7 @@
 #include "FleshRingEditorViewportClient.h"
 #include "FleshRingEdMode.h"
 #include "FleshRingAsset.h"
+#include "FleshRingComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "Slate/SceneViewport.h"
 #include "EditorModeRegistry.h"
@@ -82,6 +83,24 @@ void SFleshRingEditorViewport::RefreshPreview()
 	{
 		// Asset 전체 갱신 (메시 + 컴포넌트 + Ring 시각화)
 		PreviewScene->SetFleshRingAsset(EditingAsset.Get());
+	}
+
+	if (ViewportClient.IsValid())
+	{
+		ViewportClient->Invalidate();
+	}
+}
+
+void SFleshRingEditorViewport::UpdateRingTransformsOnly()
+{
+	if (PreviewScene.IsValid())
+	{
+		// FleshRingComponent의 트랜스폼만 업데이트 (Deformer 유지, 깜빡임 방지)
+		UFleshRingComponent* FleshRingComp = PreviewScene->GetFleshRingComponent();
+		if (FleshRingComp)
+		{
+			FleshRingComp->UpdateRingTransforms();
+		}
 	}
 
 	if (ViewportClient.IsValid())

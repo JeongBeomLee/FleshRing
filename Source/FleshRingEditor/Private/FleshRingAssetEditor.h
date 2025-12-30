@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -41,8 +41,11 @@ public:
 	/** 편집 중인 Asset 반환 */
 	UFleshRingAsset* GetEditingAsset() const { return EditingAsset; }
 
-	/** 뷰포트 갱신 */
+	/** 뷰포트 갱신 (전체 재생성) */
 	void RefreshViewport();
+
+	/** Ring 트랜스폼만 업데이트 (깜빡임 방지) */
+	void UpdateRingTransformsOnly();
 
 private:
 	/** Viewport 탭 생성 */

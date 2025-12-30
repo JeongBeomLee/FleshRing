@@ -4,6 +4,7 @@
 #include "FleshRingAsset.h"
 #include "FleshRingMeshExtractor.h"
 #include "FleshRingSDF.h"
+#include "FleshRingDeformerInstance.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/VolumeTexture.h"
 #include "GameFramework/Actor.h"
@@ -459,6 +460,61 @@ void UFleshRingComponent::InitializeForEditorPreview()
 	UE_LOG(LogFleshRingComponent, Log, TEXT("InitializeForEditorPreview: Completed"));
 }
 
+void UFleshRingComponent::UpdateRingTransforms()
+{
+	if (!FleshRingAsset || !ResolvedTargetMesh.IsValid())
+	{
+		return;
+	}
+
+	USkeletalMeshComponent* SkelMesh = ResolvedTargetMesh.Get();
+
+	for (int32 RingIndex = 0; RingIndex < FleshRingAsset->Rings.Num(); ++RingIndex)
+	{
+		const FFleshRingSettings& Ring = FleshRingAsset->Rings[RingIndex];
+
+		// Bone Transform 계산
+		FTransform BoneTransform = GetBoneBindPoseTransform(SkelMesh, Ring.BoneName);
+		FQuat BoneRotation = BoneTransform.GetRotation();
+
+		// Mesh Transform (Ring Local → Bone Local)
+		FTransform MeshTransform;
+		MeshTransform.SetLocation(Ring.MeshOffset);
+		MeshTransform.SetRotation(FQuat(Ring.MeshRotation));
+		MeshTransform.SetScale3D(Ring.MeshScale);
+
+		// Full Transform: Ring Local → Component Space
+		FTransform LocalToComponentTransform = MeshTransform * BoneTransform;
+
+		// 1. SDF 캐시의 LocalToComponent 업데이트
+		if (RingSDFCaches.IsValidIndex(RingIndex))
+		{
+			RingSDFCaches[RingIndex].LocalToComponent = LocalToComponentTransform;
+		}
+
+		// 2. Ring 메시 컴포넌트의 트랜스폼 업데이트
+		if (RingMeshComponents.IsValidIndex(RingIndex) && RingMeshComponents[RingIndex])
+		{
+			FVector MeshLocation = BoneTransform.GetLocation() + BoneRotation.RotateVector(Ring.MeshOffset);
+			FQuat WorldRotation = BoneRotation * Ring.MeshRotation;
+			RingMeshComponents[RingIndex]->SetWorldLocationAndRotation(MeshLocation, WorldRotation);
+			RingMeshComponents[RingIndex]->SetWorldScale3D(Ring.MeshScale);
+		}
+	}
+
+	// 3. DeformerInstance의 TightenedBindPose 캐시 무효화 (재계산 트리거)
+	if (USkeletalMeshComponent* SkelMeshComp = ResolvedTargetMesh.Get())
+	{
+		if (UMeshDeformerInstance* DeformerInstance = SkelMeshComp->GetMeshDeformerInstance())
+		{
+			if (UFleshRingDeformerInstance* FleshRingInstance = Cast<UFleshRingDeformerInstance>(DeformerInstance))
+			{
+				FleshRingInstance->InvalidateTightnessCache();
+			}
+		}
+	}
+}
+
 void UFleshRingComponent::ApplyAsset()
 {
 	if (!FleshRingAsset)
@@ -634,7 +690,7 @@ void UFleshRingComponent::DrawDebugVisualization()
 		{
 			DrawSdfVolume(RingIndex);
 		}
-
+		
 		if (bShowAffectedVertices)
 		{
 			DrawAffectedVertices(RingIndex);
