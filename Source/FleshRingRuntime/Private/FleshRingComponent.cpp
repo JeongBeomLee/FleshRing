@@ -695,15 +695,9 @@ void UFleshRingComponent::ApplyAsset()
 			}
 		}
 
-		// SDF를 먼저 생성 (Deformer가 SDF 데이터를 필요로 함)
+		// SDF 생성 (Deformer는 BeginPlay() 또는 InitializeForEditorPreview()에서 설정)
+		// 에디터 프리뷰에서는 SkeletalMesh 렌더 상태가 준비된 후 타이머로 Deformer 초기화
 		GenerateSDF();
-		FlushRenderingCommands();
-
-		// 유효한 SDF 캐시가 있을 때만 Deformer 설정
-		if (AreAllSDFCachesValid())
-		{
-			SetupDeformer();
-		}
 
 		SetupRingMeshes();
 	}
