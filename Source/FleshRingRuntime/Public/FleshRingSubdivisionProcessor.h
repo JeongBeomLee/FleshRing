@@ -251,7 +251,26 @@ public:
 		int32 LODIndex = 0);
 
 	/**
-	 * Ring 파라미터 설정
+	 * Ring 파라미터 배열 설정 (기존 파라미터 교체)
+	 *
+	 * @param InRingParamsArray - Ring 영향 파라미터 배열
+	 */
+	void SetRingParamsArray(const TArray<FSubdivisionRingParams>& InRingParamsArray);
+
+	/**
+	 * Ring 파라미터 추가
+	 *
+	 * @param RingParams - 추가할 Ring 영향 파라미터
+	 */
+	void AddRingParams(const FSubdivisionRingParams& RingParams);
+
+	/**
+	 * Ring 파라미터 초기화
+	 */
+	void ClearRingParams();
+
+	/**
+	 * 단일 Ring 파라미터 설정 (하위 호환용 - 기존 파라미터 초기화 후 추가)
 	 *
 	 * @param RingParams - Ring 영향 파라미터
 	 */
@@ -315,8 +334,8 @@ private:
 	TArray<FVector2D> SourceUVs;
 	TArray<int32> SourceMaterialIndices;  // 삼각형별 머티리얼 인덱스
 
-	// Ring 파라미터
-	FSubdivisionRingParams CurrentRingParams;
+	// Ring 파라미터 배열 (여러 Ring 지원)
+	TArray<FSubdivisionRingParams> RingParamsArray;
 
 	// 설정
 	FSubdivisionProcessorSettings CurrentSettings;
@@ -324,7 +343,7 @@ private:
 	// 캐시
 	FSubdivisionTopologyResult CachedResult;
 	bool bCacheValid = false;
-	FSubdivisionRingParams CachedRingParams;
+	TArray<FSubdivisionRingParams> CachedRingParamsArray;
 
 	// Half-Edge 메시에서 토폴로지 결과 추출
 	bool ExtractTopologyResult(FSubdivisionTopologyResult& OutResult);

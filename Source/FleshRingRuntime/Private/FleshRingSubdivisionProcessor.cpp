@@ -280,7 +280,7 @@ bool FFleshRingSubdivisionProcessor::Process(FSubdivisionTopologyResult& OutResu
 
 	// 캐시 저장
 	CachedResult = OutResult;
-	CachedRingParams = CurrentRingParams;
+	CachedRingParamsArray = RingParamsArray;
 	bCacheValid = true;
 
 	UE_LOG(LogFleshRingSubdivisionProcessor, Log,
@@ -580,50 +580,51 @@ bool FFleshRingSubdivisionProcessor::NeedsRecomputation(const FSubdivisionRingPa
 		return true;
 	}
 
-	// 모드 변경 검사
-	if (CachedRingParams.bUseSDFBounds != NewRingParams.bUseSDFBounds)
+	// 캐시된 배열에서 동일한 파라미터를 찾아 비교
+	// (SetRingParamsArray에서 인덱스 순서대로 비교할 때 사용)
+	for (const FSubdivisionRingParams& CachedRingParams : CachedRingParamsArray)
 	{
-		return true;
+		// 모드가 다르면 건너뛰기
+		if (CachedRingParams.bUseSDFBounds != NewRingParams.bUseSDFBounds)
+		{
+			continue;
+		}
+
+		bool bMatches = false;
+
+		if (NewRingParams.bUseSDFBounds)
+		{
+			// SDF 모드: 바운드 변화 검사
+			float BoundsMinDist = FVector::Dist(CachedRingParams.SDFBoundsMin, NewRingParams.SDFBoundsMin);
+			float BoundsMaxDist = FVector::Dist(CachedRingParams.SDFBoundsMax, NewRingParams.SDFBoundsMax);
+			FVector CachedPos = CachedRingParams.SDFLocalToComponent.GetLocation();
+			FVector NewPos = NewRingParams.SDFLocalToComponent.GetLocation();
+
+			if (BoundsMinDist <= Threshold && BoundsMaxDist <= Threshold &&
+				FVector::Dist(CachedPos, NewPos) <= Threshold)
+			{
+				bMatches = true;
+			}
+		}
+		else
+		{
+			// Manual 모드: 기존 방식
+			float CenterDist = FVector::Dist(CachedRingParams.Center, NewRingParams.Center);
+			float AxisDot = FVector::DotProduct(CachedRingParams.Axis.GetSafeNormal(), NewRingParams.Axis.GetSafeNormal());
+
+			if (CenterDist <= Threshold &&
+				FMath::Abs(CachedRingParams.Radius - NewRingParams.Radius) <= Threshold * 0.1f &&
+				AxisDot >= 0.99f)
+			{
+				bMatches = true;
+			}
+		}
+
+		if (bMatches)
+		{
+			return false; // 캐시에 매칭되는 파라미터 있음 - 재계산 불필요
+		}
 	}
 
-	if (NewRingParams.bUseSDFBounds)
-	{
-		// SDF 모드: 바운드 변화 검사
-		float BoundsMinDist = FVector::Dist(CachedRingParams.SDFBoundsMin, NewRingParams.SDFBoundsMin);
-		float BoundsMaxDist = FVector::Dist(CachedRingParams.SDFBoundsMax, NewRingParams.SDFBoundsMax);
-		if (BoundsMinDist > Threshold || BoundsMaxDist > Threshold)
-		{
-			return true;
-		}
-
-		// 트랜스폼 변화 검사
-		FVector CachedPos = CachedRingParams.SDFLocalToComponent.GetLocation();
-		FVector NewPos = NewRingParams.SDFLocalToComponent.GetLocation();
-		if (FVector::Dist(CachedPos, NewPos) > Threshold)
-		{
-			return true;
-		}
-	}
-	else
-	{
-		// Manual 모드: 기존 방식
-		float CenterDist = FVector::Dist(CachedRingParams.Center, NewRingParams.Center);
-		if (CenterDist > Threshold)
-		{
-			return true;
-		}
-
-		if (FMath::Abs(CachedRingParams.Radius - NewRingParams.Radius) > Threshold * 0.1f)
-		{
-			return true;
-		}
-
-		float AxisDot = FVector::DotProduct(CachedRingParams.Axis.GetSafeNormal(), NewRingParams.Axis.GetSafeNormal());
-		if (AxisDot < 0.99f)
-		{
-			return true;
-		}
-	}
-
-	return false;
+	return true; // 캐시에 매칭되는 파라미터 없음 - 재계산 필요
 }

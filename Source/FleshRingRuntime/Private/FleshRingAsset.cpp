@@ -363,22 +363,27 @@ void UFleshRingAsset::GenerateSubdividedMesh()
 	Settings.MinEdgeLength = MinEdgeLength;
 	Processor.SetSettings(Settings);
 
-	// Ring 파라미터 설정 (첫 번째 Ring 기준, 여러 Ring은 추후 확장)
-	FSubdivisionRingParams RingParams;
+	// ★ 모든 Ring에 대해 파라미터 설정
+	UE_LOG(LogFleshRingAsset, Log, TEXT("Setting up subdivision for %d Ring(s)..."), Rings.Num());
 
-	// Bind Pose 기준으로 Ring 중심 계산
 	const USkeleton* Skeleton = SourceMesh->GetSkeleton();
-	if (Skeleton && Rings.Num() > 0)
+	const FReferenceSkeleton& RefSkeleton = SourceMesh->GetRefSkeleton();
+	const TArray<FTransform>& RefBonePose = RefSkeleton.GetRefBonePose();
+
+	Processor.ClearRingParams();
+
+	for (int32 RingIdx = 0; RingIdx < Rings.Num(); ++RingIdx)
 	{
-		const FFleshRingSettings& Ring = Rings[0];
-		const FReferenceSkeleton& RefSkeleton = SourceMesh->GetRefSkeleton();
+		const FFleshRingSettings& Ring = Rings[RingIdx];
+		FSubdivisionRingParams RingParams;
+
+		UE_LOG(LogFleshRingAsset, Log, TEXT("=== Setting up Ring %d/%d (Bone: %s) ==="),
+			RingIdx + 1, Rings.Num(), *Ring.BoneName.ToString());
+
 		int32 BoneIndex = RefSkeleton.FindBoneIndex(Ring.BoneName);
 
 		if (BoneIndex != INDEX_NONE)
 		{
-			// Bind Pose에서 본 위치 획득 (컴포넌트 스페이스)
-			const TArray<FTransform>& RefBonePose = RefSkeleton.GetRefBonePose();
-
 			// 컴포넌트 스페이스 트랜스폼 계산 (부모 본 체인을 따라 누적)
 			FTransform BoneTransform = RefBonePose[BoneIndex];
 			int32 ParentIndex = RefSkeleton.GetParentIndex(BoneIndex);
@@ -400,7 +405,6 @@ void UFleshRingAsset::GenerateSubdividedMesh()
 					FBox MeshBounds = RingMesh->GetBoundingBox();
 
 					// FleshRingComponent::GenerateSDF와 동일한 방식으로 트랜스폼 계산
-					// MeshTransform = (MeshRotation, MeshOffset, MeshScale) * BoneTransform
 					FTransform MeshTransform = FTransform(Ring.MeshRotation, Ring.MeshOffset);
 					MeshTransform.SetScale3D(Ring.MeshScale);
 					FTransform LocalToComponent = MeshTransform * BoneTransform;
@@ -410,15 +414,12 @@ void UFleshRingAsset::GenerateSubdividedMesh()
 					RingParams.SDFLocalToComponent = LocalToComponent;
 					RingParams.SDFInfluenceMultiplier = InfluenceRadiusMultiplier;
 
-					UE_LOG(LogFleshRingAsset, Log, TEXT("Auto mode: RingMesh bounds Min=%s, Max=%s, LocalToComponent Loc=%s Rot=%s Scale=%s"),
-						*RingParams.SDFBoundsMin.ToString(), *RingParams.SDFBoundsMax.ToString(),
-						*LocalToComponent.GetLocation().ToString(),
-						*LocalToComponent.GetRotation().Rotator().ToString(),
-						*LocalToComponent.GetScale3D().ToString());
+					UE_LOG(LogFleshRingAsset, Log, TEXT("  Auto mode: Bounds Min=%s, Max=%s"),
+						*RingParams.SDFBoundsMin.ToString(), *RingParams.SDFBoundsMax.ToString());
 				}
 				else
 				{
-					UE_LOG(LogFleshRingAsset, Warning, TEXT("RingMesh load failed, falling back to Manual mode"));
+					UE_LOG(LogFleshRingAsset, Warning, TEXT("  RingMesh load failed, falling back to Manual mode"));
 					RingParams.bUseSDFBounds = false;
 				}
 			}
@@ -434,14 +435,13 @@ void UFleshRingAsset::GenerateSubdividedMesh()
 				RingParams.Width = Ring.RingWidth;
 				RingParams.InfluenceMultiplier = InfluenceRadiusMultiplier;
 
-				UE_LOG(LogFleshRingAsset, Log, TEXT("Manual mode: Center=%s, Axis=%s, Radius=%.2f, Width=%.2f"),
-					*RingParams.Center.ToString(), *RingParams.Axis.ToString(),
-					RingParams.Radius, RingParams.Width);
+				UE_LOG(LogFleshRingAsset, Log, TEXT("  Manual mode: Center=%s, Radius=%.2f"),
+					*RingParams.Center.ToString(), RingParams.Radius);
 			}
 		}
 		else
 		{
-			UE_LOG(LogFleshRingAsset, Warning, TEXT("Bone '%s' not found, using default center"),
+			UE_LOG(LogFleshRingAsset, Warning, TEXT("  Bone '%s' not found, using default center"),
 				*Ring.BoneName.ToString());
 			RingParams.bUseSDFBounds = false;
 			RingParams.Center = FVector::ZeroVector;
@@ -449,9 +449,9 @@ void UFleshRingAsset::GenerateSubdividedMesh()
 			RingParams.Radius = Ring.RingRadius;
 			RingParams.Width = Ring.RingWidth;
 		}
-	}
 
-	Processor.SetRingParams(RingParams);
+		Processor.AddRingParams(RingParams);
+	}
 
 	// Subdivision 실행
 	FSubdivisionTopologyResult TopologyResult;
