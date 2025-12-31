@@ -798,14 +798,20 @@ void UFleshRingComponent::SetupRingMeshes()
 
 void UFleshRingComponent::CleanupRingMeshes()
 {
-	for (UStaticMeshComponent* MeshComp : RingMeshComponents)
+	if (RingMeshComponents.Num() > 0)
 	{
-		if (MeshComp)
+		// 렌더 스레드가 컴포넌트 리소스 사용을 완료할 때까지 대기
+		FlushRenderingCommands();
+
+		for (UStaticMeshComponent* MeshComp : RingMeshComponents)
 		{
-			MeshComp->DestroyComponent();
+			if (MeshComp)
+			{
+				MeshComp->DestroyComponent();
+			}
 		}
+		RingMeshComponents.Empty();
 	}
-	RingMeshComponents.Empty();
 }
 
 void UFleshRingComponent::UpdateRingMeshVisibility()
