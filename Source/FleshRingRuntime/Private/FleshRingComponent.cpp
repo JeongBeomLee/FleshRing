@@ -463,7 +463,7 @@ void UFleshRingComponent::GenerateSDF()
 		const FIntVector SDFResolution(Resolution, Resolution, Resolution);
 
 		// 4. Bounds 계산 (로컬 스페이스 메시 bounds + 패딩)
-		const float BoundsPadding = 2.0f; // SDF 경계 여유 공간
+		const float BoundsPadding = 0.0f; // SDF 경계 여유 공간 이거 무조건 프로퍼티화 해야함 TODOTODOTODOTODO
 		FVector3f BoundsMin = MeshData.Bounds.Min - FVector3f(BoundsPadding);
 		FVector3f BoundsMax = MeshData.Bounds.Max + FVector3f(BoundsPadding);
 
