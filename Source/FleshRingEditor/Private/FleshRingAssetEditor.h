@@ -5,9 +5,11 @@
 #include "CoreMinimal.h"
 #include "Toolkits/AssetEditorToolkit.h"
 #include "UObject/UObjectGlobals.h"
+#include "FleshRingEditorViewportClient.h"
 
 class UFleshRingAsset;
 class SFleshRingEditorViewport;
+class SFleshRingSkeletonTree;
 class IDetailsView;
 
 /**
@@ -49,6 +51,9 @@ public:
 	void UpdateRingTransformsOnly();
 
 private:
+	/** Skeleton Tree 탭 생성 */
+	TSharedRef<SDockTab> SpawnTab_SkeletonTree(const FSpawnTabArgs& Args);
+
 	/** Viewport 탭 생성 */
 	TSharedRef<SDockTab> SpawnTab_Viewport(const FSpawnTabArgs& Args);
 
@@ -57,6 +62,24 @@ private:
 
 	/** Details View 생성 */
 	void CreateDetailsView();
+
+	/** 본 선택 콜백 (Skeleton Tree에서) */
+	void OnBoneSelected(FName BoneName);
+
+	/** Ring 선택 콜백 (Skeleton Tree에서) */
+	void OnRingSelected(int32 RingIndex);
+
+	/** Ring 선택 콜백 (뷰포트에서 피킹) */
+	void OnRingSelectedInViewport(int32 RingIndex, EFleshRingSelectionType SelectionType);
+
+	/** 본 선택 해제 콜백 (뷰포트에서) */
+	void OnBoneSelectionCleared();
+
+	/** Ring 추가 요청 콜백 */
+	void OnAddRingRequested(FName BoneName);
+
+	/** 카메라 포커스 요청 콜백 */
+	void OnFocusCameraRequested();
 
 	/** 프로퍼티 변경 콜백 */
 	void OnObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& PropertyChangedEvent);
@@ -67,6 +90,9 @@ private:
 private:
 	/** 편집 중인 Asset */
 	UFleshRingAsset* EditingAsset = nullptr;
+
+	/** Skeleton Tree 위젯 */
+	TSharedPtr<SFleshRingSkeletonTree> SkeletonTreeWidget;
 
 	/** 뷰포트 위젯 */
 	TSharedPtr<SFleshRingEditorViewport> ViewportWidget;
@@ -79,4 +105,7 @@ private:
 
 	/** Undo/Redo 델리게이트 핸들 */
 	FDelegateHandle OnObjectTransactedHandle;
+
+	/** 뷰포트에서 Ring 선택 중 플래그 (순환 호출 방지) */
+	bool bSyncingFromViewport = false;
 };

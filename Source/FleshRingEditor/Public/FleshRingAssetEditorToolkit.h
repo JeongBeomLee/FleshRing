@@ -13,9 +13,10 @@ namespace FleshRingAssetEditorToolkit
 	static const FName AppIdentifier(TEXT("FleshRingAssetEditorApp"));
 
 	// 탭 ID
+	static const FName SkeletonTreeTabId(TEXT("FleshRingAssetEditor_SkeletonTree"));
 	static const FName ViewportTabId(TEXT("FleshRingAssetEditor_Viewport"));
 	static const FName DetailsTabId(TEXT("FleshRingAssetEditor_Details"));
 
-	// 레이아웃 이름
-	static const FName LayoutName(TEXT("FleshRingAssetEditor_Layout_v1"));
+	// 레이아웃 이름 (v2: Skeleton Tree 패널 추가)
+	static const FName LayoutName(TEXT("FleshRingAssetEditor_Layout_v2"));
 }

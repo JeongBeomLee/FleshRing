@@ -239,6 +239,9 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 					PreviewScene->SetSelectedRingIndex(GizmoProxy->RingIndex);
 					SelectionType = EFleshRingSelectionType::Gizmo;
 					Invalidate();
+
+					// 트리/디테일 패널 동기화를 위한 델리게이트 호출
+					OnRingSelectedInViewport.ExecuteIfBound(GizmoProxy->RingIndex, EFleshRingSelectionType::Gizmo);
 				}
 				return;
 			}
@@ -251,6 +254,9 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 					PreviewScene->SetSelectedRingIndex(MeshProxy->RingIndex);
 					SelectionType = EFleshRingSelectionType::Mesh;
 					Invalidate();
+
+					// 트리/디테일 패널 동기화를 위한 델리게이트 호출
+					OnRingSelectedInViewport.ExecuteIfBound(MeshProxy->RingIndex, EFleshRingSelectionType::Mesh);
 				}
 				return;
 			}
@@ -269,6 +275,9 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 							PreviewScene->SetSelectedRingIndex(i);
 							SelectionType = EFleshRingSelectionType::Mesh;
 							Invalidate();
+
+							// 트리/디테일 패널 동기화를 위한 델리게이트 호출
+							OnRingSelectedInViewport.ExecuteIfBound(i, EFleshRingSelectionType::Mesh);
 							return;
 						}
 					}
@@ -285,6 +294,9 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 								PreviewScene->SetSelectedRingIndex(i);
 								SelectionType = EFleshRingSelectionType::Mesh;
 								Invalidate();
+
+								// 트리/디테일 패널 동기화를 위한 델리게이트 호출
+								OnRingSelectedInViewport.ExecuteIfBound(i, EFleshRingSelectionType::Mesh);
 								return;
 							}
 						}
@@ -293,8 +305,9 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 			}
 		}
 
-		// 빈 공간 클릭 - 선택 해제
+		// 빈 공간 클릭 - 선택 해제 (Ring + 본)
 		ClearSelection();
+		ClearSelectedBone();
 	}
 
 	FEditorViewportClient::ProcessClick(View, HitProxy, Key, Event, HitX, HitY);
@@ -307,6 +320,26 @@ void FFleshRingEditorViewportClient::ClearSelection()
 		PreviewScene->SetSelectedRingIndex(-1);
 	}
 	SelectionType = EFleshRingSelectionType::None;
+	Invalidate();
+}
+
+void FFleshRingEditorViewportClient::SelectRing(int32 RingIndex, FName AttachedBoneName)
+{
+	if (RingIndex < 0)
+	{
+		// 음수 인덱스 = Ring 선택 해제 (본 선택은 유지)
+		ClearSelection();
+		return;
+	}
+
+	// Ring이 부착된 본 하이라이트 (델리게이트 호출 없이 직접 설정)
+	SelectedBoneName = AttachedBoneName;
+
+	if (PreviewScene)
+	{
+		PreviewScene->SetSelectedRingIndex(RingIndex);
+	}
+	SelectionType = EFleshRingSelectionType::Mesh;  // 메시 선택 모드
 	Invalidate();
 }
 
@@ -324,6 +357,21 @@ void FFleshRingEditorViewportClient::SetAsset(UFleshRingAsset* InAsset)
 	}
 }
 
+void FFleshRingEditorViewportClient::SetSelectedBone(FName BoneName)
+{
+	SelectedBoneName = BoneName;
+	Invalidate();
+}
+
+void FFleshRingEditorViewportClient::ClearSelectedBone()
+{
+	SelectedBoneName = NAME_None;
+	Invalidate();
+
+	// 스켈레톤 트리에 알림
+	OnBoneSelectionCleared.ExecuteIfBound();
+}
+
 void FFleshRingEditorViewportClient::FocusOnMesh()
 {
 	if (!PreviewScene)
@@ -332,20 +380,85 @@ void FFleshRingEditorViewportClient::FocusOnMesh()
 	}
 
 	USkeletalMeshComponent* SkelMeshComp = PreviewScene->GetSkeletalMeshComponent();
-	if (SkelMeshComp && SkelMeshComp->GetSkeletalMeshAsset())
+	if (!SkelMeshComp || !SkelMeshComp->GetSkeletalMeshAsset())
 	{
-		// 메시 바운드로 카메라 포커스
-		FBoxSphereBounds Bounds = SkelMeshComp->Bounds;
-		FVector Center = Bounds.Origin;
-		float Radius = Bounds.SphereRadius;
-
-		// 카메라 위치 계산
-		float Distance = Radius * 2.5f;
-		FVector NewLocation = Center - GetViewRotation().Vector() * Distance;
-		SetViewLocation(NewLocation);
-
-		Invalidate();
+		return;
 	}
+
+	FBox FocusBox(ForceInit);
+	FName BoneToFocus = SelectedBoneName;  // 포커스할 본 (로컬 변수)
+
+	// 1. 선택된 Ring이 있으면 Ring에 포커스
+	int32 SelectedRingIndex = PreviewScene->GetSelectedRingIndex();
+	if (SelectedRingIndex >= 0 && EditingAsset.IsValid() && EditingAsset->Rings.IsValidIndex(SelectedRingIndex))
+	{
+		const FFleshRingSettings& Ring = EditingAsset->Rings[SelectedRingIndex];
+		int32 BoneIndex = SkelMeshComp->GetBoneIndex(Ring.BoneName);
+		if (BoneIndex != INDEX_NONE)
+		{
+			FTransform BoneTransform = SkelMeshComp->GetBoneTransform(BoneIndex);
+
+			// Ring 메시가 있으면 메시 기준으로 포커스
+			if (Ring.RingMesh)
+			{
+				// 메시 바운드 가져오기
+				FBoxSphereBounds MeshBounds = Ring.RingMesh->GetBounds();
+
+				// 스케일 적용
+				FVector ScaledExtent = MeshBounds.BoxExtent * Ring.MeshScale;
+				float BoxExtent = ScaledExtent.GetMax();
+				BoxExtent = FMath::Max(BoxExtent, 15.0f);
+
+				// Ring 메시 위치 (MeshOffset 적용)
+				FVector RingCenter = BoneTransform.GetLocation() + BoneTransform.GetRotation().RotateVector(Ring.MeshOffset);
+				FocusBox = FBox(RingCenter - FVector(BoxExtent), RingCenter + FVector(BoxExtent));
+			}
+			else
+			{
+				// Ring 메시가 없으면 본에 포커스
+				BoneToFocus = Ring.BoneName;
+			}
+		}
+	}
+	// 2. 선택된 본이 있으면 본에 포커스
+	if (!FocusBox.IsValid && !BoneToFocus.IsNone())
+	{
+		int32 BoneIndex = SkelMeshComp->GetBoneIndex(BoneToFocus);
+		if (BoneIndex != INDEX_NONE)
+		{
+			FVector BoneLocation = SkelMeshComp->GetBoneTransform(BoneIndex).GetLocation();
+
+			// 본 크기 추정 (자식 본까지의 거리)
+			float BoxExtent = 15.0f;
+
+			const FReferenceSkeleton& RefSkel = SkelMeshComp->GetSkeletalMeshAsset()->GetRefSkeleton();
+			for (int32 i = 0; i < RefSkel.GetNum(); ++i)
+			{
+				if (RefSkel.GetParentIndex(i) == BoneIndex)
+				{
+					FVector ChildLocation = SkelMeshComp->GetBoneTransform(i).GetLocation();
+					float DistToChild = FVector::Dist(BoneLocation, ChildLocation);
+					BoxExtent = FMath::Max(BoxExtent, DistToChild * 0.5f);
+				}
+			}
+
+			FocusBox = FBox(BoneLocation - FVector(BoxExtent), BoneLocation + FVector(BoxExtent));
+		}
+	}
+
+	// 박스가 유효하지 않으면 메시 전체 바운드 사용 (Persona 방식)
+	if (!FocusBox.IsValid)
+	{
+		// Persona 방식: SkeletalMesh의 GetBounds().GetBox() 사용
+		USkeletalMesh* SkelMesh = SkelMeshComp->GetSkeletalMeshAsset();
+		if (SkelMesh)
+		{
+			FocusBox = SkelMesh->GetBounds().GetBox();
+		}
+	}
+
+	// 엔진 내장 FocusViewportOnBox 사용 (Persona 방식)
+	FocusViewportOnBox(FocusBox, true);
 }
 
 void FFleshRingEditorViewportClient::DrawMeshBones(FPrimitiveDrawInterface* PDI)
@@ -412,6 +525,17 @@ void FFleshRingEditorViewportClient::DrawMeshBones(FPrimitiveDrawInterface* PDI)
 		BoneColors[i] = MeshComponent->GetBoneColor(i);
 	}
 
+	// 선택된 본 인덱스 배열 생성
+	TArray<int32> SelectedBones;
+	if (!SelectedBoneName.IsNone())
+	{
+		int32 SelectedBoneIndex = RefSkeleton.FindBoneIndex(SelectedBoneName);
+		if (SelectedBoneIndex != INDEX_NONE)
+		{
+			SelectedBones.Add(SelectedBoneIndex);
+		}
+	}
+
 	// DrawConfig 설정
 	FSkelDebugDrawConfig DrawConfig;
 	DrawConfig.BoneDrawMode = EBoneDrawMode::All;
@@ -420,22 +544,22 @@ void FFleshRingEditorViewportClient::DrawMeshBones(FPrimitiveDrawInterface* PDI)
 	DrawConfig.bAddHitProxy = false;
 	DrawConfig.bUseMultiColorAsDefaultColor = GetDefault<UPersonaOptions>()->bShowBoneColors;
 	DrawConfig.DefaultBoneColor = GetDefault<UPersonaOptions>()->DefaultBoneColor;
-	DrawConfig.SelectedBoneColor = GetDefault<UPersonaOptions>()->SelectedBoneColor;
+	DrawConfig.SelectedBoneColor = GetDefault<UPersonaOptions>()->SelectedBoneColor;  // 초록색
 	DrawConfig.AffectedBoneColor = GetDefault<UPersonaOptions>()->AffectedBoneColor;
-	DrawConfig.ParentOfSelectedBoneColor = GetDefault<UPersonaOptions>()->ParentOfSelectedBoneColor;
+	DrawConfig.ParentOfSelectedBoneColor = GetDefault<UPersonaOptions>()->ParentOfSelectedBoneColor;  // 노란색
 
 	// 그릴 본 인덱스 비트 배열 (모든 본 그리기)
 	TBitArray<> BonesToDraw;
 	BonesToDraw.Init(true, NumBones);
 
-	// 본 렌더링
+	// 본 렌더링 (선택된 본 전달 - Persona 스타일 색상 적용)
 	SkeletalDebugRendering::DrawBones(
 		PDI,
 		MeshComponent->GetComponentLocation(),
 		AllBoneIndices,
 		RefSkeleton,
 		WorldTransforms,
-		TArray<int32>(),  // 선택된 본 없음
+		SelectedBones,  // 선택된 본 전달 (초록색 + 부모 노란색 연결선)
 		BoneColors,
 		TArray<TRefCountPtr<HHitProxy>>(),  // HitProxy 없음
 		DrawConfig,

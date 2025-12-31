@@ -4,11 +4,14 @@
 #include "FleshRingAssetEditorToolkit.h"
 #include "FleshRingAsset.h"
 #include "FleshRingTypes.h"
+#include "SFleshRingSkeletonTree.h"
 #include "SFleshRingEditorViewport.h"
+#include "FleshRingEditorViewportClient.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "Widgets/SBoxPanel.h"
 #include "PropertyEditorModule.h"
 #include "IDetailsView.h"
+#include "PropertyPath.h"
 #include "Modules/ModuleManager.h"
 #include "UObject/UObjectGlobals.h"
 
@@ -40,7 +43,7 @@ void FFleshRingAssetEditor::InitFleshRingAssetEditor(
 {
 	EditingAsset = InAsset;
 
-	// 에디터 레이아웃 정의
+	// 에디터 레이아웃 정의 (v2: Skeleton Tree 추가)
 	const TSharedRef<FTabManager::FLayout> StandaloneDefaultLayout =
 		FTabManager::NewLayout(FleshRingAssetEditorToolkit::LayoutName)
 		->AddArea
@@ -49,9 +52,16 @@ void FFleshRingAssetEditor::InitFleshRingAssetEditor(
 			->SetOrientation(Orient_Horizontal)
 			->Split
 			(
-				// 좌측: 뷰포트
+				// 좌측: Skeleton Tree
 				FTabManager::NewStack()
-				->SetSizeCoefficient(0.7f)
+				->SetSizeCoefficient(0.15f)
+				->AddTab(FleshRingAssetEditorToolkit::SkeletonTreeTabId, ETabState::OpenedTab)
+			)
+			->Split
+			(
+				// 중앙: 뷰포트
+				FTabManager::NewStack()
+				->SetSizeCoefficient(0.55f)
 				->AddTab(FleshRingAssetEditorToolkit::ViewportTabId, ETabState::OpenedTab)
 			)
 			->Split
@@ -140,6 +150,14 @@ void FFleshRingAssetEditor::RegisterTabSpawners(const TSharedRef<FTabManager>& I
 	WorkspaceMenuCategory = InTabManager->AddLocalWorkspaceMenuCategory(
 		LOCTEXT("WorkspaceMenu_FleshRingAssetEditor", "FleshRing Asset Editor"));
 
+	// Skeleton Tree 탭 등록
+	InTabManager->RegisterTabSpawner(
+		FleshRingAssetEditorToolkit::SkeletonTreeTabId,
+		FOnSpawnTab::CreateSP(this, &FFleshRingAssetEditor::SpawnTab_SkeletonTree))
+		.SetDisplayName(LOCTEXT("SkeletonTreeTab", "Skeleton"))
+		.SetGroup(WorkspaceMenuCategory.ToSharedRef())
+		.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), "Persona.Tabs.SkeletonTree"));
+
 	// Viewport 탭 등록
 	InTabManager->RegisterTabSpawner(
 		FleshRingAssetEditorToolkit::ViewportTabId,
@@ -161,8 +179,26 @@ void FFleshRingAssetEditor::UnregisterTabSpawners(const TSharedRef<FTabManager>&
 {
 	FAssetEditorToolkit::UnregisterTabSpawners(InTabManager);
 
+	InTabManager->UnregisterTabSpawner(FleshRingAssetEditorToolkit::SkeletonTreeTabId);
 	InTabManager->UnregisterTabSpawner(FleshRingAssetEditorToolkit::ViewportTabId);
 	InTabManager->UnregisterTabSpawner(FleshRingAssetEditorToolkit::DetailsTabId);
+}
+
+TSharedRef<SDockTab> FFleshRingAssetEditor::SpawnTab_SkeletonTree(const FSpawnTabArgs& Args)
+{
+	// Skeleton Tree 위젯 생성
+	SkeletonTreeWidget = SNew(SFleshRingSkeletonTree)
+		.Asset(EditingAsset)
+		.OnBoneSelected(FOnBoneSelected::CreateSP(this, &FFleshRingAssetEditor::OnBoneSelected))
+		.OnRingSelected(FOnRingSelected::CreateSP(this, &FFleshRingAssetEditor::OnRingSelected))
+		.OnAddRingRequested(FOnAddRingRequested::CreateSP(this, &FFleshRingAssetEditor::OnAddRingRequested))
+		.OnFocusCameraRequested(FOnFocusCameraRequested::CreateSP(this, &FFleshRingAssetEditor::OnFocusCameraRequested));
+
+	return SNew(SDockTab)
+		.Label(LOCTEXT("SkeletonTreeTabLabel", "Skeleton"))
+		[
+			SkeletonTreeWidget.ToSharedRef()
+		];
 }
 
 TSharedRef<SDockTab> FFleshRingAssetEditor::SpawnTab_Viewport(const FSpawnTabArgs& Args)
@@ -170,6 +206,17 @@ TSharedRef<SDockTab> FFleshRingAssetEditor::SpawnTab_Viewport(const FSpawnTabArg
 	// 뷰포트 위젯 생성
 	ViewportWidget = SNew(SFleshRingEditorViewport)
 		.Asset(EditingAsset);
+
+	// 뷰포트에서 본 선택 해제 시 스켈레톤 트리도 해제
+	if (TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient())
+	{
+		ViewportClient->SetOnBoneSelectionCleared(
+			FOnBoneSelectionCleared::CreateSP(this, &FFleshRingAssetEditor::OnBoneSelectionCleared));
+
+		// 뷰포트에서 Ring 피킹 시 트리/디테일 패널 동기화
+		ViewportClient->SetOnRingSelectedInViewport(
+			FOnRingSelectedInViewport::CreateSP(this, &FFleshRingAssetEditor::OnRingSelectedInViewport));
+	}
 
 	return SNew(SDockTab)
 		.Label(LOCTEXT("ViewportTabLabel", "Viewport"))
@@ -229,15 +276,30 @@ void FFleshRingAssetEditor::OnObjectPropertyChanged(UObject* Object, FPropertyCh
 	{
 		// 구조적 변경 (Ring 추가/삭제, RingMesh 변경) 감지
 		bool bNeedsFullRefresh = false;
-		
+
 		if (PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayAdd ||
 			PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayRemove ||
-			PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayClear)
+			PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayClear ||
+			PropertyChangedEvent.ChangeType == EPropertyChangeType::Duplicate ||
+			PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayMove)
 		{
-			// Ring 배열 구조 변경 시 전체 갱신 필요
+			// Ring 배열 구조 변경 시 전체 갱신 필요 (추가/삭제/클리어/복제/이동)
 			bNeedsFullRefresh = true;
 		}
-		else if (PropertyChangedEvent.Property)
+
+		// Rings 배열 또는 그 하위 프로퍼티 변경 체크 (복사/붙여넣기 등)
+		// MemberProperty는 배열 요소 변경 시 배열 자체를 가리킴
+		if (PropertyChangedEvent.MemberProperty)
+		{
+			FName MemberName = PropertyChangedEvent.MemberProperty->GetFName();
+			if (MemberName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, Rings))
+			{
+				// Rings 배열 내 어떤 변경이든 전체 갱신
+				bNeedsFullRefresh = true;
+			}
+		}
+
+		if (PropertyChangedEvent.Property)
 		{
 			FName PropName = PropertyChangedEvent.Property->GetFName();
 
@@ -245,6 +307,16 @@ void FFleshRingAssetEditor::OnObjectPropertyChanged(UObject* Object, FPropertyCh
 			if (PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, TargetSkeletalMesh))
 			{
 				bNeedsFullRefresh = true;
+
+				// 스켈레탈 메시 변경 시 본 선택 상태 초기화
+				if (ViewportWidget.IsValid())
+				{
+					TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient();
+					if (ViewportClient.IsValid())
+					{
+						ViewportClient->ClearSelectedBone();
+					}
+				}
 			}
 			// RingMesh 변경 시 SDF 재생성 필요
 			else if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingMesh))
@@ -281,6 +353,12 @@ void FFleshRingAssetEditor::RefreshViewport()
 	{
 		ViewportWidget->RefreshPreview();
 	}
+
+	// Skeleton Tree도 갱신 (Ring 마커 업데이트)
+	if (SkeletonTreeWidget.IsValid())
+	{
+		SkeletonTreeWidget->RefreshTree();
+	}
 }
 
 void FFleshRingAssetEditor::UpdateRingTransformsOnly()
@@ -301,6 +379,138 @@ void FFleshRingAssetEditor::OnObjectTransacted(UObject* Object, const FTransacti
 		{
 			// Undo/Redo는 어떤 프로퍼티가 변경되었는지 알 수 없으므로 전체 갱신
 			RefreshViewport();
+		}
+	}
+}
+
+void FFleshRingAssetEditor::OnBoneSelected(FName BoneName)
+{
+	// Skeleton Tree에서 본 선택 시 뷰포트에서 해당 본 하이라이트
+	if (ViewportWidget.IsValid())
+	{
+		TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient();
+		if (ViewportClient.IsValid())
+		{
+			ViewportClient->SetSelectedBone(BoneName);
+		}
+	}
+}
+
+void FFleshRingAssetEditor::OnBoneSelectionCleared()
+{
+	// 뷰포트에서 본 선택 해제 시 스켈레톤 트리도 해제
+	if (SkeletonTreeWidget.IsValid())
+	{
+		SkeletonTreeWidget->ClearSelection();
+	}
+}
+
+void FFleshRingAssetEditor::OnRingSelected(int32 RingIndex)
+{
+	// 뷰포트에서 동기화 중이면 뷰포트 업데이트 스킵 (순환 호출 방지)
+	if (!bSyncingFromViewport)
+	{
+		// Ring의 부착 본 이름 가져오기
+		FName AttachedBoneName = NAME_None;
+		if (EditingAsset && EditingAsset->Rings.IsValidIndex(RingIndex))
+		{
+			AttachedBoneName = EditingAsset->Rings[RingIndex].BoneName;
+		}
+
+		// 뷰포트에서 Ring 선택 (부착된 본도 하이라이트)
+		if (ViewportWidget.IsValid())
+		{
+			TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient();
+			if (ViewportClient.IsValid())
+			{
+				ViewportClient->SelectRing(RingIndex, AttachedBoneName);
+			}
+		}
+	}
+
+	// Details 패널 하이라이트 처리 (항상 수행)
+	if (DetailsView.IsValid())
+	{
+		if (RingIndex >= 0 && EditingAsset)
+		{
+			// Rings 배열 프로퍼티 찾기
+			FProperty* RingsProperty = UFleshRingAsset::StaticClass()->FindPropertyByName(GET_MEMBER_NAME_CHECKED(UFleshRingAsset, Rings));
+			if (RingsProperty)
+			{
+				// FPropertyPath 구성: Rings[RingIndex]
+				TSharedRef<FPropertyPath> PropertyPath = FPropertyPath::CreateEmpty();
+				PropertyPath->AddProperty(FPropertyInfo(RingsProperty, RingIndex));
+
+				DetailsView->HighlightProperty(*PropertyPath);
+			}
+		}
+		else
+		{
+			// Ring 선택 해제 시 하이라이트 해제
+			DetailsView->HighlightProperty(*FPropertyPath::CreateEmpty());
+		}
+	}
+}
+
+void FFleshRingAssetEditor::OnRingSelectedInViewport(int32 RingIndex, EFleshRingSelectionType SelectionType)
+{
+	// 순환 호출 방지 플래그 설정
+	bSyncingFromViewport = true;
+
+	// 뷰포트에서 부착된 본 하이라이트 설정
+	if (ViewportWidget.IsValid() && EditingAsset && EditingAsset->Rings.IsValidIndex(RingIndex))
+	{
+		FName AttachedBoneName = EditingAsset->Rings[RingIndex].BoneName;
+		TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient();
+		if (ViewportClient.IsValid())
+		{
+			ViewportClient->SetSelectedBone(AttachedBoneName);
+		}
+	}
+
+	// 트리에서 해당 Ring 선택 (이 과정에서 OnRingSelected가 호출됨 -> Details 패널 하이라이트)
+	if (SkeletonTreeWidget.IsValid())
+	{
+		SkeletonTreeWidget->SelectRingByIndex(RingIndex);
+	}
+
+	bSyncingFromViewport = false;
+}
+
+void FFleshRingAssetEditor::OnAddRingRequested(FName BoneName)
+{
+	// 선택한 본에 Ring 추가
+	if (EditingAsset && !BoneName.IsNone())
+	{
+		// Undo/Redo 지원
+		FScopedTransaction Transaction(FText::FromString(TEXT("Add Ring")));
+		EditingAsset->Modify();
+
+		// 새 Ring 추가
+		FFleshRingSettings NewRing;
+		NewRing.BoneName = BoneName;
+		EditingAsset->Rings.Add(NewRing);
+
+		// 뷰포트 갱신
+		RefreshViewport();
+
+		// Details 패널 갱신
+		if (DetailsView.IsValid())
+		{
+			DetailsView->ForceRefresh();
+		}
+	}
+}
+
+void FFleshRingAssetEditor::OnFocusCameraRequested()
+{
+	// 뷰포트에 카메라 포커스 요청
+	if (ViewportWidget.IsValid())
+	{
+		TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient();
+		if (ViewportClient.IsValid())
+		{
+			ViewportClient->FocusOnMesh();
 		}
 	}
 }

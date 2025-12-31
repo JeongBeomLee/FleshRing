@@ -18,6 +18,12 @@ enum class EFleshRingSelectionType : uint8
 	Mesh		// Ring 메시 선택 (메시 이동/회전)
 };
 
+/** 본 선택 해제 델리게이트 */
+DECLARE_DELEGATE(FOnBoneSelectionCleared);
+
+/** 뷰포트에서 Ring 선택 델리게이트 (RingIndex, SelectionType) */
+DECLARE_DELEGATE_TwoParams(FOnRingSelectedInViewport, int32 /*RingIndex*/, EFleshRingSelectionType /*SelectionType*/);
+
 /**
  * FleshRing 에디터 뷰포트 클라이언트
  * 렌더링, 카메라 컨트롤, 입력 처리 담당
@@ -80,6 +86,9 @@ public:
 	/** 선택 해제 */
 	void ClearSelection();
 
+	/** Ring 선택 (트리에서 호출, 부착된 본도 하이라이트) */
+	void SelectRing(int32 RingIndex, FName AttachedBoneName = NAME_None);
+
 	// Show 플래그 토글
 	void ToggleShowRingGizmos() { bShowRingGizmos = !bShowRingGizmos; Invalidate(); }
 	void ToggleShowRingMeshes();
@@ -118,6 +127,17 @@ public:
 	void ToggleLocalCoordSystem();
 	void SetLocalCoordSystem(bool bLocal);
 	bool IsUsingLocalCoordSystem() const;
+
+	// 본 선택 (스켈레톤 트리 연동)
+	void SetSelectedBone(FName BoneName);
+	void ClearSelectedBone();
+	FName GetSelectedBoneName() const { return SelectedBoneName; }
+
+	/** 본 선택 해제 델리게이트 설정 */
+	void SetOnBoneSelectionCleared(FOnBoneSelectionCleared InDelegate) { OnBoneSelectionCleared = InDelegate; }
+
+	/** Ring 선택 델리게이트 설정 (뷰포트에서 Ring 피킹 시 호출) */
+	void SetOnRingSelectedInViewport(FOnRingSelectedInViewport InDelegate) { OnRingSelectedInViewport = InDelegate; }
 
 private:
 	/** 에셋별 Config 섹션 이름 생성 */
@@ -162,4 +182,13 @@ private:
 
 	// 설정 로드 완료 플래그 (첫 Tick에서 로드)
 	bool bSettingsLoaded = false;
+
+	// 선택된 본 이름 (스켈레톤 트리 연동)
+	FName SelectedBoneName = NAME_None;
+
+	// 본 선택 해제 델리게이트
+	FOnBoneSelectionCleared OnBoneSelectionCleared;
+
+	// Ring 선택 델리게이트 (뷰포트에서 피킹 시)
+	FOnRingSelectedInViewport OnRingSelectedInViewport;
 };
