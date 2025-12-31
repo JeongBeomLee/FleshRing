@@ -1056,3 +1056,158 @@ void FLEBSubdivision::SplitFaceByEdge(FHalfEdgeMesh& Mesh, int32 FaceIndex, int3
 {
 	// Not used in Red-Green implementation
 }
+
+int32 FLEBSubdivision::SubdivideUniform(
+	FHalfEdgeMesh& Mesh,
+	int32 MaxLevel,
+	float MinEdgeLength)
+{
+	UE_LOG(LogTemp, Log, TEXT(""));
+	UE_LOG(LogTemp, Log, TEXT("======== SubdivideUniform (Preview Mesh) ========"));
+	UE_LOG(LogTemp, Log, TEXT("  MaxLevel: %d, MinEdgeLength: %.2f"), MaxLevel, MinEdgeLength);
+
+	// Step 1: Export current mesh to simple triangle format
+	TArray<FVector> Positions;
+	TArray<FVector2D> UVs;
+	TArray<int32> Triangles;
+	TArray<int32> MaterialIndices;
+	TArray<TPair<int32, int32>> ParentIndices;
+
+	Positions.Reserve(Mesh.Vertices.Num());
+	UVs.Reserve(Mesh.Vertices.Num());
+	ParentIndices.Reserve(Mesh.Vertices.Num());
+	for (const FHalfEdgeVertex& V : Mesh.Vertices)
+	{
+		Positions.Add(V.Position);
+		UVs.Add(V.UV);
+		ParentIndices.Add(TPair<int32, int32>(V.ParentIndex0, V.ParentIndex1));
+	}
+
+	for (int32 FaceIdx = 0; FaceIdx < Mesh.Faces.Num(); FaceIdx++)
+	{
+		int32 V0, V1, V2;
+		Mesh.GetFaceVertices(FaceIdx, V0, V1, V2);
+		if (V0 >= 0 && V1 >= 0 && V2 >= 0)
+		{
+			Triangles.Add(V0);
+			Triangles.Add(V1);
+			Triangles.Add(V2);
+			MaterialIndices.Add(Mesh.Faces[FaceIdx].MaterialIndex);
+		}
+	}
+
+	int32 InitialTriCount = Triangles.Num() / 3;
+	int32 InitialVertCount = Positions.Num();
+
+	UE_LOG(LogTemp, Log, TEXT("  Initial: %d vertices, %d triangles"), InitialVertCount, InitialTriCount);
+
+	// Midpoint map: edge (VA, VB) -> midpoint vertex index
+	TMap<TPair<int32, int32>, int32> MidpointMap;
+
+	auto MakeEdgeKey = [](int32 A, int32 B) -> TPair<int32, int32>
+	{
+		return A < B ? TPair<int32, int32>(A, B) : TPair<int32, int32>(B, A);
+	};
+
+	auto GetOrCreateMidpoint = [&](int32 VA, int32 VB) -> int32
+	{
+		TPair<int32, int32> Key = MakeEdgeKey(VA, VB);
+		if (int32* Existing = MidpointMap.Find(Key))
+		{
+			return *Existing;
+		}
+
+		int32 NewIdx = Positions.Num();
+		Positions.Add((Positions[VA] + Positions[VB]) * 0.5f);
+		UVs.Add((UVs[VA] + UVs[VB]) * 0.5f);
+		ParentIndices.Add(TPair<int32, int32>(VA, VB));
+		MidpointMap.Add(Key, NewIdx);
+		return NewIdx;
+	};
+
+	// Perform multiple levels of subdivision
+	for (int32 Level = 0; Level < MaxLevel; Level++)
+	{
+		TArray<int32> NewTriangles;
+		TArray<int32> NewMaterialIndices;
+		NewTriangles.Reserve(Triangles.Num() * 4);
+		NewMaterialIndices.Reserve(MaterialIndices.Num() * 4);
+
+		int32 NumTris = Triangles.Num() / 3;
+		int32 SplitCount = 0;
+
+		// 균일 subdivision: 모든 삼각형을 MinEdgeLength 조건만 확인하고 분할
+		for (int32 i = 0; i < NumTris; i++)
+		{
+			int32 V0 = Triangles[i * 3];
+			int32 V1 = Triangles[i * 3 + 1];
+			int32 V2 = Triangles[i * 3 + 2];
+			int32 MatIdx = MaterialIndices.IsValidIndex(i) ? MaterialIndices[i] : 0;
+
+			const FVector& P0 = Positions[V0];
+			const FVector& P1 = Positions[V1];
+			const FVector& P2 = Positions[V2];
+
+			// MinEdgeLength 조건 확인
+			float MaxEdgeLen = FMath::Max3(
+				FVector::Dist(P0, P1),
+				FVector::Dist(P1, P2),
+				FVector::Dist(P2, P0)
+			);
+
+			if (MaxEdgeLen >= MinEdgeLength)
+			{
+				// RED: Split into 4 triangles
+				int32 M01 = GetOrCreateMidpoint(V0, V1);
+				int32 M12 = GetOrCreateMidpoint(V1, V2);
+				int32 M20 = GetOrCreateMidpoint(V2, V0);
+
+				NewTriangles.Add(V0); NewTriangles.Add(M01); NewTriangles.Add(M20);
+				NewMaterialIndices.Add(MatIdx);
+
+				NewTriangles.Add(M01); NewTriangles.Add(V1); NewTriangles.Add(M12);
+				NewMaterialIndices.Add(MatIdx);
+
+				NewTriangles.Add(M20); NewTriangles.Add(M12); NewTriangles.Add(V2);
+				NewMaterialIndices.Add(MatIdx);
+
+				NewTriangles.Add(M01); NewTriangles.Add(M12); NewTriangles.Add(M20);
+				NewMaterialIndices.Add(MatIdx);
+
+				SplitCount++;
+			}
+			else
+			{
+				// Keep original triangle
+				NewTriangles.Add(V0); NewTriangles.Add(V1); NewTriangles.Add(V2);
+				NewMaterialIndices.Add(MatIdx);
+			}
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("  Level %d: %d/%d triangles split"), Level + 1, SplitCount, NumTris);
+
+		// If no split occurred, stop early
+		if (SplitCount == 0)
+		{
+			UE_LOG(LogTemp, Log, TEXT("  Early stop: No more triangles to split"));
+			break;
+		}
+
+		Triangles = MoveTemp(NewTriangles);
+		MaterialIndices = MoveTemp(NewMaterialIndices);
+	}
+
+	// Rebuild half-edge mesh from result with parent info
+	Mesh.Clear();
+	Mesh.BuildFromTriangles(Positions, Triangles, UVs, MaterialIndices, &ParentIndices);
+
+	int32 FinalTriCount = Triangles.Num() / 3;
+	int32 FinalVertCount = Positions.Num();
+
+	UE_LOG(LogTemp, Log, TEXT("  Final: %d vertices, %d triangles"), FinalVertCount, FinalTriCount);
+	UE_LOG(LogTemp, Log, TEXT("  Added: %d vertices, %d triangles"), FinalVertCount - InitialVertCount, FinalTriCount - InitialTriCount);
+	UE_LOG(LogTemp, Log, TEXT("================================================="));
+	UE_LOG(LogTemp, Log, TEXT(""));
+
+	return FinalTriCount - InitialTriCount;
+}

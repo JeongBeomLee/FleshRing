@@ -648,10 +648,14 @@ void UFleshRingComponent::UpdateRingTransforms()
 				FleshRingInstance->InvalidateTightnessCache();
 			}
 		}
+
+		// 4. 렌더 시스템에 동적 데이터 변경 알림 (실시간 변형 반영)
+		// InvalidateTightnessCache만으로는 다음 프레임의 EnqueueWork 호출이 보장되지 않을 수 있음
+		SkelMeshComp->MarkRenderDynamicDataDirty();
 	}
 
 #if WITH_EDITORONLY_DATA
-	// 4. 디버그 시각화 캐시 무효화 (Ring 이동 시 AffectedVertices 재계산)
+	// 5. 디버그 시각화 캐시 무효화 (Ring 이동 시 AffectedVertices 재계산)
 	bDebugAffectedVerticesCached = false;
 #endif
 }

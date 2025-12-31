@@ -287,11 +287,24 @@ public:
 	 * Subdivision 실행 (동기)
 	 *
 	 * Half-Edge 구축 → LEB/Red-Green 적용 → 토폴로지 결과 생성
+	 * Ring 영역 기반 부분 subdivision (런타임용)
 	 *
 	 * @param OutResult - 출력 토폴로지 결과
 	 * @return 성공 여부
 	 */
 	bool Process(FSubdivisionTopologyResult& OutResult);
+
+	/**
+	 * 균일 Subdivision 실행 (에디터 프리뷰용)
+	 *
+	 * Ring 영역 검사 없이 전체 메시를 균일하게 subdivision
+	 * 에디터에서 링 편집 시 실시간 프리뷰용으로 사용
+	 *
+	 * @param OutResult - 출력 토폴로지 결과
+	 * @param MaxLevel - 최대 subdivision 레벨 (기본 2)
+	 * @return 성공 여부
+	 */
+	bool ProcessUniform(FSubdivisionTopologyResult& OutResult, int32 MaxLevel = 2);
 
 	/**
 	 * 캐싱된 결과 반환

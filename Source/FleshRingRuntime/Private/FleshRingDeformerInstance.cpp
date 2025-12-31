@@ -334,6 +334,12 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				DispatchData.Params.SDFBoundsMax = SDFCache->BoundsMax;
 				DispatchData.Params.bUseSDFInfluence = 1;
 
+				// SDF Falloff 거리 계산: SDF 볼륨의 최소 축 크기 기반
+				// 표면에서 멀어질수록 변형량이 부드럽게 감소
+				FVector3f SDFExtent = SDFCache->BoundsMax - SDFCache->BoundsMin;
+				float MinAxisSize = FMath::Min3(SDFExtent.X, SDFExtent.Y, SDFExtent.Z);
+				DispatchData.Params.SDFInfluenceFalloffDistance = FMath::Max(MinAxisSize * 0.5f, 1.0f);
+
 				UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] SDF Mode (Auto): Bounds=(%.1f,%.1f,%.1f)~(%.1f,%.1f,%.1f), RingCenter=(%.1f,%.1f,%.1f), RingRadius=%.2f"),
 					RingIndex,
 					SDFCache->BoundsMin.X, SDFCache->BoundsMin.Y, SDFCache->BoundsMin.Z,

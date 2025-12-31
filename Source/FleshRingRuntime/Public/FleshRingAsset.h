@@ -64,7 +64,7 @@ public:
 
 	/**
 	 * Subdivision된 SkeletalMesh (이 에셋 안에 내장됨)
-	 * GenerateSubdividedMesh()로 생성됨
+	 * GenerateSubdividedMesh()로 생성됨 - 런타임용 (Ring 영역만 subdivision)
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Subdivision|Generated")
 	TObjectPtr<USkeletalMesh> SubdividedMesh;
@@ -72,6 +72,22 @@ public:
 	/** Subdivision 생성 시점의 파라미터 해시 (재생성 필요 여부 판단용) */
 	UPROPERTY()
 	uint32 SubdivisionParamsHash = 0;
+
+	// =====================================
+	// Preview Mesh (Editor Only, Transient)
+	// =====================================
+
+	/**
+	 * 에디터 프리뷰용 Subdivision 메시 (Transient - 저장 안 함)
+	 * 전체 메시를 균일하게 subdivision하여 링 편집 시 실시간 프리뷰 제공
+	 * GeneratePreviewMesh()로 생성됨
+	 */
+	UPROPERTY(Transient)
+	TObjectPtr<USkeletalMesh> PreviewSubdividedMesh;
+
+	/** 에디터 프리뷰용 Subdivision 레벨 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision|Preview", meta = (ClampMin = "1", ClampMax = "4", EditCondition = "bEnableSubdivision"))
+	int32 PreviewSubdivisionLevel = 2;
 
 	// =====================================
 	// Utility Functions
@@ -108,6 +124,7 @@ public:
 	/**
 	 * Subdivided SkeletalMesh 생성 (에디터 전용)
 	 * Ring 영향 영역의 삼각형을 subdivision하고 SkinWeight를 barycentric 보간
+	 * 런타임용 - Ring 영역만 부분 subdivision
 	 */
 	UFUNCTION(CallInEditor, Category = "Subdivision")
 	void GenerateSubdividedMesh();
@@ -115,6 +132,22 @@ public:
 	/** Subdivided 메시 제거 */
 	UFUNCTION(CallInEditor, Category = "Subdivision")
 	void ClearSubdividedMesh();
+
+	/**
+	 * 프리뷰용 메시 생성 (에디터 전용, Transient)
+	 * 전체 메시를 균일하게 subdivision - 링 편집 시 실시간 프리뷰용
+	 * 에셋 에디터 로드 시 자동 호출됨
+	 */
+	void GeneratePreviewMesh();
+
+	/** 프리뷰 메시 제거 */
+	void ClearPreviewMesh();
+
+	/** 프리뷰 메시 유효 여부 */
+	bool HasValidPreviewMesh() const { return PreviewSubdividedMesh != nullptr; }
+
+	/** 프리뷰 메시 재생성 필요 여부 (레벨 변경 시 등) */
+	bool NeedsPreviewMeshRegeneration() const;
 #endif
 
 #if WITH_EDITOR

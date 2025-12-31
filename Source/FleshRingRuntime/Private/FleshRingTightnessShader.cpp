@@ -121,6 +121,8 @@ void DispatchFleshRingTightnessCS(
         PassParameters->bUseSDFInfluence = 1;
         // OBB 지원: 컴포넌트 → 로컬 역변환 행렬
         PassParameters->ComponentToSDFLocal = Params.ComponentToSDFLocal;
+        // SDF falloff 거리
+        PassParameters->SDFInfluenceFalloffDistance = Params.SDFInfluenceFalloffDistance;
     }
     else
     {
@@ -142,6 +144,8 @@ void DispatchFleshRingTightnessCS(
         PassParameters->bUseSDFInfluence = 0;
         // Manual 모드: Identity 행렬 (사용 안함)
         PassParameters->ComponentToSDFLocal = FMatrix44f::Identity;
+        // Manual 모드에서는 사용 안 하지만 바인딩 필요
+        PassParameters->SDFInfluenceFalloffDistance = 5.0f;
     }
 
     // Get shader reference
@@ -240,6 +244,8 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
         PassParameters->SDFBoundsMin = Params.SDFBoundsMin;
         PassParameters->SDFBoundsMax = Params.SDFBoundsMax;
         PassParameters->bUseSDFInfluence = 1;
+        PassParameters->ComponentToSDFLocal = Params.ComponentToSDFLocal;
+        PassParameters->SDFInfluenceFalloffDistance = Params.SDFInfluenceFalloffDistance;
     }
     else
     {
@@ -259,6 +265,8 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
         PassParameters->SDFBoundsMin = FVector3f::ZeroVector;
         PassParameters->SDFBoundsMax = FVector3f::OneVector;
         PassParameters->bUseSDFInfluence = 0;
+        PassParameters->ComponentToSDFLocal = FMatrix44f::Identity;
+        PassParameters->SDFInfluenceFalloffDistance = 5.0f;
     }
 
     // Get shader reference

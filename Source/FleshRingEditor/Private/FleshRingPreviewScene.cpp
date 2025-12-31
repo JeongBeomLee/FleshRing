@@ -9,6 +9,7 @@
 #include "Engine/StaticMesh.h"
 #include "GameFramework/Actor.h"
 #include "TimerManager.h"
+#include "Rendering/SkeletalMeshRenderData.h"
 
 FFleshRingPreviewScene::FFleshRingPreviewScene(const ConstructionValues& CVS)
 	: FAdvancedPreviewScene(CVS)
@@ -19,6 +20,9 @@ FFleshRingPreviewScene::FFleshRingPreviewScene(const ConstructionValues& CVS)
 
 FFleshRingPreviewScene::~FFleshRingPreviewScene()
 {
+	// 델리게이트 구독 해제
+	UnbindFromAssetDelegate();
+
 	// Ring 메시 컴포넌트 정리
 	for (UStaticMeshComponent* RingComp : RingMeshComponents)
 	{
@@ -81,6 +85,9 @@ void FFleshRingPreviewScene::CreatePreviewActor()
 
 void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 {
+	// 기존 에셋에서 델리게이트 해제
+	UnbindFromAssetDelegate();
+
 	CurrentAsset = InAsset;
 
 	if (!InAsset)
@@ -88,37 +95,90 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 		return;
 	}
 
-	// 스켈레탈 메시 설정
-	USkeletalMesh* SkelMesh = InAsset->TargetSkeletalMesh.LoadSynchronous();
-	SetSkeletalMesh(SkelMesh);
+	// 새 에셋에 델리게이트 바인딩
+	BindToAssetDelegate();
 
-	// FleshRing 컴포넌트에 Asset 설정
+	// ============================================
+	// 1단계: 먼저 원본 메시로 설정 (FleshRingComponent 초기화용)
+	// ============================================
+	USkeletalMesh* OriginalMesh = InAsset->TargetSkeletalMesh.LoadSynchronous();
+	SetSkeletalMesh(OriginalMesh);
+
+	// FleshRing 컴포넌트에 Asset 설정 및 초기화
 	if (FleshRingComponent)
 	{
 		FleshRingComponent->FleshRingAsset = InAsset;
 		FleshRingComponent->ApplyAsset();
+	}
 
-		// 딜레이된 초기화 (SkeletalMesh 렌더 완료 후 Deformer 초기화)
-		if (FleshRingComponent->bEnableFleshRing)
+	// ============================================
+	// 2단계: Subdivision 활성화 시 PreviewMesh로 교체
+	// ApplyAsset() 이후에 설정해야 덮어쓰이지 않음
+	// ============================================
+#if WITH_EDITOR
+	if (InAsset->bEnableSubdivision)
+	{
+		// 프리뷰 메시가 없거나 재생성 필요 시 생성
+		if (!InAsset->HasValidPreviewMesh() || InAsset->NeedsPreviewMeshRegeneration())
 		{
-			UWorld* World = GetWorld();
-			if (World)
-			{
-				FTimerHandle TimerHandle;
-				TWeakObjectPtr<UFleshRingComponent> WeakComponent = FleshRingComponent;
-				World->GetTimerManager().SetTimer(
-					TimerHandle,
-					[WeakComponent]()
+			InAsset->GeneratePreviewMesh();
+		}
+
+		// 프리뷰 메시 사용 (있으면)
+		if (InAsset->HasValidPreviewMesh())
+		{
+			SetSkeletalMesh(InAsset->PreviewSubdividedMesh);
+			UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Using PreviewSubdividedMesh (Level %d, %d vertices)"),
+				InAsset->PreviewSubdivisionLevel,
+				InAsset->PreviewSubdividedMesh->GetResourceForRendering() ?
+					InAsset->PreviewSubdividedMesh->GetResourceForRendering()->LODRenderData[0].StaticVertexBuffers.PositionVertexBuffer.GetNumVertices() : 0);
+		}
+	}
+	else
+	{
+		// Subdivision 비활성화 시 프리뷰 메시 제거
+		InAsset->ClearPreviewMesh();
+	}
+#endif
+
+	// ============================================
+	// 3단계: Deformer 초기화 (딜레이)
+	// InitializeForEditorPreview() 내부의 ResolveTargetMesh()가 메시를 덮어쓸 수 있으므로
+	// 초기화 완료 후 PreviewMesh를 다시 적용
+	// ============================================
+	if (FleshRingComponent && FleshRingComponent->bEnableFleshRing)
+	{
+		UWorld* World = GetWorld();
+		if (World)
+		{
+			FTimerHandle TimerHandle;
+			TWeakObjectPtr<UFleshRingComponent> WeakComponent = FleshRingComponent;
+			TWeakObjectPtr<UFleshRingAsset> WeakAsset = InAsset;
+			TWeakObjectPtr<UDebugSkelMeshComponent> WeakSkelMesh = SkeletalMeshComponent;
+			bool bUsePreviewMesh = InAsset->bEnableSubdivision && InAsset->HasValidPreviewMesh();
+
+			World->GetTimerManager().SetTimer(
+				TimerHandle,
+				[WeakComponent, WeakAsset, WeakSkelMesh, bUsePreviewMesh]()
+				{
+					if (WeakComponent.IsValid())
 					{
-						if (WeakComponent.IsValid())
-						{
-							WeakComponent->InitializeForEditorPreview();
-						}
-					},
-					0.1f,  // 0.1초 딜레이
-					false  // 반복 안 함
-				);
-			}
+						WeakComponent->InitializeForEditorPreview();
+					}
+
+					// InitializeForEditorPreview()의 ResolveTargetMesh()가 메시를 덮어썼을 수 있으므로
+					// PreviewMesh를 다시 적용
+					if (bUsePreviewMesh && WeakAsset.IsValid() && WeakAsset->HasValidPreviewMesh() && WeakSkelMesh.IsValid())
+					{
+						WeakSkelMesh->SetSkeletalMesh(WeakAsset->PreviewSubdividedMesh);
+						WeakSkelMesh->MarkRenderStateDirty();
+						WeakSkelMesh->MarkRenderDynamicDataDirty();
+						UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Re-applied PreviewSubdividedMesh after Deformer init"));
+					}
+				},
+				0.1f,  // 0.1초 딜레이
+				false  // 반복 안 함
+			);
 		}
 	}
 
@@ -219,4 +279,32 @@ void FFleshRingPreviewScene::UpdateRingTransform(int32 Index, const FTransform& 
 void FFleshRingPreviewScene::SetSelectedRingIndex(int32 Index)
 {
 	SelectedRingIndex = Index;
+}
+
+void FFleshRingPreviewScene::BindToAssetDelegate()
+{
+	if (CurrentAsset && !AssetChangedDelegateHandle.IsValid())
+	{
+		AssetChangedDelegateHandle = CurrentAsset->OnAssetChanged.AddRaw(
+			this, &FFleshRingPreviewScene::OnAssetChanged);
+	}
+}
+
+void FFleshRingPreviewScene::UnbindFromAssetDelegate()
+{
+	if (CurrentAsset && AssetChangedDelegateHandle.IsValid())
+	{
+		CurrentAsset->OnAssetChanged.Remove(AssetChangedDelegateHandle);
+		AssetChangedDelegateHandle.Reset();
+	}
+}
+
+void FFleshRingPreviewScene::OnAssetChanged(UFleshRingAsset* ChangedAsset)
+{
+	// 동일한 에셋인지 확인
+	if (ChangedAsset == CurrentAsset)
+	{
+		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Asset changed, refreshing preview..."));
+		RefreshPreview();
+	}
 }

@@ -628,3 +628,63 @@ bool FFleshRingSubdivisionProcessor::NeedsRecomputation(const FSubdivisionRingPa
 
 	return true; // 캐시에 매칭되는 파라미터 없음 - 재계산 필요
 }
+
+bool FFleshRingSubdivisionProcessor::ProcessUniform(FSubdivisionTopologyResult& OutResult, int32 MaxLevel)
+{
+	// 소스 데이터 검증
+	if (SourcePositions.Num() == 0 || SourceIndices.Num() == 0)
+	{
+		UE_LOG(LogFleshRingSubdivisionProcessor, Warning, TEXT("ProcessUniform: No source mesh data"));
+		return false;
+	}
+
+	OutResult.Reset();
+	OutResult.OriginalVertexCount = SourcePositions.Num();
+	OutResult.OriginalTriangleCount = SourceIndices.Num() / 3;
+
+	// 1. Half-Edge 메시 구축
+	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("ProcessUniform: Building Half-Edge mesh..."));
+
+	// int32 배열로 변환
+	TArray<int32> IndicesInt32;
+	IndicesInt32.SetNum(SourceIndices.Num());
+	for (int32 i = 0; i < SourceIndices.Num(); ++i)
+	{
+		IndicesInt32[i] = static_cast<int32>(SourceIndices[i]);
+	}
+
+	if (!HalfEdgeMesh.BuildFromTriangles(SourcePositions, IndicesInt32, SourceUVs, SourceMaterialIndices))
+	{
+		UE_LOG(LogFleshRingSubdivisionProcessor, Warning, TEXT("ProcessUniform: Failed to build Half-Edge mesh"));
+		return false;
+	}
+
+	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("ProcessUniform: Half-Edge mesh built: %d vertices, %d faces"),
+		HalfEdgeMesh.GetVertexCount(), HalfEdgeMesh.GetFaceCount());
+
+	// 2. 균일 Subdivision 수행
+	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("ProcessUniform: Performing uniform subdivision (MaxLevel=%d)..."), MaxLevel);
+
+	int32 FacesAdded = FLEBSubdivision::SubdivideUniform(
+		HalfEdgeMesh,
+		MaxLevel,
+		CurrentSettings.MinEdgeLength
+	);
+
+	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("ProcessUniform: Subdivision complete - %d faces added, %d total faces"),
+		FacesAdded, HalfEdgeMesh.GetFaceCount());
+
+	// 3. 토폴로지 결과 추출
+	if (!ExtractTopologyResult(OutResult))
+	{
+		UE_LOG(LogFleshRingSubdivisionProcessor, Warning, TEXT("ProcessUniform: Failed to extract topology result"));
+		return false;
+	}
+
+	UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+		TEXT("ProcessUniform: Complete - %d -> %d vertices, %d -> %d triangles"),
+		OutResult.OriginalVertexCount, OutResult.SubdividedVertexCount,
+		OutResult.OriginalTriangleCount, OutResult.SubdividedTriangleCount);
+
+	return true;
+}

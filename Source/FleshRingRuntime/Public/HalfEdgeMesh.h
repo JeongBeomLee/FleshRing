@@ -321,6 +321,22 @@ public:
 	);
 
 	/**
+	 * 전체 메시를 균일하게 Subdivision (에디터 프리뷰용)
+	 * 영역 체크 없이 모든 삼각형을 분할
+	 * Red-Green refinement로 T-junction 방지
+	 *
+	 * @param Mesh - Half-edge mesh to subdivide (modified in place)
+	 * @param MaxLevel - Maximum subdivision depth
+	 * @param MinEdgeLength - Stop subdividing when edges are smaller than this
+	 * @return Number of faces added
+	 */
+	static int32 SubdivideUniform(
+		FHalfEdgeMesh& Mesh,
+		int32 MaxLevel = 2,
+		float MinEdgeLength = 1.0f
+	);
+
+	/**
 	 * Subdivide a single edge using LEB
 	 * Automatically propagates to maintain mesh consistency
 	 *
