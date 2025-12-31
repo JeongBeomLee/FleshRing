@@ -623,32 +623,84 @@ int32 FLEBSubdivision::SubdivideRegion(
 				else if (NumMidpoints == 2)
 				{
 					// Two edges have midpoints - split into 3
+					// GREEN-2: Corner triangle + quadrilateral split by shorter diagonal
 					if (M01 && M12)
 					{
-						FinalTriangles.Add(V0); FinalTriangles.Add(*M01); FinalTriangles.Add(V2);
-						FinalMaterialIndices.Add(MatIdx);
+						// Corner at V1: (M01, V1, M12)
 						FinalTriangles.Add(*M01); FinalTriangles.Add(V1); FinalTriangles.Add(*M12);
 						FinalMaterialIndices.Add(MatIdx);
-						FinalTriangles.Add(*M01); FinalTriangles.Add(*M12); FinalTriangles.Add(V2);
-						FinalMaterialIndices.Add(MatIdx);
+
+						// Quad V0-M01-M12-V2: compare diagonals M01-V2 vs V0-M12
+						float DiagA = FVector::DistSquared(Positions[*M01], Positions[V2]);
+						float DiagB = FVector::DistSquared(Positions[V0], Positions[*M12]);
+						if (DiagA <= DiagB)
+						{
+							// Diagonal M01-V2
+							FinalTriangles.Add(V0); FinalTriangles.Add(*M01); FinalTriangles.Add(V2);
+							FinalMaterialIndices.Add(MatIdx);
+							FinalTriangles.Add(*M01); FinalTriangles.Add(*M12); FinalTriangles.Add(V2);
+							FinalMaterialIndices.Add(MatIdx);
+						}
+						else
+						{
+							// Diagonal V0-M12
+							FinalTriangles.Add(V0); FinalTriangles.Add(*M01); FinalTriangles.Add(*M12);
+							FinalMaterialIndices.Add(MatIdx);
+							FinalTriangles.Add(V0); FinalTriangles.Add(*M12); FinalTriangles.Add(V2);
+							FinalMaterialIndices.Add(MatIdx);
+						}
 					}
 					else if (M12 && M20)
 					{
-						FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(*M12);
-						FinalMaterialIndices.Add(MatIdx);
-						FinalTriangles.Add(V0); FinalTriangles.Add(*M12); FinalTriangles.Add(*M20);
-						FinalMaterialIndices.Add(MatIdx);
+						// Corner at V2: (M20, M12, V2)
 						FinalTriangles.Add(*M20); FinalTriangles.Add(*M12); FinalTriangles.Add(V2);
 						FinalMaterialIndices.Add(MatIdx);
+
+						// Quad V0-V1-M12-M20: compare diagonals V0-M12 vs V1-M20
+						float DiagA = FVector::DistSquared(Positions[V0], Positions[*M12]);
+						float DiagB = FVector::DistSquared(Positions[V1], Positions[*M20]);
+						if (DiagA <= DiagB)
+						{
+							// Diagonal V0-M12
+							FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(*M12);
+							FinalMaterialIndices.Add(MatIdx);
+							FinalTriangles.Add(V0); FinalTriangles.Add(*M12); FinalTriangles.Add(*M20);
+							FinalMaterialIndices.Add(MatIdx);
+						}
+						else
+						{
+							// Diagonal V1-M20
+							FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(*M20);
+							FinalMaterialIndices.Add(MatIdx);
+							FinalTriangles.Add(V1); FinalTriangles.Add(*M12); FinalTriangles.Add(*M20);
+							FinalMaterialIndices.Add(MatIdx);
+						}
 					}
 					else // M01 && M20
 					{
+						// Corner at V0: (V0, M01, M20)
 						FinalTriangles.Add(V0); FinalTriangles.Add(*M01); FinalTriangles.Add(*M20);
 						FinalMaterialIndices.Add(MatIdx);
-						FinalTriangles.Add(*M01); FinalTriangles.Add(V1); FinalTriangles.Add(*M20);
-						FinalMaterialIndices.Add(MatIdx);
-						FinalTriangles.Add(*M20); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
-						FinalMaterialIndices.Add(MatIdx);
+
+						// Quad M01-V1-V2-M20: compare diagonals V1-M20 vs M01-V2
+						float DiagA = FVector::DistSquared(Positions[V1], Positions[*M20]);
+						float DiagB = FVector::DistSquared(Positions[*M01], Positions[V2]);
+						if (DiagA <= DiagB)
+						{
+							// Diagonal V1-M20
+							FinalTriangles.Add(*M01); FinalTriangles.Add(V1); FinalTriangles.Add(*M20);
+							FinalMaterialIndices.Add(MatIdx);
+							FinalTriangles.Add(*M20); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
+							FinalMaterialIndices.Add(MatIdx);
+						}
+						else
+						{
+							// Diagonal M01-V2
+							FinalTriangles.Add(*M01); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
+							FinalMaterialIndices.Add(MatIdx);
+							FinalTriangles.Add(*M01); FinalTriangles.Add(V2); FinalTriangles.Add(*M20);
+							FinalMaterialIndices.Add(MatIdx);
+						}
 					}
 				}
 			}
@@ -981,32 +1033,84 @@ int32 FLEBSubdivision::SubdivideRegion(
 			}
 			else // NumMidpoints == 2
 			{
+				// GREEN-2: Corner triangle + quadrilateral split by shorter diagonal
 				if (M01 && M12)
 				{
-					FinalTriangles.Add(V0); FinalTriangles.Add(*M01); FinalTriangles.Add(V2);
-					FinalMaterialIndices.Add(MatIdx);
+					// Corner at V1: (M01, V1, M12)
 					FinalTriangles.Add(*M01); FinalTriangles.Add(V1); FinalTriangles.Add(*M12);
 					FinalMaterialIndices.Add(MatIdx);
-					FinalTriangles.Add(*M01); FinalTriangles.Add(*M12); FinalTriangles.Add(V2);
-					FinalMaterialIndices.Add(MatIdx);
+
+					// Quad V0-M01-M12-V2: compare diagonals M01-V2 vs V0-M12
+					float DiagA = FVector::DistSquared(Positions[*M01], Positions[V2]);
+					float DiagB = FVector::DistSquared(Positions[V0], Positions[*M12]);
+					if (DiagA <= DiagB)
+					{
+						// Diagonal M01-V2
+						FinalTriangles.Add(V0); FinalTriangles.Add(*M01); FinalTriangles.Add(V2);
+						FinalMaterialIndices.Add(MatIdx);
+						FinalTriangles.Add(*M01); FinalTriangles.Add(*M12); FinalTriangles.Add(V2);
+						FinalMaterialIndices.Add(MatIdx);
+					}
+					else
+					{
+						// Diagonal V0-M12
+						FinalTriangles.Add(V0); FinalTriangles.Add(*M01); FinalTriangles.Add(*M12);
+						FinalMaterialIndices.Add(MatIdx);
+						FinalTriangles.Add(V0); FinalTriangles.Add(*M12); FinalTriangles.Add(V2);
+						FinalMaterialIndices.Add(MatIdx);
+					}
 				}
 				else if (M12 && M20)
 				{
-					FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(*M12);
-					FinalMaterialIndices.Add(MatIdx);
-					FinalTriangles.Add(V0); FinalTriangles.Add(*M12); FinalTriangles.Add(*M20);
-					FinalMaterialIndices.Add(MatIdx);
+					// Corner at V2: (M20, M12, V2)
 					FinalTriangles.Add(*M20); FinalTriangles.Add(*M12); FinalTriangles.Add(V2);
 					FinalMaterialIndices.Add(MatIdx);
+
+					// Quad V0-V1-M12-M20: compare diagonals V0-M12 vs V1-M20
+					float DiagA = FVector::DistSquared(Positions[V0], Positions[*M12]);
+					float DiagB = FVector::DistSquared(Positions[V1], Positions[*M20]);
+					if (DiagA <= DiagB)
+					{
+						// Diagonal V0-M12
+						FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(*M12);
+						FinalMaterialIndices.Add(MatIdx);
+						FinalTriangles.Add(V0); FinalTriangles.Add(*M12); FinalTriangles.Add(*M20);
+						FinalMaterialIndices.Add(MatIdx);
+					}
+					else
+					{
+						// Diagonal V1-M20
+						FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(*M20);
+						FinalMaterialIndices.Add(MatIdx);
+						FinalTriangles.Add(V1); FinalTriangles.Add(*M12); FinalTriangles.Add(*M20);
+						FinalMaterialIndices.Add(MatIdx);
+					}
 				}
 				else // M01 && M20
 				{
+					// Corner at V0: (V0, M01, M20)
 					FinalTriangles.Add(V0); FinalTriangles.Add(*M01); FinalTriangles.Add(*M20);
 					FinalMaterialIndices.Add(MatIdx);
-					FinalTriangles.Add(*M01); FinalTriangles.Add(V1); FinalTriangles.Add(*M20);
-					FinalMaterialIndices.Add(MatIdx);
-					FinalTriangles.Add(*M20); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
-					FinalMaterialIndices.Add(MatIdx);
+
+					// Quad M01-V1-V2-M20: compare diagonals V1-M20 vs M01-V2
+					float DiagA = FVector::DistSquared(Positions[V1], Positions[*M20]);
+					float DiagB = FVector::DistSquared(Positions[*M01], Positions[V2]);
+					if (DiagA <= DiagB)
+					{
+						// Diagonal V1-M20
+						FinalTriangles.Add(*M01); FinalTriangles.Add(V1); FinalTriangles.Add(*M20);
+						FinalMaterialIndices.Add(MatIdx);
+						FinalTriangles.Add(*M20); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
+						FinalMaterialIndices.Add(MatIdx);
+					}
+					else
+					{
+						// Diagonal M01-V2
+						FinalTriangles.Add(*M01); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
+						FinalMaterialIndices.Add(MatIdx);
+						FinalTriangles.Add(*M01); FinalTriangles.Add(V2); FinalTriangles.Add(*M20);
+						FinalMaterialIndices.Add(MatIdx);
+					}
 				}
 			}
 		}
