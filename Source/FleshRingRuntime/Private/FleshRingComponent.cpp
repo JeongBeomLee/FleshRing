@@ -930,42 +930,47 @@ void UFleshRingComponent::DrawSdfVolume(int32 RingIndex)
 	// 스케일 적용된 Extent
 	FVector ScaledExtent = LocalExtent * LocalToWorld.GetScale3D();
 
-	// DrawSdfVolume Debug - SubdivideRegion과 비교용
-	UE_LOG(LogTemp, Log, TEXT(""));
-	UE_LOG(LogTemp, Log, TEXT("======== DrawSdfVolume OBB Debug ========"));
-	UE_LOG(LogTemp, Log, TEXT("  [Local Space]"));
-	UE_LOG(LogTemp, Log, TEXT("    LocalBoundsMin: %s"), *LocalBoundsMin.ToString());
-	UE_LOG(LogTemp, Log, TEXT("    LocalBoundsMax: %s"), *LocalBoundsMax.ToString());
-	UE_LOG(LogTemp, Log, TEXT("    LocalSize: %s"), *(LocalBoundsMax - LocalBoundsMin).ToString());
-	UE_LOG(LogTemp, Log, TEXT("  [LocalToComponent Transform]"));
-	UE_LOG(LogTemp, Log, TEXT("    Location: %s"), *SDFCache->LocalToComponent.GetLocation().ToString());
-	UE_LOG(LogTemp, Log, TEXT("    Rotation: %s"), *SDFCache->LocalToComponent.GetRotation().Rotator().ToString());
-	UE_LOG(LogTemp, Log, TEXT("    Scale: %s"), *SDFCache->LocalToComponent.GetScale3D().ToString());
-	// SubdivideRegion과 비교용 - Component Space OBB
+	// [조건부 로그] 첫 프레임만 출력 - DrawSdfVolume Debug
+	static bool bLoggedOBBDebug = false;
+	if (!bLoggedOBBDebug)
 	{
-		FVector CompCenter = SDFCache->LocalToComponent.TransformPosition(LocalCenter);
-		FQuat CompRotation = SDFCache->LocalToComponent.GetRotation();
-		FVector CompAxisX = CompRotation.RotateVector(FVector(1, 0, 0));
-		FVector CompAxisY = CompRotation.RotateVector(FVector(0, 1, 0));
-		FVector CompAxisZ = CompRotation.RotateVector(FVector(0, 0, 1));
-		FVector CompHalfExtents = LocalExtent * SDFCache->LocalToComponent.GetScale3D();
-		UE_LOG(LogTemp, Log, TEXT("  [Component Space OBB (SubdivideRegion과 비교)]"));
-		UE_LOG(LogTemp, Log, TEXT("    Center: %s"), *CompCenter.ToString());
-		UE_LOG(LogTemp, Log, TEXT("    HalfExtents: %s"), *CompHalfExtents.ToString());
-		UE_LOG(LogTemp, Log, TEXT("    AxisX: %s"), *CompAxisX.ToString());
-		UE_LOG(LogTemp, Log, TEXT("    AxisY: %s"), *CompAxisY.ToString());
-		UE_LOG(LogTemp, Log, TEXT("    AxisZ: %s"), *CompAxisZ.ToString());
+		UE_LOG(LogTemp, Log, TEXT(""));
+		UE_LOG(LogTemp, Log, TEXT("======== DrawSdfVolume OBB Debug ========"));
+		UE_LOG(LogTemp, Log, TEXT("  [Local Space]"));
+		UE_LOG(LogTemp, Log, TEXT("    LocalBoundsMin: %s"), *LocalBoundsMin.ToString());
+		UE_LOG(LogTemp, Log, TEXT("    LocalBoundsMax: %s"), *LocalBoundsMax.ToString());
+		UE_LOG(LogTemp, Log, TEXT("    LocalSize: %s"), *(LocalBoundsMax - LocalBoundsMin).ToString());
+		UE_LOG(LogTemp, Log, TEXT("  [LocalToComponent Transform]"));
+		UE_LOG(LogTemp, Log, TEXT("    Location: %s"), *SDFCache->LocalToComponent.GetLocation().ToString());
+		UE_LOG(LogTemp, Log, TEXT("    Rotation: %s"), *SDFCache->LocalToComponent.GetRotation().Rotator().ToString());
+		UE_LOG(LogTemp, Log, TEXT("    Scale: %s"), *SDFCache->LocalToComponent.GetScale3D().ToString());
+		// SubdivideRegion과 비교용 - Component Space OBB
+		{
+			FVector CompCenter = SDFCache->LocalToComponent.TransformPosition(LocalCenter);
+			FQuat CompRotation = SDFCache->LocalToComponent.GetRotation();
+			FVector CompAxisX = CompRotation.RotateVector(FVector(1, 0, 0));
+			FVector CompAxisY = CompRotation.RotateVector(FVector(0, 1, 0));
+			FVector CompAxisZ = CompRotation.RotateVector(FVector(0, 0, 1));
+			FVector CompHalfExtents = LocalExtent * SDFCache->LocalToComponent.GetScale3D();
+			UE_LOG(LogTemp, Log, TEXT("  [Component Space OBB (SubdivideRegion과 비교)]"));
+			UE_LOG(LogTemp, Log, TEXT("    Center: %s"), *CompCenter.ToString());
+			UE_LOG(LogTemp, Log, TEXT("    HalfExtents: %s"), *CompHalfExtents.ToString());
+			UE_LOG(LogTemp, Log, TEXT("    AxisX: %s"), *CompAxisX.ToString());
+			UE_LOG(LogTemp, Log, TEXT("    AxisY: %s"), *CompAxisY.ToString());
+			UE_LOG(LogTemp, Log, TEXT("    AxisZ: %s"), *CompAxisZ.ToString());
+		}
+		UE_LOG(LogTemp, Log, TEXT("  [LocalToWorld (includes ComponentToWorld)]"));
+		UE_LOG(LogTemp, Log, TEXT("    Location: %s"), *LocalToWorld.GetLocation().ToString());
+		UE_LOG(LogTemp, Log, TEXT("    Rotation: %s"), *LocalToWorld.GetRotation().Rotator().ToString());
+		UE_LOG(LogTemp, Log, TEXT("    Scale: %s"), *LocalToWorld.GetScale3D().ToString());
+		UE_LOG(LogTemp, Log, TEXT("  [Visualization]"));
+		UE_LOG(LogTemp, Log, TEXT("    WorldCenter: %s"), *WorldCenter.ToString());
+		UE_LOG(LogTemp, Log, TEXT("    ScaledExtent: %s"), *ScaledExtent.ToString());
+		UE_LOG(LogTemp, Log, TEXT("    WorldRotation: %s"), *WorldRotation.Rotator().ToString());
+		UE_LOG(LogTemp, Log, TEXT("=========================================="));
+		UE_LOG(LogTemp, Log, TEXT(""));
+		bLoggedOBBDebug = true;
 	}
-	UE_LOG(LogTemp, Log, TEXT("  [LocalToWorld (includes ComponentToWorld)]"));
-	UE_LOG(LogTemp, Log, TEXT("    Location: %s"), *LocalToWorld.GetLocation().ToString());
-	UE_LOG(LogTemp, Log, TEXT("    Rotation: %s"), *LocalToWorld.GetRotation().Rotator().ToString());
-	UE_LOG(LogTemp, Log, TEXT("    Scale: %s"), *LocalToWorld.GetScale3D().ToString());
-	UE_LOG(LogTemp, Log, TEXT("  [Visualization]"));
-	UE_LOG(LogTemp, Log, TEXT("    WorldCenter: %s"), *WorldCenter.ToString());
-	UE_LOG(LogTemp, Log, TEXT("    ScaledExtent: %s"), *ScaledExtent.ToString());
-	UE_LOG(LogTemp, Log, TEXT("    WorldRotation: %s"), *WorldRotation.Rotator().ToString());
-	UE_LOG(LogTemp, Log, TEXT("=========================================="));
-	UE_LOG(LogTemp, Log, TEXT(""));
 
 	// OBB 와이어프레임 박스 (회전 포함)
 	FColor BoxColor = FColor(0, 200, 255, 255);  // 밝은 시안

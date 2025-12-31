@@ -340,27 +340,45 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				float MinAxisSize = FMath::Min3(SDFExtent.X, SDFExtent.Y, SDFExtent.Z);
 				DispatchData.Params.SDFInfluenceFalloffDistance = FMath::Max(MinAxisSize * 0.5f, 1.0f);
 
-				UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] SDF Mode (Auto): Bounds=(%.1f,%.1f,%.1f)~(%.1f,%.1f,%.1f), RingCenter=(%.1f,%.1f,%.1f), RingRadius=%.2f"),
-					RingIndex,
-					SDFCache->BoundsMin.X, SDFCache->BoundsMin.Y, SDFCache->BoundsMin.Z,
-					SDFCache->BoundsMax.X, SDFCache->BoundsMax.Y, SDFCache->BoundsMax.Z,
-					DispatchData.Params.RingCenter.X, DispatchData.Params.RingCenter.Y, DispatchData.Params.RingCenter.Z,
-					DispatchData.Params.RingRadius);
+				// [조건부 로그] 첫 프레임만 출력
+				static bool bLoggedSDFMode = false;
+				if (!bLoggedSDFMode)
+				{
+					UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] SDF Mode (Auto): Bounds=(%.1f,%.1f,%.1f)~(%.1f,%.1f,%.1f), RingCenter=(%.1f,%.1f,%.1f), RingRadius=%.2f"),
+						RingIndex,
+						SDFCache->BoundsMin.X, SDFCache->BoundsMin.Y, SDFCache->BoundsMin.Z,
+						SDFCache->BoundsMax.X, SDFCache->BoundsMax.Y, SDFCache->BoundsMax.Z,
+						DispatchData.Params.RingCenter.X, DispatchData.Params.RingCenter.Y, DispatchData.Params.RingCenter.Z,
+						DispatchData.Params.RingRadius);
+					bLoggedSDFMode = true;
+				}
 			}
 			else
 			{
-				UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] Manual Mode (InfluenceMode=%s, SDFValid=%s)"),
-					RingIndex,
-					RingInfluenceMode == EFleshRingInfluenceMode::Auto ? TEXT("Auto") : TEXT("Manual"),
-					(SDFCache && SDFCache->IsValid()) ? TEXT("Yes") : TEXT("No"));
+				// [조건부 로그] 첫 프레임만 출력
+				static bool bLoggedManualMode = false;
+				if (!bLoggedManualMode)
+				{
+					UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] Manual Mode (InfluenceMode=%s, SDFValid=%s)"),
+						RingIndex,
+						RingInfluenceMode == EFleshRingInfluenceMode::Auto ? TEXT("Auto") : TEXT("Manual"),
+						(SDFCache && SDFCache->IsValid()) ? TEXT("Yes") : TEXT("No"));
+					bLoggedManualMode = true;
+				}
 			}
 		}
 
-		UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d]: AffectedVerts=%d, TightnessStrength=%.3f, RingCenter=(%.1f,%.1f,%.1f), RingAxis=(%.3f,%.3f,%.3f), RingRadius=%.2f"),
-			RingIndex, DispatchData.Params.NumAffectedVertices, DispatchData.Params.TightnessStrength,
-			DispatchData.Params.RingCenter.X, DispatchData.Params.RingCenter.Y, DispatchData.Params.RingCenter.Z,
-			DispatchData.Params.RingAxis.X, DispatchData.Params.RingAxis.Y, DispatchData.Params.RingAxis.Z,
-			DispatchData.Params.RingRadius);
+		// [조건부 로그] 첫 프레임만 출력
+		static bool bLoggedRingInfo = false;
+		if (!bLoggedRingInfo)
+		{
+			UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d]: AffectedVerts=%d, TightnessStrength=%.3f, RingCenter=(%.1f,%.1f,%.1f), RingAxis=(%.3f,%.3f,%.3f), RingRadius=%.2f"),
+				RingIndex, DispatchData.Params.NumAffectedVertices, DispatchData.Params.TightnessStrength,
+				DispatchData.Params.RingCenter.X, DispatchData.Params.RingCenter.Y, DispatchData.Params.RingCenter.Z,
+				DispatchData.Params.RingAxis.X, DispatchData.Params.RingAxis.Y, DispatchData.Params.RingAxis.Z,
+				DispatchData.Params.RingRadius);
+			bLoggedRingInfo = true;
+		}
 
 		RingDispatchDataPtr->Add(MoveTemp(DispatchData));
 	}
@@ -379,7 +397,13 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 
 	// TightenedBindPose 캐싱 여부 결정
 	bool bNeedTightnessCaching = !CurrentLODData.bTightenedBindPoseCached;
-	UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] bNeedTightnessCaching=%d (first frame = will run TightnessCS)"), bNeedTightnessCaching ? 1 : 0);
+	// [조건부 로그] 첫 프레임만 출력
+	static bool bLoggedCaching = false;
+	if (!bLoggedCaching)
+	{
+		UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] bNeedTightnessCaching=%d (first frame = will run TightnessCS)"), bNeedTightnessCaching ? 1 : 0);
+		bLoggedCaching = true;
+	}
 
 	if (bNeedTightnessCaching)
 	{

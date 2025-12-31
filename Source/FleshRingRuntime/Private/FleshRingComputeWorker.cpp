@@ -237,13 +237,25 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					FMatrix InverseMatrix = DispatchData.SDFLocalToComponent.Inverse().ToMatrixWithScale();
 					Params.ComponentToSDFLocal = FMatrix44f(InverseMatrix);
 
-					UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] TightnessCS Dispatch: SDF Mode (OBB), Verts=%d, Strength=%.2f"),
-						Params.NumAffectedVertices, Params.TightnessStrength);
+					// [조건부 로그] 첫 프레임만 출력
+					static bool bLoggedSDFDispatch = false;
+					if (!bLoggedSDFDispatch)
+					{
+						UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] TightnessCS Dispatch: SDF Mode (OBB), Verts=%d, Strength=%.2f"),
+							Params.NumAffectedVertices, Params.TightnessStrength);
+						bLoggedSDFDispatch = true;
+					}
 				}
 				else
 				{
-					UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] TightnessCS Dispatch: Manual Mode, Verts=%d, Strength=%.2f"),
-						Params.NumAffectedVertices, Params.TightnessStrength);
+					// [조건부 로그] 첫 프레임만 출력
+					static bool bLoggedManualDispatch = false;
+					if (!bLoggedManualDispatch)
+					{
+						UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] TightnessCS Dispatch: Manual Mode, Verts=%d, Strength=%.2f"),
+							Params.NumAffectedVertices, Params.TightnessStrength);
+						bLoggedManualDispatch = true;
+					}
 				}
 
 				DispatchFleshRingTightnessCS(
