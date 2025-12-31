@@ -18,14 +18,105 @@
 #include "Widgets/Input/SButton.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Views/SListView.h"
+#include "Widgets/Views/STreeView.h"
+#include "Widgets/Views/SExpanderArrow.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "ReferenceSkeleton.h"
+#include "Rendering/SkeletalMeshRenderData.h"
 #include "Styling/AppStyle.h"
 #include "Widgets/Colors/SColorBlock.h"
 #include "Misc/DefaultValueHelper.h"
 
 #define LOCTEXT_NAMESPACE "FleshRingSettingsCustomization"
+
+/**
+ * Bone 드롭다운용 트리 행 위젯 (SExpanderArrow + Wires 지원)
+ */
+class SBoneDropdownTreeRow : public STableRow<TSharedPtr<FBoneDropdownItem>>
+{
+public:
+	SLATE_BEGIN_ARGS(SBoneDropdownTreeRow) {}
+		SLATE_ARGUMENT(TSharedPtr<FBoneDropdownItem>, Item)
+		SLATE_ARGUMENT(FText, HighlightText)
+	SLATE_END_ARGS()
+
+	void Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& InOwnerTable)
+	{
+		Item = InArgs._Item;
+		HighlightText = InArgs._HighlightText;
+
+		// 아이콘과 색상 결정
+		const FSlateBrush* IconBrush = nullptr;
+		FSlateColor TextColor = FSlateColor::UseForeground();
+		FSlateColor IconColor = FSlateColor::UseForeground();
+
+		if (Item->bIsMeshBone)
+		{
+			IconBrush = FAppStyle::GetBrush("SkeletonTree.Bone");
+		}
+		else
+		{
+			// 웨이팅 안 된 본 (검색 시에만 표시됨)
+			IconBrush = FAppStyle::GetBrush("SkeletonTree.BoneNonWeighted");
+			TextColor = FSlateColor(FLinearColor(0.4f, 0.4f, 0.4f));
+			IconColor = FSlateColor(FLinearColor(0.4f, 0.4f, 0.4f));
+		}
+
+		STableRow<TSharedPtr<FBoneDropdownItem>>::Construct(
+			STableRow<TSharedPtr<FBoneDropdownItem>>::FArguments()
+			.Padding(FMargin(0, 0)),
+			InOwnerTable
+		);
+
+		// SExpanderArrow로 트리 연결선 표시
+		ChildSlot
+		[
+			SNew(SHorizontalBox)
+			// Expander Arrow (트리 연결선)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			[
+				SNew(SExpanderArrow, SharedThis(this))
+				.ShouldDrawWires(true)
+			]
+			// 아이콘 + 텍스트
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			.Padding(0, 2)
+			[
+				SNew(SHorizontalBox)
+				// 아이콘
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.Padding(0, 0, 6, 0)
+				.VAlign(VAlign_Center)
+				[
+					SNew(SImage)
+					.Image(IconBrush)
+					.ColorAndOpacity(IconColor)
+					.DesiredSizeOverride(FVector2D(16, 16))
+				]
+				// 본 이름
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				.VAlign(VAlign_Center)
+				[
+					SNew(STextBlock)
+					.Text(FText::FromName(Item->BoneName))
+					.ColorAndOpacity(TextColor)
+					.Font(IDetailLayoutBuilder::GetDetailFont())
+					.HighlightText(HighlightText)
+				]
+			]
+		];
+	}
+
+private:
+	TSharedPtr<FBoneDropdownItem> Item;
+	FText HighlightText;
+};
 
 // 각도 표시용 TypeInterface (숫자 옆에 ° 표시)
 class FDegreeTypeInterface : public TDefaultNumericTypeInterface<double>
@@ -83,8 +174,8 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	IPropertyTypeCustomizationUtils& CustomizationUtils)
 {
 	// BoneName 핸들은 CustomizeHeader에서 이미 설정됨
-	// Bone 목록 업데이트
-	UpdateBoneNameList();
+	// Bone 트리 빌드
+	BuildBoneTree();
 
 	// BoneName을 검색 가능한 드롭다운으로 커스터마이징
 	if (BoneNameHandle.IsValid())
@@ -565,47 +656,118 @@ USkeletalMesh* FFleshRingSettingsCustomization::GetTargetSkeletalMesh() const
 	return nullptr;
 }
 
-void FFleshRingSettingsCustomization::UpdateBoneNameList()
+void FFleshRingSettingsCustomization::BuildBoneTree()
 {
-	BoneNameList.Empty();
+	BoneTreeRoots.Empty();
+	AllBoneItems.Empty();
+	FilteredBoneTreeRoots.Empty();
 
-	// 기본값 추가 (선택 안함)
-	BoneNameList.Add(MakeShareable(new FName(NAME_None)));
-
-	// Asset의 TargetSkeletalMesh에서 본 목록 가져오기
 	USkeletalMesh* SkeletalMesh = GetTargetSkeletalMesh();
-	if (SkeletalMesh)
+	if (!SkeletalMesh)
 	{
-		const FReferenceSkeleton& RefSkeleton = SkeletalMesh->GetRefSkeleton();
-		const int32 NumBones = RefSkeleton.GetNum();
+		return;
+	}
 
-		for (int32 BoneIdx = 0; BoneIdx < NumBones; ++BoneIdx)
+	// 웨이팅된 본 캐시 빌드
+	BuildWeightedBoneCache(SkeletalMesh);
+
+	const FReferenceSkeleton& RefSkeleton = SkeletalMesh->GetRefSkeleton();
+	const int32 NumBones = RefSkeleton.GetNum();
+
+	// 자손 중 웨이팅된 본이 있는지 체크하는 재귀 함수
+	TFunction<bool(int32)> HasWeightedDescendant = [&](int32 BoneIndex) -> bool
+	{
+		if (IsBoneWeighted(BoneIndex))
 		{
-			FName BoneName = RefSkeleton.GetBoneName(BoneIdx);
-			BoneNameList.Add(MakeShareable(new FName(BoneName)));
+			return true;
+		}
+
+		// 자식 본들 체크
+		for (int32 ChildIdx = 0; ChildIdx < NumBones; ++ChildIdx)
+		{
+			if (RefSkeleton.GetParentIndex(ChildIdx) == BoneIndex)
+			{
+				if (HasWeightedDescendant(ChildIdx))
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	};
+
+	// 모든 본에 대해 아이템 생성
+	AllBoneItems.SetNum(NumBones);
+	for (int32 BoneIdx = 0; BoneIdx < NumBones; ++BoneIdx)
+	{
+		FName BoneName = RefSkeleton.GetBoneName(BoneIdx);
+		bool bIsMeshBone = HasWeightedDescendant(BoneIdx);
+		AllBoneItems[BoneIdx] = FBoneDropdownItem::Create(BoneName, BoneIdx, bIsMeshBone);
+	}
+
+	// 부모-자식 관계 설정
+	for (int32 BoneIdx = 0; BoneIdx < NumBones; ++BoneIdx)
+	{
+		int32 ParentIdx = RefSkeleton.GetParentIndex(BoneIdx);
+		if (ParentIdx != INDEX_NONE && AllBoneItems.IsValidIndex(ParentIdx))
+		{
+			AllBoneItems[ParentIdx]->Children.Add(AllBoneItems[BoneIdx]);
+			AllBoneItems[BoneIdx]->ParentItem = AllBoneItems[ParentIdx];
+		}
+		else
+		{
+			// 루트 본
+			BoneTreeRoots.Add(AllBoneItems[BoneIdx]);
 		}
 	}
-	else
+
+	// 초기 필터링 적용
+	ApplySearchFilter();
+}
+
+void FFleshRingSettingsCustomization::BuildWeightedBoneCache(USkeletalMesh* SkelMesh)
+{
+	WeightedBoneIndices.Empty();
+
+	if (!SkelMesh)
 	{
-		// TargetSkeletalMesh가 설정되지 않은 경우 안내 메시지
-		// (드롭다운에 None만 표시됨)
+		return;
 	}
+
+	// LOD 0의 렌더 데이터에서 웨이팅된 본 찾기
+	FSkeletalMeshRenderData* RenderData = SkelMesh->GetResourceForRendering();
+	if (!RenderData || RenderData->LODRenderData.Num() == 0)
+	{
+		return;
+	}
+
+	const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[0];
+
+	// 각 섹션의 BoneMap에 있는 본들이 웨이팅된 본들
+	for (const FSkelMeshRenderSection& Section : LODData.RenderSections)
+	{
+		for (FBoneIndexType BoneIndex : Section.BoneMap)
+		{
+			WeightedBoneIndices.Add(BoneIndex);
+		}
+	}
+}
+
+bool FFleshRingSettingsCustomization::IsBoneWeighted(int32 BoneIndex) const
+{
+	return WeightedBoneIndices.Contains(BoneIndex);
 }
 
 TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateSearchableBoneDropdown()
 {
-	// 필터링된 목록 초기화
-	UpdateFilteredBoneList();
-
 	return SAssignNew(BoneComboButton, SComboButton)
 		.OnGetMenuContent_Lambda([this]() -> TSharedRef<SWidget>
 		{
-			// 드롭다운 열릴 때 본 목록 갱신
-			UpdateBoneNameList();
+			// 드롭다운 열릴 때 본 트리 재빌드
+			BuildBoneTree();
 			BoneSearchText.Empty();
-			UpdateFilteredBoneList();
 
-			return SNew(SVerticalBox)
+			TSharedRef<SWidget> MenuContent = SNew(SVerticalBox)
 				+ SVerticalBox::Slot()
 				.AutoHeight()
 				.Padding(4.0f)
@@ -615,14 +777,20 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateSearchableBoneDropdow
 					.OnTextChanged(this, &FFleshRingSettingsCustomization::OnBoneSearchTextChanged)
 				]
 				+ SVerticalBox::Slot()
-				.MaxHeight(300.0f)
+				.MaxHeight(400.0f)
 				[
-					SAssignNew(BoneListView, SListView<TSharedPtr<FName>>)
-					.ListItemsSource(&FilteredBoneNameList)
-					.OnGenerateRow(this, &FFleshRingSettingsCustomization::GenerateBoneRow)
-					.OnSelectionChanged(this, &FFleshRingSettingsCustomization::OnBoneListSelectionChanged)
+					SAssignNew(BoneTreeView, STreeView<TSharedPtr<FBoneDropdownItem>>)
+					.TreeItemsSource(&FilteredBoneTreeRoots)
+					.OnGenerateRow(this, &FFleshRingSettingsCustomization::GenerateBoneTreeRow)
+					.OnGetChildren(this, &FFleshRingSettingsCustomization::GetBoneTreeChildren)
+					.OnSelectionChanged(this, &FFleshRingSettingsCustomization::OnBoneTreeSelectionChanged)
 					.SelectionMode(ESelectionMode::Single)
 				];
+
+			// 트리 생성 후 모든 아이템 확장
+			ExpandAllBoneTreeItems();
+
+			return MenuContent;
 		})
 		.ButtonContent()
 		[
@@ -654,48 +822,184 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateSearchableBoneDropdow
 void FFleshRingSettingsCustomization::OnBoneSearchTextChanged(const FText& NewText)
 {
 	BoneSearchText = NewText.ToString();
-	UpdateFilteredBoneList();
+	ApplySearchFilter();
 
-	if (BoneListView.IsValid())
+	if (BoneTreeView.IsValid())
 	{
-		BoneListView->RequestListRefresh();
+		// RebuildList로 행 완전 재생성 (하이라이트 업데이트)
+		BoneTreeView->RebuildList();
+
+		// 모든 아이템 확장
+		ExpandAllBoneTreeItems();
 	}
 }
 
-void FFleshRingSettingsCustomization::UpdateFilteredBoneList()
+void FFleshRingSettingsCustomization::ApplySearchFilter()
 {
-	FilteredBoneNameList.Empty();
+	FilteredBoneTreeRoots.Empty();
 
-	for (const TSharedPtr<FName>& BoneName : BoneNameList)
+	// 검색어가 없으면 웨이팅된 본만 필터링
+	if (BoneSearchText.IsEmpty())
 	{
-		if (BoneSearchText.IsEmpty() || BoneName->ToString().Contains(BoneSearchText, ESearchCase::IgnoreCase))
+		for (const auto& Root : BoneTreeRoots)
 		{
-			FilteredBoneNameList.Add(BoneName);
+			if (Root->bIsMeshBone)
+			{
+				FilteredBoneTreeRoots.Add(Root);
+			}
+		}
+	}
+	else
+	{
+		// 검색어가 있어도 웨이팅된 본만 표시
+		for (const auto& Root : BoneTreeRoots)
+		{
+			if (!Root->bIsMeshBone)
+			{
+				continue;
+			}
+
+			if (Root->BoneName.ToString().Contains(BoneSearchText, ESearchCase::IgnoreCase))
+			{
+				FilteredBoneTreeRoots.Add(Root);
+			}
+			else
+			{
+				// 자식 중 검색어에 맞는 웨이팅된 본이 있으면 부모도 표시
+				TFunction<bool(const TSharedPtr<FBoneDropdownItem>&)> HasMatchingChild;
+				HasMatchingChild = [&](const TSharedPtr<FBoneDropdownItem>& Item) -> bool
+				{
+					for (const auto& Child : Item->Children)
+					{
+						if (!Child->bIsMeshBone)
+						{
+							continue;
+						}
+						if (Child->BoneName.ToString().Contains(BoneSearchText, ESearchCase::IgnoreCase))
+						{
+							return true;
+						}
+						if (HasMatchingChild(Child))
+						{
+							return true;
+						}
+					}
+					return false;
+				};
+
+				if (HasMatchingChild(Root))
+				{
+					FilteredBoneTreeRoots.Add(Root);
+				}
+			}
 		}
 	}
 }
 
-TSharedRef<ITableRow> FFleshRingSettingsCustomization::GenerateBoneRow(TSharedPtr<FName> InItem, const TSharedRef<STableViewBase>& OwnerTable)
+TSharedRef<ITableRow> FFleshRingSettingsCustomization::GenerateBoneTreeRow(TSharedPtr<FBoneDropdownItem> InItem, const TSharedRef<STableViewBase>& OwnerTable)
 {
-	return SNew(STableRow<TSharedPtr<FName>>, OwnerTable)
-		.Padding(FMargin(4.0f, 2.0f))
-		[
-			SNew(STextBlock)
-			.Text(FText::FromName(*InItem))
-			.Font(IDetailLayoutBuilder::GetDetailFont())
-		];
+	return SNew(SBoneDropdownTreeRow, OwnerTable)
+		.Item(InItem)
+		.HighlightText(FText::FromString(BoneSearchText));
 }
 
-void FFleshRingSettingsCustomization::OnBoneListSelectionChanged(TSharedPtr<FName> NewSelection, ESelectInfo::Type SelectInfo)
+void FFleshRingSettingsCustomization::ExpandAllBoneTreeItems()
+{
+	if (!BoneTreeView.IsValid())
+	{
+		return;
+	}
+
+	// 재귀적으로 모든 아이템 확장
+	TFunction<void(const TSharedPtr<FBoneDropdownItem>&)> ExpandRecursive;
+	ExpandRecursive = [&](const TSharedPtr<FBoneDropdownItem>& Item)
+	{
+		if (!Item.IsValid())
+		{
+			return;
+		}
+		BoneTreeView->SetItemExpansion(Item, true);
+		for (const auto& Child : Item->Children)
+		{
+			if (Child->bIsMeshBone || !BoneSearchText.IsEmpty())
+			{
+				ExpandRecursive(Child);
+			}
+		}
+	};
+
+	for (const auto& Root : FilteredBoneTreeRoots)
+	{
+		ExpandRecursive(Root);
+	}
+}
+
+void FFleshRingSettingsCustomization::GetBoneTreeChildren(TSharedPtr<FBoneDropdownItem> Item, TArray<TSharedPtr<FBoneDropdownItem>>& OutChildren)
+{
+	if (!Item.IsValid())
+	{
+		return;
+	}
+
+	// 검색어가 없으면 웨이팅된 본만 표시
+	if (BoneSearchText.IsEmpty())
+	{
+		for (const auto& Child : Item->Children)
+		{
+			if (Child->bIsMeshBone)
+			{
+				OutChildren.Add(Child);
+			}
+		}
+	}
+	else
+	{
+		// 검색어가 있어도 웨이팅된 본만 표시
+		TFunction<bool(const TSharedPtr<FBoneDropdownItem>&)> HasMatchingDescendant;
+		HasMatchingDescendant = [&](const TSharedPtr<FBoneDropdownItem>& CheckItem) -> bool
+		{
+			if (!CheckItem->bIsMeshBone)
+			{
+				return false;
+			}
+			if (CheckItem->BoneName.ToString().Contains(BoneSearchText, ESearchCase::IgnoreCase))
+			{
+				return true;
+			}
+			for (const auto& Child : CheckItem->Children)
+			{
+				if (HasMatchingDescendant(Child))
+				{
+					return true;
+				}
+			}
+			return false;
+		};
+
+		for (const auto& Child : Item->Children)
+		{
+			if (Child->bIsMeshBone && HasMatchingDescendant(Child))
+			{
+				OutChildren.Add(Child);
+			}
+		}
+	}
+}
+
+void FFleshRingSettingsCustomization::OnBoneTreeSelectionChanged(TSharedPtr<FBoneDropdownItem> NewSelection, ESelectInfo::Type SelectInfo)
 {
 	if (BoneNameHandle.IsValid() && NewSelection.IsValid())
 	{
-		BoneNameHandle->SetValue(*NewSelection);
-
-		// 드롭다운 닫기
-		if (BoneComboButton.IsValid())
+		// 웨이팅된 본만 선택 가능
+		if (NewSelection->bIsMeshBone)
 		{
-			BoneComboButton->SetIsOpen(false);
+			BoneNameHandle->SetValue(NewSelection->BoneName);
+
+			// 드롭다운 닫기
+			if (BoneComboButton.IsValid())
+			{
+				BoneComboButton->SetIsOpen(false);
+			}
 		}
 	}
 }
@@ -727,7 +1031,18 @@ bool FFleshRingSettingsCustomization::IsBoneInvalid() const
 	const FReferenceSkeleton& RefSkeleton = SkeletalMesh->GetRefSkeleton();
 	int32 BoneIndex = RefSkeleton.FindBoneIndex(CurrentValue);
 
-	return BoneIndex == INDEX_NONE;
+	if (BoneIndex == INDEX_NONE)
+	{
+		return true;
+	}
+
+	// 웨이팅되지 않은 본도 경고 (AllBoneItems가 비어있으면 체크 안 함)
+	if (AllBoneItems.IsValidIndex(BoneIndex))
+	{
+		return !AllBoneItems[BoneIndex]->bIsMeshBone;
+	}
+
+	return false;
 }
 
 FText FFleshRingSettingsCustomization::GetCurrentBoneName() const
@@ -754,6 +1069,14 @@ FText FFleshRingSettingsCustomization::GetCurrentBoneName() const
 				// 본이 없으면 경고 표시
 				return FText::Format(
 					LOCTEXT("BoneNotFound", "{0} (Not Found)"),
+					FText::FromName(CurrentValue));
+			}
+
+			// 웨이팅되지 않은 본 경고 (AllBoneItems가 비어있으면 체크 안 함)
+			if (AllBoneItems.IsValidIndex(BoneIndex) && !AllBoneItems[BoneIndex]->bIsMeshBone)
+			{
+				return FText::Format(
+					LOCTEXT("BoneNotWeighted", "{0} (No Weight)"),
 					FText::FromName(CurrentValue));
 			}
 		}

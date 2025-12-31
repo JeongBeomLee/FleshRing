@@ -397,7 +397,6 @@ void SFleshRingSkeletonTree::ApplyFilter()
 
 		bool bPassesFilter = true;
 
-		// Ring은 항상 표시 (부모 본이 필터 통과하면)
 		if (Item->ItemType == EFleshRingTreeItemType::Bone)
 		{
 			// 본 필터 모드 확인
@@ -431,6 +430,14 @@ void SFleshRingSkeletonTree::ApplyFilter()
 				bPassesFilter = Item->BoneName.ToString().Contains(SearchText);
 			}
 		}
+		else if (Item->ItemType == EFleshRingTreeItemType::Ring)
+		{
+			// Ring도 검색 필터 적용 (부착된 본 이름 기준)
+			if (!SearchText.IsEmpty())
+			{
+				bPassesFilter = Item->BoneName.ToString().Contains(SearchText);
+			}
+		}
 
 		// 자식 중 하나라도 필터 통과하면 부모도 표시
 		bool bChildPasses = false;
@@ -456,35 +463,25 @@ void SFleshRingSkeletonTree::ApplyFilter()
 
 	if (TreeView.IsValid())
 	{
-		TreeView->RequestTreeRefresh();
+		// RebuildList로 행 완전 재생성 (하이라이트 업데이트)
+		TreeView->RebuildList();
 
-		// 검색 시 모두 확장
-		if (!SearchText.IsEmpty())
+		// 모든 아이템 확장
+		TFunction<void(TSharedPtr<FFleshRingTreeItem>)> ExpandAll = [&](TSharedPtr<FFleshRingTreeItem> Item)
 		{
-			TFunction<void(TSharedPtr<FFleshRingTreeItem>)> ExpandAll = [&](TSharedPtr<FFleshRingTreeItem> Item)
+			TreeView->SetItemExpansion(Item, true);
+			for (const auto& Child : Item->Children)
 			{
-				TreeView->SetItemExpansion(Item, true);
-				for (const auto& Child : Item->Children)
+				if (!Child->bIsFiltered)
 				{
-					if (!Child->bIsFiltered)
-					{
-						ExpandAll(Child);
-					}
+					ExpandAll(Child);
 				}
-			};
+			}
+		};
 
-			for (const auto& Root : FilteredRootItems)
-			{
-				ExpandAll(Root);
-			}
-		}
-		else
+		for (const auto& Root : FilteredRootItems)
 		{
-			// 기본: 루트만 확장
-			for (const auto& Root : FilteredRootItems)
-			{
-				TreeView->SetItemExpansion(Root, true);
-			}
+			ExpandAll(Root);
 		}
 	}
 }

@@ -7,9 +7,31 @@
 #include "PropertyHandle.h"
 #include "Widgets/SWidget.h"
 #include "Widgets/Views/SListView.h"
+#include "Widgets/Views/STreeView.h"
 
 class IDetailChildrenBuilder;
 class SComboButton;
+
+/**
+ * Bone 드롭다운용 트리 아이템
+ */
+struct FBoneDropdownItem : public TSharedFromThis<FBoneDropdownItem>
+{
+	FName BoneName;
+	int32 BoneIndex = INDEX_NONE;
+	bool bIsMeshBone = false;  // 웨이팅된 본 (자손 포함)
+	TArray<TSharedPtr<FBoneDropdownItem>> Children;
+	TWeakPtr<FBoneDropdownItem> ParentItem;
+
+	static TSharedPtr<FBoneDropdownItem> Create(FName InBoneName, int32 InBoneIndex, bool bInIsMeshBone)
+	{
+		TSharedPtr<FBoneDropdownItem> Item = MakeShared<FBoneDropdownItem>();
+		Item->BoneName = InBoneName;
+		Item->BoneIndex = InBoneIndex;
+		Item->bIsMeshBone = bInIsMeshBone;
+		return Item;
+	}
+};
 
 /**
  * FFleshRingSettings 구조체의 프로퍼티 타입 커스터마이저
@@ -36,8 +58,14 @@ public:
 		IPropertyTypeCustomizationUtils& CustomizationUtils) override;
 
 private:
-	/** Bone 이름 목록 가져오기 */
-	void UpdateBoneNameList();
+	/** Bone 트리 구조 빌드 */
+	void BuildBoneTree();
+
+	/** 웨이팅된 본 캐시 빌드 */
+	void BuildWeightedBoneCache(class USkeletalMesh* SkelMesh);
+
+	/** 본이 웨이팅되어 있는지 확인 */
+	bool IsBoneWeighted(int32 BoneIndex) const;
 
 	/** 검색 가능한 Bone 드롭다운 위젯 생성 */
 	TSharedRef<SWidget> CreateSearchableBoneDropdown();
@@ -45,14 +73,20 @@ private:
 	/** 검색 텍스트 변경 시 호출 */
 	void OnBoneSearchTextChanged(const FText& NewText);
 
-	/** 필터링된 Bone 목록 갱신 */
-	void UpdateFilteredBoneList();
+	/** 검색 필터 적용 */
+	void ApplySearchFilter();
 
-	/** ListView 행 생성 */
-	TSharedRef<ITableRow> GenerateBoneRow(TSharedPtr<FName> InItem, const TSharedRef<STableViewBase>& OwnerTable);
+	/** TreeView 행 생성 */
+	TSharedRef<ITableRow> GenerateBoneTreeRow(TSharedPtr<FBoneDropdownItem> InItem, const TSharedRef<STableViewBase>& OwnerTable);
 
-	/** ListView에서 선택 시 호출 */
-	void OnBoneListSelectionChanged(TSharedPtr<FName> NewSelection, ESelectInfo::Type SelectInfo);
+	/** TreeView 자식 가져오기 */
+	void GetBoneTreeChildren(TSharedPtr<FBoneDropdownItem> Item, TArray<TSharedPtr<FBoneDropdownItem>>& OutChildren);
+
+	/** TreeView에서 선택 시 호출 */
+	void OnBoneTreeSelectionChanged(TSharedPtr<FBoneDropdownItem> NewSelection, ESelectInfo::Type SelectInfo);
+
+	/** 모든 트리 아이템 확장 */
+	void ExpandAllBoneTreeItems();
 
 	/** 현재 선택된 Bone 이름 가져오기 */
 	FText GetCurrentBoneName() const;
@@ -159,17 +193,23 @@ private:
 	TSharedPtr<IPropertyHandle> RingRotationHandle;
 	TSharedPtr<IPropertyHandle> MeshRotationHandle;
 
-	/** 사용 가능한 Bone 이름 목록 */
-	TArray<TSharedPtr<FName>> BoneNameList;
+	/** 본 트리 루트 아이템 */
+	TArray<TSharedPtr<FBoneDropdownItem>> BoneTreeRoots;
 
-	/** 검색 필터링된 Bone 이름 목록 */
-	TArray<TSharedPtr<FName>> FilteredBoneNameList;
+	/** 모든 본 아이템 (인덱스로 빠른 접근용) */
+	TArray<TSharedPtr<FBoneDropdownItem>> AllBoneItems;
+
+	/** 필터링된 본 트리 루트 아이템 */
+	TArray<TSharedPtr<FBoneDropdownItem>> FilteredBoneTreeRoots;
+
+	/** 웨이팅된 본 인덱스 캐시 */
+	TSet<int32> WeightedBoneIndices;
 
 	/** 검색 텍스트 */
 	FString BoneSearchText;
 
-	/** Bone ListView 위젯 참조 (갱신용) */
-	TSharedPtr<SListView<TSharedPtr<FName>>> BoneListView;
+	/** Bone TreeView 위젯 참조 (갱신용) */
+	TSharedPtr<STreeView<TSharedPtr<FBoneDropdownItem>>> BoneTreeView;
 
 	/** ComboButton 위젯 참조 (닫기용) */
 	TSharedPtr<SComboButton> BoneComboButton;
