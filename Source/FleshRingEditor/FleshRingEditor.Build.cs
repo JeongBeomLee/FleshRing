@@ -46,6 +46,7 @@ public class FleshRingEditor : ModuleRules
 				"EditorStyle",
 				"ToolMenus",
 				"EditorFramework",
+				"ApplicationCore",
 			}
 			);
 
