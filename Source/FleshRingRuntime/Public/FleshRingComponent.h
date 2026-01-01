@@ -261,6 +261,10 @@ private:
 	UPROPERTY(Transient)
 	TWeakObjectPtr<USkeletalMeshComponent> ResolvedTargetMesh;
 
+	/** 컴포넌트 제거 시 복원할 원본 SkeletalMesh (SubdividedMesh 적용 전 저장) */
+	UPROPERTY(Transient)
+	TWeakObjectPtr<USkeletalMesh> CachedOriginalMesh;
+
 	/** 내부에 생성된 Deformer */
 	UPROPERTY(Transient)
 	TObjectPtr<UFleshRingDeformer> InternalDeformer;

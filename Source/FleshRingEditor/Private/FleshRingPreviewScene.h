@@ -72,6 +72,9 @@ private:
 	/** 현재 편집 중인 Asset */
 	UFleshRingAsset* CurrentAsset = nullptr;
 
+	/** PreviewSubdividedMesh 적용 전 원본 메시 (복원용) */
+	TWeakObjectPtr<USkeletalMesh> CachedOriginalMesh;
+
 	/** 현재 선택된 Ring 인덱스 (-1 = 선택 없음) */
 	int32 SelectedRingIndex = -1;
 

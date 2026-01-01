@@ -300,6 +300,15 @@ void UFleshRingComponent::ResolveTargetMesh()
 			USkeletalMesh* SubdivMesh = FleshRingAsset->SubdividedMesh;
 			if (CurrentMesh != SubdivMesh)
 			{
+				// 원본 메시 캐싱 (컴포넌트 제거 시 복원용)
+				// 이미 캐싱된 경우 덮어쓰지 않음 (최초 원본 유지)
+				if (!CachedOriginalMesh.IsValid())
+				{
+					CachedOriginalMesh = CurrentMesh;
+					UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Cached original mesh '%s' for restoration"),
+						CurrentMesh ? *CurrentMesh->GetName() : TEXT("null"));
+				}
+
 				TargetMeshComp->SetSkeletalMesh(SubdivMesh);
 				UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Applied SubdividedMesh '%s' to target mesh component"),
 					*SubdivMesh->GetName());
@@ -383,6 +392,23 @@ void UFleshRingComponent::CleanupDeformer()
 
 		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Deformer unregistered from target mesh"));
 	}
+
+	// 원본 메시 복원 (SubdividedMesh가 적용되어 있던 경우)
+	if (TargetMesh && CachedOriginalMesh.IsValid())
+	{
+		USkeletalMesh* CurrentMesh = TargetMesh->GetSkeletalMeshAsset();
+		USkeletalMesh* OriginalMesh = CachedOriginalMesh.Get();
+
+		// 현재 메시가 원본과 다른 경우에만 복원 (SubdividedMesh 적용 상태)
+		if (CurrentMesh != OriginalMesh)
+		{
+			TargetMesh->SetSkeletalMesh(OriginalMesh);
+			TargetMesh->MarkRenderStateDirty();
+			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Restored original mesh '%s' on cleanup"),
+				OriginalMesh ? *OriginalMesh->GetName() : TEXT("null"));
+		}
+	}
+	CachedOriginalMesh.Reset();
 
 	InternalDeformer = nullptr;
 	ResolvedTargetMesh.Reset();

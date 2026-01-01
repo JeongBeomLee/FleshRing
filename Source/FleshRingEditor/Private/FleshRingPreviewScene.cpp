@@ -23,6 +23,20 @@ FFleshRingPreviewScene::~FFleshRingPreviewScene()
 	// 델리게이트 구독 해제
 	UnbindFromAssetDelegate();
 
+	// 원본 메시 복원 (PreviewSubdividedMesh가 적용되어 있던 경우)
+	if (SkeletalMeshComponent && CachedOriginalMesh.IsValid())
+	{
+		USkeletalMesh* CurrentMesh = SkeletalMeshComponent->GetSkeletalMeshAsset();
+		USkeletalMesh* OriginalMesh = CachedOriginalMesh.Get();
+		if (CurrentMesh != OriginalMesh)
+		{
+			SkeletalMeshComponent->SetSkeletalMesh(OriginalMesh);
+			UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Restored original mesh '%s' on destruction"),
+				OriginalMesh ? *OriginalMesh->GetName() : TEXT("null"));
+		}
+	}
+	CachedOriginalMesh.Reset();
+
 	// Ring 메시 컴포넌트 정리
 	for (UStaticMeshComponent* RingComp : RingMeshComponents)
 	{
@@ -104,6 +118,14 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	USkeletalMesh* OriginalMesh = InAsset->TargetSkeletalMesh.LoadSynchronous();
 	SetSkeletalMesh(OriginalMesh);
 
+	// 원본 메시 캐싱 (복원용) - 최초 설정 시에만
+	if (!CachedOriginalMesh.IsValid() && OriginalMesh)
+	{
+		CachedOriginalMesh = OriginalMesh;
+		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Cached original mesh '%s' for restoration"),
+			*OriginalMesh->GetName());
+	}
+
 	// FleshRing 컴포넌트에 Asset 설정 및 초기화
 	if (FleshRingComponent)
 	{
@@ -136,8 +158,21 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	}
 	else
 	{
-		// Subdivision 비활성화 시 프리뷰 메시 제거
+		// Subdivision 비활성화 시 프리뷰 메시 제거 및 원본 복원
 		InAsset->ClearPreviewMesh();
+
+		// 원본 메시로 복원
+		if (CachedOriginalMesh.IsValid() && SkeletalMeshComponent)
+		{
+			USkeletalMesh* CurrentMesh = SkeletalMeshComponent->GetSkeletalMeshAsset();
+			USkeletalMesh* OrigMesh = CachedOriginalMesh.Get();
+			if (CurrentMesh != OrigMesh)
+			{
+				SetSkeletalMesh(OrigMesh);
+				UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Restored original mesh '%s' (subdivision disabled)"),
+					OrigMesh ? *OrigMesh->GetName() : TEXT("null"));
+			}
+		}
 	}
 #endif
 
