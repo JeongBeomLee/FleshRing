@@ -27,6 +27,7 @@
 #include "Styling/AppStyle.h"
 #include "Widgets/Colors/SColorBlock.h"
 #include "Misc/DefaultValueHelper.h"
+#include "ScopedTransaction.h"
 
 #define LOCTEXT_NAMESPACE "FleshRingSettingsCustomization"
 
@@ -1191,6 +1192,7 @@ void FFleshRingSettingsCustomization::AddLinearVectorRow(
 	};
 
 	// EnumerateRawData로 FVector 직접 쓰기
+	// NotifyPreChange는 호출자가 직접 관리 (슬라이더: OnBeginSliderMovement, 텍스트: OnValueCommitted에서)
 	auto SetVector = [VecHandlePtr](const FVector& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (VecHandlePtr.IsValid())
@@ -1244,14 +1246,34 @@ void FFleshRingSettingsCustomization::AddLinearVectorRow(
 				{
 					return GetVector().X;
 				})
+				.OnBeginSliderMovement_Lambda([VecHandlePtr]()
+				{
+					// 드래그 시작 시 Undo 포인트 생성
+					if (VecHandlePtr.IsValid())
+					{
+						VecHandlePtr->NotifyPreChange();
+					}
+				})
 				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
 				{
 					FVector Vec = GetVector();
 					Vec.X = NewValue;
 					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
-				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				.OnEndSliderMovement_Lambda([GetVector, SetVector](double FinalValue)
 				{
+					// 드래그 종료 시 최종 값으로 커밋 (Undo 포인트 확정)
+					FVector Vec = GetVector();
+					Vec.X = FinalValue;
+					SetVector(Vec, EPropertyChangeType::ValueSet);
+				})
+				.OnValueCommitted_Lambda([VecHandlePtr, GetVector, SetVector](double NewValue, ETextCommit::Type)
+				{
+					// 텍스트 입력 시 Undo 포인트 생성 후 값 설정
+					if (VecHandlePtr.IsValid())
+					{
+						VecHandlePtr->NotifyPreChange();
+					}
 					FVector Vec = GetVector();
 					Vec.X = NewValue;
 					SetVector(Vec);
@@ -1284,14 +1306,31 @@ void FFleshRingSettingsCustomization::AddLinearVectorRow(
 				{
 					return GetVector().Y;
 				})
+				.OnBeginSliderMovement_Lambda([VecHandlePtr]()
+				{
+					if (VecHandlePtr.IsValid())
+					{
+						VecHandlePtr->NotifyPreChange();
+					}
+				})
 				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
 				{
 					FVector Vec = GetVector();
 					Vec.Y = NewValue;
 					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
-				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				.OnEndSliderMovement_Lambda([GetVector, SetVector](double FinalValue)
 				{
+					FVector Vec = GetVector();
+					Vec.Y = FinalValue;
+					SetVector(Vec, EPropertyChangeType::ValueSet);
+				})
+				.OnValueCommitted_Lambda([VecHandlePtr, GetVector, SetVector](double NewValue, ETextCommit::Type)
+				{
+					if (VecHandlePtr.IsValid())
+					{
+						VecHandlePtr->NotifyPreChange();
+					}
 					FVector Vec = GetVector();
 					Vec.Y = NewValue;
 					SetVector(Vec);
@@ -1324,14 +1363,31 @@ void FFleshRingSettingsCustomization::AddLinearVectorRow(
 				{
 					return GetVector().Z;
 				})
+				.OnBeginSliderMovement_Lambda([VecHandlePtr]()
+				{
+					if (VecHandlePtr.IsValid())
+					{
+						VecHandlePtr->NotifyPreChange();
+					}
+				})
 				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
 				{
 					FVector Vec = GetVector();
 					Vec.Z = NewValue;
 					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
-				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				.OnEndSliderMovement_Lambda([GetVector, SetVector](double FinalValue)
 				{
+					FVector Vec = GetVector();
+					Vec.Z = FinalValue;
+					SetVector(Vec, EPropertyChangeType::ValueSet);
+				})
+				.OnValueCommitted_Lambda([VecHandlePtr, GetVector, SetVector](double NewValue, ETextCommit::Type)
+				{
+					if (VecHandlePtr.IsValid())
+					{
+						VecHandlePtr->NotifyPreChange();
+					}
 					FVector Vec = GetVector();
 					Vec.Z = NewValue;
 					SetVector(Vec);
@@ -1371,6 +1427,7 @@ void FFleshRingSettingsCustomization::AddLinearRotatorRow(
 	};
 
 	// EnumerateRawData로 FRotator 직접 쓰기
+	// NotifyPreChange는 호출자가 직접 관리 (슬라이더: OnBeginSliderMovement, 텍스트: OnValueCommitted에서)
 	auto SetRotator = [RotHandlePtr](const FRotator& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (RotHandlePtr.IsValid())
@@ -1428,14 +1485,33 @@ void FFleshRingSettingsCustomization::AddLinearRotatorRow(
 				{
 					return GetRotator().Roll;
 				})
+				.OnBeginSliderMovement_Lambda([RotHandlePtr]()
+				{
+					if (RotHandlePtr.IsValid())
+					{
+						RotHandlePtr->NotifyPreChange();
+					}
+				})
 				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
 				{
 					FRotator Rot = GetRotator();
 					Rot.Roll = NewValue;
 					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
-				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				.OnEndSliderMovement_Lambda([GetRotator, SetRotator](double FinalValue)
 				{
+					// 드래그 종료 시 최종 값으로 커밋 (Undo 포인트 확정)
+					FRotator Rot = GetRotator();
+					Rot.Roll = FinalValue;
+					SetRotator(Rot, EPropertyChangeType::ValueSet);
+				})
+				.OnValueCommitted_Lambda([RotHandlePtr, GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				{
+					// 텍스트 입력 시 Undo 포인트 생성 후 값 설정
+					if (RotHandlePtr.IsValid())
+					{
+						RotHandlePtr->NotifyPreChange();
+					}
 					FRotator Rot = GetRotator();
 					Rot.Roll = NewValue;
 					SetRotator(Rot);
@@ -1469,14 +1545,31 @@ void FFleshRingSettingsCustomization::AddLinearRotatorRow(
 				{
 					return GetRotator().Pitch;
 				})
+				.OnBeginSliderMovement_Lambda([RotHandlePtr]()
+				{
+					if (RotHandlePtr.IsValid())
+					{
+						RotHandlePtr->NotifyPreChange();
+					}
+				})
 				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
 				{
 					FRotator Rot = GetRotator();
 					Rot.Pitch = NewValue;
 					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
-				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				.OnEndSliderMovement_Lambda([GetRotator, SetRotator](double FinalValue)
 				{
+					FRotator Rot = GetRotator();
+					Rot.Pitch = FinalValue;
+					SetRotator(Rot, EPropertyChangeType::ValueSet);
+				})
+				.OnValueCommitted_Lambda([RotHandlePtr, GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				{
+					if (RotHandlePtr.IsValid())
+					{
+						RotHandlePtr->NotifyPreChange();
+					}
 					FRotator Rot = GetRotator();
 					Rot.Pitch = NewValue;
 					SetRotator(Rot);
@@ -1510,14 +1603,31 @@ void FFleshRingSettingsCustomization::AddLinearRotatorRow(
 				{
 					return GetRotator().Yaw;
 				})
+				.OnBeginSliderMovement_Lambda([RotHandlePtr]()
+				{
+					if (RotHandlePtr.IsValid())
+					{
+						RotHandlePtr->NotifyPreChange();
+					}
+				})
 				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
 				{
 					FRotator Rot = GetRotator();
 					Rot.Yaw = NewValue;
 					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
-				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				.OnEndSliderMovement_Lambda([GetRotator, SetRotator](double FinalValue)
 				{
+					FRotator Rot = GetRotator();
+					Rot.Yaw = FinalValue;
+					SetRotator(Rot, EPropertyChangeType::ValueSet);
+				})
+				.OnValueCommitted_Lambda([RotHandlePtr, GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				{
+					if (RotHandlePtr.IsValid())
+					{
+						RotHandlePtr->NotifyPreChange();
+					}
 					FRotator Rot = GetRotator();
 					Rot.Yaw = NewValue;
 					SetRotator(Rot);
@@ -1534,6 +1644,10 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidget(
 {
 	TSharedPtr<IPropertyHandle> VecHandlePtr = VectorHandle.ToSharedPtr();
 
+	// 드래그 트랜잭션 관리용 (TSharedPtr로 감싸서 람다에서 안전하게 사용)
+	TSharedPtr<TUniquePtr<FScopedTransaction>> TransactionHolder = MakeShared<TUniquePtr<FScopedTransaction>>();
+
+	// EnumerateRawData로 실시간 메모리 값 읽기
 	auto GetVector = [VecHandlePtr]() -> FVector
 	{
 		FVector Result = FVector::ZeroVector;
@@ -1552,7 +1666,8 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidget(
 		return Result;
 	};
 
-	auto SetVector = [VecHandlePtr](const FVector& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
+	// 드래그 중 빠른 업데이트용
+	auto SetVectorInteractive = [VecHandlePtr](const FVector& NewValue)
 	{
 		if (VecHandlePtr.IsValid())
 		{
@@ -1564,8 +1679,35 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidget(
 				}
 				return true;
 			});
-			VecHandlePtr->NotifyPostChange(ChangeType);
+			VecHandlePtr->NotifyPostChange(EPropertyChangeType::Interactive);
 		}
+	};
+
+	// 드래그 시작: 트랜잭션 시작 + Modify 호출
+	auto BeginTransaction = [VecHandlePtr, TransactionHolder]()
+	{
+		if (VecHandlePtr.IsValid())
+		{
+			// 새 트랜잭션 시작
+			*TransactionHolder = MakeUnique<FScopedTransaction>(LOCTEXT("DragVector", "Drag Vector Value"));
+
+			// UObject의 Modify() 호출 - 이 시점의 상태가 Undo로 복원됨
+			TArray<UObject*> OuterObjects;
+			VecHandlePtr->GetOuterObjects(OuterObjects);
+			for (UObject* Obj : OuterObjects)
+			{
+				if (Obj)
+				{
+					Obj->Modify();
+				}
+			}
+		}
+	};
+
+	// 드래그 종료: 트랜잭션 커밋
+	auto EndTransaction = [TransactionHolder]()
+	{
+		TransactionHolder->Reset();
 	};
 
 	return SNew(SHorizontalBox)
@@ -1591,17 +1733,33 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidget(
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
 				.Value_Lambda([GetVector]() -> double { return GetVector().X; })
-				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
+				.OnBeginSliderMovement_Lambda([BeginTransaction]()
 				{
-					FVector Vec = GetVector();
-					Vec.X = NewValue;
-					SetVector(Vec, EPropertyChangeType::Interactive);
+					BeginTransaction();
 				})
-				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				.OnValueChanged_Lambda([GetVector, SetVectorInteractive](double NewValue)
 				{
 					FVector Vec = GetVector();
 					Vec.X = NewValue;
-					SetVector(Vec);
+					SetVectorInteractive(Vec);
+				})
+				.OnEndSliderMovement_Lambda([VecHandlePtr, EndTransaction](double FinalValue)
+				{
+					// NotifyPostChange(ValueSet)으로 변경 완료 알림
+					if (VecHandlePtr.IsValid())
+					{
+						VecHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+					}
+					EndTransaction();
+				})
+				.OnValueCommitted_Lambda([VecHandlePtr, GetVector](double NewValue, ETextCommit::Type)
+				{
+					if (VecHandlePtr.IsValid())
+					{
+						FVector Vec = GetVector();
+						Vec.X = NewValue;
+						VecHandlePtr->SetValue(Vec);
+					}
 				})
 				.Font(IDetailLayoutBuilder::GetDetailFont())
 			]
@@ -1628,17 +1786,32 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidget(
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
 				.Value_Lambda([GetVector]() -> double { return GetVector().Y; })
-				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
+				.OnBeginSliderMovement_Lambda([BeginTransaction]()
 				{
-					FVector Vec = GetVector();
-					Vec.Y = NewValue;
-					SetVector(Vec, EPropertyChangeType::Interactive);
+					BeginTransaction();
 				})
-				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				.OnValueChanged_Lambda([GetVector, SetVectorInteractive](double NewValue)
 				{
 					FVector Vec = GetVector();
 					Vec.Y = NewValue;
-					SetVector(Vec);
+					SetVectorInteractive(Vec);
+				})
+				.OnEndSliderMovement_Lambda([VecHandlePtr, EndTransaction](double FinalValue)
+				{
+					if (VecHandlePtr.IsValid())
+					{
+						VecHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+					}
+					EndTransaction();
+				})
+				.OnValueCommitted_Lambda([VecHandlePtr, GetVector](double NewValue, ETextCommit::Type)
+				{
+					if (VecHandlePtr.IsValid())
+					{
+						FVector Vec = GetVector();
+						Vec.Y = NewValue;
+						VecHandlePtr->SetValue(Vec);
+					}
 				})
 				.Font(IDetailLayoutBuilder::GetDetailFont())
 			]
@@ -1665,17 +1838,32 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidget(
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
 				.Value_Lambda([GetVector]() -> double { return GetVector().Z; })
-				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
+				.OnBeginSliderMovement_Lambda([BeginTransaction]()
 				{
-					FVector Vec = GetVector();
-					Vec.Z = NewValue;
-					SetVector(Vec, EPropertyChangeType::Interactive);
+					BeginTransaction();
 				})
-				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				.OnValueChanged_Lambda([GetVector, SetVectorInteractive](double NewValue)
 				{
 					FVector Vec = GetVector();
 					Vec.Z = NewValue;
-					SetVector(Vec);
+					SetVectorInteractive(Vec);
+				})
+				.OnEndSliderMovement_Lambda([VecHandlePtr, EndTransaction](double FinalValue)
+				{
+					if (VecHandlePtr.IsValid())
+					{
+						VecHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+					}
+					EndTransaction();
+				})
+				.OnValueCommitted_Lambda([VecHandlePtr, GetVector](double NewValue, ETextCommit::Type)
+				{
+					if (VecHandlePtr.IsValid())
+					{
+						FVector Vec = GetVector();
+						Vec.Z = NewValue;
+						VecHandlePtr->SetValue(Vec);
+					}
 				})
 				.Font(IDetailLayoutBuilder::GetDetailFont())
 			]
@@ -1688,6 +1876,10 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidget(
 {
 	TSharedPtr<IPropertyHandle> RotHandlePtr = RotatorHandle.ToSharedPtr();
 
+	// 드래그 트랜잭션 관리용
+	TSharedPtr<TUniquePtr<FScopedTransaction>> TransactionHolder = MakeShared<TUniquePtr<FScopedTransaction>>();
+
+	// EnumerateRawData로 실시간 메모리 값 읽기
 	auto GetRotator = [RotHandlePtr]() -> FRotator
 	{
 		FRotator Result = FRotator::ZeroRotator;
@@ -1706,7 +1898,8 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidget(
 		return Result;
 	};
 
-	auto SetRotator = [RotHandlePtr](const FRotator& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
+	// 드래그 중 빠른 업데이트용
+	auto SetRotatorInteractive = [RotHandlePtr](const FRotator& NewValue)
 	{
 		if (RotHandlePtr.IsValid())
 		{
@@ -1718,8 +1911,33 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidget(
 				}
 				return true;
 			});
-			RotHandlePtr->NotifyPostChange(ChangeType);
+			RotHandlePtr->NotifyPostChange(EPropertyChangeType::Interactive);
 		}
+	};
+
+	// 드래그 시작: 트랜잭션 시작 + Modify 호출
+	auto BeginTransaction = [RotHandlePtr, TransactionHolder]()
+	{
+		if (RotHandlePtr.IsValid())
+		{
+			*TransactionHolder = MakeUnique<FScopedTransaction>(LOCTEXT("DragRotator", "Drag Rotator Value"));
+
+			TArray<UObject*> OuterObjects;
+			RotHandlePtr->GetOuterObjects(OuterObjects);
+			for (UObject* Obj : OuterObjects)
+			{
+				if (Obj)
+				{
+					Obj->Modify();
+				}
+			}
+		}
+	};
+
+	// 드래그 종료: 트랜잭션 커밋
+	auto EndTransaction = [TransactionHolder]()
+	{
+		TransactionHolder->Reset();
 	};
 
 	auto DegreeInterface = MakeShared<FDegreeTypeInterface>();
@@ -1748,17 +1966,32 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidget(
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
 				.Value_Lambda([GetRotator]() -> double { return GetRotator().Roll; })
-				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
+				.OnBeginSliderMovement_Lambda([BeginTransaction]()
 				{
-					FRotator Rot = GetRotator();
-					Rot.Roll = NewValue;
-					SetRotator(Rot, EPropertyChangeType::Interactive);
+					BeginTransaction();
 				})
-				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				.OnValueChanged_Lambda([GetRotator, SetRotatorInteractive](double NewValue)
 				{
 					FRotator Rot = GetRotator();
 					Rot.Roll = NewValue;
-					SetRotator(Rot);
+					SetRotatorInteractive(Rot);
+				})
+				.OnEndSliderMovement_Lambda([RotHandlePtr, EndTransaction](double FinalValue)
+				{
+					if (RotHandlePtr.IsValid())
+					{
+						RotHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+					}
+					EndTransaction();
+				})
+				.OnValueCommitted_Lambda([RotHandlePtr, GetRotator](double NewValue, ETextCommit::Type)
+				{
+					if (RotHandlePtr.IsValid())
+					{
+						FRotator Rot = GetRotator();
+						Rot.Roll = NewValue;
+						RotHandlePtr->SetValue(Rot);
+					}
 				})
 				.Font(IDetailLayoutBuilder::GetDetailFont())
 			]
@@ -1786,17 +2019,32 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidget(
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
 				.Value_Lambda([GetRotator]() -> double { return GetRotator().Pitch; })
-				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
+				.OnBeginSliderMovement_Lambda([BeginTransaction]()
 				{
-					FRotator Rot = GetRotator();
-					Rot.Pitch = NewValue;
-					SetRotator(Rot, EPropertyChangeType::Interactive);
+					BeginTransaction();
 				})
-				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				.OnValueChanged_Lambda([GetRotator, SetRotatorInteractive](double NewValue)
 				{
 					FRotator Rot = GetRotator();
 					Rot.Pitch = NewValue;
-					SetRotator(Rot);
+					SetRotatorInteractive(Rot);
+				})
+				.OnEndSliderMovement_Lambda([RotHandlePtr, EndTransaction](double FinalValue)
+				{
+					if (RotHandlePtr.IsValid())
+					{
+						RotHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+					}
+					EndTransaction();
+				})
+				.OnValueCommitted_Lambda([RotHandlePtr, GetRotator](double NewValue, ETextCommit::Type)
+				{
+					if (RotHandlePtr.IsValid())
+					{
+						FRotator Rot = GetRotator();
+						Rot.Pitch = NewValue;
+						RotHandlePtr->SetValue(Rot);
+					}
 				})
 				.Font(IDetailLayoutBuilder::GetDetailFont())
 			]
@@ -1824,17 +2072,32 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidget(
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
 				.Value_Lambda([GetRotator]() -> double { return GetRotator().Yaw; })
-				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
+				.OnBeginSliderMovement_Lambda([BeginTransaction]()
 				{
-					FRotator Rot = GetRotator();
-					Rot.Yaw = NewValue;
-					SetRotator(Rot, EPropertyChangeType::Interactive);
+					BeginTransaction();
 				})
-				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				.OnValueChanged_Lambda([GetRotator, SetRotatorInteractive](double NewValue)
 				{
 					FRotator Rot = GetRotator();
 					Rot.Yaw = NewValue;
-					SetRotator(Rot);
+					SetRotatorInteractive(Rot);
+				})
+				.OnEndSliderMovement_Lambda([RotHandlePtr, EndTransaction](double FinalValue)
+				{
+					if (RotHandlePtr.IsValid())
+					{
+						RotHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+					}
+					EndTransaction();
+				})
+				.OnValueCommitted_Lambda([RotHandlePtr, GetRotator](double NewValue, ETextCommit::Type)
+				{
+					if (RotHandlePtr.IsValid())
+					{
+						FRotator Rot = GetRotator();
+						Rot.Yaw = NewValue;
+						RotHandlePtr->SetValue(Rot);
+					}
 				})
 				.Font(IDetailLayoutBuilder::GetDetailFont())
 			]
@@ -1912,6 +2175,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidgetWit
 		return Result;
 	};
 
+	// NotifyPreChange는 호출자가 직접 관리 (슬라이더: OnBeginSliderMovement, 텍스트/버튼: 호출 직전)
 	auto SetVector = [VecHandlePtr](const FVector& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (VecHandlePtr.IsValid())
@@ -1951,14 +2215,25 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidgetWit
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
 				.Value_Lambda([GetVector]() -> double { return GetVector().X; })
+				.OnBeginSliderMovement_Lambda([VecHandlePtr]()
+				{
+					if (VecHandlePtr.IsValid()) { VecHandlePtr->NotifyPreChange(); }
+				})
 				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
 				{
 					FVector Vec = GetVector();
 					Vec.X = NewValue;
 					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
-				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				.OnEndSliderMovement_Lambda([GetVector, SetVector](double FinalValue)
 				{
+					FVector Vec = GetVector();
+					Vec.X = FinalValue;
+					SetVector(Vec, EPropertyChangeType::ValueSet);
+				})
+				.OnValueCommitted_Lambda([VecHandlePtr, GetVector, SetVector](double NewValue, ETextCommit::Type)
+				{
+					if (VecHandlePtr.IsValid()) { VecHandlePtr->NotifyPreChange(); }
 					FVector Vec = GetVector();
 					Vec.X = NewValue;
 					SetVector(Vec);
@@ -1988,14 +2263,25 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidgetWit
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
 				.Value_Lambda([GetVector]() -> double { return GetVector().Y; })
+				.OnBeginSliderMovement_Lambda([VecHandlePtr]()
+				{
+					if (VecHandlePtr.IsValid()) { VecHandlePtr->NotifyPreChange(); }
+				})
 				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
 				{
 					FVector Vec = GetVector();
 					Vec.Y = NewValue;
 					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
-				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				.OnEndSliderMovement_Lambda([GetVector, SetVector](double FinalValue)
 				{
+					FVector Vec = GetVector();
+					Vec.Y = FinalValue;
+					SetVector(Vec, EPropertyChangeType::ValueSet);
+				})
+				.OnValueCommitted_Lambda([VecHandlePtr, GetVector, SetVector](double NewValue, ETextCommit::Type)
+				{
+					if (VecHandlePtr.IsValid()) { VecHandlePtr->NotifyPreChange(); }
 					FVector Vec = GetVector();
 					Vec.Y = NewValue;
 					SetVector(Vec);
@@ -2025,14 +2311,25 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidgetWit
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
 				.Value_Lambda([GetVector]() -> double { return GetVector().Z; })
+				.OnBeginSliderMovement_Lambda([VecHandlePtr]()
+				{
+					if (VecHandlePtr.IsValid()) { VecHandlePtr->NotifyPreChange(); }
+				})
 				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
 				{
 					FVector Vec = GetVector();
 					Vec.Z = NewValue;
 					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
-				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				.OnEndSliderMovement_Lambda([GetVector, SetVector](double FinalValue)
 				{
+					FVector Vec = GetVector();
+					Vec.Z = FinalValue;
+					SetVector(Vec, EPropertyChangeType::ValueSet);
+				})
+				.OnValueCommitted_Lambda([VecHandlePtr, GetVector, SetVector](double NewValue, ETextCommit::Type)
+				{
+					if (VecHandlePtr.IsValid()) { VecHandlePtr->NotifyPreChange(); }
 					FVector Vec = GetVector();
 					Vec.Z = NewValue;
 					SetVector(Vec);
@@ -2048,8 +2345,9 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidgetWit
 		[
 			SNew(SButton)
 			.ButtonStyle(FAppStyle::Get(), "SimpleButton")
-			.OnClicked_Lambda([SetVector, DefaultValue]() -> FReply
+			.OnClicked_Lambda([VecHandlePtr, SetVector, DefaultValue]() -> FReply
 			{
+				if (VecHandlePtr.IsValid()) { VecHandlePtr->NotifyPreChange(); }
 				SetVector(DefaultValue);
 				return FReply::Handled();
 			})
@@ -2088,6 +2386,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidgetWi
 		return Result;
 	};
 
+	// NotifyPreChange는 호출자가 직접 관리 (슬라이더: OnBeginSliderMovement, 텍스트/버튼: 호출 직전)
 	auto SetRotator = [RotHandlePtr](const FRotator& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (RotHandlePtr.IsValid())
@@ -2130,14 +2429,25 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidgetWi
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
 				.Value_Lambda([GetRotator]() -> double { return GetRotator().Roll; })
+				.OnBeginSliderMovement_Lambda([RotHandlePtr]()
+				{
+					if (RotHandlePtr.IsValid()) { RotHandlePtr->NotifyPreChange(); }
+				})
 				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
 				{
 					FRotator Rot = GetRotator();
 					Rot.Roll = NewValue;
 					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
-				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				.OnEndSliderMovement_Lambda([GetRotator, SetRotator](double FinalValue)
 				{
+					FRotator Rot = GetRotator();
+					Rot.Roll = FinalValue;
+					SetRotator(Rot, EPropertyChangeType::ValueSet);
+				})
+				.OnValueCommitted_Lambda([RotHandlePtr, GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				{
+					if (RotHandlePtr.IsValid()) { RotHandlePtr->NotifyPreChange(); }
 					FRotator Rot = GetRotator();
 					Rot.Roll = NewValue;
 					SetRotator(Rot);
@@ -2168,14 +2478,25 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidgetWi
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
 				.Value_Lambda([GetRotator]() -> double { return GetRotator().Pitch; })
+				.OnBeginSliderMovement_Lambda([RotHandlePtr]()
+				{
+					if (RotHandlePtr.IsValid()) { RotHandlePtr->NotifyPreChange(); }
+				})
 				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
 				{
 					FRotator Rot = GetRotator();
 					Rot.Pitch = NewValue;
 					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
-				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				.OnEndSliderMovement_Lambda([GetRotator, SetRotator](double FinalValue)
 				{
+					FRotator Rot = GetRotator();
+					Rot.Pitch = FinalValue;
+					SetRotator(Rot, EPropertyChangeType::ValueSet);
+				})
+				.OnValueCommitted_Lambda([RotHandlePtr, GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				{
+					if (RotHandlePtr.IsValid()) { RotHandlePtr->NotifyPreChange(); }
 					FRotator Rot = GetRotator();
 					Rot.Pitch = NewValue;
 					SetRotator(Rot);
@@ -2206,14 +2527,25 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidgetWi
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
 				.Value_Lambda([GetRotator]() -> double { return GetRotator().Yaw; })
+				.OnBeginSliderMovement_Lambda([RotHandlePtr]()
+				{
+					if (RotHandlePtr.IsValid()) { RotHandlePtr->NotifyPreChange(); }
+				})
 				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
 				{
 					FRotator Rot = GetRotator();
 					Rot.Yaw = NewValue;
 					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
-				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				.OnEndSliderMovement_Lambda([GetRotator, SetRotator](double FinalValue)
 				{
+					FRotator Rot = GetRotator();
+					Rot.Yaw = FinalValue;
+					SetRotator(Rot, EPropertyChangeType::ValueSet);
+				})
+				.OnValueCommitted_Lambda([RotHandlePtr, GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				{
+					if (RotHandlePtr.IsValid()) { RotHandlePtr->NotifyPreChange(); }
 					FRotator Rot = GetRotator();
 					Rot.Yaw = NewValue;
 					SetRotator(Rot);
@@ -2229,8 +2561,9 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidgetWi
 		[
 			SNew(SButton)
 			.ButtonStyle(FAppStyle::Get(), "SimpleButton")
-			.OnClicked_Lambda([SetRotator, DefaultValue]() -> FReply
+			.OnClicked_Lambda([RotHandlePtr, SetRotator, DefaultValue]() -> FReply
 			{
+				if (RotHandlePtr.IsValid()) { RotHandlePtr->NotifyPreChange(); }
 				SetRotator(DefaultValue);
 				return FReply::Handled();
 			})
@@ -2250,7 +2583,8 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateResetButton(
 {
 	TSharedPtr<IPropertyHandle> VecHandlePtr = VectorHandle.ToSharedPtr();
 
-	auto SetVector = [VecHandlePtr](const FVector& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
+	// 버튼 클릭용 SetVector - NotifyPreChange는 호출자가 관리
+	auto SetVector = [VecHandlePtr](const FVector& NewValue)
 	{
 		if (VecHandlePtr.IsValid())
 		{
@@ -2262,14 +2596,15 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateResetButton(
 				}
 				return true;
 			});
-			VecHandlePtr->NotifyPostChange(ChangeType);
+			VecHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
 		}
 	};
 
 	return SNew(SButton)
 		.ButtonStyle(FAppStyle::Get(), "SimpleButton")
-		.OnClicked_Lambda([SetVector, DefaultValue]() -> FReply
+		.OnClicked_Lambda([VecHandlePtr, SetVector, DefaultValue]() -> FReply
 		{
+			if (VecHandlePtr.IsValid()) { VecHandlePtr->NotifyPreChange(); }
 			SetVector(DefaultValue);
 			return FReply::Handled();
 		})
@@ -2288,7 +2623,8 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateResetButton(
 {
 	TSharedPtr<IPropertyHandle> RotHandlePtr = RotatorHandle.ToSharedPtr();
 
-	auto SetRotator = [RotHandlePtr](const FRotator& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
+	// 버튼 클릭용 SetRotator - NotifyPreChange는 호출자가 관리
+	auto SetRotator = [RotHandlePtr](const FRotator& NewValue)
 	{
 		if (RotHandlePtr.IsValid())
 		{
@@ -2300,14 +2636,15 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateResetButton(
 				}
 				return true;
 			});
-			RotHandlePtr->NotifyPostChange(ChangeType);
+			RotHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
 		}
 	};
 
 	return SNew(SButton)
 		.ButtonStyle(FAppStyle::Get(), "SimpleButton")
-		.OnClicked_Lambda([SetRotator, DefaultValue]() -> FReply
+		.OnClicked_Lambda([RotHandlePtr, SetRotator, DefaultValue]() -> FReply
 		{
+			if (RotHandlePtr.IsValid()) { RotHandlePtr->NotifyPreChange(); }
 			SetRotator(DefaultValue);
 			return FReply::Handled();
 		})
@@ -2345,11 +2682,11 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateVectorWidgetWithReset
 		return Result;
 	};
 
+	// NotifyPreChange는 호출자가 직접 관리 (슬라이더: OnBeginSliderMovement, 텍스트/버튼: 호출 직전)
 	auto SetVector = [VecHandlePtr](const FVector& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (VecHandlePtr.IsValid())
 		{
-			VecHandlePtr->NotifyPreChange();
 			VecHandlePtr->EnumerateRawData([&NewValue](void* RawData, const int32 DataIndex, const int32 NumDatas)
 			{
 				if (RawData)
@@ -2359,7 +2696,10 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateVectorWidgetWithReset
 				return true;
 			});
 			VecHandlePtr->NotifyPostChange(ChangeType);
-			VecHandlePtr->NotifyFinishedChangingProperties();
+			if (ChangeType == EPropertyChangeType::ValueSet)
+			{
+				VecHandlePtr->NotifyFinishedChangingProperties();
+			}
 		}
 	};
 
@@ -2386,14 +2726,25 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateVectorWidgetWithReset
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
 				.Value_Lambda([GetVector]() -> double { return GetVector().X; })
+				.OnBeginSliderMovement_Lambda([VecHandlePtr]()
+				{
+					if (VecHandlePtr.IsValid()) { VecHandlePtr->NotifyPreChange(); }
+				})
 				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
 				{
 					FVector Vec = GetVector();
 					Vec.X = NewValue;
 					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
-				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				.OnEndSliderMovement_Lambda([GetVector, SetVector](double FinalValue)
 				{
+					FVector Vec = GetVector();
+					Vec.X = FinalValue;
+					SetVector(Vec, EPropertyChangeType::ValueSet);
+				})
+				.OnValueCommitted_Lambda([VecHandlePtr, GetVector, SetVector](double NewValue, ETextCommit::Type)
+				{
+					if (VecHandlePtr.IsValid()) { VecHandlePtr->NotifyPreChange(); }
 					FVector Vec = GetVector();
 					Vec.X = NewValue;
 					SetVector(Vec);
@@ -2423,14 +2774,25 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateVectorWidgetWithReset
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
 				.Value_Lambda([GetVector]() -> double { return GetVector().Y; })
+				.OnBeginSliderMovement_Lambda([VecHandlePtr]()
+				{
+					if (VecHandlePtr.IsValid()) { VecHandlePtr->NotifyPreChange(); }
+				})
 				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
 				{
 					FVector Vec = GetVector();
 					Vec.Y = NewValue;
 					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
-				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				.OnEndSliderMovement_Lambda([GetVector, SetVector](double FinalValue)
 				{
+					FVector Vec = GetVector();
+					Vec.Y = FinalValue;
+					SetVector(Vec, EPropertyChangeType::ValueSet);
+				})
+				.OnValueCommitted_Lambda([VecHandlePtr, GetVector, SetVector](double NewValue, ETextCommit::Type)
+				{
+					if (VecHandlePtr.IsValid()) { VecHandlePtr->NotifyPreChange(); }
 					FVector Vec = GetVector();
 					Vec.Y = NewValue;
 					SetVector(Vec);
@@ -2460,14 +2822,25 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateVectorWidgetWithReset
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
 				.Value_Lambda([GetVector]() -> double { return GetVector().Z; })
+				.OnBeginSliderMovement_Lambda([VecHandlePtr]()
+				{
+					if (VecHandlePtr.IsValid()) { VecHandlePtr->NotifyPreChange(); }
+				})
 				.OnValueChanged_Lambda([GetVector, SetVector](double NewValue)
 				{
 					FVector Vec = GetVector();
 					Vec.Z = NewValue;
 					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
-				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
+				.OnEndSliderMovement_Lambda([GetVector, SetVector](double FinalValue)
 				{
+					FVector Vec = GetVector();
+					Vec.Z = FinalValue;
+					SetVector(Vec, EPropertyChangeType::ValueSet);
+				})
+				.OnValueCommitted_Lambda([VecHandlePtr, GetVector, SetVector](double NewValue, ETextCommit::Type)
+				{
+					if (VecHandlePtr.IsValid()) { VecHandlePtr->NotifyPreChange(); }
 					FVector Vec = GetVector();
 					Vec.Z = NewValue;
 					SetVector(Vec);
@@ -2483,8 +2856,9 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateVectorWidgetWithReset
 		[
 			SNew(SButton)
 			.ButtonStyle(FAppStyle::Get(), "SimpleButton")
-			.OnClicked_Lambda([SetVector, DefaultValue]() -> FReply
+			.OnClicked_Lambda([VecHandlePtr, SetVector, DefaultValue]() -> FReply
 			{
+				if (VecHandlePtr.IsValid()) { VecHandlePtr->NotifyPreChange(); }
 				SetVector(DefaultValue);
 				return FReply::Handled();
 			})
@@ -2523,11 +2897,11 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateRotatorWidgetWithRese
 		return Result;
 	};
 
+	// NotifyPreChange는 호출자가 직접 관리 (슬라이더: OnBeginSliderMovement, 텍스트/버튼: 호출 직전)
 	auto SetRotator = [RotHandlePtr](const FRotator& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (RotHandlePtr.IsValid())
 		{
-			RotHandlePtr->NotifyPreChange();
 			RotHandlePtr->EnumerateRawData([&NewValue](void* RawData, const int32 DataIndex, const int32 NumDatas)
 			{
 				if (RawData)
@@ -2537,7 +2911,10 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateRotatorWidgetWithRese
 				return true;
 			});
 			RotHandlePtr->NotifyPostChange(ChangeType);
-			RotHandlePtr->NotifyFinishedChangingProperties();
+			if (ChangeType == EPropertyChangeType::ValueSet)
+			{
+				RotHandlePtr->NotifyFinishedChangingProperties();
+			}
 		}
 	};
 
@@ -2567,14 +2944,25 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateRotatorWidgetWithRese
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
 				.Value_Lambda([GetRotator]() -> double { return GetRotator().Roll; })
+				.OnBeginSliderMovement_Lambda([RotHandlePtr]()
+				{
+					if (RotHandlePtr.IsValid()) { RotHandlePtr->NotifyPreChange(); }
+				})
 				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
 				{
 					FRotator Rot = GetRotator();
 					Rot.Roll = NewValue;
 					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
-				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				.OnEndSliderMovement_Lambda([GetRotator, SetRotator](double FinalValue)
 				{
+					FRotator Rot = GetRotator();
+					Rot.Roll = FinalValue;
+					SetRotator(Rot, EPropertyChangeType::ValueSet);
+				})
+				.OnValueCommitted_Lambda([RotHandlePtr, GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				{
+					if (RotHandlePtr.IsValid()) { RotHandlePtr->NotifyPreChange(); }
 					FRotator Rot = GetRotator();
 					Rot.Roll = NewValue;
 					SetRotator(Rot);
@@ -2605,14 +2993,25 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateRotatorWidgetWithRese
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
 				.Value_Lambda([GetRotator]() -> double { return GetRotator().Pitch; })
+				.OnBeginSliderMovement_Lambda([RotHandlePtr]()
+				{
+					if (RotHandlePtr.IsValid()) { RotHandlePtr->NotifyPreChange(); }
+				})
 				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
 				{
 					FRotator Rot = GetRotator();
 					Rot.Pitch = NewValue;
 					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
-				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				.OnEndSliderMovement_Lambda([GetRotator, SetRotator](double FinalValue)
 				{
+					FRotator Rot = GetRotator();
+					Rot.Pitch = FinalValue;
+					SetRotator(Rot, EPropertyChangeType::ValueSet);
+				})
+				.OnValueCommitted_Lambda([RotHandlePtr, GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				{
+					if (RotHandlePtr.IsValid()) { RotHandlePtr->NotifyPreChange(); }
 					FRotator Rot = GetRotator();
 					Rot.Pitch = NewValue;
 					SetRotator(Rot);
@@ -2643,14 +3042,25 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateRotatorWidgetWithRese
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
 				.Value_Lambda([GetRotator]() -> double { return GetRotator().Yaw; })
+				.OnBeginSliderMovement_Lambda([RotHandlePtr]()
+				{
+					if (RotHandlePtr.IsValid()) { RotHandlePtr->NotifyPreChange(); }
+				})
 				.OnValueChanged_Lambda([GetRotator, SetRotator](double NewValue)
 				{
 					FRotator Rot = GetRotator();
 					Rot.Yaw = NewValue;
 					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
-				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				.OnEndSliderMovement_Lambda([GetRotator, SetRotator](double FinalValue)
 				{
+					FRotator Rot = GetRotator();
+					Rot.Yaw = FinalValue;
+					SetRotator(Rot, EPropertyChangeType::ValueSet);
+				})
+				.OnValueCommitted_Lambda([RotHandlePtr, GetRotator, SetRotator](double NewValue, ETextCommit::Type)
+				{
+					if (RotHandlePtr.IsValid()) { RotHandlePtr->NotifyPreChange(); }
 					FRotator Rot = GetRotator();
 					Rot.Yaw = NewValue;
 					SetRotator(Rot);
@@ -2666,8 +3076,9 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateRotatorWidgetWithRese
 		[
 			SNew(SButton)
 			.ButtonStyle(FAppStyle::Get(), "SimpleButton")
-			.OnClicked_Lambda([SetRotator, DefaultValue]() -> FReply
+			.OnClicked_Lambda([RotHandlePtr, SetRotator, DefaultValue]() -> FReply
 			{
+				if (RotHandlePtr.IsValid()) { RotHandlePtr->NotifyPreChange(); }
 				SetRotator(DefaultValue);
 				return FReply::Handled();
 			})

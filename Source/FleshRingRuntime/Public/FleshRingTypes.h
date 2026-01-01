@@ -11,6 +11,15 @@ class UStaticMesh;
 // 열거형 정의
 // =====================================
 
+/** Ring 선택 타입 (에디터용) */
+UENUM()
+enum class EFleshRingSelectionType : uint8
+{
+	None,		// 선택 없음
+	Gizmo,		// Ring 기즈모 선택 (이동 + Scale로 반경 조절)
+	Mesh		// Ring 메시 선택 (메시 이동/회전)
+};
+
 /** Ring 영향 범위 결정 방식 */
 UENUM(BlueprintType)
 enum class EFleshRingInfluenceMode : uint8

@@ -81,17 +81,11 @@ private:
 	/** 현재 선택된 Ring 인덱스 (-1 = 선택 없음) */
 	int32 SelectedRingIndex = -1;
 
-	/** Asset 변경 델리게이트 핸들 (전체 리프레시) */
+	/** Asset 변경 델리게이트 핸들 (전체 리프레시 - Subdivision 생성/제거 시 필요) */
 	FDelegateHandle AssetChangedDelegateHandle;
-
-	/** Asset 인터랙티브 변경 델리게이트 핸들 (경량 업데이트) */
-	FDelegateHandle AssetChangedInteractiveDelegateHandle;
 
 	/** Asset 변경 시 콜백 (전체 리프레시) */
 	void OnAssetChanged(UFleshRingAsset* ChangedAsset);
-
-	/** Asset 인터랙티브 변경 시 콜백 (경량 업데이트 - 드래그 중) */
-	void OnAssetChangedInteractive(UFleshRingAsset* ChangedAsset);
 
 	/** 델리게이트 바인딩/해제 */
 	void BindToAssetDelegate();

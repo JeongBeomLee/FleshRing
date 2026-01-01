@@ -7,11 +7,8 @@
 #include "FleshRingTypes.h"
 #include "FleshRingAsset.generated.h"
 
-/** 에셋 변경 시 브로드캐스트되는 델리게이트 (전체 리프레시 필요) */
+/** 에셋 변경 시 브로드캐스트되는 델리게이트 (구조적 변경 시 전체 리프레시) */
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnFleshRingAssetChanged, UFleshRingAsset*);
-
-/** 에셋 인터랙티브 변경 델리게이트 (경량 업데이트용 - 드래그 중) */
-DECLARE_MULTICAST_DELEGATE_OneParam(FOnFleshRingAssetChangedInteractive, UFleshRingAsset*);
 
 /**
  * FleshRing 설정을 저장하는 에셋
@@ -93,6 +90,18 @@ public:
 	int32 PreviewSubdivisionLevel = 2;
 
 	// =====================================
+	// Editor Selection State (Transient - Undo 가능, 저장 안 함)
+	// =====================================
+
+	/** 에디터에서 선택된 Ring 인덱스 (-1 = 선택 없음) */
+	UPROPERTY(Transient)
+	int32 EditorSelectedRingIndex = -1;
+
+	/** 에디터에서 선택 타입 (Gizmo/Mesh) */
+	UPROPERTY(Transient)
+	EFleshRingSelectionType EditorSelectionType = EFleshRingSelectionType::None;
+
+	// =====================================
 	// Utility Functions
 	// =====================================
 
@@ -157,10 +166,7 @@ public:
 	/** 에디터에서 프로퍼티 변경 시 호출 */
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 
-	/** 에셋 변경 델리게이트 - 전체 리프레시 (마우스 릴리즈 시) */
+	/** 에셋 변경 델리게이트 - 구조적 변경 시 전체 리프레시 */
 	FOnFleshRingAssetChanged OnAssetChanged;
-
-	/** 에셋 인터랙티브 변경 델리게이트 - 경량 업데이트 (드래그 중) */
-	FOnFleshRingAssetChangedInteractive OnAssetChangedInteractive;
 #endif
 };

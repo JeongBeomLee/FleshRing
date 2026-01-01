@@ -5,18 +5,11 @@
 #include "CoreMinimal.h"
 #include "EditorViewportClient.h"
 #include "ScopedTransaction.h"
+#include "FleshRingTypes.h"
 
 class FFleshRingPreviewScene;
 class SFleshRingEditorViewport;
 class UFleshRingAsset;
-
-/** Ring 선택 타입 */
-enum class EFleshRingSelectionType : uint8
-{
-	None,		// 선택 없음
-	Gizmo,		// Ring 기즈모 선택 (이동 + Scale로 반경 조절)
-	Mesh		// Ring 메시 선택 (메시 이동/회전)
-};
 
 /** 본 그리기 모드 (Persona 스타일) */
 namespace EFleshRingBoneDrawMode
@@ -93,6 +86,12 @@ public:
 
 	/** 현재 선택 타입 반환 */
 	EFleshRingSelectionType GetSelectionType() const { return SelectionType; }
+
+	/** 선택 타입 설정 (Undo 후 복원용) */
+	void SetSelectionType(EFleshRingSelectionType InType) { SelectionType = InType; }
+
+	/** 선택 검증 스킵 설정 (Undo/Redo 중 사용) */
+	void SetSkipSelectionValidation(bool bSkip) { bSkipSelectionValidation = bSkip; }
 
 	/** 현재 선택된 Ring의 AlignRotation 반환 (기즈모 좌표계용) */
 	FMatrix GetSelectedRingAlignMatrix() const;
@@ -201,6 +200,9 @@ private:
 	FQuat AccumulatedDeltaRotation = FQuat::Identity;
 
 	bool bIsDraggingRotation = false;
+
+	/** Undo/Redo 중 선택 검증 스킵 플래그 */
+	bool bSkipSelectionValidation = false;
 
 	// Show 플래그
 	bool bShowRingGizmos = true;

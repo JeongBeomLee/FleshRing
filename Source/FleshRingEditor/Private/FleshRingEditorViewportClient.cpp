@@ -129,7 +129,8 @@ void FFleshRingEditorViewportClient::Tick(float DeltaSeconds)
 	}
 
 	// 선택된 링이 삭제되었는지 확인하고 선택 해제
-	if (SelectionType != EFleshRingSelectionType::None && PreviewScene)
+	// (Undo/Redo 중에는 스킵 - RefreshViewport에서 복원됨)
+	if (!bSkipSelectionValidation && SelectionType != EFleshRingSelectionType::None && PreviewScene)
 	{
 		int32 SelectedIndex = PreviewScene->GetSelectedRingIndex();
 		bool bSelectionValid = false;
@@ -289,8 +290,14 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 			if (HitProxy->IsA(HFleshRingGizmoHitProxy::StaticGetType()))
 			{
 				HFleshRingGizmoHitProxy* GizmoProxy = static_cast<HFleshRingGizmoHitProxy*>(HitProxy);
-				if (PreviewScene)
+				if (PreviewScene && EditingAsset.IsValid())
 				{
+					// 선택 트랜잭션 생성 (Undo 가능)
+					FScopedTransaction Transaction(NSLOCTEXT("FleshRingEditor", "SelectRingGizmo", "Select Ring Gizmo"));
+					EditingAsset->Modify();
+					EditingAsset->EditorSelectedRingIndex = GizmoProxy->RingIndex;
+					EditingAsset->EditorSelectionType = EFleshRingSelectionType::Gizmo;
+
 					PreviewScene->SetSelectedRingIndex(GizmoProxy->RingIndex);
 					SelectionType = EFleshRingSelectionType::Gizmo;
 					Invalidate();
@@ -304,8 +311,14 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 			else if (HitProxy->IsA(HFleshRingMeshHitProxy::StaticGetType()))
 			{
 				HFleshRingMeshHitProxy* MeshProxy = static_cast<HFleshRingMeshHitProxy*>(HitProxy);
-				if (PreviewScene)
+				if (PreviewScene && EditingAsset.IsValid())
 				{
+					// 선택 트랜잭션 생성 (Undo 가능)
+					FScopedTransaction Transaction(NSLOCTEXT("FleshRingEditor", "SelectRingMesh", "Select Ring Mesh"));
+					EditingAsset->Modify();
+					EditingAsset->EditorSelectedRingIndex = MeshProxy->RingIndex;
+					EditingAsset->EditorSelectionType = EFleshRingSelectionType::Mesh;
+
 					PreviewScene->SetSelectedRingIndex(MeshProxy->RingIndex);
 					SelectionType = EFleshRingSelectionType::Mesh;
 					Invalidate();
@@ -319,7 +332,7 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 			else if (HitProxy->IsA(HActor::StaticGetType()))
 			{
 				HActor* ActorProxy = static_cast<HActor*>(HitProxy);
-				if (PreviewScene && ActorProxy->PrimComponent)
+				if (PreviewScene && ActorProxy->PrimComponent && EditingAsset.IsValid())
 				{
 					// 1. PreviewScene의 RingMeshComponents에서 찾기 (Deformer 비활성화 시)
 					const TArray<UStaticMeshComponent*>& RingMeshComponents = PreviewScene->GetRingMeshComponents();
@@ -327,6 +340,12 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 					{
 						if (RingMeshComponents[i] == ActorProxy->PrimComponent)
 						{
+							// 선택 트랜잭션 생성 (Undo 가능)
+							FScopedTransaction Transaction(NSLOCTEXT("FleshRingEditor", "SelectRingMesh", "Select Ring Mesh"));
+							EditingAsset->Modify();
+							EditingAsset->EditorSelectedRingIndex = i;
+							EditingAsset->EditorSelectionType = EFleshRingSelectionType::Mesh;
+
 							PreviewScene->SetSelectedRingIndex(i);
 							SelectionType = EFleshRingSelectionType::Mesh;
 							Invalidate();
@@ -346,6 +365,12 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 						{
 							if (ComponentRingMeshes[i] == ActorProxy->PrimComponent)
 							{
+								// 선택 트랜잭션 생성 (Undo 가능)
+								FScopedTransaction Transaction(NSLOCTEXT("FleshRingEditor", "SelectRingMesh", "Select Ring Mesh"));
+								EditingAsset->Modify();
+								EditingAsset->EditorSelectedRingIndex = i;
+								EditingAsset->EditorSelectionType = EFleshRingSelectionType::Mesh;
+
 								PreviewScene->SetSelectedRingIndex(i);
 								SelectionType = EFleshRingSelectionType::Mesh;
 								Invalidate();
@@ -370,6 +395,27 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 
 void FFleshRingEditorViewportClient::ClearSelection()
 {
+	// Undo/Redo 중에는 선택 해제 스킵 (어디서 호출되든 보호)
+	if (bSkipSelectionValidation)
+	{
+		return;
+	}
+
+	// 이미 선택 해제 상태면 스킵 (불필요한 트랜잭션 방지)
+	if (SelectionType == EFleshRingSelectionType::None)
+	{
+		return;
+	}
+
+	// 선택 해제 트랜잭션 생성 (Undo 가능)
+	if (EditingAsset.IsValid())
+	{
+		FScopedTransaction Transaction(NSLOCTEXT("FleshRingEditor", "ClearRingSelection", "Clear Ring Selection"));
+		EditingAsset->Modify();
+		EditingAsset->EditorSelectedRingIndex = -1;
+		EditingAsset->EditorSelectionType = EFleshRingSelectionType::None;
+	}
+
 	if (PreviewScene)
 	{
 		PreviewScene->SetSelectedRingIndex(-1);
@@ -382,9 +428,34 @@ void FFleshRingEditorViewportClient::SelectRing(int32 RingIndex, FName AttachedB
 {
 	if (RingIndex < 0)
 	{
+		// 이미 선택 해제 상태면 스킵 (중복 트랜잭션 방지 - RefreshTree 등에서 호출 시)
+		if (EditingAsset.IsValid() && EditingAsset->EditorSelectionType == EFleshRingSelectionType::None)
+		{
+			return;
+		}
 		// 음수 인덱스 = Ring 선택 해제 (본 선택은 유지)
 		ClearSelection();
 		return;
+	}
+
+	// 이미 같은 Ring이 같은 타입으로 선택되어 있으면 스킵 (중복 트랜잭션 방지)
+	if (EditingAsset.IsValid() &&
+		EditingAsset->EditorSelectedRingIndex == RingIndex &&
+		EditingAsset->EditorSelectionType != EFleshRingSelectionType::None)
+	{
+		// 본 하이라이트만 업데이트
+		SelectedBoneName = AttachedBoneName;
+		Invalidate();
+		return;
+	}
+
+	// 선택 트랜잭션 생성 (Undo 가능)
+	if (EditingAsset.IsValid())
+	{
+		FScopedTransaction Transaction(NSLOCTEXT("FleshRingEditor", "SelectRing", "Select Ring"));
+		EditingAsset->Modify();
+		EditingAsset->EditorSelectedRingIndex = RingIndex;
+		EditingAsset->EditorSelectionType = EFleshRingSelectionType::Mesh;
 	}
 
 	// Ring이 부착된 본 하이라이트 (델리게이트 호출 없이 직접 설정)

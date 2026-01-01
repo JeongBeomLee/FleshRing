@@ -87,6 +87,9 @@ private:
 	/** Undo/Redo 콜백 */
 	void OnObjectTransacted(UObject* Object, const FTransactionObjectEvent& TransactionEvent);
 
+	/** 에셋의 선택 상태를 뷰포트에 반영 (Undo/Redo 시 호출) */
+	void ApplySelectionFromAsset();
+
 private:
 	/** 편집 중인 Asset */
 	UFleshRingAsset* EditingAsset = nullptr;

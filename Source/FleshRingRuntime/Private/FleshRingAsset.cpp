@@ -126,15 +126,39 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 	// 에셋이 수정되었음을 표시
 	MarkPackageDirty();
 
-	// 변경 타입에 따라 다른 델리게이트 브로드캐스트
-	if (PropertyChangedEvent.ChangeType == EPropertyChangeType::Interactive)
+	// 전체 리프레시가 필요한 변경인지 확인
+	bool bNeedsFullRefresh = false;
+
+	// 배열 구조 변경 시 전체 갱신
+	if (PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayAdd ||
+		PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayRemove ||
+		PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayClear ||
+		PropertyChangedEvent.ChangeType == EPropertyChangeType::Duplicate ||
+		PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayMove)
 	{
-		// 드래그 중: 경량 업데이트 (Ring Transform만 갱신)
-		OnAssetChangedInteractive.Broadcast(this);
+		bNeedsFullRefresh = true;
 	}
-	else
+
+	// 특정 프로퍼티 변경 시 전체 갱신
+	if (PropertyChangedEvent.Property)
 	{
-		// 값 확정 시: 전체 리프레시
+		FName PropName = PropertyChangedEvent.Property->GetFName();
+
+		if (PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, TargetSkeletalMesh) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingMesh) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BoneName) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, InfluenceMode))
+		{
+			bNeedsFullRefresh = true;
+		}
+		// 트랜스폼 관련 프로퍼티 (Offset, Rotation, Scale, Radius, Strength, Falloff 등)는
+		// 전체 갱신 불필요 - 경량 업데이트로 처리
+	}
+
+	// 구조적 변경 시에만 전체 리프레시 브로드캐스트
+	// (트랜스폼 변경은 FFleshRingAssetEditor::OnObjectPropertyChanged에서 경량 업데이트 처리)
+	if (bNeedsFullRefresh && PropertyChangedEvent.ChangeType != EPropertyChangeType::Interactive)
+	{
 		OnAssetChanged.Broadcast(this);
 	}
 }

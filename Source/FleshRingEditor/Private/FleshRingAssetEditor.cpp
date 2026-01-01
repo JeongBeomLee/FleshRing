@@ -7,6 +7,7 @@
 #include "SFleshRingSkeletonTree.h"
 #include "SFleshRingEditorViewport.h"
 #include "FleshRingEditorViewportClient.h"
+#include "FleshRingPreviewScene.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "Widgets/SBoxPanel.h"
 #include "PropertyEditorModule.h"
@@ -288,23 +289,6 @@ void FFleshRingAssetEditor::OnObjectPropertyChanged(UObject* Object, FPropertyCh
 			bNeedsFullRefresh = true;
 		}
 
-		// Rings 배열 또는 그 하위 프로퍼티 변경 체크 (복사/붙여넣기 등)
-		// MemberProperty는 배열 요소 변경 시 배열 자체를 가리킴
-		if (PropertyChangedEvent.MemberProperty)
-		{
-			FName MemberName = PropertyChangedEvent.MemberProperty->GetFName();
-			if (MemberName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, Rings))
-			{
-				// Interactive 변경(드래그 중)은 경량 업데이트로 처리
-				// ValueSet/Unspecified 등 확정된 변경만 전체 갱신
-				// (구조적 변경 - ArrayAdd/Remove 등은 위에서 이미 처리됨)
-				if (PropertyChangedEvent.ChangeType != EPropertyChangeType::Interactive)
-				{
-					bNeedsFullRefresh = true;
-				}
-			}
-		}
-
 		if (PropertyChangedEvent.Property)
 		{
 			FName PropName = PropertyChangedEvent.Property->GetFName();
@@ -339,6 +323,26 @@ void FFleshRingAssetEditor::OnObjectPropertyChanged(UObject* Object, FPropertyCh
 			{
 				bNeedsFullRefresh = true;
 			}
+			// 트랜스폼 관련 프로퍼티는 전체 갱신 불필요 (경량 업데이트로 처리)
+			// RingOffset, MeshOffset, RingRotation, MeshRotation, RingEulerRotation, MeshEulerRotation,
+			// MeshScale, RingRadius, Strength, Falloff 등은 경량 업데이트만 필요
+		}
+
+		// Rings 배열의 구조 변경이 아닌 경우 (복사/붙여넣기 등으로 배열 전체가 바뀐 경우만 전체 갱신)
+		// 개별 프로퍼티 변경은 위에서 처리됨
+		if (!bNeedsFullRefresh && PropertyChangedEvent.MemberProperty)
+		{
+			FName MemberName = PropertyChangedEvent.MemberProperty->GetFName();
+			if (MemberName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, Rings))
+			{
+				// 프로퍼티 정보 없이 Rings 배열만 변경된 경우 (복사/붙여넣기 등)
+				// Interactive 변경(드래그 중)은 경량 업데이트로 처리
+				if (!PropertyChangedEvent.Property &&
+					PropertyChangedEvent.ChangeType != EPropertyChangeType::Interactive)
+				{
+					bNeedsFullRefresh = true;
+				}
+			}
 		}
 
 		if (bNeedsFullRefresh)
@@ -355,6 +359,11 @@ void FFleshRingAssetEditor::OnObjectPropertyChanged(UObject* Object, FPropertyCh
 
 void FFleshRingAssetEditor::RefreshViewport()
 {
+	// 트리 갱신 중 SelectRing() 호출 방지
+	// (새 트랜잭션 생성으로 Undo 히스토리 꼬임 방지)
+	bSyncingFromViewport = true;
+
+	// 리프레시 수행
 	if (ViewportWidget.IsValid())
 	{
 		ViewportWidget->RefreshPreview();
@@ -365,6 +374,11 @@ void FFleshRingAssetEditor::RefreshViewport()
 	{
 		SkeletonTreeWidget->RefreshTree();
 	}
+
+	// 에셋의 선택 상태를 뷰포트에 적용 (에셋이 선택 상태의 진실 소스)
+	ApplySelectionFromAsset();
+
+	bSyncingFromViewport = false;
 }
 
 void FFleshRingAssetEditor::UpdateRingTransformsOnly()
@@ -387,12 +401,61 @@ void FFleshRingAssetEditor::OnObjectTransacted(UObject* Object, const FTransacti
 			// (트랜잭션 중 RefreshViewport 호출 시 SkeletalMesh 본 데이터 불완전으로 크래시 발생)
 			if (GEditor)
 			{
+				// Undo/Redo 중 선택 검증 스킵 (Tick에서 선택 해제 방지)
+				if (ViewportWidget.IsValid())
+				{
+					TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient();
+					if (ViewportClient.IsValid())
+					{
+						ViewportClient->SetSkipSelectionValidation(true);
+					}
+				}
+
 				GEditor->GetTimerManager()->SetTimerForNextTick(
 					[WeakThis = TWeakPtr<FFleshRingAssetEditor>(SharedThis(this))]()
 					{
 						if (TSharedPtr<FFleshRingAssetEditor> This = WeakThis.Pin())
 						{
-							This->RefreshViewport();
+							// Undo/Redo 중 트리 갱신 시 SelectRing() 호출 방지
+							// (새 트랜잭션 생성으로 Undo 히스토리 꼬임 방지)
+							This->bSyncingFromViewport = true;
+
+							// 뷰포트 갱신
+							if (This->ViewportWidget.IsValid())
+							{
+								This->ViewportWidget->RefreshPreview();
+							}
+							if (This->SkeletonTreeWidget.IsValid())
+							{
+								This->SkeletonTreeWidget->RefreshTree();
+							}
+
+							// 에셋의 선택 상태를 뷰포트에 반영 (Undo/Redo로 복원된 값)
+							// (ApplySelectionFromAsset 내부에서도 bSyncingFromViewport 설정하지만
+							//  이미 true이므로 중복 설정해도 무방)
+							This->ApplySelectionFromAsset();
+
+							This->bSyncingFromViewport = false;
+
+							// 선택 검증 다시 활성화 - 0.2초 후
+							// (SetFleshRingAsset의 0.1초 Deformer 초기화 타이머보다 늦게 해제해야 함)
+							if (This->ViewportWidget.IsValid() && GEditor)
+							{
+								TWeakPtr<FFleshRingEditorViewportClient> WeakClient = This->ViewportWidget->GetViewportClient();
+								FTimerHandle TimerHandle;
+								GEditor->GetTimerManager()->SetTimer(
+									TimerHandle,
+									[WeakClient]()
+									{
+										if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakClient.Pin())
+										{
+											Client->SetSkipSelectionValidation(false);
+										}
+									},
+									0.2f,  // SetFleshRingAsset의 0.1초보다 길게
+									false
+								);
+							}
 						}
 					});
 			}
@@ -529,6 +592,54 @@ void FFleshRingAssetEditor::OnFocusCameraRequested()
 		{
 			ViewportClient->FocusOnMesh();
 		}
+	}
+}
+
+void FFleshRingAssetEditor::ApplySelectionFromAsset()
+{
+	if (!EditingAsset || !ViewportWidget.IsValid())
+	{
+		return;
+	}
+
+	// 에셋에서 선택 상태 읽기
+	int32 RingIndex = EditingAsset->EditorSelectedRingIndex;
+	EFleshRingSelectionType SelectionType = EditingAsset->EditorSelectionType;
+
+	// PreviewScene에 선택 인덱스 설정
+	TSharedPtr<FFleshRingPreviewScene> PreviewScene = ViewportWidget->GetPreviewScene();
+	if (PreviewScene.IsValid())
+	{
+		PreviewScene->SetSelectedRingIndex(RingIndex);
+	}
+
+	// ViewportClient에 선택 타입 설정
+	TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient();
+	if (ViewportClient.IsValid())
+	{
+		ViewportClient->SetSelectionType(SelectionType);
+
+		// 선택된 Ring이 있으면 부착된 본도 하이라이트
+		if (RingIndex >= 0 && EditingAsset->Rings.IsValidIndex(RingIndex))
+		{
+			FName AttachedBoneName = EditingAsset->Rings[RingIndex].BoneName;
+			ViewportClient->SetSelectedBone(AttachedBoneName);
+		}
+		else
+		{
+			// 선택 해제 시 본 하이라이트도 해제
+			ViewportClient->ClearSelectedBone();
+		}
+	}
+
+	// 트리에서 해당 Ring 선택 (Details 패널 하이라이트)
+	// bSyncingFromViewport = true로 설정하여 OnRingSelected에서 SelectRing() 호출 방지
+	// (SelectRing()은 새 트랜잭션을 생성하므로 Undo 히스토리가 꼬임)
+	if (SkeletonTreeWidget.IsValid())
+	{
+		bSyncingFromViewport = true;
+		SkeletonTreeWidget->SelectRingByIndex(RingIndex);
+		bSyncingFromViewport = false;
 	}
 }
 

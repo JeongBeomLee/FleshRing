@@ -362,11 +362,6 @@ void FFleshRingPreviewScene::BindToAssetDelegate()
 			AssetChangedDelegateHandle = CurrentAsset->OnAssetChanged.AddRaw(
 				this, &FFleshRingPreviewScene::OnAssetChanged);
 		}
-		if (!AssetChangedInteractiveDelegateHandle.IsValid())
-		{
-			AssetChangedInteractiveDelegateHandle = CurrentAsset->OnAssetChangedInteractive.AddRaw(
-				this, &FFleshRingPreviewScene::OnAssetChangedInteractive);
-		}
 	}
 }
 
@@ -378,11 +373,6 @@ void FFleshRingPreviewScene::UnbindFromAssetDelegate()
 		{
 			CurrentAsset->OnAssetChanged.Remove(AssetChangedDelegateHandle);
 			AssetChangedDelegateHandle.Reset();
-		}
-		if (AssetChangedInteractiveDelegateHandle.IsValid())
-		{
-			CurrentAsset->OnAssetChangedInteractive.Remove(AssetChangedInteractiveDelegateHandle);
-			AssetChangedInteractiveDelegateHandle.Reset();
 		}
 	}
 }
@@ -412,12 +402,3 @@ void FFleshRingPreviewScene::OnAssetChanged(UFleshRingAsset* ChangedAsset)
 	}
 }
 
-void FFleshRingPreviewScene::OnAssetChangedInteractive(UFleshRingAsset* ChangedAsset)
-{
-	// 동일한 에셋인지 확인
-	if (ChangedAsset == CurrentAsset)
-	{
-		// 경량 업데이트: Ring Transform만 갱신 (드래그 중 매 프레임 호출됨)
-		UpdateAllRingTransforms();
-	}
-}
