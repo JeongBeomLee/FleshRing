@@ -979,13 +979,33 @@ void UFleshRingComponent::DrawDebugVisualization()
 	}
 
 	const int32 NumRings = RingSDFCaches.Num();
+
+	// Ring 개수가 변경되면 디버그 리소스 정리 후 재생성
+	// (중간 Ring 삭제 시 인덱스 어긋남 방지)
+	if (DebugSlicePlaneActors.Num() != NumRings)
+	{
+		for (AActor* PlaneActor : DebugSlicePlaneActors)
+		{
+			if (PlaneActor)
+			{
+				PlaneActor->Destroy();
+			}
+		}
+		DebugSlicePlaneActors.Empty();
+		DebugSliceRenderTargets.Empty();
+	}
+	if (DebugAffectedData.Num() != NumRings)
+	{
+		bDebugAffectedVerticesCached = false;
+	}
+
 	for (int32 RingIndex = 0; RingIndex < NumRings; ++RingIndex)
 	{
 		if (bShowSdfVolume)
 		{
 			DrawSdfVolume(RingIndex);
 		}
-		
+
 		if (bShowAffectedVertices)
 		{
 			DrawAffectedVertices(RingIndex);
