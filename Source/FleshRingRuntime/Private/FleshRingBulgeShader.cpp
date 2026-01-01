@@ -1,0 +1,114 @@
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
+
+#include "FleshRingBulgeShader.h"
+#include "RenderGraphBuilder.h"
+#include "RenderGraphUtils.h"
+#include "ShaderParameterUtils.h"
+#include "RHIGPUReadback.h"
+
+IMPLEMENT_GLOBAL_SHADER(
+	FFleshRingBulgeCS,
+	"/Plugin/FleshRingPlugin/FleshRingBulgeCS.usf",
+	"MainCS",
+	SF_Compute
+);
+
+void DispatchFleshRingBulgeCS(
+	FRDGBuilder& GraphBuilder,
+	const FBulgeDispatchParams& Params,
+	FRDGBufferRef InputPositionsBuffer,
+	FRDGBufferRef BulgeVertexIndicesBuffer,
+	FRDGBufferRef BulgeInfluencesBuffer,
+	FRDGBufferRef VolumeAccumBuffer,
+	FRDGBufferRef OutputPositionsBuffer,
+	FRDGTextureRef SDFTexture)
+{
+	if (Params.NumBulgeVertices == 0)
+	{
+		return;
+	}
+
+	FFleshRingBulgeCS::FParameters* PassParameters =
+		GraphBuilder.AllocParameters<FFleshRingBulgeCS::FParameters>();
+
+	// Input (SRV)
+	PassParameters->InputPositions = GraphBuilder.CreateSRV(InputPositionsBuffer, PF_R32_FLOAT);
+	PassParameters->BulgeVertexIndices = GraphBuilder.CreateSRV(BulgeVertexIndicesBuffer);
+	PassParameters->BulgeInfluences = GraphBuilder.CreateSRV(BulgeInfluencesBuffer);
+	PassParameters->VolumeAccumBuffer = GraphBuilder.CreateSRV(VolumeAccumBuffer, PF_R32_UINT);
+
+	// Output (UAV)
+	PassParameters->OutputPositions = GraphBuilder.CreateUAV(OutputPositionsBuffer, PF_R32_FLOAT);
+
+	// SDF
+	if (SDFTexture)
+	{
+		PassParameters->SDFTexture = GraphBuilder.CreateSRV(SDFTexture);
+		PassParameters->SDFSampler = TStaticSamplerState<SF_Trilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+		PassParameters->SDFBoundsMin = Params.SDFBoundsMin;
+		PassParameters->SDFBoundsMax = Params.SDFBoundsMax;
+		PassParameters->ComponentToSDFLocal = Params.ComponentToSDFLocal;
+	}
+	else
+	{
+		// Dummy SDF (SDF 텍스처가 없는 경우 더미 텍스처를 RDG가 필요로 함)
+		FRDGTextureDesc DummySDFDesc = FRDGTextureDesc::Create3D(
+			FIntVector(1, 1, 1),
+			PF_R32_FLOAT,
+			FClearValueBinding::Black,
+			TexCreate_ShaderResource | TexCreate_UAV);
+		FRDGTextureRef DummySDFTexture = GraphBuilder.CreateTexture(DummySDFDesc, TEXT("FleshRingBulge_DummySDF"));
+		AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DummySDFTexture), 0.0f);
+
+		PassParameters->SDFTexture = GraphBuilder.CreateSRV(DummySDFTexture);
+		PassParameters->SDFSampler = TStaticSamplerState<SF_Trilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+		PassParameters->SDFBoundsMin = FVector3f::ZeroVector;
+		PassParameters->SDFBoundsMax = FVector3f::OneVector;
+		PassParameters->ComponentToSDFLocal = FMatrix44f::Identity;
+	}
+
+	// Params
+	PassParameters->NumBulgeVertices = Params.NumBulgeVertices;
+	PassParameters->NumTotalVertices = Params.NumTotalVertices;
+	PassParameters->BulgeStrength = Params.BulgeStrength;
+	PassParameters->MaxBulgeDistance = Params.MaxBulgeDistance;
+	PassParameters->FixedPointScale = Params.FixedPointScale;
+
+	TShaderMapRef<FFleshRingBulgeCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+
+	const uint32 ThreadGroupSize = 64;
+	const uint32 NumGroups = FMath::DivideAndRoundUp(Params.NumBulgeVertices, ThreadGroupSize);
+
+	FComputeShaderUtils::AddPass(
+		GraphBuilder,
+		RDG_EVENT_NAME("FleshRingBulgeCS"),
+		ComputeShader,
+		PassParameters,
+		FIntVector(static_cast<int32>(NumGroups), 1, 1)
+	);
+}
+
+void DispatchFleshRingBulgeCS_WithReadback(
+	FRDGBuilder& GraphBuilder,
+	const FBulgeDispatchParams& Params,
+	FRDGBufferRef InputPositionsBuffer,
+	FRDGBufferRef BulgeVertexIndicesBuffer,
+	FRDGBufferRef BulgeInfluencesBuffer,
+	FRDGBufferRef VolumeAccumBuffer,
+	FRDGBufferRef OutputPositionsBuffer,
+	FRDGTextureRef SDFTexture,
+	FRHIGPUBufferReadback* Readback)
+{
+	DispatchFleshRingBulgeCS(
+		GraphBuilder,
+		Params,
+		InputPositionsBuffer,
+		BulgeVertexIndicesBuffer,
+		BulgeInfluencesBuffer,
+		VolumeAccumBuffer,
+		OutputPositionsBuffer,
+		SDFTexture
+	);
+
+	AddEnqueueCopyPass(GraphBuilder, Readback, OutputPositionsBuffer, 0);
+}

@@ -120,8 +120,12 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::Manual", DisplayName = "Ring Rotation"))
 	FRotator RingEulerRotation = FRotator(-90.0f, 0.0f, 0.0f);
 
+	/** Bulge 효과 활성화 (부피 보존) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
+	bool bEnableBulge = true;
+
 	/** 볼록 효과 강도 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "2.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "0.0"))
 	float BulgeIntensity = 0.5f;
 
 	/** 조이기 강도 */
@@ -162,6 +166,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		, RingRadius(5.0f)
 		, RingThickness(1.0f)
 		, RingWidth(2.0f)
+		, bEnableBulge(true)
 		, BulgeIntensity(0.5f)
 		, TightnessStrength(1.0f)
 		, FalloffType(EFalloffType::Linear)

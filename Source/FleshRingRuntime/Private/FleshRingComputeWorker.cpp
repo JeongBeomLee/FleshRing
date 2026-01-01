@@ -195,11 +195,26 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 		// 소스 복사
 		AddCopyBufferPass(GraphBuilder, TightenedBindPoseBuffer, SourceBuffer);
 
+		// ===== VolumeAccumBuffer 생성 (하나 이상의 Ring에서 Bulge 활성화 시) =====
+		FRDGBufferRef VolumeAccumBuffer = nullptr;
+
+		if (WorkItem.bAnyRingHasBulge)
+		{
+			VolumeAccumBuffer = GraphBuilder.CreateBuffer(
+				FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), 1),
+				TEXT("FleshRing_VolumeAccum")
+			);
+			// 0으로 초기화 (Atomic 연산 전)
+			AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(VolumeAccumBuffer, PF_R32_UINT), 0u);
+		}
+
 		// TightnessCS 적용
 		if (WorkItem.RingDispatchDataPtr.IsValid())
 		{
-			for (const FFleshRingWorkItem::FRingDispatchData& DispatchData : *WorkItem.RingDispatchDataPtr)
+			for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
 			{
+				const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
+
 				// 로컬 복사본 생성 (역변환 행렬 설정을 위해)
 				FTightnessDispatchParams Params = DispatchData.Params;
 				if (Params.NumAffectedVertices == 0) continue;
@@ -258,6 +273,13 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					}
 				}
 
+				// Bulge 활성화 시 부피 누적 활성화 (이 Ring 또는 다른 Ring에서 Bulge 사용)
+				if (WorkItem.bAnyRingHasBulge && VolumeAccumBuffer)
+				{
+					Params.bAccumulateVolume = 1;
+					Params.FixedPointScale = 1000.0f;  // float → uint 변환 스케일
+				}
+
 				DispatchFleshRingTightnessCS(
 					GraphBuilder,
 					Params,
@@ -265,8 +287,105 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					IndicesBuffer,
 					InfluencesBuffer,
 					TightenedBindPoseBuffer,
-					SDFTextureRDG
+					SDFTextureRDG,
+					VolumeAccumBuffer
 				);
+			}
+		}
+
+		// ===== BulgeCS Dispatch (TightnessCS 이후, 각 Ring별로) =====
+		if (WorkItem.bAnyRingHasBulge && VolumeAccumBuffer && WorkItem.RingDispatchDataPtr.IsValid())
+		{
+			// 각 Ring별로 BulgeCS 디스패치
+			for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
+			{
+				const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
+
+				// 이 Ring에서 Bulge가 비활성화되었거나 데이터가 없으면 스킵
+				if (!DispatchData.bEnableBulge || DispatchData.BulgeIndices.Num() == 0)
+				{
+					continue;
+				}
+
+				const uint32 NumBulgeVertices = DispatchData.BulgeIndices.Num();
+
+				// Bulge 버텍스 인덱스 버퍼 생성
+				FRDGBufferRef BulgeIndicesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumBulgeVertices),
+					*FString::Printf(TEXT("FleshRing_BulgeVertexIndices_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					BulgeIndicesBuffer,
+					DispatchData.BulgeIndices.GetData(),
+					NumBulgeVertices * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// Bulge 영향도 버퍼 생성
+				FRDGBufferRef BulgeInfluencesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(float), NumBulgeVertices),
+					*FString::Printf(TEXT("FleshRing_BulgeInfluences_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					BulgeInfluencesBuffer,
+					DispatchData.BulgeInfluences.GetData(),
+					NumBulgeVertices * sizeof(float),
+					ERDGInitialDataFlags::None
+				);
+
+				// ===== 별도 출력 버퍼 생성 (SRV/UAV 충돌 방지) =====
+				FRDGBufferRef BulgeOutputBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateBufferDesc(sizeof(float), ActualBufferSize),
+					*FString::Printf(TEXT("FleshRing_BulgeOutput_Ring%d"), RingIdx)
+				);
+				// TightenedBindPose를 먼저 복사 (Bulge 대상 아닌 버텍스 유지)
+				AddCopyBufferPass(GraphBuilder, BulgeOutputBuffer, TightenedBindPoseBuffer);
+
+				// 이 Ring의 SDF 텍스처 등록
+				FRDGTextureRef RingSDFTextureRDG = nullptr;
+				FMatrix44f RingComponentToSDFLocal = FMatrix44f::Identity;
+				if (DispatchData.bHasValidSDF && DispatchData.SDFPooledTexture.IsValid())
+				{
+					RingSDFTextureRDG = GraphBuilder.RegisterExternalTexture(DispatchData.SDFPooledTexture);
+					FMatrix InverseMatrix = DispatchData.SDFLocalToComponent.Inverse().ToMatrixWithScale();
+					RingComponentToSDFLocal = FMatrix44f(InverseMatrix);
+				}
+
+				// Bulge 디스패치 파라미터 설정
+				FBulgeDispatchParams BulgeParams;
+				BulgeParams.NumBulgeVertices = NumBulgeVertices;
+				BulgeParams.NumTotalVertices = ActualNumVertices;
+				BulgeParams.BulgeStrength = DispatchData.BulgeStrength;
+				BulgeParams.MaxBulgeDistance = DispatchData.MaxBulgeDistance;
+				BulgeParams.FixedPointScale = 0.001f;  // uint → float 변환 스케일 (1/1000)
+
+				// 이 Ring의 SDF 파라미터
+				BulgeParams.SDFBoundsMin = DispatchData.SDFBoundsMin;
+				BulgeParams.SDFBoundsMax = DispatchData.SDFBoundsMax;
+				BulgeParams.ComponentToSDFLocal = RingComponentToSDFLocal;
+
+				// [조건부 로그] 각 Ring별 첫 프레임만 출력
+				static TSet<int32> LoggedBulgeRings;
+				if (!LoggedBulgeRings.Contains(RingIdx))
+				{
+					UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] BulgeCS Dispatch Ring[%d]: Verts=%d, Strength=%.2f, MaxDist=%.2f"),
+						RingIdx, NumBulgeVertices, BulgeParams.BulgeStrength, BulgeParams.MaxBulgeDistance);
+					LoggedBulgeRings.Add(RingIdx);
+				}
+
+				DispatchFleshRingBulgeCS(
+					GraphBuilder,
+					BulgeParams,
+					TightenedBindPoseBuffer,  // INPUT (SRV) - 이전 Ring의 Bulge 결과 포함
+					BulgeIndicesBuffer,
+					BulgeInfluencesBuffer,
+					VolumeAccumBuffer,
+					BulgeOutputBuffer,        // OUTPUT (UAV) - 별도 출력 버퍼
+					RingSDFTextureRDG
+				);
+
+				// 결과를 TightenedBindPoseBuffer로 복사 (다음 Ring이 이 결과 위에 누적)
+				AddCopyBufferPass(GraphBuilder, TightenedBindPoseBuffer, BulgeOutputBuffer);
 			}
 		}
 

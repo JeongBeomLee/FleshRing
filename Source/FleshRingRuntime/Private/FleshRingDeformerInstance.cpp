@@ -7,6 +7,7 @@
 #include "FleshRingTightnessShader.h"
 #include "FleshRingSkinningShader.h"
 #include "FleshRingComputeWorker.h"
+#include "FleshRingBulgeProviders.h"
 #include "Components/SkinnedMeshComponent.h"
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
@@ -395,6 +396,89 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		return;
 	}
 
+	// ================================================================
+	// 각 Ring별 Bulge 데이터 준비 (SDF 모드일 때만)
+	// ================================================================
+	bool bAnyRingHasBulge = false;
+
+	// 소스 위치를 FVector3f 배열로 변환 (모든 Ring이 공유)
+	TArray<FVector3f> AllVertexPositions;
+	AllVertexPositions.SetNum(TotalVertexCount);
+	for (uint32 i = 0; i < TotalVertexCount; ++i)
+	{
+		AllVertexPositions[i] = FVector3f(
+			CurrentLODData.CachedSourcePositions[i * 3 + 0],
+			CurrentLODData.CachedSourcePositions[i * 3 + 1],
+			CurrentLODData.CachedSourcePositions[i * 3 + 2]);
+	}
+
+	// 각 Ring별로 Bulge 데이터 계산
+	for (int32 RingIdx = 0; RingIdx < RingDispatchDataPtr->Num(); ++RingIdx)
+	{
+		FFleshRingWorkItem::FRingDispatchData& DispatchData = (*RingDispatchDataPtr)[RingIdx];
+
+		// SDF가 유효하지 않으면 Bulge 스킵
+		if (!DispatchData.bHasValidSDF)
+		{
+			continue;
+		}
+
+		// Ring별 Bulge 설정 가져오기
+		bool bBulgeEnabledInSettings = true;
+		float RingBulgeStrength = 1.0f;
+		float RingMaxBulgeDistance = 10.0f;
+		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIdx))
+		{
+			bBulgeEnabledInSettings = (*RingSettingsPtr)[RingIdx].bEnableBulge;
+			RingBulgeStrength = (*RingSettingsPtr)[RingIdx].BulgeIntensity;
+		}
+
+		// bEnableBulge가 true이고 BulgeIntensity > 0이면 Bulge 활성화
+		if (!bBulgeEnabledInSettings || RingBulgeStrength <= KINDA_SMALL_NUMBER)
+		{
+			continue;
+		}
+
+		// FSDFBulgeProvider로 이 Ring의 Bulge 버텍스 계산
+		FSDFBulgeProvider BulgeProvider;
+		BulgeProvider.InitFromSDFCache(
+			DispatchData.SDFBoundsMin,
+			DispatchData.SDFBoundsMax,
+			DispatchData.SDFLocalToComponent,
+			2.5f,  // BoundsExpansionRatio - 더 넓은 영역에서 Bulge 버텍스 선택
+			EFalloffType::Linear);
+
+		// Bulge 영역 계산
+		TArray<uint32> BulgeIndices;
+		TArray<float> BulgeInfluences;
+		TArray<FVector3f> BulgeDirections;  // GPU에서 계산하므로 비어있음
+
+		BulgeProvider.CalculateBulgeRegion(
+			AllVertexPositions,
+			BulgeIndices,
+			BulgeInfluences,
+			BulgeDirections);
+
+		if (BulgeIndices.Num() > 0)
+		{
+			DispatchData.bEnableBulge = true;
+			DispatchData.BulgeIndices = MoveTemp(BulgeIndices);
+			DispatchData.BulgeInfluences = MoveTemp(BulgeInfluences);
+			DispatchData.BulgeStrength = RingBulgeStrength;
+			DispatchData.MaxBulgeDistance = RingMaxBulgeDistance;
+			bAnyRingHasBulge = true;
+
+			// [조건부 로그] 첫 프레임만 출력
+			static TSet<int32> LoggedRings;
+			if (!LoggedRings.Contains(RingIdx))
+			{
+				UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] Bulge 데이터 준비 완료: %d vertices, Strength=%.2f"),
+					RingIdx, DispatchData.BulgeIndices.Num(), RingBulgeStrength);
+				LoggedRings.Add(RingIdx);
+			}
+		}
+	}
+
 	// TightenedBindPose 캐싱 여부 결정
 	bool bNeedTightnessCaching = !CurrentLODData.bTightenedBindPoseCached;
 	// [조건부 로그] 첫 프레임만 출력
@@ -430,6 +514,9 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	WorkItem.bInvalidatePreviousPosition = bInvalidatePreviousPosition;
 	WorkItem.CachedBufferSharedPtr = CurrentLODData.CachedTightenedBindPoseShared;  // TSharedPtr 복사 (ref count 증가)
 	WorkItem.FallbackDelegate = InDesc.FallbackDelegate;
+
+	// Bulge 전역 플래그 설정 (VolumeAccumBuffer 생성 여부 결정용)
+	WorkItem.bAnyRingHasBulge = bAnyRingHasBulge;
 
 	// 렌더 스레드에서 Worker에 작업 큐잉
 	// ENQUEUE_RENDER_COMMAND는 작업을 큐잉만 하고, 실제 실행은

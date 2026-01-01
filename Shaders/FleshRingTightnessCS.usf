@@ -27,6 +27,11 @@ StructuredBuffer<float> Influences;
 // 출력: 변형된 정점 위치
 RWBuffer<float> OutputPositions;
 
+// Output: Volume accumulation buffer for Bulge pass (Atomic operation)
+// 출력: Bulge 패스용 부피 누적 버퍼 (Atomic 연산)
+// Tightness에서 눌린 부피를 누적 → BulgeCS에서 읽어서 분배
+RWBuffer<uint> VolumeAccumBuffer;
+
 // ============================================================================
 // Skinning Data (from GpuSkinCommon.ush pattern)
 // 스키닝 데이터 (GpuSkinCommon.ush 패턴)
@@ -119,6 +124,14 @@ uint NumAffectedVertices;   // Number of affected vertices to process
                             // 처리할 영향받는 버텍스 수
 uint NumTotalVertices;      // Total mesh vertex count (for bounds check)
                             // 전체 메시 버텍스 수 (범위 체크용)
+
+// ============================================================================
+// Volume Accumulation Parameters (for Bulge pass)
+// 부피 누적 파라미터 (Bulge 패스용)
+// ============================================================================
+
+uint bAccumulateVolume;     // 부피 누적 활성화 플래그 (0 = 비활성, 1 = 활성)
+float FixedPointScale;      // Fixed-point 스케일 (예: 1000.0, float×Scale → uint)
 
 // Thread Group Size
 #ifndef THREADGROUP_SIZE
@@ -794,8 +807,31 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     }
     
     // ========================================
-    // Step 3: Write Output
-    // 3단계: 출력 쓰기
+    // Step 3: Volume Accumulation (for Bulge pass)
+    // 3단계: 부피 누적 (Bulge 패스용)
+    // ========================================
+    // Tightness로 눌린 양을 Atomic으로 전역 누적
+    // 모든 Ring의 압축량이 VolumeAccumBuffer[0]에 합산됨 (Balloon/Pressure 모델)
+    // BulgeCS에서 이 총합을 읽어서 SDF Gradient 방향으로 재분배
+    if (bAccumulateVolume != 0)
+    {
+        // 압축량 = 이동 거리
+        float compressionAmount = length(NewPos - Pos);
+
+        // 압축량이 있을 때만 누적 (성능 최적화)
+        if (compressionAmount > 0.0001)
+        {
+            // Float → Fixed-point (예: 0.5 * 1000 = 500)
+            uint compressedFixed = uint(compressionAmount * FixedPointScale);
+
+            // Atomic 연산으로 전역 누적
+            InterlockedAdd(VolumeAccumBuffer[0], compressedFixed);
+        }
+    }
+
+    // ========================================
+    // Step 4: Write Output
+    // 4단계: 출력 쓰기
     // ========================================
     WritePosition(VertexIndex, NewPos);
 }

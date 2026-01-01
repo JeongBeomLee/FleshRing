@@ -60,6 +60,10 @@ public:
         // 출력: 변형된 버텍스 위치
         SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float>, OutputPositions)
 
+        // Output: Volume accumulation buffer for Bulge pass (Atomic operation)
+        // 출력: Bulge 패스용 부피 누적 버퍼 (Atomic 연산)
+        SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<uint>, VolumeAccumBuffer)
+
         // ===== Skinning Buffers (SRV - Read Only) =====
         // ===== 스키닝 버퍼 (SRV - 읽기 전용) =====
 
@@ -97,6 +101,12 @@ public:
 
         SHADER_PARAMETER(uint32, NumAffectedVertices) // 영향받는 버텍스 수
         SHADER_PARAMETER(uint32, NumTotalVertices)    // 전체 버텍스 수 (범위 체크용)
+
+        // ===== Volume Accumulation Parameters (for Bulge pass) =====
+        // ===== 부피 누적 파라미터 (Bulge 패스용) =====
+
+        SHADER_PARAMETER(uint32, bAccumulateVolume)   // 부피 누적 활성화 (0 = 비활성, 1 = 활성)
+        SHADER_PARAMETER(float, FixedPointScale)      // Fixed-point 스케일 (예: 1000.0)
 
         // ===== SDF Parameters (OBB Design) =====
         // ===== SDF 파라미터 (OBB 설계) =====
@@ -285,6 +295,22 @@ struct FTightnessDispatchParams
      */
     float SDFInfluenceFalloffDistance;
 
+    // =========== Volume Accumulation Parameters (for Bulge pass) ===========
+    // =========== 부피 누적 파라미터 (Bulge 패스용) ===========
+
+    /**
+     * Enable volume accumulation for Bulge pass
+     * Bulge 패스를 위한 부피 누적 활성화 (0 = 비활성, 1 = 활성)
+     */
+    uint32 bAccumulateVolume;
+
+    /**
+     * Fixed-point scale for Atomic operations
+     * Atomic 연산을 위한 Fixed-point 스케일 (예: 1000.0)
+     * float × Scale → uint로 변환하여 Atomic 연산
+     */
+    float FixedPointScale;
+
     FTightnessDispatchParams()
         : RingCenter(FVector3f::ZeroVector)
         , RingAxis(FVector3f::UpVector)
@@ -302,6 +328,8 @@ struct FTightnessDispatchParams
         , bUseSDFInfluence(0)
         , ComponentToSDFLocal(FMatrix44f::Identity)
         , SDFInfluenceFalloffDistance(5.0f)
+        , bAccumulateVolume(0)
+        , FixedPointScale(1000.0f)
     {
     }
 };
@@ -412,8 +440,8 @@ inline FTightnessDispatchParams CreateTightnessParamsWithSkinning_Deprecated(
  *
  * @param GraphBuilder - RDG builder for resource management
  *                       RDG 빌더 (리소스 관리용)
- * @param Params - Dispatch parameters (Ring settings, counts ...)
- *                 디스패치 파라미터 (링 설정, 버텍스 수 등)
+ * @param Params - Dispatch parameters (Ring settings, counts, volume accumulation ...)
+ *                 디스패치 파라미터 (링 설정, 버텍스 수, 부피 누적 등)
  * @param SourcePositionsBuffer - RDG buffer containing source vertex positions
  *                                원본 버텍스 위치 버퍼
  * @param AffectedIndicesBuffer - Buffer containing vertex indices to process
@@ -425,6 +453,9 @@ inline FTightnessDispatchParams CreateTightnessParamsWithSkinning_Deprecated(
  * @param SDFTexture - (Optional) SDF 3D texture for Auto influence mode
  *                     (옵션) SDF 자동 영향 모드용 3D 텍스처
  *                     nullptr이면 Manual 모드 (Influences 버퍼 사용)
+ * @param VolumeAccumBuffer - (Optional) Volume accumulation buffer for Bulge pass
+ *                            (옵션) Bulge 패스용 부피 누적 버퍼
+ *                            nullptr이면 부피 누적 비활성화
  */
 void DispatchFleshRingTightnessCS(
     FRDGBuilder& GraphBuilder,
@@ -433,7 +464,8 @@ void DispatchFleshRingTightnessCS(
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
-    FRDGTextureRef SDFTexture = nullptr);
+    FRDGTextureRef SDFTexture = nullptr,
+    FRDGBufferRef VolumeAccumBuffer = nullptr);
 
 /**
  * [DEPRECATED] Dispatch TightnessCS with GPU skinning (animated mode)
@@ -493,6 +525,8 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
  *                   GPU→CPU 데이터 전송용 리드백 객체
  * @param SDFTexture - (Optional) SDF 3D texture for Auto influence mode
  *                     (옵션) SDF 자동 영향 모드용 3D 텍스처
+ * @param VolumeAccumBuffer - (Optional) Volume accumulation buffer for Bulge pass
+ *                            (옵션) Bulge 패스용 부피 누적 버퍼
  */
 void DispatchFleshRingTightnessCS_WithReadback(
     FRDGBuilder& GraphBuilder,
@@ -502,4 +536,5 @@ void DispatchFleshRingTightnessCS_WithReadback(
     FRDGBufferRef InfluencesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRHIGPUBufferReadback* Readback,
-    FRDGTextureRef SDFTexture = nullptr);
+    FRDGTextureRef SDFTexture = nullptr,
+    FRDGBufferRef VolumeAccumBuffer = nullptr);

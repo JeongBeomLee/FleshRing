@@ -1,0 +1,228 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+// FleshRingBulgeCS.usf - Bulge Pass Compute Shader
+// Ricker Wavelet 기반 부피 보존 변형
+
+#include "/Engine/Public/Platform.ush"
+
+// Buffers
+Buffer<float> InputPositions;
+StructuredBuffer<uint> BulgeVertexIndices;
+StructuredBuffer<float> BulgeInfluences;
+Buffer<uint> VolumeAccumBuffer;
+RWBuffer<float> OutputPositions;
+
+// SDF Parameters
+Texture3D<float> SDFTexture;
+SamplerState SDFSampler;
+float3 SDFBoundsMin;
+float3 SDFBoundsMax;
+float4x4 ComponentToSDFLocal;
+
+// Bulge Parameters
+uint NumBulgeVertices;
+uint NumTotalVertices;
+float BulgeStrength;
+float MaxBulgeDistance;
+float FixedPointScale;
+
+#ifndef THREADGROUP_SIZE
+#define THREADGROUP_SIZE 64
+#endif
+
+static const float SQRT2 = 1.41421356237;
+
+// Position read/write
+float3 ReadPosition(uint VertexIndex)
+{
+    uint BaseIndex = VertexIndex * 3;
+    return float3(
+        InputPositions[BaseIndex + 0],
+        InputPositions[BaseIndex + 1],
+        InputPositions[BaseIndex + 2]
+    );
+}
+
+void WritePosition(uint VertexIndex, float3 Pos)
+{
+    uint BaseIndex = VertexIndex * 3;
+    OutputPositions[BaseIndex + 0] = Pos.x;
+    OutputPositions[BaseIndex + 1] = Pos.y;
+    OutputPositions[BaseIndex + 2] = Pos.z;
+}
+
+float3 TransformToSDFLocal(float3 ComponentPos)
+{
+    return mul(float4(ComponentPos, 1.0), ComponentToSDFLocal).xyz;
+}
+
+float3 TransformDirectionToComponent(float3 LocalDir)
+{
+    return mul(LocalDir, (float3x3)transpose(ComponentToSDFLocal));
+}
+
+// Ring 축: 가장 짧은 SDF 바운드 축
+float3 DetectRingAxis()
+{
+    float3 BoundsSize = SDFBoundsMax - SDFBoundsMin;
+
+    if (BoundsSize.x <= BoundsSize.y && BoundsSize.x <= BoundsSize.z)
+        return float3(1, 0, 0);
+    else if (BoundsSize.y <= BoundsSize.x && BoundsSize.y <= BoundsSize.z)
+        return float3(0, 1, 0);
+    else
+        return float3(0, 0, 1);
+}
+
+struct FRingGeometry
+{
+    float3 Center;
+    float3 Axis;
+    float EffectWidth;
+};
+
+FRingGeometry ComputeRingGeometry()
+{
+    FRingGeometry Ring;
+    Ring.Center = (SDFBoundsMin + SDFBoundsMax) * 0.5;
+    Ring.Axis = DetectRingAxis();
+
+    // EffectWidth: CPU의 BoundsExpansionRatio와 맞춤
+    // t = axialDist / EffectWidth > 1 이어야 Bulge 영역
+    float3 BoundsSize = SDFBoundsMax - SDFBoundsMin;
+    float minSize = min(BoundsSize.x, min(BoundsSize.y, BoundsSize.z));
+    Ring.EffectWidth = minSize * 0.4;
+
+    return Ring;
+}
+
+// Ricker Wavelet (Mexican Hat)
+// f(t) = (1 - t²) × exp(-t²/2)
+// t=0: 1, t=1: 0, t=√2: -0.43
+float MexicanHat(float t)
+{
+    float t2 = t * t;
+    return (1.0 - t2) * exp(-t2 * 0.5);
+}
+
+// 순수 방사 방향 (Ring 축에 수직, 바깥으로)
+float3 ComputePureRadialDirection(float3 LocalPos, FRingGeometry Ring)
+{
+    float3 ToVertex = LocalPos - Ring.Center;
+    float axialComponent = dot(ToVertex, Ring.Axis);
+    float3 RadialVec = ToVertex - Ring.Axis * axialComponent;
+
+    float radialLen = length(RadialVec);
+    if (radialLen < 0.0001)
+    {
+        float3 arbitrary = abs(Ring.Axis.x) < 0.9 ? float3(1, 0, 0) : float3(0, 1, 0);
+        return normalize(cross(Ring.Axis, arbitrary));
+    }
+
+    return RadialVec / radialLen;
+}
+
+// Debug
+#define DEBUG_FORCE_BULGE 0
+#define DEBUG_IGNORE_VOLUME 0
+#define DEBUG_FIXED_STRENGTH 2.0
+
+[numthreads(THREADGROUP_SIZE, 1, 1)]
+void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    uint ThreadIndex = DispatchThreadId.x;
+
+    if (ThreadIndex >= NumBulgeVertices)
+        return;
+
+    uint VertexIndex = BulgeVertexIndices[ThreadIndex];
+
+    if (VertexIndex >= NumTotalVertices)
+        return;
+
+    float3 Pos = ReadPosition(VertexIndex);
+
+#if DEBUG_FORCE_BULGE
+    {
+        float3 LocalPos = TransformToSDFLocal(Pos);
+        FRingGeometry Ring = ComputeRingGeometry();
+        float3 RadialDir = ComputePureRadialDirection(LocalPos, Ring);
+        float3 RadialDirComponent = normalize(TransformDirectionToComponent(RadialDir));
+        WritePosition(VertexIndex, Pos + RadialDirComponent * 5.0);
+        return;
+    }
+#endif
+
+    float CPUInfluence = BulgeInfluences[ThreadIndex];
+    if (CPUInfluence < 0.001)
+    {
+        WritePosition(VertexIndex, Pos);
+        return;
+    }
+
+    // Volume Loss (TightnessCS에서 Atomic 누적)
+    uint VolumeAccumFixed = VolumeAccumBuffer[0];
+    float VolumeLoss = float(VolumeAccumFixed) * FixedPointScale;
+
+    if (VolumeLoss < 0.001)
+    {
+        WritePosition(VertexIndex, Pos);
+        return;
+    }
+
+    float3 LocalPos = TransformToSDFLocal(Pos);
+    FRingGeometry Ring = ComputeRingGeometry();
+
+    // 축 거리 → 정규화 t
+    float3 ToVertex = LocalPos - Ring.Center;
+    float axialDist = abs(dot(ToVertex, Ring.Axis));
+    float t = axialDist / max(Ring.EffectWidth, 0.001);
+
+    // Mexican Hat: 음수 영역만 Bulge
+    float mexicanHat = MexicanHat(t);
+    if (mexicanHat >= 0.0)
+    {
+        WritePosition(VertexIndex, Pos);
+        return;
+    }
+
+    float BulgeMask = -mexicanHat;
+
+    // 방사 방향
+    float3 RadialDirLocal = ComputePureRadialDirection(LocalPos, Ring);
+    float3 RadialDirComponent = TransformDirectionToComponent(RadialDirLocal);
+
+    float dirLen = length(RadialDirComponent);
+    if (dirLen < 0.0001 || isnan(dirLen) || isinf(dirLen))
+    {
+        WritePosition(VertexIndex, Pos);
+        return;
+    }
+    RadialDirComponent = RadialDirComponent / dirLen;
+
+    // Bulge 계산
+#if DEBUG_IGNORE_VOLUME
+    float BulgeAmount = DEBUG_FIXED_STRENGTH * BulgeMask * CPUInfluence;
+#else
+    float VolumeFactor = VolumeLoss / max(float(NumBulgeVertices), 1.0);
+    float BulgeAmount = VolumeFactor * BulgeMask * CPUInfluence * BulgeStrength;
+#endif
+
+    BulgeAmount = clamp(BulgeAmount, 0.0, MaxBulgeDistance);
+
+    // 위치 업데이트
+    float3 PosDelta = RadialDirComponent * BulgeAmount;
+
+    if (any(isnan(PosDelta)) || any(isinf(PosDelta)))
+    {
+        WritePosition(VertexIndex, Pos);
+        return;
+    }
+
+    float deltaLen = length(PosDelta);
+    if (deltaLen > MaxBulgeDistance)
+    {
+        PosDelta = PosDelta * (MaxBulgeDistance / deltaLen);
+    }
+
+    WritePosition(VertexIndex, Pos + PosDelta);
+}

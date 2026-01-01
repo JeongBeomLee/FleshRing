@@ -8,6 +8,7 @@
 #include "RenderGraphResources.h"
 #include "RendererInterface.h"
 #include "FleshRingTightnessShader.h"
+#include "FleshRingBulgeShader.h"
 
 class FSkeletalMeshObject;
 class UFleshRingDeformerInstance;
@@ -27,7 +28,7 @@ struct FFleshRingWorkItem
 	uint32 TotalVertexCount = 0;
 	TSharedPtr<TArray<float>> SourceDataPtr;
 
-	// Ring 데이터 (Tightness용)
+	// Ring 데이터 (Tightness + Bulge용)
 	struct FRingDispatchData
 	{
 		FTightnessDispatchParams Params;
@@ -46,8 +47,20 @@ struct FFleshRingWorkItem
 		 * 컴포넌트 → 로컬로 역변환해야 올바른 SDF 샘플링 가능
 		 */
 		FTransform SDFLocalToComponent = FTransform::Identity;
+
+		// ===== Ring별 Bulge 데이터 =====
+		bool bEnableBulge = false;
+		TArray<uint32> BulgeIndices;
+		TArray<float> BulgeInfluences;
+		float BulgeStrength = 1.0f;
+		float MaxBulgeDistance = 10.0f;
 	};
 	TSharedPtr<TArray<FRingDispatchData>> RingDispatchDataPtr;
+
+	// ===== Bulge 전역 플래그 =====
+	// 하나 이상의 Ring에서 Bulge가 활성화되어 있는지 여부
+	// (VolumeAccumBuffer 생성 여부 결정용)
+	bool bAnyRingHasBulge = false;
 
 	// 캐싱 상태
 	bool bNeedTightnessCaching = false;

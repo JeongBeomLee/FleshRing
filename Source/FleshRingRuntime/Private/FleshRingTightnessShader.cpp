@@ -46,7 +46,8 @@ void DispatchFleshRingTightnessCS(
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
-    FRDGTextureRef SDFTexture)
+    FRDGTextureRef SDFTexture,
+    FRDGBufferRef VolumeAccumBuffer)
 {
     // Early out if no vertices to process
     // 처리할 버텍스가 없으면 조기 반환
@@ -146,6 +147,30 @@ void DispatchFleshRingTightnessCS(
         PassParameters->ComponentToSDFLocal = FMatrix44f::Identity;
         // Manual 모드에서는 사용 안 하지만 바인딩 필요
         PassParameters->SDFInfluenceFalloffDistance = 5.0f;
+    }
+
+    // ===== Volume Accumulation Parameters (for Bulge pass) =====
+    // ===== 부피 누적 파라미터 (Bulge 패스용) =====
+    PassParameters->bAccumulateVolume = Params.bAccumulateVolume;
+    PassParameters->FixedPointScale = Params.FixedPointScale;
+
+    if (VolumeAccumBuffer)
+    {
+        // VolumeAccumBuffer가 제공되면 바인딩
+        PassParameters->VolumeAccumBuffer = GraphBuilder.CreateUAV(VolumeAccumBuffer, PF_R32_UINT);
+    }
+    else
+    {
+        // VolumeAccumBuffer가 없으면 Dummy 생성 (RDG 요구사항 - 모든 파라미터 바인딩 필수)
+        FRDGBufferRef DummyVolumeBuffer = GraphBuilder.CreateBuffer(
+            FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), 1),
+            TEXT("FleshRingTightness_DummyVolumeAccum")
+        );
+        // Dummy 버퍼 초기화 (RDG Producer 필요)
+        AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DummyVolumeBuffer, PF_R32_UINT), 0u);
+        PassParameters->VolumeAccumBuffer = GraphBuilder.CreateUAV(DummyVolumeBuffer, PF_R32_UINT);
+        // Dummy일 때는 부피 누적 비활성화 강제
+        PassParameters->bAccumulateVolume = 0;
     }
 
     // Get shader reference
@@ -302,7 +327,8 @@ void DispatchFleshRingTightnessCS_WithReadback(
     FRDGBufferRef InfluencesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRHIGPUBufferReadback* Readback,
-    FRDGTextureRef SDFTexture)
+    FRDGTextureRef SDFTexture,
+    FRDGBufferRef VolumeAccumBuffer)
 {
     // Dispatch the compute shader
     // 컴퓨트 셰이더 디스패치
@@ -313,7 +339,8 @@ void DispatchFleshRingTightnessCS_WithReadback(
         AffectedIndicesBuffer,
         InfluencesBuffer,
         OutputPositionsBuffer,
-        SDFTexture
+        SDFTexture,
+        VolumeAccumBuffer
     );
 
     // Add readback pass (GPU → CPU data transfer)
