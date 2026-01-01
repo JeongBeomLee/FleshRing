@@ -126,8 +126,17 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 	// 에셋이 수정되었음을 표시
 	MarkPackageDirty();
 
-	// 이 에셋을 사용하는 컴포넌트들에게 변경 알림
-	OnAssetChanged.Broadcast(this);
+	// 변경 타입에 따라 다른 델리게이트 브로드캐스트
+	if (PropertyChangedEvent.ChangeType == EPropertyChangeType::Interactive)
+	{
+		// 드래그 중: 경량 업데이트 (Ring Transform만 갱신)
+		OnAssetChangedInteractive.Broadcast(this);
+	}
+	else
+	{
+		// 값 확정 시: 전체 리프레시
+		OnAssetChanged.Broadcast(this);
+	}
 }
 
 void UFleshRingAsset::GenerateSubdividedMesh()

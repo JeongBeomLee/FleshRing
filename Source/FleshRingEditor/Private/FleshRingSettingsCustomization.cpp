@@ -1191,7 +1191,7 @@ void FFleshRingSettingsCustomization::AddLinearVectorRow(
 	};
 
 	// EnumerateRawData로 FVector 직접 쓰기
-	auto SetVector = [VecHandlePtr](const FVector& NewValue)
+	auto SetVector = [VecHandlePtr](const FVector& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (VecHandlePtr.IsValid())
 		{
@@ -1203,7 +1203,7 @@ void FFleshRingSettingsCustomization::AddLinearVectorRow(
 				}
 				return true;
 			});
-			VecHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+			VecHandlePtr->NotifyPostChange(ChangeType);
 		}
 	};
 
@@ -1248,7 +1248,7 @@ void FFleshRingSettingsCustomization::AddLinearVectorRow(
 				{
 					FVector Vec = GetVector();
 					Vec.X = NewValue;
-					SetVector(Vec);
+					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
 				{
@@ -1288,7 +1288,7 @@ void FFleshRingSettingsCustomization::AddLinearVectorRow(
 				{
 					FVector Vec = GetVector();
 					Vec.Y = NewValue;
-					SetVector(Vec);
+					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
 				{
@@ -1328,7 +1328,7 @@ void FFleshRingSettingsCustomization::AddLinearVectorRow(
 				{
 					FVector Vec = GetVector();
 					Vec.Z = NewValue;
-					SetVector(Vec);
+					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
 				{
@@ -1371,7 +1371,7 @@ void FFleshRingSettingsCustomization::AddLinearRotatorRow(
 	};
 
 	// EnumerateRawData로 FRotator 직접 쓰기
-	auto SetRotator = [RotHandlePtr](const FRotator& NewValue)
+	auto SetRotator = [RotHandlePtr](const FRotator& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (RotHandlePtr.IsValid())
 		{
@@ -1383,7 +1383,7 @@ void FFleshRingSettingsCustomization::AddLinearRotatorRow(
 				}
 				return true;
 			});
-			RotHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+			RotHandlePtr->NotifyPostChange(ChangeType);
 		}
 	};
 
@@ -1432,7 +1432,7 @@ void FFleshRingSettingsCustomization::AddLinearRotatorRow(
 				{
 					FRotator Rot = GetRotator();
 					Rot.Roll = NewValue;
-					SetRotator(Rot);
+					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
 				{
@@ -1473,7 +1473,7 @@ void FFleshRingSettingsCustomization::AddLinearRotatorRow(
 				{
 					FRotator Rot = GetRotator();
 					Rot.Pitch = NewValue;
-					SetRotator(Rot);
+					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
 				{
@@ -1514,7 +1514,7 @@ void FFleshRingSettingsCustomization::AddLinearRotatorRow(
 				{
 					FRotator Rot = GetRotator();
 					Rot.Yaw = NewValue;
-					SetRotator(Rot);
+					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
 				{
@@ -1552,7 +1552,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidget(
 		return Result;
 	};
 
-	auto SetVector = [VecHandlePtr](const FVector& NewValue)
+	auto SetVector = [VecHandlePtr](const FVector& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (VecHandlePtr.IsValid())
 		{
@@ -1564,7 +1564,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidget(
 				}
 				return true;
 			});
-			VecHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+			VecHandlePtr->NotifyPostChange(ChangeType);
 		}
 	};
 
@@ -1595,7 +1595,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidget(
 				{
 					FVector Vec = GetVector();
 					Vec.X = NewValue;
-					SetVector(Vec);
+					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
 				{
@@ -1632,7 +1632,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidget(
 				{
 					FVector Vec = GetVector();
 					Vec.Y = NewValue;
-					SetVector(Vec);
+					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
 				{
@@ -1669,7 +1669,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidget(
 				{
 					FVector Vec = GetVector();
 					Vec.Z = NewValue;
-					SetVector(Vec);
+					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
 				{
@@ -1706,7 +1706,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidget(
 		return Result;
 	};
 
-	auto SetRotator = [RotHandlePtr](const FRotator& NewValue)
+	auto SetRotator = [RotHandlePtr](const FRotator& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (RotHandlePtr.IsValid())
 		{
@@ -1718,7 +1718,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidget(
 				}
 				return true;
 			});
-			RotHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+			RotHandlePtr->NotifyPostChange(ChangeType);
 		}
 	};
 
@@ -1752,7 +1752,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidget(
 				{
 					FRotator Rot = GetRotator();
 					Rot.Roll = NewValue;
-					SetRotator(Rot);
+					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
 				{
@@ -1790,7 +1790,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidget(
 				{
 					FRotator Rot = GetRotator();
 					Rot.Pitch = NewValue;
-					SetRotator(Rot);
+					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
 				{
@@ -1828,7 +1828,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidget(
 				{
 					FRotator Rot = GetRotator();
 					Rot.Yaw = NewValue;
-					SetRotator(Rot);
+					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
 				{
@@ -1912,7 +1912,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidgetWit
 		return Result;
 	};
 
-	auto SetVector = [VecHandlePtr](const FVector& NewValue)
+	auto SetVector = [VecHandlePtr](const FVector& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (VecHandlePtr.IsValid())
 		{
@@ -1924,7 +1924,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidgetWit
 				}
 				return true;
 			});
-			VecHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+			VecHandlePtr->NotifyPostChange(ChangeType);
 		}
 	};
 
@@ -1955,7 +1955,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidgetWit
 				{
 					FVector Vec = GetVector();
 					Vec.X = NewValue;
-					SetVector(Vec);
+					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
 				{
@@ -1992,7 +1992,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidgetWit
 				{
 					FVector Vec = GetVector();
 					Vec.Y = NewValue;
-					SetVector(Vec);
+					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
 				{
@@ -2029,7 +2029,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidgetWit
 				{
 					FVector Vec = GetVector();
 					Vec.Z = NewValue;
-					SetVector(Vec);
+					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
 				{
@@ -2088,7 +2088,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidgetWi
 		return Result;
 	};
 
-	auto SetRotator = [RotHandlePtr](const FRotator& NewValue)
+	auto SetRotator = [RotHandlePtr](const FRotator& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (RotHandlePtr.IsValid())
 		{
@@ -2100,7 +2100,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidgetWi
 				}
 				return true;
 			});
-			RotHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+			RotHandlePtr->NotifyPostChange(ChangeType);
 		}
 	};
 
@@ -2134,7 +2134,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidgetWi
 				{
 					FRotator Rot = GetRotator();
 					Rot.Roll = NewValue;
-					SetRotator(Rot);
+					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
 				{
@@ -2172,7 +2172,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidgetWi
 				{
 					FRotator Rot = GetRotator();
 					Rot.Pitch = NewValue;
-					SetRotator(Rot);
+					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
 				{
@@ -2210,7 +2210,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidgetWi
 				{
 					FRotator Rot = GetRotator();
 					Rot.Yaw = NewValue;
-					SetRotator(Rot);
+					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
 				{
@@ -2250,7 +2250,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateResetButton(
 {
 	TSharedPtr<IPropertyHandle> VecHandlePtr = VectorHandle.ToSharedPtr();
 
-	auto SetVector = [VecHandlePtr](const FVector& NewValue)
+	auto SetVector = [VecHandlePtr](const FVector& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (VecHandlePtr.IsValid())
 		{
@@ -2262,7 +2262,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateResetButton(
 				}
 				return true;
 			});
-			VecHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+			VecHandlePtr->NotifyPostChange(ChangeType);
 		}
 	};
 
@@ -2288,7 +2288,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateResetButton(
 {
 	TSharedPtr<IPropertyHandle> RotHandlePtr = RotatorHandle.ToSharedPtr();
 
-	auto SetRotator = [RotHandlePtr](const FRotator& NewValue)
+	auto SetRotator = [RotHandlePtr](const FRotator& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (RotHandlePtr.IsValid())
 		{
@@ -2300,7 +2300,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateResetButton(
 				}
 				return true;
 			});
-			RotHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+			RotHandlePtr->NotifyPostChange(ChangeType);
 		}
 	};
 
@@ -2345,7 +2345,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateVectorWidgetWithReset
 		return Result;
 	};
 
-	auto SetVector = [VecHandlePtr](const FVector& NewValue)
+	auto SetVector = [VecHandlePtr](const FVector& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (VecHandlePtr.IsValid())
 		{
@@ -2358,7 +2358,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateVectorWidgetWithReset
 				}
 				return true;
 			});
-			VecHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+			VecHandlePtr->NotifyPostChange(ChangeType);
 			VecHandlePtr->NotifyFinishedChangingProperties();
 		}
 	};
@@ -2390,7 +2390,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateVectorWidgetWithReset
 				{
 					FVector Vec = GetVector();
 					Vec.X = NewValue;
-					SetVector(Vec);
+					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
 				{
@@ -2427,7 +2427,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateVectorWidgetWithReset
 				{
 					FVector Vec = GetVector();
 					Vec.Y = NewValue;
-					SetVector(Vec);
+					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
 				{
@@ -2464,7 +2464,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateVectorWidgetWithReset
 				{
 					FVector Vec = GetVector();
 					Vec.Z = NewValue;
-					SetVector(Vec);
+					SetVector(Vec, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetVector, SetVector](double NewValue, ETextCommit::Type)
 				{
@@ -2523,7 +2523,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateRotatorWidgetWithRese
 		return Result;
 	};
 
-	auto SetRotator = [RotHandlePtr](const FRotator& NewValue)
+	auto SetRotator = [RotHandlePtr](const FRotator& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (RotHandlePtr.IsValid())
 		{
@@ -2536,7 +2536,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateRotatorWidgetWithRese
 				}
 				return true;
 			});
-			RotHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+			RotHandlePtr->NotifyPostChange(ChangeType);
 			RotHandlePtr->NotifyFinishedChangingProperties();
 		}
 	};
@@ -2571,7 +2571,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateRotatorWidgetWithRese
 				{
 					FRotator Rot = GetRotator();
 					Rot.Roll = NewValue;
-					SetRotator(Rot);
+					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
 				{
@@ -2609,7 +2609,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateRotatorWidgetWithRese
 				{
 					FRotator Rot = GetRotator();
 					Rot.Pitch = NewValue;
-					SetRotator(Rot);
+					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
 				{
@@ -2647,7 +2647,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateRotatorWidgetWithRese
 				{
 					FRotator Rot = GetRotator();
 					Rot.Yaw = NewValue;
-					SetRotator(Rot);
+					SetRotator(Rot, EPropertyChangeType::Interactive);
 				})
 				.OnValueCommitted_Lambda([GetRotator, SetRotator](double NewValue, ETextCommit::Type)
 				{

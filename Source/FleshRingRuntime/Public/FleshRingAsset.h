@@ -7,8 +7,11 @@
 #include "FleshRingTypes.h"
 #include "FleshRingAsset.generated.h"
 
-/** 에셋 변경 시 브로드캐스트되는 델리게이트 */
+/** 에셋 변경 시 브로드캐스트되는 델리게이트 (전체 리프레시 필요) */
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnFleshRingAssetChanged, UFleshRingAsset*);
+
+/** 에셋 인터랙티브 변경 델리게이트 (경량 업데이트용 - 드래그 중) */
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnFleshRingAssetChangedInteractive, UFleshRingAsset*);
 
 /**
  * FleshRing 설정을 저장하는 에셋
@@ -154,7 +157,10 @@ public:
 	/** 에디터에서 프로퍼티 변경 시 호출 */
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 
-	/** 에셋 변경 델리게이트 (컴포넌트들이 구독) */
+	/** 에셋 변경 델리게이트 - 전체 리프레시 (마우스 릴리즈 시) */
 	FOnFleshRingAssetChanged OnAssetChanged;
+
+	/** 에셋 인터랙티브 변경 델리게이트 - 경량 업데이트 (드래그 중) */
+	FOnFleshRingAssetChangedInteractive OnAssetChangedInteractive;
 #endif
 };

@@ -295,8 +295,13 @@ void FFleshRingAssetEditor::OnObjectPropertyChanged(UObject* Object, FPropertyCh
 			FName MemberName = PropertyChangedEvent.MemberProperty->GetFName();
 			if (MemberName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, Rings))
 			{
-				// Rings 배열 내 어떤 변경이든 전체 갱신
-				bNeedsFullRefresh = true;
+				// Interactive 변경(드래그 중)은 경량 업데이트로 처리
+				// ValueSet/Unspecified 등 확정된 변경만 전체 갱신
+				// (구조적 변경 - ArrayAdd/Remove 등은 위에서 이미 처리됨)
+				if (PropertyChangedEvent.ChangeType != EPropertyChangeType::Interactive)
+				{
+					bNeedsFullRefresh = true;
+				}
 			}
 		}
 

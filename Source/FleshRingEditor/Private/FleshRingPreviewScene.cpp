@@ -312,6 +312,42 @@ void FFleshRingPreviewScene::UpdateRingTransform(int32 Index, const FTransform& 
 	}
 }
 
+void FFleshRingPreviewScene::UpdateAllRingTransforms()
+{
+	if (!CurrentAsset || !SkeletalMeshComponent || !SkeletalMeshComponent->GetSkeletalMeshAsset())
+	{
+		return;
+	}
+
+	const TArray<FFleshRingSettings>& Rings = CurrentAsset->Rings;
+
+	for (int32 i = 0; i < Rings.Num() && i < RingMeshComponents.Num(); ++i)
+	{
+		UStaticMeshComponent* RingComp = RingMeshComponents[i];
+		if (!RingComp)
+		{
+			continue;
+		}
+
+		const FFleshRingSettings& RingSetting = Rings[i];
+		int32 BoneIndex = SkeletalMeshComponent->GetBoneIndex(RingSetting.BoneName);
+		if (BoneIndex != INDEX_NONE)
+		{
+			FTransform BoneTransform = SkeletalMeshComponent->GetBoneTransform(BoneIndex);
+			FQuat BoneRotation = BoneTransform.GetRotation();
+
+			// MeshOffset 적용 (본 로컬 좌표계)
+			FVector MeshLocation = BoneTransform.GetLocation() + BoneRotation.RotateVector(RingSetting.MeshOffset);
+
+			// 본 회전 * 메시 회전 = 월드 회전
+			FQuat MeshWorldRotation = BoneRotation * RingSetting.MeshRotation;
+
+			RingComp->SetWorldLocationAndRotation(MeshLocation, MeshWorldRotation);
+			RingComp->SetWorldScale3D(RingSetting.MeshScale);
+		}
+	}
+}
+
 void FFleshRingPreviewScene::SetSelectedRingIndex(int32 Index)
 {
 	SelectedRingIndex = Index;
@@ -319,19 +355,35 @@ void FFleshRingPreviewScene::SetSelectedRingIndex(int32 Index)
 
 void FFleshRingPreviewScene::BindToAssetDelegate()
 {
-	if (CurrentAsset && !AssetChangedDelegateHandle.IsValid())
+	if (CurrentAsset)
 	{
-		AssetChangedDelegateHandle = CurrentAsset->OnAssetChanged.AddRaw(
-			this, &FFleshRingPreviewScene::OnAssetChanged);
+		if (!AssetChangedDelegateHandle.IsValid())
+		{
+			AssetChangedDelegateHandle = CurrentAsset->OnAssetChanged.AddRaw(
+				this, &FFleshRingPreviewScene::OnAssetChanged);
+		}
+		if (!AssetChangedInteractiveDelegateHandle.IsValid())
+		{
+			AssetChangedInteractiveDelegateHandle = CurrentAsset->OnAssetChangedInteractive.AddRaw(
+				this, &FFleshRingPreviewScene::OnAssetChangedInteractive);
+		}
 	}
 }
 
 void FFleshRingPreviewScene::UnbindFromAssetDelegate()
 {
-	if (CurrentAsset && AssetChangedDelegateHandle.IsValid())
+	if (CurrentAsset)
 	{
-		CurrentAsset->OnAssetChanged.Remove(AssetChangedDelegateHandle);
-		AssetChangedDelegateHandle.Reset();
+		if (AssetChangedDelegateHandle.IsValid())
+		{
+			CurrentAsset->OnAssetChanged.Remove(AssetChangedDelegateHandle);
+			AssetChangedDelegateHandle.Reset();
+		}
+		if (AssetChangedInteractiveDelegateHandle.IsValid())
+		{
+			CurrentAsset->OnAssetChangedInteractive.Remove(AssetChangedInteractiveDelegateHandle);
+			AssetChangedInteractiveDelegateHandle.Reset();
+		}
 	}
 }
 
@@ -357,5 +409,15 @@ void FFleshRingPreviewScene::OnAssetChanged(UFleshRingAsset* ChangedAsset)
 					}
 				});
 		}
+	}
+}
+
+void FFleshRingPreviewScene::OnAssetChangedInteractive(UFleshRingAsset* ChangedAsset)
+{
+	// 동일한 에셋인지 확인
+	if (ChangedAsset == CurrentAsset)
+	{
+		// 경량 업데이트: Ring Transform만 갱신 (드래그 중 매 프레임 호출됨)
+		UpdateAllRingTransforms();
 	}
 }
