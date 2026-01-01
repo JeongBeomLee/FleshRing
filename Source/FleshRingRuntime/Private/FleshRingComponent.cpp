@@ -61,6 +61,51 @@ static FTransform GetBoneBindPoseTransform(USkeletalMeshComponent* SkelMesh, FNa
 	return ComponentSpaceTransform;
 }
 
+// Helper: 스켈레탈 메시의 스켈레톤 유효성 검사
+// Undo/Redo 시 손상된 메시를 SetSkeletalMesh에 전달하면 EnsureParentsExist에서 크래시 발생
+static bool IsSkeletalMeshSkeletonValid(USkeletalMesh* Mesh)
+{
+	if (!Mesh)
+	{
+		return false;
+	}
+
+	// 렌더 리소스 체크
+	if (!Mesh->GetResourceForRendering())
+	{
+		UE_LOG(LogFleshRingComponent, Warning, TEXT("IsSkeletalMeshSkeletonValid: Mesh '%s' has no render resource"),
+			*Mesh->GetName());
+		return false;
+	}
+
+	// 스켈레톤 체크
+	const FReferenceSkeleton& RefSkel = Mesh->GetRefSkeleton();
+	const int32 NumBones = RefSkel.GetNum();
+
+	if (NumBones == 0)
+	{
+		UE_LOG(LogFleshRingComponent, Warning, TEXT("IsSkeletalMeshSkeletonValid: Mesh '%s' has no bones"),
+			*Mesh->GetName());
+		return false;
+	}
+
+	// 부모 인덱스 유효성 체크 (EnsureParentsExist 크래시 방지)
+	for (int32 i = 0; i < NumBones; ++i)
+	{
+		const int32 ParentIndex = RefSkel.GetParentIndex(i);
+		// 루트 본은 INDEX_NONE(-1), 나머지는 0 ~ i-1 범위여야 함
+		if (ParentIndex != INDEX_NONE && (ParentIndex < 0 || ParentIndex >= i))
+		{
+			UE_LOG(LogFleshRingComponent, Warning,
+				TEXT("IsSkeletalMeshSkeletonValid: Mesh '%s' bone %d has invalid parent index %d (NumBones=%d)"),
+				*Mesh->GetName(), i, ParentIndex, NumBones);
+			return false;
+		}
+	}
+
+	return true;
+}
+
 UFleshRingComponent::UFleshRingComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
@@ -300,6 +345,15 @@ void UFleshRingComponent::ResolveTargetMesh()
 			USkeletalMesh* SubdivMesh = FleshRingAsset->SubdividedMesh;
 			if (CurrentMesh != SubdivMesh)
 			{
+				// 스켈레톤 유효성 검사 (Undo/Redo 크래시 방지)
+				if (!IsSkeletalMeshSkeletonValid(SubdivMesh))
+				{
+					UE_LOG(LogFleshRingComponent, Warning,
+						TEXT("FleshRingComponent: SubdividedMesh '%s' has invalid skeleton, skipping SetSkeletalMesh"),
+						SubdivMesh ? *SubdivMesh->GetName() : TEXT("null"));
+					return;
+				}
+
 				// 원본 메시 캐싱 (컴포넌트 제거 시 복원용)
 				// 이미 캐싱된 경우 덮어쓰지 않음 (최초 원본 유지)
 				if (!CachedOriginalMesh.IsValid())
@@ -324,6 +378,15 @@ void UFleshRingComponent::ResolveTargetMesh()
 			USkeletalMesh* OriginalMesh = FleshRingAsset->TargetSkeletalMesh.LoadSynchronous();
 			if (OriginalMesh && CurrentMesh != OriginalMesh)
 			{
+				// 스켈레톤 유효성 검사 (Undo/Redo 크래시 방지)
+				if (!IsSkeletalMeshSkeletonValid(OriginalMesh))
+				{
+					UE_LOG(LogFleshRingComponent, Warning,
+						TEXT("FleshRingComponent: OriginalMesh '%s' has invalid skeleton, skipping SetSkeletalMesh"),
+						OriginalMesh ? *OriginalMesh->GetName() : TEXT("null"));
+					return;
+				}
+
 				TargetMeshComp->SetSkeletalMesh(OriginalMesh);
 				UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Restored original mesh '%s' to target mesh component"),
 					*OriginalMesh->GetName());

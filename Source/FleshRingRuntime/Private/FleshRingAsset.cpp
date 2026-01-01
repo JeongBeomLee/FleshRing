@@ -18,6 +18,7 @@
 #include "EngineUtils.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
+#include "Misc/TransactionObjectEvent.h"
 #endif
 
 DEFINE_LOG_CATEGORY_STATIC(LogFleshRingAsset, Log, All);
@@ -145,6 +146,7 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 		FName PropName = PropertyChangedEvent.Property->GetFName();
 
 		if (PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, TargetSkeletalMesh) ||
+			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, bEnableSubdivision) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingMesh) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BoneName) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, InfluenceMode))
@@ -163,12 +165,85 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 	}
 }
 
+// Helper: 스켈레탈 메시 유효성 검사 (Undo/Redo 크래시 방지)
+static bool IsSkeletalMeshValidForUse(USkeletalMesh* Mesh)
+{
+	if (!Mesh)
+	{
+		return false;
+	}
+
+	// 렌더 리소스 체크
+	if (!Mesh->GetResourceForRendering())
+	{
+		return false;
+	}
+
+	// 스켈레톤 체크
+	const FReferenceSkeleton& RefSkel = Mesh->GetRefSkeleton();
+	const int32 NumBones = RefSkel.GetNum();
+
+	if (NumBones == 0)
+	{
+		return false;
+	}
+
+	// 부모 인덱스 유효성 체크
+	for (int32 i = 0; i < NumBones; ++i)
+	{
+		const int32 ParentIndex = RefSkel.GetParentIndex(i);
+		if (ParentIndex != INDEX_NONE && (ParentIndex < 0 || ParentIndex >= i))
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
+void UFleshRingAsset::PostTransacted(const FTransactionObjectEvent& TransactionEvent)
+{
+	Super::PostTransacted(TransactionEvent);
+
+	// Undo/Redo 이벤트만 처리
+	if (TransactionEvent.GetEventType() != ETransactionObjectEventType::UndoRedo)
+	{
+		return;
+	}
+
+	// SubdividedMesh가 손상된 경우 제거
+	if (SubdividedMesh && !IsSkeletalMeshValidForUse(SubdividedMesh))
+	{
+		UE_LOG(LogFleshRingAsset, Warning,
+			TEXT("PostTransacted: SubdividedMesh '%s' is invalid after Undo/Redo, clearing..."),
+			*SubdividedMesh->GetName());
+
+		// 손상된 메시 제거 (재생성은 사용자가 명시적으로 해야 함)
+		// 자동 재생성하면 또 다른 Undo 트랜잭션 이슈 발생 가능
+		SubdividedMesh = nullptr;
+	}
+
+	// PreviewSubdividedMesh도 검사 (Transient이지만 세션 중 손상 가능)
+	if (PreviewSubdividedMesh && !IsSkeletalMeshValidForUse(PreviewSubdividedMesh))
+	{
+		UE_LOG(LogFleshRingAsset, Warning,
+			TEXT("PostTransacted: PreviewSubdividedMesh is invalid after Undo/Redo, clearing..."));
+		PreviewSubdividedMesh = nullptr;
+	}
+
+	// 프리뷰 씬에서 재생성할 수 있도록 브로드캐스트
+	// (SetFleshRingAsset에서 HasValidPreviewMesh() 체크 후 재생성)
+	OnAssetChanged.Broadcast(this);
+}
+
 void UFleshRingAsset::GenerateSubdividedMesh()
 {
 	// 이전 SubdividedMesh가 있으면 먼저 제거 (같은 이름 충돌 방지)
 	if (SubdividedMesh)
 	{
 		UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateSubdividedMesh: 기존 SubdividedMesh 제거 중..."));
+		// 렌더 스레드가 이 메시를 사용 중일 수 있으므로 완료 대기
+		FlushRenderingCommands();
 		SubdividedMesh->ConditionalBeginDestroy();
 		SubdividedMesh = nullptr;
 		// GC 실행하여 이전 객체 완전 제거
@@ -1001,6 +1076,10 @@ void UFleshRingAsset::GenerateSubdividedMesh()
 	// 렌더 리소스 초기화
 	SubdividedMesh->InitResources();
 
+	// 렌더 스레드가 리소스 초기화를 완료할 때까지 대기
+	// (컴포넌트가 메시를 사용하기 전에 완료되어야 함)
+	FlushRenderingCommands();
+
 	// 바운딩 박스 재계산
 	FBox BoundingBox(ForceInit);
 	for (int32 i = 0; i < NewVertexCount; ++i)
@@ -1054,6 +1133,9 @@ void UFleshRingAsset::ClearSubdividedMesh()
 		SubdividedMesh = nullptr;
 		SubdivisionParamsHash = 0;
 
+		// Subdivision 비활성화 (프리뷰에서 재생성 방지)
+		bEnableSubdivision = false;
+
 		// 에디터 프리뷰 메시도 함께 제거 (원본 메시로 완전 복원)
 		ClearPreviewMesh();
 
@@ -1099,6 +1181,8 @@ void UFleshRingAsset::GeneratePreviewMesh()
 	// 기존 PreviewMesh가 있으면 먼저 제거
 	if (PreviewSubdividedMesh)
 	{
+		// 렌더 스레드가 이 메시를 사용 중일 수 있으므로 완료 대기
+		FlushRenderingCommands();
 		PreviewSubdividedMesh->ConditionalBeginDestroy();
 		PreviewSubdividedMesh = nullptr;
 		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
@@ -1330,7 +1414,7 @@ void UFleshRingAsset::GeneratePreviewMesh()
 		}
 	}
 
-	// 5. 프리뷰용 USkeletalMesh 생성 (Transient)
+	// 5. 프리뷰용 USkeletalMesh 생성 (DuplicateObject로 ImportedModel 구조 유지)
 	FString MeshName = FString::Printf(TEXT("%s_Preview"), *SourceMesh->GetName());
 	PreviewSubdividedMesh = DuplicateObject<USkeletalMesh>(SourceMesh, GetTransientPackage(), FName(*MeshName));
 	if (!PreviewSubdividedMesh)
@@ -1339,6 +1423,12 @@ void UFleshRingAsset::GeneratePreviewMesh()
 		return;
 	}
 
+	// 복제된 메시의 기존 렌더 리소스 완전 해제 (렌더 스레드 동기화)
+	FlushRenderingCommands();
+	PreviewSubdividedMesh->ReleaseResources();
+	PreviewSubdividedMesh->ReleaseResourcesFence.Wait();
+
+	// 기존 MeshDescription 제거
 	if (PreviewSubdividedMesh->HasMeshDescription(0))
 	{
 		PreviewSubdividedMesh->ClearMeshDescription(0);
@@ -1429,14 +1519,16 @@ void UFleshRingAsset::GeneratePreviewMesh()
 	}
 
 	PreviewSubdividedMesh->CreateMeshDescription(0, MoveTemp(MeshDescription));
-	PreviewSubdividedMesh->ReleaseResources();
-	PreviewSubdividedMesh->ReleaseResourcesFence.Wait();
 
+	// ReleaseResources는 위에서 이미 호출됨
 	USkeletalMesh::FCommitMeshDescriptionParams CommitParams;
 	CommitParams.bMarkPackageDirty = false;
 	PreviewSubdividedMesh->CommitMeshDescription(0, CommitParams);
 	PreviewSubdividedMesh->Build();
 	PreviewSubdividedMesh->InitResources();
+
+	// 렌더 스레드가 리소스 초기화를 완료할 때까지 대기
+	FlushRenderingCommands();
 
 	FBox BoundingBox(ForceInit);
 	for (int32 i = 0; i < NewVertexCount; ++i) { BoundingBox += NewPositions[i]; }

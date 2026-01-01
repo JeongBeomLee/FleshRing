@@ -166,6 +166,9 @@ public:
 	/** 에디터에서 프로퍼티 변경 시 호출 */
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 
+	/** Undo/Redo 트랜잭션 완료 후 호출 - 손상된 메시 복구 */
+	virtual void PostTransacted(const FTransactionObjectEvent& TransactionEvent) override;
+
 	/** 에셋 변경 델리게이트 - 구조적 변경 시 전체 리프레시 */
 	FOnFleshRingAssetChanged OnAssetChanged;
 #endif
