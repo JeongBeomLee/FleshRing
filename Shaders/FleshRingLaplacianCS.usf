@@ -1,0 +1,219 @@
+// ============================================================================
+// FleshRingLaplacianCS.usf - Laplacian Smoothing Compute Shader
+// ============================================================================
+// Purpose: Smooth transition at tightness boundaries
+// Solves the "jagged edge" problem where some vertices move but neighbors don't
+//
+// Algorithm: Weighted Laplacian Smoothing
+//   NewPos = lerp(CurrentPos, NeighborAverage, Lambda * Influence)
+//
+// Design:
+//   - Operates on AffectedVertices only (not entire mesh)
+//   - Uses pre-computed adjacency data from CPU
+//   - Supports multiple iterations for stronger smoothing
+//   - Preserves original positions for unaffected vertices
+// ============================================================================
+
+#include "/Engine/Public/Platform.ush"
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+// Maximum neighbors per vertex (typical triangular mesh)
+#define MAX_NEIGHBORS 12
+
+// Thread group size
+#ifndef THREADGROUP_SIZE
+#define THREADGROUP_SIZE 64
+#endif
+
+// ============================================================================
+// Buffer Declarations
+// ============================================================================
+
+// Input/Output: Vertex positions (read from, write to same buffer)
+// Ping-pong between iterations handled externally
+Buffer<float> InputPositions;
+RWBuffer<float> OutputPositions;
+
+// Input: Indices of affected vertices to process
+StructuredBuffer<uint> AffectedIndices;
+
+// Input: Per-vertex influence weights (0-1)
+// Used to blend between original and smoothed position
+StructuredBuffer<float> Influences;
+
+// ============================================================================
+// Adjacency Data Structure
+// ============================================================================
+// GPU-friendly packed structure:
+//   [NeighborCount, Neighbor0, Neighbor1, ..., Neighbor11] (13 uints per vertex)
+//
+// For affected vertices only, indexed by ThreadIndex (not VertexIndex)
+
+StructuredBuffer<uint> AdjacencyData;
+
+// ============================================================================
+// Parameters
+// ============================================================================
+
+// Number of affected vertices
+uint NumAffectedVertices;
+
+// Total mesh vertex count (for bounds checking)
+uint NumTotalVertices;
+
+// Smoothing strength (lambda): 0 = no smoothing, 1 = full average
+// Typical values: 0.3 - 0.7
+float SmoothingLambda;
+
+// Preserve volume: blend factor for volume preservation
+// 0 = pure Laplacian, 1 = volume-preserving (HC algorithm style)
+float VolumePreservation;
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+// Read vertex position from buffer (3 floats per vertex)
+float3 ReadPosition(Buffer<float> PositionBuffer, uint VertexIndex)
+{
+    uint BaseIndex = VertexIndex * 3;
+    return float3(
+        PositionBuffer[BaseIndex + 0],
+        PositionBuffer[BaseIndex + 1],
+        PositionBuffer[BaseIndex + 2]
+    );
+}
+
+// Write vertex position to buffer (3 floats per vertex)
+void WritePosition(uint VertexIndex, float3 Pos)
+{
+    uint BaseIndex = VertexIndex * 3;
+    OutputPositions[BaseIndex + 0] = Pos.x;
+    OutputPositions[BaseIndex + 1] = Pos.y;
+    OutputPositions[BaseIndex + 2] = Pos.z;
+}
+
+// Get adjacency data for an affected vertex
+// AdjacencyOffset: base offset in AdjacencyData buffer for this thread
+// Returns: number of neighbors
+uint GetNeighborCount(uint AdjacencyOffset)
+{
+    return AdjacencyData[AdjacencyOffset];
+}
+
+// Get neighbor vertex index
+uint GetNeighborIndex(uint AdjacencyOffset, uint NeighborSlot)
+{
+    // Layout: [Count, N0, N1, N2, ..., N11]
+    return AdjacencyData[AdjacencyOffset + 1 + NeighborSlot];
+}
+
+// ============================================================================
+// Laplacian Smoothing
+// ============================================================================
+
+// Compute Laplacian operator: average of neighbors minus current position
+// This gives the "umbrella" vector pointing toward local average
+float3 ComputeLaplacian(uint ThreadIndex, uint VertexIndex, float3 CurrentPos)
+{
+    // Adjacency data layout: 13 uints per affected vertex
+    uint AdjacencyOffset = ThreadIndex * (1 + MAX_NEIGHBORS);
+
+    uint NeighborCount = GetNeighborCount(AdjacencyOffset);
+
+    // No neighbors = no smoothing possible
+    if (NeighborCount == 0)
+    {
+        return float3(0, 0, 0);
+    }
+
+    // Sum neighbor positions
+    float3 NeighborSum = float3(0, 0, 0);
+    uint ValidNeighbors = 0;
+
+    for (uint i = 0; i < NeighborCount && i < MAX_NEIGHBORS; i++)
+    {
+        uint NeighborVertexIndex = GetNeighborIndex(AdjacencyOffset, i);
+
+        // Bounds check
+        if (NeighborVertexIndex < NumTotalVertices)
+        {
+            float3 NeighborPos = ReadPosition(InputPositions, NeighborVertexIndex);
+            NeighborSum += NeighborPos;
+            ValidNeighbors++;
+        }
+    }
+
+    if (ValidNeighbors == 0)
+    {
+        return float3(0, 0, 0);
+    }
+
+    // Laplacian = neighbor average - current position
+    float3 NeighborAverage = NeighborSum / (float)ValidNeighbors;
+    return NeighborAverage - CurrentPos;
+}
+
+// ============================================================================
+// Main Compute Shader
+// ============================================================================
+
+[numthreads(THREADGROUP_SIZE, 1, 1)]
+void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    uint ThreadIndex = DispatchThreadId.x;
+
+    // Bounds check
+    if (ThreadIndex >= NumAffectedVertices)
+    {
+        return;
+    }
+
+    // Get actual vertex index
+    uint VertexIndex = AffectedIndices[ThreadIndex];
+
+    // Safety check
+    if (VertexIndex >= NumTotalVertices)
+    {
+        return;
+    }
+
+    // Read current position
+    float3 CurrentPos = ReadPosition(InputPositions, VertexIndex);
+
+    // Get influence (how much this vertex should be smoothed)
+    float Influence = Influences[ThreadIndex];
+
+    // Skip if influence is negligible
+    if (Influence < 0.001)
+    {
+        WritePosition(VertexIndex, CurrentPos);
+        return;
+    }
+
+    // Compute Laplacian (direction toward neighbor average)
+    float3 Laplacian = ComputeLaplacian(ThreadIndex, VertexIndex, CurrentPos);
+
+    // Apply weighted Laplacian smoothing
+    // Lambda controls overall smoothing strength
+    // Influence modulates per-vertex (stronger near tightness boundaries)
+    float EffectiveLambda = SmoothingLambda * Influence;
+
+    float3 SmoothedPos = CurrentPos + Laplacian * EffectiveLambda;
+
+    // Optional: Volume preservation (HC algorithm style)
+    // Pulls back toward original position to prevent shrinkage
+    // Note: For full HC, would need original bind pose positions as additional input
+    if (VolumePreservation > 0.001)
+    {
+        // Simple approximation: reduce movement magnitude
+        float3 Movement = SmoothedPos - CurrentPos;
+        SmoothedPos = CurrentPos + Movement * (1.0 - VolumePreservation * 0.5);
+    }
+
+    // Write output
+    WritePosition(VertexIndex, SmoothedPos);
+}

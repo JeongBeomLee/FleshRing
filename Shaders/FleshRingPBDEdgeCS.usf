@@ -1,0 +1,273 @@
+// ============================================================================
+// FleshRingPBDEdgeCS.usf - PBD Edge Constraint Compute Shader
+// ============================================================================
+// Purpose: Maintain edge lengths after deformation (prevent stretching/shrinking)
+//
+// Key Concept ("Inverse PBD" / Weighted PBD):
+//   - High influence vertices (deformed by SDF): FIXED (anchors)
+//   - Low influence vertices (boundary/outside): FREE to move
+//   - Edge constraint pulls/pushes free vertices to maintain rest lengths
+//
+// Algorithm (Jacobi iteration):
+//   For each neighbor of this vertex:
+//     1. Calculate edge error = currentLength - restLength
+//     2. Calculate weights: myWeight = 1 - myInfluence, neighborWeight = 1 - neighborInfluence
+//     3. Calculate my correction ratio = myWeight / (myWeight + neighborWeight)
+//     4. Accumulate correction += direction * error * myRatio
+//   Apply: NewPos = CurrentPos + Average(Corrections) * Stiffness
+//
+// Design:
+//   - Operates on SmoothingVertices (expanded region around deformation)
+//   - Uses Jacobi iteration for GPU parallelism (read from input, write to output)
+//   - Rest lengths stored alongside adjacency data
+//   - FullInfluenceMap for neighbor influence lookup (indexed by absolute vertex index)
+// ============================================================================
+
+#include "/Engine/Public/Platform.ush"
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+// Maximum neighbors per vertex
+#define MAX_NEIGHBORS 12
+
+// Thread group size
+#ifndef THREADGROUP_SIZE
+#define THREADGROUP_SIZE 64
+#endif
+
+// Small epsilon to avoid division by zero
+#define EPSILON 0.0001f
+
+// ============================================================================
+// Buffer Declarations
+// ============================================================================
+
+// Input: Previous iteration positions (read)
+Buffer<float> InputPositions;
+
+// Output: Current iteration positions (write)
+RWBuffer<float> OutputPositions;
+
+// Affected vertex indices (smoothing region)
+StructuredBuffer<uint> AffectedIndices;
+
+// Per-vertex influence (for affected vertices, indexed by ThreadIndex)
+StructuredBuffer<float> Influences;
+
+// Adjacency with rest lengths
+// Format per vertex: [Count, Neighbor0, RestLen0_asUint, Neighbor1, RestLen1_asUint, ...]
+// Size per vertex: 1 + MAX_NEIGHBORS * 2 = 25 uints
+StructuredBuffer<uint> AdjacencyWithRestLengths;
+
+// Full mesh influence map (indexed by absolute vertex index)
+// For neighbor influence lookup (neighbors might not be in AffectedIndices)
+StructuredBuffer<float> FullInfluenceMap;
+
+// ============================================================================
+// Parameters
+// ============================================================================
+
+uint NumAffectedVertices;
+uint NumTotalVertices;
+float Stiffness;
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+// Read vertex position
+float3 ReadPosition(Buffer<float> PositionBuffer, uint VertexIndex)
+{
+    uint BaseIndex = VertexIndex * 3;
+    return float3(
+        PositionBuffer[BaseIndex + 0],
+        PositionBuffer[BaseIndex + 1],
+        PositionBuffer[BaseIndex + 2]
+    );
+}
+
+// Write vertex position
+void WritePosition(uint VertexIndex, float3 Pos)
+{
+    uint BaseIndex = VertexIndex * 3;
+    OutputPositions[BaseIndex + 0] = Pos.x;
+    OutputPositions[BaseIndex + 1] = Pos.y;
+    OutputPositions[BaseIndex + 2] = Pos.z;
+}
+
+// Get adjacency data offset for a thread
+uint GetAdjacencyOffset(uint ThreadIndex)
+{
+    // Each vertex has: [Count, (Neighbor, RestLen) x MAX_NEIGHBORS]
+    // = 1 + MAX_NEIGHBORS * 2 = 25 uints
+    return ThreadIndex * (1 + MAX_NEIGHBORS * 2);
+}
+
+// Get neighbor count
+uint GetNeighborCount(uint AdjacencyOffset)
+{
+    return AdjacencyWithRestLengths[AdjacencyOffset];
+}
+
+// Get neighbor vertex index
+uint GetNeighborIndex(uint AdjacencyOffset, uint NeighborSlot)
+{
+    // Layout: [Count, N0, RestLen0, N1, RestLen1, ...]
+    return AdjacencyWithRestLengths[AdjacencyOffset + 1 + NeighborSlot * 2];
+}
+
+// Get rest length to neighbor
+float GetRestLength(uint AdjacencyOffset, uint NeighborSlot)
+{
+    // Rest length is stored as uint (reinterpret bits)
+    uint RestLenBits = AdjacencyWithRestLengths[AdjacencyOffset + 1 + NeighborSlot * 2 + 1];
+    return asfloat(RestLenBits);
+}
+
+// ============================================================================
+// PBD Edge Constraint Solver
+// ============================================================================
+
+// Solve all edge constraints for this vertex
+// Returns accumulated correction
+float3 SolveEdgeConstraints(
+    uint ThreadIndex,
+    uint VertexIndex,
+    float3 CurrentPos,
+    float MyInfluence)
+{
+    uint AdjacencyOffset = GetAdjacencyOffset(ThreadIndex);
+    uint NeighborCount = GetNeighborCount(AdjacencyOffset);
+
+    // No neighbors = no constraints
+    if (NeighborCount == 0)
+    {
+        return float3(0, 0, 0);
+    }
+
+    // My weight (how much I can move)
+    // High influence = low weight = fixed (anchor)
+    // Low influence = high weight = free to move
+    float MyWeight = 1.0f - MyInfluence;
+
+    // If I'm completely fixed, no movement
+    if (MyWeight < EPSILON)
+    {
+        return float3(0, 0, 0);
+    }
+
+    float3 TotalCorrection = float3(0, 0, 0);
+    float TotalWeight = 0;
+
+    for (uint i = 0; i < NeighborCount && i < MAX_NEIGHBORS; i++)
+    {
+        uint NeighborVertexIndex = GetNeighborIndex(AdjacencyOffset, i);
+
+        // Bounds check
+        if (NeighborVertexIndex >= NumTotalVertices)
+        {
+            continue;
+        }
+
+        float RestLength = GetRestLength(AdjacencyOffset, i);
+
+        // Skip invalid rest lengths
+        if (RestLength < EPSILON)
+        {
+            continue;
+        }
+
+        // Read neighbor position
+        float3 NeighborPos = ReadPosition(InputPositions, NeighborVertexIndex);
+
+        // Calculate edge vector and current length
+        float3 EdgeVec = NeighborPos - CurrentPos;
+        float CurrentLength = length(EdgeVec);
+
+        // Skip degenerate edges
+        if (CurrentLength < EPSILON)
+        {
+            continue;
+        }
+
+        // Edge direction (normalized)
+        float3 EdgeDir = EdgeVec / CurrentLength;
+
+        // Length error (positive = stretched, negative = compressed)
+        float Error = CurrentLength - RestLength;
+
+        // Neighbor's weight (from full influence map)
+        float NeighborInfluence = FullInfluenceMap[NeighborVertexIndex];
+        float NeighborWeight = 1.0f - NeighborInfluence;
+
+        // Total weight for this edge
+        float EdgeTotalWeight = MyWeight + NeighborWeight;
+
+        // Skip if both are fixed
+        if (EdgeTotalWeight < EPSILON)
+        {
+            continue;
+        }
+
+        // My ratio of the correction
+        // Higher MyWeight = I move more, NeighborWeight less = neighbor is anchor
+        float MyRatio = MyWeight / EdgeTotalWeight;
+
+        // My correction: move toward neighbor if stretched, away if compressed
+        // Positive error (stretched) + positive direction = move toward neighbor
+        float3 Correction = EdgeDir * Error * MyRatio;
+
+        TotalCorrection += Correction;
+        TotalWeight += 1.0f;
+    }
+
+    // Average the corrections
+    if (TotalWeight > 0)
+    {
+        TotalCorrection /= TotalWeight;
+    }
+
+    return TotalCorrection;
+}
+
+// ============================================================================
+// Main Compute Shader
+// ============================================================================
+
+[numthreads(THREADGROUP_SIZE, 1, 1)]
+void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    uint ThreadIndex = DispatchThreadId.x;
+
+    // Bounds check
+    if (ThreadIndex >= NumAffectedVertices)
+    {
+        return;
+    }
+
+    // Get actual vertex index
+    uint VertexIndex = AffectedIndices[ThreadIndex];
+
+    // Safety check
+    if (VertexIndex >= NumTotalVertices)
+    {
+        return;
+    }
+
+    // Read current position
+    float3 CurrentPos = ReadPosition(InputPositions, VertexIndex);
+
+    // Get my influence
+    float MyInfluence = Influences[ThreadIndex];
+
+    // Solve edge constraints
+    float3 Correction = SolveEdgeConstraints(ThreadIndex, VertexIndex, CurrentPos, MyInfluence);
+
+    // Apply correction with stiffness
+    float3 NewPos = CurrentPos + Correction * Stiffness;
+
+    // Write output
+    WritePosition(VertexIndex, NewPos);
+}
