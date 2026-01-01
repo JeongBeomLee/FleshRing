@@ -467,6 +467,25 @@ int32 FLEBSubdivision::SubdivideRegion(
 		TArray<bool> TriNeedsRedSplit;
 		TriNeedsRedSplit.SetNumZeroed(NumTris);
 
+		// ========================================================================
+		// 최적화: 버텍스별 영역 판정 캐싱 (Torus)
+		// 같은 버텍스가 여러 삼각형에 공유되어도 1번만 검사
+		// ========================================================================
+		const int32 NumPositions = Positions.Num();
+		TArray<int8> VertexInRegionCache;  // -1: 미검사, 0: 밖, 1: 안
+		VertexInRegionCache.SetNumUninitialized(NumPositions);
+		FMemory::Memset(VertexInRegionCache.GetData(), -1, NumPositions);
+
+		// 캐싱된 버텍스 영역 검사 람다
+		auto IsVertexInRegionCached = [&](int32 VertexIndex) -> bool
+		{
+			if (VertexInRegionCache[VertexIndex] == -1)
+			{
+				VertexInRegionCache[VertexIndex] = IsInInfluenceRegion(Positions[VertexIndex]) ? 1 : 0;
+			}
+			return VertexInRegionCache[VertexIndex] == 1;
+		};
+
 		// Phase 1: Mark triangles that need RED split (4-way, in region)
 		for (int32 i = 0; i < NumTris; i++)
 		{
@@ -474,19 +493,18 @@ int32 FLEBSubdivision::SubdivideRegion(
 			int32 V1 = Triangles[i * 3 + 1];
 			int32 V2 = Triangles[i * 3 + 2];
 
-			const FVector& P0 = Positions[V0];
-			const FVector& P1 = Positions[V1];
-			const FVector& P2 = Positions[V2];
-
-			// Check if any vertex, edge midpoint, or center is near torus surface
-			// Edge midpoint 검사 추가: 큰 삼각형이 영역을 관통하는 경우 캐치
+			// 최적화: 캐싱된 버텍스 검사 사용
 			bool bInRegion = false;
-			if (IsInInfluenceRegion(P0)) bInRegion = true;
-			else if (IsInInfluenceRegion(P1)) bInRegion = true;
-			else if (IsInInfluenceRegion(P2)) bInRegion = true;
+			if (IsVertexInRegionCached(V0)) bInRegion = true;
+			else if (IsVertexInRegionCached(V1)) bInRegion = true;
+			else if (IsVertexInRegionCached(V2)) bInRegion = true;
 			else
 			{
-				// Edge midpoints 검사
+				// Edge midpoints 검사 (캐싱 불가 - 매번 새로운 위치)
+				const FVector& P0 = Positions[V0];
+				const FVector& P1 = Positions[V1];
+				const FVector& P2 = Positions[V2];
+
 				FVector Mid01 = (P0 + P1) * 0.5f;
 				FVector Mid12 = (P1 + P2) * 0.5f;
 				FVector Mid20 = (P2 + P0) * 0.5f;
@@ -505,6 +523,10 @@ int32 FLEBSubdivision::SubdivideRegion(
 			if (!bInRegion) continue;
 
 			// Check minimum edge length
+			const FVector& P0 = Positions[V0];
+			const FVector& P1 = Positions[V1];
+			const FVector& P2 = Positions[V2];
+
 			float MaxEdgeLen = FMath::Max3(
 				FVector::Dist(P0, P1),
 				FVector::Dist(P1, P2),
@@ -897,6 +919,26 @@ int32 FLEBSubdivision::SubdivideRegion(
 		TArray<bool> TriNeedsRedSplit;
 		TriNeedsRedSplit.SetNumZeroed(NumTris);
 
+		// ========================================================================
+		// 최적화: 버텍스별 영역 판정 캐싱
+		// 같은 버텍스가 여러 삼각형에 공유되어도 1번만 검사
+		// ========================================================================
+		const int32 NumPositions = Positions.Num();
+		TArray<int8> VertexInRegionCache;  // -1: 미검사, 0: 밖, 1: 안
+		VertexInRegionCache.SetNumUninitialized(NumPositions);
+		FMemory::Memset(VertexInRegionCache.GetData(), -1, NumPositions);
+
+		// 캐싱된 버텍스 영역 검사 람다
+		auto IsVertexInRegionCached = [&](int32 VertexIndex) -> bool
+		{
+			if (VertexInRegionCache[VertexIndex] == -1)
+			{
+				// 처음 검사 - 결과 캐싱
+				VertexInRegionCache[VertexIndex] = IsInInfluenceRegion(Positions[VertexIndex]) ? 1 : 0;
+			}
+			return VertexInRegionCache[VertexIndex] == 1;
+		};
+
 		// Phase 1: Mark triangles that need RED split (4-way, in region)
 		for (int32 i = 0; i < NumTris; i++)
 		{
@@ -904,19 +946,18 @@ int32 FLEBSubdivision::SubdivideRegion(
 			int32 V1 = Triangles[i * 3 + 1];
 			int32 V2 = Triangles[i * 3 + 2];
 
-			const FVector& P0 = Positions[V0];
-			const FVector& P1 = Positions[V1];
-			const FVector& P2 = Positions[V2];
-
-			// Check if any vertex, edge midpoint, or center is in OBB influence region
-			// Edge midpoint 검사 추가: 큰 삼각형이 OBB를 관통하는 경우 캐치
+			// 최적화: 캐싱된 버텍스 검사 사용
 			bool bInRegion = false;
-			if (IsInInfluenceRegion(P0)) bInRegion = true;
-			else if (IsInInfluenceRegion(P1)) bInRegion = true;
-			else if (IsInInfluenceRegion(P2)) bInRegion = true;
+			if (IsVertexInRegionCached(V0)) bInRegion = true;
+			else if (IsVertexInRegionCached(V1)) bInRegion = true;
+			else if (IsVertexInRegionCached(V2)) bInRegion = true;
 			else
 			{
-				// Edge midpoints 검사
+				// Edge midpoints 검사 (캐싱 불가 - 매번 새로운 위치)
+				const FVector& P0 = Positions[V0];
+				const FVector& P1 = Positions[V1];
+				const FVector& P2 = Positions[V2];
+
 				FVector Mid01 = (P0 + P1) * 0.5f;
 				FVector Mid12 = (P1 + P2) * 0.5f;
 				FVector Mid20 = (P2 + P0) * 0.5f;
@@ -935,6 +976,10 @@ int32 FLEBSubdivision::SubdivideRegion(
 			if (!bInRegion) continue;
 
 			// Check minimum edge length
+			const FVector& P0 = Positions[V0];
+			const FVector& P1 = Positions[V1];
+			const FVector& P2 = Positions[V2];
+
 			float MaxEdgeLen = FMath::Max3(
 				FVector::Dist(P0, P1),
 				FVector::Dist(P1, P2),
