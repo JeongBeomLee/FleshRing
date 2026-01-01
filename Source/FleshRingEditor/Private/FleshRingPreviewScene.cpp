@@ -134,6 +134,8 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 		FleshRingComponent->ApplyAsset();
 
 		// ApplyAsset() 후 즉시 Ring 메시 가시성 적용 (깜빡임 방지)
+		// 주의: SetupRingMeshes()에서 RegisterComponent() 전에 이미 설정됨
+		// 여기서는 bRingMeshesVisible이 변경된 경우를 위해 다시 적용
 		const TArray<TObjectPtr<UStaticMeshComponent>>& ComponentRingMeshes = FleshRingComponent->GetRingMeshComponents();
 		for (UStaticMeshComponent* RingComp : ComponentRingMeshes)
 		{
@@ -319,7 +321,7 @@ void FFleshRingPreviewScene::RefreshRings(const TArray<FFleshRingSettings>& Ring
 			}
 		}
 
-		// 현재 Show Flag에 맞게 가시성 설정
+		// 현재 Show Flag에 맞게 가시성 설정 (AddComponent 전에 설정)
 		RingComp->SetVisibility(bRingMeshesVisible);
 
 		AddComponent(RingComp, RingComp->GetComponentTransform());
@@ -379,6 +381,12 @@ void FFleshRingPreviewScene::SetSelectedRingIndex(int32 Index)
 void FFleshRingPreviewScene::SetRingMeshesVisible(bool bVisible)
 {
 	bRingMeshesVisible = bVisible;
+
+	// FleshRingComponent의 bShowRingMesh도 동기화 (SetupRingMeshes 시 적용되도록)
+	if (FleshRingComponent)
+	{
+		FleshRingComponent->bShowRingMesh = bVisible;
+	}
 
 	// 1. PreviewScene의 RingMeshComponents (Deformer 비활성화 시)
 	for (UStaticMeshComponent* RingComp : RingMeshComponents)

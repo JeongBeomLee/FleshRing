@@ -863,6 +863,9 @@ void UFleshRingComponent::SetupRingMeshes()
 		MeshComp->bIsEditorOnly = false;  // 게임에서도 보임
 		MeshComp->SetCastShadow(true);    // 그림자 캐스팅
 
+		// Visibility 설정 (RegisterComponent 전에 설정해야 SceneProxy 생성 시 반영됨)
+		MeshComp->SetVisibility(bShowRingMesh);
+
 		// 컴포넌트 등록
 		MeshComp->RegisterComponent();
 
@@ -883,6 +886,9 @@ void UFleshRingComponent::SetupRingMeshes()
 
 	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: SetupRingMeshes completed, %d meshes created"),
 		RingMeshComponents.Num());
+
+	// bShowRingMesh 상태에 따라 Visibility 적용 (에디터 Show Flag 동기화)
+	UpdateRingMeshVisibility();
 }
 
 void UFleshRingComponent::CleanupRingMeshes()
@@ -909,7 +915,7 @@ void UFleshRingComponent::UpdateRingMeshVisibility()
 	{
 		if (MeshComp)
 		{
-			MeshComp->SetVisibility(bShowRingMesh, true);
+			MeshComp->SetVisibility(bShowRingMesh);
 		}
 	}
 }
