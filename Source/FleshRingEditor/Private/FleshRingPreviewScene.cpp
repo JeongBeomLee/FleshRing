@@ -10,6 +10,7 @@
 #include "GameFramework/Actor.h"
 #include "TimerManager.h"
 #include "Rendering/SkeletalMeshRenderData.h"
+#include "Editor.h"
 
 FFleshRingPreviewScene::FFleshRingPreviewScene(const ConstructionValues& CVS)
 	: FAdvancedPreviewScene(CVS)
@@ -339,7 +340,22 @@ void FFleshRingPreviewScene::OnAssetChanged(UFleshRingAsset* ChangedAsset)
 	// 동일한 에셋인지 확인
 	if (ChangedAsset == CurrentAsset)
 	{
-		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Asset changed, refreshing preview..."));
-		RefreshPreview();
+		// 트랜잭션 완료 후 다음 틱에서 안전하게 갱신
+		// (PostEditChangeProperty에서 호출될 때 트랜잭션 내부일 수 있음 - 메시 생성 시 Undo 크래시 방지)
+		if (GEditor)
+		{
+			TWeakObjectPtr<UFleshRingAsset> WeakAsset = ChangedAsset;
+			FFleshRingPreviewScene* Scene = this;
+
+			GEditor->GetTimerManager()->SetTimerForNextTick(
+				[Scene, WeakAsset]()
+				{
+					if (WeakAsset.IsValid() && Scene && Scene->CurrentAsset == WeakAsset.Get())
+					{
+						UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Asset changed, refreshing preview (deferred)..."));
+						Scene->RefreshPreview();
+					}
+				});
+		}
 	}
 }

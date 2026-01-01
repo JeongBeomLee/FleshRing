@@ -14,6 +14,7 @@
 #include "PropertyPath.h"
 #include "Modules/ModuleManager.h"
 #include "UObject/UObjectGlobals.h"
+#include "Editor.h"
 
 #define LOCTEXT_NAMESPACE "FleshRingAssetEditor"
 
@@ -377,8 +378,19 @@ void FFleshRingAssetEditor::OnObjectTransacted(UObject* Object, const FTransacti
 		// UndoRedo 이벤트일 때 갱신 (Ctrl+Z / Ctrl+Y)
 		if (TransactionEvent.GetEventType() == ETransactionObjectEventType::UndoRedo)
 		{
-			// Undo/Redo는 어떤 프로퍼티가 변경되었는지 알 수 없으므로 전체 갱신
-			RefreshViewport();
+			// Undo 트랜잭션 완료 후 다음 틱에서 안전하게 갱신
+			// (트랜잭션 중 RefreshViewport 호출 시 SkeletalMesh 본 데이터 불완전으로 크래시 발생)
+			if (GEditor)
+			{
+				GEditor->GetTimerManager()->SetTimerForNextTick(
+					[WeakThis = TWeakPtr<FFleshRingAssetEditor>(SharedThis(this))]()
+					{
+						if (TSharedPtr<FFleshRingAssetEditor> This = WeakThis.Pin())
+						{
+							This->RefreshViewport();
+						}
+					});
+			}
 		}
 	}
 }
