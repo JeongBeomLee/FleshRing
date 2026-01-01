@@ -56,6 +56,15 @@ public:
 	/** Ring 메시 컴포넌트 배열 반환 */
 	const TArray<UStaticMeshComponent*>& GetRingMeshComponents() const { return RingMeshComponents; }
 
+	/** Ring 메시 가시성 설정 */
+	void SetRingMeshesVisible(bool bVisible);
+
+	/** Deformer 초기화 대기 상태 확인 (메시가 렌더링되었는지 체크) */
+	bool IsPendingDeformerInit() const;
+
+	/** 대기 중인 Deformer 초기화 실행 */
+	void ExecutePendingDeformerInit();
+
 private:
 	/** 프리뷰 액터 생성 */
 	void CreatePreviewActor();
@@ -81,6 +90,9 @@ private:
 	/** 현재 선택된 Ring 인덱스 (-1 = 선택 없음) */
 	int32 SelectedRingIndex = -1;
 
+	/** Ring 메시 가시성 상태 (Show Flag) */
+	bool bRingMeshesVisible = true;
+
 	/** Asset 변경 델리게이트 핸들 (전체 리프레시 - Subdivision 생성/제거 시 필요) */
 	FDelegateHandle AssetChangedDelegateHandle;
 
@@ -90,4 +102,7 @@ private:
 	/** 델리게이트 바인딩/해제 */
 	void BindToAssetDelegate();
 	void UnbindFromAssetDelegate();
+
+	/** Deformer 초기화 대기 플래그 */
+	bool bPendingDeformerInit = false;
 };

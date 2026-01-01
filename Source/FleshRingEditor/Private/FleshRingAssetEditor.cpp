@@ -367,6 +367,12 @@ void FFleshRingAssetEditor::RefreshViewport()
 	if (ViewportWidget.IsValid())
 	{
 		ViewportWidget->RefreshPreview();
+
+		// Show Flag를 새로 생성된 컴포넌트들에 적용
+		if (TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient())
+		{
+			ViewportClient->ApplyShowFlagsToScene();
+		}
 	}
 
 	// Skeleton Tree도 갱신 (Ring 마커 업데이트)

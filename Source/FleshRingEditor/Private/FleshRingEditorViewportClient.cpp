@@ -126,6 +126,12 @@ void FFleshRingEditorViewportClient::Tick(float DeltaSeconds)
 	if (PreviewScene)
 	{
 		PreviewScene->GetWorld()->Tick(LEVELTICK_All, DeltaSeconds);
+
+		// Deformer 초기화 대기 상태 확인 - 메시가 렌더링되면 초기화 실행
+		if (PreviewScene->IsPendingDeformerInit())
+		{
+			PreviewScene->ExecutePendingDeformerInit();
+		}
 	}
 
 	// 선택된 링이 삭제되었는지 확인하고 선택 해제
@@ -1271,17 +1277,19 @@ void FFleshRingEditorViewportClient::ToggleShowRingMeshes()
 	// Ring 메시 컴포넌트 Visibility 토글
 	if (PreviewScene)
 	{
-		const TArray<UStaticMeshComponent*>& RingMeshComponents = PreviewScene->GetRingMeshComponents();
-		for (UStaticMeshComponent* RingComp : RingMeshComponents)
-		{
-			if (RingComp)
-			{
-				RingComp->SetVisibility(bShowRingMeshes);
-			}
-		}
+		PreviewScene->SetRingMeshesVisible(bShowRingMeshes);
 	}
 
 	Invalidate();
+}
+
+void FFleshRingEditorViewportClient::ApplyShowFlagsToScene()
+{
+	if (PreviewScene)
+	{
+		// Ring 메시 가시성 적용
+		PreviewScene->SetRingMeshesVisible(bShowRingMeshes);
+	}
 }
 
 FString FFleshRingEditorViewportClient::GetConfigSectionName() const
@@ -1346,6 +1354,10 @@ void FFleshRingEditorViewportClient::LoadSettings()
 	int32 BoneDrawModeInt = static_cast<int32>(EFleshRingBoneDrawMode::All);
 	GConfig->GetInt(*SectionName, TEXT("BoneDrawMode"), BoneDrawModeInt, GEditorPerProjectIni);
 	BoneDrawMode = static_cast<EFleshRingBoneDrawMode::Type>(FMath::Clamp(BoneDrawModeInt, 0, 5));
+
+	// 로드된 Show Flag를 PreviewScene에 적용
+	// (나중에 생성될 컴포넌트에도 적용되도록 상태 저장)
+	ApplyShowFlagsToScene();
 }
 
 void FFleshRingEditorViewportClient::ToggleShowDebugVisualization()

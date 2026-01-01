@@ -132,6 +132,16 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	{
 		FleshRingComponent->FleshRingAsset = InAsset;
 		FleshRingComponent->ApplyAsset();
+
+		// ApplyAsset() 후 즉시 Ring 메시 가시성 적용 (깜빡임 방지)
+		const TArray<TObjectPtr<UStaticMeshComponent>>& ComponentRingMeshes = FleshRingComponent->GetRingMeshComponents();
+		for (UStaticMeshComponent* RingComp : ComponentRingMeshes)
+		{
+			if (RingComp)
+			{
+				RingComp->SetVisibility(bRingMeshesVisible);
+			}
+		}
 	}
 
 	// ============================================
@@ -178,44 +188,14 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 #endif
 
 	// ============================================
-	// 3단계: Deformer 초기화 (딜레이)
-	// InitializeForEditorPreview() 내부의 ResolveTargetMesh()가 메시를 덮어쓸 수 있으므로
-	// 초기화 완료 후 PreviewMesh를 다시 적용
+	// 3단계: Deformer 초기화 예약
+	// 메시가 실제로 렌더링된 후에 초기화해야 GPU 리소스가 준비됨
+	// ViewportClient::Tick()에서 WasRecentlyRendered() 체크 후 초기화
 	// ============================================
 	if (FleshRingComponent && FleshRingComponent->bEnableFleshRing)
 	{
-		UWorld* World = GetWorld();
-		if (World)
-		{
-			FTimerHandle TimerHandle;
-			TWeakObjectPtr<UFleshRingComponent> WeakComponent = FleshRingComponent;
-			TWeakObjectPtr<UFleshRingAsset> WeakAsset = InAsset;
-			TWeakObjectPtr<UDebugSkelMeshComponent> WeakSkelMesh = SkeletalMeshComponent;
-			bool bUsePreviewMesh = InAsset->bEnableSubdivision && InAsset->HasValidPreviewMesh();
-
-			World->GetTimerManager().SetTimer(
-				TimerHandle,
-				[WeakComponent, WeakAsset, WeakSkelMesh, bUsePreviewMesh]()
-				{
-					if (WeakComponent.IsValid())
-					{
-						WeakComponent->InitializeForEditorPreview();
-					}
-
-					// InitializeForEditorPreview()의 ResolveTargetMesh()가 메시를 덮어썼을 수 있으므로
-					// PreviewMesh를 다시 적용
-					if (bUsePreviewMesh && WeakAsset.IsValid() && WeakAsset->HasValidPreviewMesh() && WeakSkelMesh.IsValid())
-					{
-						WeakSkelMesh->SetSkeletalMesh(WeakAsset->PreviewSubdividedMesh);
-						WeakSkelMesh->MarkRenderStateDirty();
-						WeakSkelMesh->MarkRenderDynamicDataDirty();
-						UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Re-applied PreviewSubdividedMesh after Deformer init"));
-					}
-				},
-				0.1f,  // 0.1초 딜레이
-				false  // 반복 안 함
-			);
-		}
+		bPendingDeformerInit = true;
+		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Deformer init pending (waiting for mesh to be rendered)"));
 	}
 
 	// Deformer 비활성화 시에만 Ring 시각화 (활성화 시 FleshRingComponent가 관리)
@@ -299,6 +279,9 @@ void FFleshRingPreviewScene::RefreshRings(const TArray<FFleshRingSettings>& Ring
 			}
 		}
 
+		// 현재 Show Flag에 맞게 가시성 설정
+		RingComp->SetVisibility(bRingMeshesVisible);
+
 		AddComponent(RingComp, RingComp->GetComponentTransform());
 		RingMeshComponents.Add(RingComp);
 	}
@@ -353,6 +336,33 @@ void FFleshRingPreviewScene::SetSelectedRingIndex(int32 Index)
 	SelectedRingIndex = Index;
 }
 
+void FFleshRingPreviewScene::SetRingMeshesVisible(bool bVisible)
+{
+	bRingMeshesVisible = bVisible;
+
+	// 1. PreviewScene의 RingMeshComponents (Deformer 비활성화 시)
+	for (UStaticMeshComponent* RingComp : RingMeshComponents)
+	{
+		if (RingComp)
+		{
+			RingComp->SetVisibility(bVisible);
+		}
+	}
+
+	// 2. FleshRingComponent의 RingMeshComponents (Deformer 활성화 시)
+	if (FleshRingComponent)
+	{
+		const TArray<TObjectPtr<UStaticMeshComponent>>& ComponentRingMeshes = FleshRingComponent->GetRingMeshComponents();
+		for (UStaticMeshComponent* RingComp : ComponentRingMeshes)
+		{
+			if (RingComp)
+			{
+				RingComp->SetVisibility(bVisible);
+			}
+		}
+	}
+}
+
 void FFleshRingPreviewScene::BindToAssetDelegate()
 {
 	if (CurrentAsset)
@@ -401,4 +411,66 @@ void FFleshRingPreviewScene::OnAssetChanged(UFleshRingAsset* ChangedAsset)
 		}
 	}
 }
+
+bool FFleshRingPreviewScene::IsPendingDeformerInit() const
+{
+	if (!bPendingDeformerInit)
+	{
+		return false;
+	}
+
+	// 스켈레탈 메시가 렌더링되었는지 확인
+	// WasRecentlyRendered()는 마지막 렌더링 시간을 체크하여 최근 렌더링 여부 반환
+	if (SkeletalMeshComponent && SkeletalMeshComponent->WasRecentlyRendered(0.1f))
+	{
+		return true;
+	}
+
+	return false;
+}
+
+void FFleshRingPreviewScene::ExecutePendingDeformerInit()
+{
+	if (!bPendingDeformerInit)
+	{
+		return;
+	}
+
+	bPendingDeformerInit = false;
+
+	if (!FleshRingComponent || !FleshRingComponent->bEnableFleshRing)
+	{
+		return;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Mesh rendered, executing deferred Deformer init"));
+
+	// Deformer 초기화
+	FleshRingComponent->InitializeForEditorPreview();
+
+	// FleshRingComponent가 생성한 Ring 메시에 Show Flag 적용
+	const TArray<TObjectPtr<UStaticMeshComponent>>& RingMeshes = FleshRingComponent->GetRingMeshComponents();
+	for (UStaticMeshComponent* RingComp : RingMeshes)
+	{
+		if (RingComp)
+		{
+			RingComp->SetVisibility(bRingMeshesVisible);
+		}
+	}
+
+	// InitializeForEditorPreview()의 ResolveTargetMesh()가 메시를 덮어썼을 수 있으므로
+	// PreviewMesh를 다시 적용
+	if (CurrentAsset)
+	{
+		bool bUsePreviewMesh = CurrentAsset->bEnableSubdivision && CurrentAsset->HasValidPreviewMesh();
+		if (bUsePreviewMesh && SkeletalMeshComponent)
+		{
+			SkeletalMeshComponent->SetSkeletalMesh(CurrentAsset->PreviewSubdividedMesh);
+			UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Re-applied PreviewSubdividedMesh after Deformer init"));
+		}
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Deformer initialization complete"));
+}
+
 

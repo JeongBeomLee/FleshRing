@@ -112,6 +112,9 @@ public:
 	bool ShouldShowRingMeshes() const { return bShowRingMeshes; }
 	bool ShouldShowBones() const { return bShowBones; }
 
+	/** 현재 Show Flag를 프리뷰 씬에 적용 (리프레시 후 호출) */
+	void ApplyShowFlagsToScene();
+
 	// 본 그리기 옵션 토글/설정
 	void ToggleShowBoneNames() { bShowBoneNames = !bShowBoneNames; Invalidate(); }
 	void ToggleShowMultiColorBones() { bShowMultiColorBones = !bShowMultiColorBones; Invalidate(); }
