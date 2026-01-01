@@ -148,10 +148,13 @@ void FFleshRingEditorViewportClient::Tick(float DeltaSeconds)
 
 void FFleshRingEditorViewportClient::Draw(const FSceneView* View, FPrimitiveDrawInterface* PDI)
 {
+	// 본 그리기 배열 업데이트 (Persona 스타일 - 매 Draw마다 호출)
+	UpdateBonesToDraw();
+
 	FEditorViewportClient::Draw(View, PDI);
 
-	// 본 렌더링 (Persona 스타일)
-	if (bShowBones)
+	// 본 렌더링 (BoneDrawMode가 None이 아닐 때만)
+	if (BoneDrawMode != EFleshRingBoneDrawMode::None)
 	{
 		DrawMeshBones(PDI);
 	}
@@ -166,6 +169,58 @@ void FFleshRingEditorViewportClient::Draw(const FSceneView* View, FPrimitiveDraw
 void FFleshRingEditorViewportClient::DrawCanvas(FViewport& InViewport, FSceneView& View, FCanvas& Canvas)
 {
 	FEditorViewportClient::DrawCanvas(InViewport, View, Canvas);
+
+	// 본 이름 표시 (Persona 스타일)
+	if (BoneDrawMode != EFleshRingBoneDrawMode::None && bShowBoneNames && PreviewScene)
+	{
+		UDebugSkelMeshComponent* MeshComponent = PreviewScene->GetSkeletalMeshComponent();
+		if (MeshComponent && MeshComponent->GetSkeletalMeshAsset() && MeshComponent->IsRegistered())
+		{
+			const FReferenceSkeleton& RefSkeleton = MeshComponent->GetReferenceSkeleton();
+			const int32 NumBones = RefSkeleton.GetNum();
+			const TArray<FTransform>& ComponentSpaceTransforms = MeshComponent->GetComponentSpaceTransforms();
+
+			if (ComponentSpaceTransforms.Num() >= NumBones && BonesToDraw.Num() >= NumBones)
+			{
+				const int32 HalfX = static_cast<int32>(Viewport->GetSizeXY().X / 2 / GetDPIScale());
+				const int32 HalfY = static_cast<int32>(Viewport->GetSizeXY().Y / 2 / GetDPIScale());
+
+				for (int32 BoneIdx = 0; BoneIdx < NumBones; ++BoneIdx)
+				{
+					// BonesToDraw 배열로 그릴 본 결정 (본 렌더링과 동일)
+					if (!BonesToDraw[BoneIdx])
+					{
+						continue;
+					}
+
+					const FVector BonePos = MeshComponent->GetComponentTransform().TransformPosition(
+						ComponentSpaceTransforms[BoneIdx].GetLocation());
+
+					// View->Project로 스크린 좌표 변환 (Persona 방식)
+					const FPlane Proj = View.Project(BonePos);
+
+					// proj.W > 0.f 체크로 카메라 뒤에 있는 본 숨김
+					if (Proj.W > 0.f)
+					{
+						const int32 XPos = static_cast<int32>(HalfX + (HalfX * Proj.X));
+						const int32 YPos = static_cast<int32>(HalfY + (HalfY * (Proj.Y * -1)));
+
+						const FName BoneName = RefSkeleton.GetBoneName(BoneIdx);
+						const FString BoneString = FString::Printf(TEXT("%d: %s"), BoneIdx, *BoneName.ToString());
+
+						// Persona 스타일: 흰색 텍스트 + 검은 그림자
+						FCanvasTextItem TextItem(
+							FVector2D(XPos, YPos),
+							FText::FromString(BoneString),
+							GEngine->GetSmallFont(),
+							FColor::White);
+						TextItem.EnableShadow(FLinearColor::Black);
+						Canvas.DrawItem(TextItem);
+					}
+				}
+			}
+		}
+	}
 }
 
 bool FFleshRingEditorViewportClient::InputKey(const FInputKeyEventArgs& EventArgs)
@@ -352,6 +407,9 @@ void FFleshRingEditorViewportClient::SetAsset(UFleshRingAsset* InAsset)
 		// Asset 설정 (메시 + 컴포넌트 + Ring 시각화)
 		PreviewScene->SetFleshRingAsset(InAsset);
 
+		// 본 그리기 배열 업데이트
+		UpdateBonesToDraw();
+
 		// 카메라 포커스
 		FocusOnMesh();
 	}
@@ -360,12 +418,14 @@ void FFleshRingEditorViewportClient::SetAsset(UFleshRingAsset* InAsset)
 void FFleshRingEditorViewportClient::SetSelectedBone(FName BoneName)
 {
 	SelectedBoneName = BoneName;
+	UpdateBonesToDraw();
 	Invalidate();
 }
 
 void FFleshRingEditorViewportClient::ClearSelectedBone()
 {
 	SelectedBoneName = NAME_None;
+	UpdateBonesToDraw();
 	Invalidate();
 
 	// 스켈레톤 트리에 알림
@@ -517,12 +577,19 @@ void FFleshRingEditorViewportClient::DrawMeshBones(FPrimitiveDrawInterface* PDI)
 		AllBoneIndices[i] = static_cast<FBoneIndexType>(i);
 	}
 
-	// 본 색상 배열 생성 (UDebugSkelMeshComponent의 고정 색상 사용)
+	// 본 색상 배열 생성 (다중 컬러 사용 시 자동 생성)
 	TArray<FLinearColor> BoneColors;
 	BoneColors.SetNum(NumBones);
-	for (int32 i = 0; i < NumBones; ++i)
+	if (bShowMultiColorBones)
 	{
-		BoneColors[i] = MeshComponent->GetBoneColor(i);
+		SkeletalDebugRendering::FillWithMultiColors(BoneColors, NumBones);
+	}
+	else
+	{
+		for (int32 i = 0; i < NumBones; ++i)
+		{
+			BoneColors[i] = MeshComponent->GetBoneColor(i);
+		}
 	}
 
 	// 선택된 본 인덱스 배열 생성
@@ -536,23 +603,44 @@ void FFleshRingEditorViewportClient::DrawMeshBones(FPrimitiveDrawInterface* PDI)
 		}
 	}
 
+	// EFleshRingBoneDrawMode를 EBoneDrawMode로 변환
+	EBoneDrawMode::Type EngineBoneDrawMode = EBoneDrawMode::All;
+	switch (BoneDrawMode)
+	{
+	case EFleshRingBoneDrawMode::None:
+		EngineBoneDrawMode = EBoneDrawMode::None;
+		break;
+	case EFleshRingBoneDrawMode::Selected:
+		EngineBoneDrawMode = EBoneDrawMode::Selected;
+		break;
+	case EFleshRingBoneDrawMode::SelectedAndParents:
+		EngineBoneDrawMode = EBoneDrawMode::SelectedAndParents;
+		break;
+	case EFleshRingBoneDrawMode::SelectedAndChildren:
+		EngineBoneDrawMode = EBoneDrawMode::SelectedAndChildren;
+		break;
+	case EFleshRingBoneDrawMode::SelectedAndParentsAndChildren:
+		EngineBoneDrawMode = EBoneDrawMode::SelectedAndParentsAndChildren;
+		break;
+	case EFleshRingBoneDrawMode::All:
+	default:
+		EngineBoneDrawMode = EBoneDrawMode::All;
+		break;
+	}
+
 	// DrawConfig 설정
 	FSkelDebugDrawConfig DrawConfig;
-	DrawConfig.BoneDrawMode = EBoneDrawMode::All;
-	DrawConfig.BoneDrawSize = 1.0f;
-	DrawConfig.bForceDraw = true;
+	DrawConfig.BoneDrawMode = EngineBoneDrawMode;
+	DrawConfig.BoneDrawSize = BoneDrawSize;
+	DrawConfig.bForceDraw = false;
 	DrawConfig.bAddHitProxy = false;
-	DrawConfig.bUseMultiColorAsDefaultColor = GetDefault<UPersonaOptions>()->bShowBoneColors;
+	DrawConfig.bUseMultiColorAsDefaultColor = bShowMultiColorBones;
 	DrawConfig.DefaultBoneColor = GetDefault<UPersonaOptions>()->DefaultBoneColor;
 	DrawConfig.SelectedBoneColor = GetDefault<UPersonaOptions>()->SelectedBoneColor;  // 초록색
 	DrawConfig.AffectedBoneColor = GetDefault<UPersonaOptions>()->AffectedBoneColor;
 	DrawConfig.ParentOfSelectedBoneColor = GetDefault<UPersonaOptions>()->ParentOfSelectedBoneColor;  // 노란색
 
-	// 그릴 본 인덱스 비트 배열 (모든 본 그리기)
-	TBitArray<> BonesToDraw;
-	BonesToDraw.Init(true, NumBones);
-
-	// 본 렌더링 (선택된 본 전달 - Persona 스타일 색상 적용)
+	// 본 렌더링 (BonesToDraw 멤버 변수 사용 - Persona 스타일)
 	SkeletalDebugRendering::DrawBones(
 		PDI,
 		MeshComponent->GetComponentLocation(),
@@ -1148,6 +1236,12 @@ void FFleshRingEditorViewportClient::SaveSettings()
 	GConfig->SetBool(*SectionName, TEXT("ShowRingMeshes"), bShowRingMeshes, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowBones"), bShowBones, GEditorPerProjectIni);
 
+	// 본 그리기 옵션 저장
+	GConfig->SetBool(*SectionName, TEXT("ShowBoneNames"), bShowBoneNames, GEditorPerProjectIni);
+	GConfig->SetBool(*SectionName, TEXT("ShowMultiColorBones"), bShowMultiColorBones, GEditorPerProjectIni);
+	GConfig->SetFloat(*SectionName, TEXT("BoneDrawSize"), BoneDrawSize, GEditorPerProjectIni);
+	GConfig->SetInt(*SectionName, TEXT("BoneDrawMode"), static_cast<int32>(BoneDrawMode), GEditorPerProjectIni);
+
 	// Config 파일에 즉시 저장
 	GConfig->Flush(false, GEditorPerProjectIni);
 }
@@ -1173,6 +1267,14 @@ void FFleshRingEditorViewportClient::LoadSettings()
 	GConfig->GetBool(*SectionName, TEXT("ShowRingGizmos"), bShowRingGizmos, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowRingMeshes"), bShowRingMeshes, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowBones"), bShowBones, GEditorPerProjectIni);
+
+	// 본 그리기 옵션 로드
+	GConfig->GetBool(*SectionName, TEXT("ShowBoneNames"), bShowBoneNames, GEditorPerProjectIni);
+	GConfig->GetBool(*SectionName, TEXT("ShowMultiColorBones"), bShowMultiColorBones, GEditorPerProjectIni);
+	GConfig->GetFloat(*SectionName, TEXT("BoneDrawSize"), BoneDrawSize, GEditorPerProjectIni);
+	int32 BoneDrawModeInt = static_cast<int32>(EFleshRingBoneDrawMode::All);
+	GConfig->GetInt(*SectionName, TEXT("BoneDrawMode"), BoneDrawModeInt, GEditorPerProjectIni);
+	BoneDrawMode = static_cast<EFleshRingBoneDrawMode::Type>(FMath::Clamp(BoneDrawModeInt, 0, 5));
 }
 
 void FFleshRingEditorViewportClient::ToggleShowDebugVisualization()
@@ -1321,4 +1423,85 @@ bool FFleshRingEditorViewportClient::ShouldShowBulgeHeatmap() const
 		}
 	}
 	return false;
+}
+
+void FFleshRingEditorViewportClient::SetBoneDrawMode(EFleshRingBoneDrawMode::Type InMode)
+{
+	BoneDrawMode = InMode;
+	UpdateBonesToDraw();
+	Invalidate();
+}
+
+void FFleshRingEditorViewportClient::UpdateBonesToDraw()
+{
+	if (!PreviewScene)
+	{
+		return;
+	}
+
+	UDebugSkelMeshComponent* MeshComponent = PreviewScene->GetSkeletalMeshComponent();
+	if (!MeshComponent || !MeshComponent->GetSkeletalMeshAsset())
+	{
+		return;
+	}
+
+	const FReferenceSkeleton& RefSkeleton = MeshComponent->GetReferenceSkeleton();
+	const int32 NumBones = RefSkeleton.GetNum();
+
+	if (NumBones == 0)
+	{
+		BonesToDraw.Empty();
+		return;
+	}
+
+	// 부모 인덱스 배열 생성
+	TArray<int32> ParentIndices;
+	ParentIndices.SetNum(NumBones);
+	for (int32 BoneIndex = 0; BoneIndex < NumBones; ++BoneIndex)
+	{
+		ParentIndices[BoneIndex] = RefSkeleton.GetParentIndex(BoneIndex);
+	}
+
+	// 선택된 본 배열 생성
+	TArray<int32> SelectedBones;
+	if (!SelectedBoneName.IsNone())
+	{
+		int32 SelectedBoneIndex = RefSkeleton.FindBoneIndex(SelectedBoneName);
+		if (SelectedBoneIndex != INDEX_NONE)
+		{
+			SelectedBones.Add(SelectedBoneIndex);
+		}
+	}
+
+	// EFleshRingBoneDrawMode를 EBoneDrawMode로 변환
+	EBoneDrawMode::Type EngineBoneDrawMode = EBoneDrawMode::All;
+	switch (BoneDrawMode)
+	{
+	case EFleshRingBoneDrawMode::None:
+		EngineBoneDrawMode = EBoneDrawMode::None;
+		break;
+	case EFleshRingBoneDrawMode::Selected:
+		EngineBoneDrawMode = EBoneDrawMode::Selected;
+		break;
+	case EFleshRingBoneDrawMode::SelectedAndParents:
+		EngineBoneDrawMode = EBoneDrawMode::SelectedAndParents;
+		break;
+	case EFleshRingBoneDrawMode::SelectedAndChildren:
+		EngineBoneDrawMode = EBoneDrawMode::SelectedAndChildren;
+		break;
+	case EFleshRingBoneDrawMode::SelectedAndParentsAndChildren:
+		EngineBoneDrawMode = EBoneDrawMode::SelectedAndParentsAndChildren;
+		break;
+	case EFleshRingBoneDrawMode::All:
+	default:
+		EngineBoneDrawMode = EBoneDrawMode::All;
+		break;
+	}
+
+	// SkeletalDebugRendering의 함수를 사용하여 그릴 본 계산
+	SkeletalDebugRendering::CalculateBonesToDraw(
+		ParentIndices,
+		SelectedBones,
+		EngineBoneDrawMode,
+		BonesToDraw);
 }

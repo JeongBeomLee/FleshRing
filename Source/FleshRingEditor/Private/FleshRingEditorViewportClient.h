@@ -18,6 +18,20 @@ enum class EFleshRingSelectionType : uint8
 	Mesh		// Ring 메시 선택 (메시 이동/회전)
 };
 
+/** 본 그리기 모드 (Persona 스타일) */
+namespace EFleshRingBoneDrawMode
+{
+	enum Type
+	{
+		None,						// 본 표시 안 함
+		Selected,					// 선택된 본만
+		SelectedAndParents,			// 선택된 본 + 부모 본들
+		SelectedAndChildren,		// 선택된 본 + 자식 본들
+		SelectedAndParentsAndChildren,	// 선택된 본 + 부모 + 자식 본들
+		All							// 모든 본 (모든 계층 구조)
+	};
+}
+
 /** 본 선택 해제 델리게이트 */
 DECLARE_DELEGATE(FOnBoneSelectionCleared);
 
@@ -99,6 +113,22 @@ public:
 	bool ShouldShowRingMeshes() const { return bShowRingMeshes; }
 	bool ShouldShowBones() const { return bShowBones; }
 
+	// 본 그리기 옵션 토글/설정
+	void ToggleShowBoneNames() { bShowBoneNames = !bShowBoneNames; Invalidate(); }
+	void ToggleShowMultiColorBones() { bShowMultiColorBones = !bShowMultiColorBones; Invalidate(); }
+	void SetBoneDrawSize(float InSize) { BoneDrawSize = FMath::Clamp(InSize, 0.1f, 5.0f); Invalidate(); }
+	void SetBoneDrawMode(EFleshRingBoneDrawMode::Type InMode);
+
+	/** 그릴 본 비트 배열 업데이트 (Persona 스타일) */
+	void UpdateBonesToDraw();
+
+	// 본 그리기 옵션 상태
+	bool ShouldShowBoneNames() const { return bShowBoneNames; }
+	bool ShouldShowMultiColorBones() const { return bShowMultiColorBones; }
+	float GetBoneDrawSize() const { return BoneDrawSize; }
+	EFleshRingBoneDrawMode::Type GetBoneDrawMode() const { return BoneDrawMode; }
+	bool IsBoneDrawModeSet(EFleshRingBoneDrawMode::Type InMode) const { return BoneDrawMode == InMode; }
+
 	// 디버그 시각화 토글
 	void ToggleShowDebugVisualization();
 	void ToggleShowSdfVolume();
@@ -176,6 +206,15 @@ private:
 	bool bShowRingGizmos = true;
 	bool bShowRingMeshes = true;
 	bool bShowBones = true;
+
+	// 본 그리기 옵션
+	bool bShowBoneNames = false;
+	bool bShowMultiColorBones = false;
+	float BoneDrawSize = 1.0f;
+	EFleshRingBoneDrawMode::Type BoneDrawMode = EFleshRingBoneDrawMode::All;
+
+	/** 그릴 본 비트 배열 (Persona 스타일) */
+	TBitArray<> BonesToDraw;
 
 	// Local/World 좌표계 플래그 (커스텀 관리)
 	bool bUseLocalCoordSystem = true;

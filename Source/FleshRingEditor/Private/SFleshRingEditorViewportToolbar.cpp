@@ -93,30 +93,293 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 			EUserInterfaceActionType::ToggleButton
 		);
 
-		MenuBuilder.AddMenuEntry(
-			LOCTEXT("ShowBones", "Bones"),
-			LOCTEXT("ShowBonesTooltip", "Show/Hide skeleton bones"),
-			FSlateIcon(),
-			FUIAction(
-				FExecuteAction::CreateLambda([WeakViewportClient]()
-				{
-					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
-					{
-						Client->ToggleShowBones();
-					}
-				}),
-				FCanExecuteAction(),
-				FIsActionChecked::CreateLambda([WeakViewportClient]()
-				{
-					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
-					{
-						return Client->ShouldShowBones();
-					}
-					return false;
-				})
-			),
-			NAME_None,
-			EUserInterfaceActionType::ToggleButton
+		// 본 그리기 서브메뉴 (Bones 체크박스 제거, BoneDrawMode로 통합)
+		MenuBuilder.AddSubMenu(
+			LOCTEXT("BoneDrawing", "Bone Drawing"),
+			LOCTEXT("BoneDrawingTooltip", "Bone drawing options"),
+			FNewMenuDelegate::CreateLambda([WeakViewportClient](FMenuBuilder& SubMenuBuilder)
+			{
+				// 본 그리기 모드 라디오 버튼들 (먼저 배치)
+				SubMenuBuilder.AddMenuEntry(
+					LOCTEXT("BoneDrawModeAll", "All Hierarchy"),
+					LOCTEXT("BoneDrawModeAllTooltip", "Draw all bones"),
+					FSlateIcon(),
+					FUIAction(
+						FExecuteAction::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								Client->SetBoneDrawMode(EFleshRingBoneDrawMode::All);
+							}
+						}),
+						FCanExecuteAction(),
+						FIsActionChecked::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								return Client->IsBoneDrawModeSet(EFleshRingBoneDrawMode::All);
+							}
+							return false;
+						})
+					),
+					NAME_None,
+					EUserInterfaceActionType::RadioButton
+				);
+
+				SubMenuBuilder.AddMenuEntry(
+					LOCTEXT("BoneDrawModeSelected", "Selected Only"),
+					LOCTEXT("BoneDrawModeSelectedTooltip", "Draw only selected bone"),
+					FSlateIcon(),
+					FUIAction(
+						FExecuteAction::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								Client->SetBoneDrawMode(EFleshRingBoneDrawMode::Selected);
+							}
+						}),
+						FCanExecuteAction(),
+						FIsActionChecked::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								return Client->IsBoneDrawModeSet(EFleshRingBoneDrawMode::Selected);
+							}
+							return false;
+						})
+					),
+					NAME_None,
+					EUserInterfaceActionType::RadioButton
+				);
+
+				SubMenuBuilder.AddMenuEntry(
+					LOCTEXT("BoneDrawModeSelectedAndParents", "Selected and Parents"),
+					LOCTEXT("BoneDrawModeSelectedAndParentsTooltip", "Draw selected bone and its parent bones"),
+					FSlateIcon(),
+					FUIAction(
+						FExecuteAction::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								Client->SetBoneDrawMode(EFleshRingBoneDrawMode::SelectedAndParents);
+							}
+						}),
+						FCanExecuteAction(),
+						FIsActionChecked::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								return Client->IsBoneDrawModeSet(EFleshRingBoneDrawMode::SelectedAndParents);
+							}
+							return false;
+						})
+					),
+					NAME_None,
+					EUserInterfaceActionType::RadioButton
+				);
+
+				SubMenuBuilder.AddMenuEntry(
+					LOCTEXT("BoneDrawModeSelectedAndChildren", "Selected and Children"),
+					LOCTEXT("BoneDrawModeSelectedAndChildrenTooltip", "Draw selected bone and its child bones"),
+					FSlateIcon(),
+					FUIAction(
+						FExecuteAction::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								Client->SetBoneDrawMode(EFleshRingBoneDrawMode::SelectedAndChildren);
+							}
+						}),
+						FCanExecuteAction(),
+						FIsActionChecked::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								return Client->IsBoneDrawModeSet(EFleshRingBoneDrawMode::SelectedAndChildren);
+							}
+							return false;
+						})
+					),
+					NAME_None,
+					EUserInterfaceActionType::RadioButton
+				);
+
+				SubMenuBuilder.AddMenuEntry(
+					LOCTEXT("BoneDrawModeSelectedAndParentsAndChildren", "Selected, Parents, and Children"),
+					LOCTEXT("BoneDrawModeSelectedAndParentsAndChildrenTooltip", "Draw selected bone with all parent and child bones"),
+					FSlateIcon(),
+					FUIAction(
+						FExecuteAction::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								Client->SetBoneDrawMode(EFleshRingBoneDrawMode::SelectedAndParentsAndChildren);
+							}
+						}),
+						FCanExecuteAction(),
+						FIsActionChecked::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								return Client->IsBoneDrawModeSet(EFleshRingBoneDrawMode::SelectedAndParentsAndChildren);
+							}
+							return false;
+						})
+					),
+					NAME_None,
+					EUserInterfaceActionType::RadioButton
+				);
+
+				SubMenuBuilder.AddMenuEntry(
+					LOCTEXT("BoneDrawModeNone", "None"),
+					LOCTEXT("BoneDrawModeNoneTooltip", "Hide all bones"),
+					FSlateIcon(),
+					FUIAction(
+						FExecuteAction::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								Client->SetBoneDrawMode(EFleshRingBoneDrawMode::None);
+							}
+						}),
+						FCanExecuteAction(),
+						FIsActionChecked::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								return Client->IsBoneDrawModeSet(EFleshRingBoneDrawMode::None);
+							}
+							return false;
+						})
+					),
+					NAME_None,
+					EUserInterfaceActionType::RadioButton
+				);
+
+				SubMenuBuilder.AddSeparator();
+
+				// 본 이름 표시
+				SubMenuBuilder.AddMenuEntry(
+					LOCTEXT("ShowBoneNames", "Bone Names"),
+					LOCTEXT("ShowBoneNamesTooltip", "Show/Hide bone names"),
+					FSlateIcon(),
+					FUIAction(
+						FExecuteAction::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								Client->ToggleShowBoneNames();
+							}
+						}),
+						FCanExecuteAction::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								return !Client->IsBoneDrawModeSet(EFleshRingBoneDrawMode::None);
+							}
+							return false;
+						}),
+						FIsActionChecked::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								return Client->ShouldShowBoneNames();
+							}
+							return false;
+						})
+					),
+					NAME_None,
+					EUserInterfaceActionType::ToggleButton
+				);
+
+				// 다중 컬러 본
+				SubMenuBuilder.AddMenuEntry(
+					LOCTEXT("ShowMultiColorBones", "Multi-Color Bones"),
+					LOCTEXT("ShowMultiColorBonesTooltip", "Show bones with multiple colors based on hierarchy"),
+					FSlateIcon(),
+					FUIAction(
+						FExecuteAction::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								Client->ToggleShowMultiColorBones();
+							}
+						}),
+						FCanExecuteAction::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								return !Client->IsBoneDrawModeSet(EFleshRingBoneDrawMode::None);
+							}
+							return false;
+						}),
+						FIsActionChecked::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								return Client->ShouldShowMultiColorBones();
+							}
+							return false;
+						})
+					),
+					NAME_None,
+					EUserInterfaceActionType::ToggleButton
+				);
+
+				SubMenuBuilder.AddSeparator();
+
+				// 본 그리기 크기 슬라이더
+				SubMenuBuilder.AddWidget(
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.VAlign(VAlign_Center)
+					.Padding(FMargin(4.0f, 0.0f))
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("BoneDrawSize", "Bone Size"))
+					]
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(FMargin(4.0f, 0.0f))
+					[
+						SNew(SBox)
+						.WidthOverride(80.0f)
+						[
+							SNew(SSpinBox<float>)
+							.MinValue(0.1f)
+							.MaxValue(5.0f)
+							.MinSliderValue(0.1f)
+							.MaxSliderValue(5.0f)
+							.Delta(0.1f)
+							.Value_Lambda([WeakViewportClient]()
+							{
+								if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+								{
+									return Client->GetBoneDrawSize();
+								}
+								return 1.0f;
+							})
+							.OnValueChanged_Lambda([WeakViewportClient](float NewValue)
+							{
+								if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+								{
+									Client->SetBoneDrawSize(NewValue);
+								}
+							})
+							.IsEnabled_Lambda([WeakViewportClient]()
+							{
+								if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+								{
+									return !Client->IsBoneDrawModeSet(EFleshRingBoneDrawMode::None);
+								}
+								return false;
+							})
+						]
+					],
+					FText::GetEmpty()
+				);
+			})
 		);
 	}
 	MenuBuilder.EndSection();
