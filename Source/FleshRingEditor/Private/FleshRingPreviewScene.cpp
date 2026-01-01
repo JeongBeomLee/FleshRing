@@ -211,10 +211,39 @@ void FFleshRingPreviewScene::SetSkeletalMesh(USkeletalMesh* InMesh)
 {
 	if (SkeletalMeshComponent)
 	{
-		// 스켈레톤 유효성 검사 (Undo/Redo 크래시 방지)
-		// EnsureParentsExist에서 본 부모 인덱스가 유효하지 않으면 크래시
+		// 메시 유효성 검사 (Undo/Redo 크래시 방지 + 렌더 리소스 초기화 검증)
 		if (InMesh)
 		{
+			// 렌더 리소스 체크
+			FSkeletalMeshRenderData* RenderData = InMesh->GetResourceForRendering();
+			if (!RenderData)
+			{
+				UE_LOG(LogTemp, Warning,
+					TEXT("FleshRingPreviewScene::SetSkeletalMesh: Mesh '%s' has no render resource, skipping"),
+					*InMesh->GetName());
+				return;
+			}
+
+			// LOD 데이터 존재 체크
+			if (RenderData->LODRenderData.Num() == 0)
+			{
+				UE_LOG(LogTemp, Warning,
+					TEXT("FleshRingPreviewScene::SetSkeletalMesh: Mesh '%s' has no LOD data, skipping"),
+					*InMesh->GetName());
+				return;
+			}
+
+			// LOD 0의 버텍스 버퍼 체크 (Null resource in uniform buffer 크래시 방지)
+			const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[0];
+			if (LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices() == 0)
+			{
+				UE_LOG(LogTemp, Warning,
+					TEXT("FleshRingPreviewScene::SetSkeletalMesh: Mesh '%s' has empty position buffer, skipping"),
+					*InMesh->GetName());
+				return;
+			}
+
+			// 스켈레톤 체크
 			const FReferenceSkeleton& RefSkel = InMesh->GetRefSkeleton();
 			const int32 NumBones = RefSkel.GetNum();
 
@@ -227,11 +256,10 @@ void FFleshRingPreviewScene::SetSkeletalMesh(USkeletalMesh* InMesh)
 				return;
 			}
 
-			// 부모 인덱스 유효성 체크
+			// 부모 인덱스 유효성 체크 (EnsureParentsExist 크래시 방지)
 			for (int32 i = 0; i < NumBones; ++i)
 			{
 				const int32 ParentIndex = RefSkel.GetParentIndex(i);
-				// 루트 본은 INDEX_NONE(-1), 나머지는 0 ~ i-1 범위여야 함
 				if (ParentIndex != INDEX_NONE && (ParentIndex < 0 || ParentIndex >= i))
 				{
 					UE_LOG(LogTemp, Warning,
@@ -239,15 +267,6 @@ void FFleshRingPreviewScene::SetSkeletalMesh(USkeletalMesh* InMesh)
 						*InMesh->GetName(), i, ParentIndex);
 					return;
 				}
-			}
-
-			// 렌더 리소스 체크
-			if (!InMesh->GetResourceForRendering())
-			{
-				UE_LOG(LogTemp, Warning,
-					TEXT("FleshRingPreviewScene::SetSkeletalMesh: Mesh '%s' has no render resource, skipping"),
-					*InMesh->GetName());
-				return;
 			}
 		}
 

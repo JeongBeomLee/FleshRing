@@ -61,8 +61,9 @@ static FTransform GetBoneBindPoseTransform(USkeletalMeshComponent* SkelMesh, FNa
 	return ComponentSpaceTransform;
 }
 
-// Helper: 스켈레탈 메시의 스켈레톤 유효성 검사
+// Helper: 스켈레탈 메시의 유효성 검사
 // Undo/Redo 시 손상된 메시를 SetSkeletalMesh에 전달하면 EnsureParentsExist에서 크래시 발생
+// 렌더 리소스 미초기화 시 Null resource in uniform buffer 크래시 발생
 static bool IsSkeletalMeshSkeletonValid(USkeletalMesh* Mesh)
 {
 	if (!Mesh)
@@ -71,9 +72,27 @@ static bool IsSkeletalMeshSkeletonValid(USkeletalMesh* Mesh)
 	}
 
 	// 렌더 리소스 체크
-	if (!Mesh->GetResourceForRendering())
+	FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
+	if (!RenderData)
 	{
 		UE_LOG(LogFleshRingComponent, Warning, TEXT("IsSkeletalMeshSkeletonValid: Mesh '%s' has no render resource"),
+			*Mesh->GetName());
+		return false;
+	}
+
+	// LOD 데이터 존재 체크
+	if (RenderData->LODRenderData.Num() == 0)
+	{
+		UE_LOG(LogFleshRingComponent, Warning, TEXT("IsSkeletalMeshSkeletonValid: Mesh '%s' has no LOD data"),
+			*Mesh->GetName());
+		return false;
+	}
+
+	// LOD 0의 버텍스 버퍼 체크 (Null resource in uniform buffer 크래시 방지)
+	const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[0];
+	if (LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices() == 0)
+	{
+		UE_LOG(LogFleshRingComponent, Warning, TEXT("IsSkeletalMeshSkeletonValid: Mesh '%s' has empty position buffer"),
 			*Mesh->GetName());
 		return false;
 	}

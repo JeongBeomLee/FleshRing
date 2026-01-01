@@ -165,7 +165,7 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 	}
 }
 
-// Helper: 스켈레탈 메시 유효성 검사 (Undo/Redo 크래시 방지)
+// Helper: 스켈레탈 메시 유효성 검사 (Undo/Redo 크래시 방지 + 렌더 리소스 초기화 검증)
 static bool IsSkeletalMeshValidForUse(USkeletalMesh* Mesh)
 {
 	if (!Mesh)
@@ -174,7 +174,21 @@ static bool IsSkeletalMeshValidForUse(USkeletalMesh* Mesh)
 	}
 
 	// 렌더 리소스 체크
-	if (!Mesh->GetResourceForRendering())
+	FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
+	if (!RenderData)
+	{
+		return false;
+	}
+
+	// LOD 데이터 존재 체크
+	if (RenderData->LODRenderData.Num() == 0)
+	{
+		return false;
+	}
+
+	// LOD 0의 버텍스 버퍼 체크 (Null resource in uniform buffer 크래시 방지)
+	const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[0];
+	if (LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices() == 0)
 	{
 		return false;
 	}
@@ -242,12 +256,47 @@ void UFleshRingAsset::GenerateSubdividedMesh()
 	if (SubdividedMesh)
 	{
 		UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateSubdividedMesh: 기존 SubdividedMesh 제거 중..."));
-		// 렌더 스레드가 이 메시를 사용 중일 수 있으므로 완료 대기
-		FlushRenderingCommands();
-		SubdividedMesh->ConditionalBeginDestroy();
+
+		// ★ 중요: 메시를 파괴하기 전에 사용 중인 컴포넌트들이 원본 메시로 전환하도록 알림
+		// 먼저 포인터를 임시 저장하고 nullptr로 설정 → 컴포넌트들이 원본 메시로 전환
+		USkeletalMesh* MeshToDestroy = SubdividedMesh;
 		SubdividedMesh = nullptr;
+
+		// 델리게이트 브로드캐스트하여 프리뷰 씬 등이 원본 메시로 전환하게 함
+		OnAssetChanged.Broadcast(this);
+
+		// 월드의 FleshRingComponent들도 직접 업데이트
+		if (GEngine)
+		{
+			for (const FWorldContext& Context : GEngine->GetWorldContexts())
+			{
+				if (UWorld* World = Context.World())
+				{
+					for (TActorIterator<AActor> It(World); It; ++It)
+					{
+						if (UFleshRingComponent* Comp = It->FindComponentByClass<UFleshRingComponent>())
+						{
+							if (Comp->FleshRingAsset == this)
+							{
+								// ApplyAsset()이 SubdividedMesh == nullptr을 보고 원본 메시로 전환
+								Comp->ApplyAsset();
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// 렌더 스레드가 메시 전환을 완료할 때까지 대기
+		FlushRenderingCommands();
+
+		// 이제 안전하게 이전 메시 파괴
+		MeshToDestroy->ConditionalBeginDestroy();
+
 		// GC 실행하여 이전 객체 완전 제거
 		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+
+		UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateSubdividedMesh: 기존 SubdividedMesh 제거 완료"));
 	}
 
 	if (!bEnableSubdivision)
@@ -810,16 +859,17 @@ void UFleshRingAsset::GenerateSubdividedMesh()
 	// ============================================
 	// 5. 새 USkeletalMesh 생성 (소스 메시 복제 방식)
 	// ============================================
-	// 기존 SubdividedMesh 제거
-	if (SubdividedMesh)
-	{
-		SubdividedMesh->ConditionalBeginDestroy();
-		SubdividedMesh = nullptr;
-	}
+	// 기존 SubdividedMesh는 함수 시작 부분에서 이미 안전하게 제거됨
 
 	// 소스 메시를 복제하여 모든 내부 구조 상속 (MorphTarget, LOD 데이터 등)
-	FString MeshName = FString::Printf(TEXT("%s_Subdivided"), *SourceMesh->GetName());
+	// ★ 고유한 이름 사용 (기존 메시가 GC 대기 중일 수 있으므로 이름 충돌 방지)
+	FString MeshName = FString::Printf(TEXT("%s_Subdivided_%s"),
+		*SourceMesh->GetName(),
+		*FGuid::NewGuid().ToString(EGuidFormats::Short));
 	SubdividedMesh = DuplicateObject<USkeletalMesh>(SourceMesh, this, FName(*MeshName));
+
+	UE_LOG(LogFleshRingAsset, Log, TEXT("DuplicateObject: %s"),
+		SubdividedMesh ? *SubdividedMesh->GetFullName() : TEXT("FAILED"));
 
 	if (!SubdividedMesh)
 	{
@@ -1058,27 +1108,47 @@ void UFleshRingAsset::GenerateSubdividedMesh()
 	}
 
 	// MeshDescription을 SkeletalMesh에 저장
+	UE_LOG(LogFleshRingAsset, Log, TEXT("Step 1: CreateMeshDescription..."));
 	SubdividedMesh->CreateMeshDescription(0, MoveTemp(MeshDescription));
 
 	// 기존 렌더 리소스 해제 (DuplicateObject로 복제된 데이터 제거)
+	UE_LOG(LogFleshRingAsset, Log, TEXT("Step 2: ReleaseResources..."));
 	SubdividedMesh->ReleaseResources();
 	SubdividedMesh->ReleaseResourcesFence.Wait();
 
 	// MeshDescription을 실제 LOD 모델 데이터로 커밋
 	// CreateMeshDescription은 저장만 하고, CommitMeshDescription이 실제 변환 수행
+	UE_LOG(LogFleshRingAsset, Log, TEXT("Step 3: CommitMeshDescription..."));
 	USkeletalMesh::FCommitMeshDescriptionParams CommitParams;
 	CommitParams.bMarkPackageDirty = false; // 나중에 MarkPackageDirty() 호출함
 	SubdividedMesh->CommitMeshDescription(0, CommitParams);
 
 	// 메시 빌드 (LOD 모델 → 렌더 데이터)
+	UE_LOG(LogFleshRingAsset, Log, TEXT("Step 4: Build..."));
 	SubdividedMesh->Build();
 
+	// Build 결과 검증
+	FSkeletalMeshRenderData* NewRenderData = SubdividedMesh->GetResourceForRendering();
+	if (!NewRenderData || NewRenderData->LODRenderData.Num() == 0)
+	{
+		UE_LOG(LogFleshRingAsset, Error, TEXT("Build failed - no RenderData!"));
+		SubdividedMesh->ConditionalBeginDestroy();
+		SubdividedMesh = nullptr;
+		return;
+	}
+	UE_LOG(LogFleshRingAsset, Log, TEXT("Build succeeded: %d LODs, %d vertices in LOD0"),
+		NewRenderData->LODRenderData.Num(),
+		NewRenderData->LODRenderData[0].StaticVertexBuffers.PositionVertexBuffer.GetNumVertices());
+
 	// 렌더 리소스 초기화
+	UE_LOG(LogFleshRingAsset, Log, TEXT("Step 5: InitResources..."));
 	SubdividedMesh->InitResources();
 
 	// 렌더 스레드가 리소스 초기화를 완료할 때까지 대기
 	// (컴포넌트가 메시를 사용하기 전에 완료되어야 함)
+	UE_LOG(LogFleshRingAsset, Log, TEXT("Step 6: FlushRenderingCommands..."));
 	FlushRenderingCommands();
+	UE_LOG(LogFleshRingAsset, Log, TEXT("Step 7: All steps completed successfully"));
 
 	// 바운딩 박스 재계산
 	FBox BoundingBox(ForceInit);
@@ -1181,11 +1251,24 @@ void UFleshRingAsset::GeneratePreviewMesh()
 	// 기존 PreviewMesh가 있으면 먼저 제거
 	if (PreviewSubdividedMesh)
 	{
-		// 렌더 스레드가 이 메시를 사용 중일 수 있으므로 완료 대기
-		FlushRenderingCommands();
-		PreviewSubdividedMesh->ConditionalBeginDestroy();
+		UE_LOG(LogFleshRingAsset, Log, TEXT("GeneratePreviewMesh: 기존 PreviewMesh 제거 중..."));
+
+		// ★ 중요: 메시를 파괴하기 전에 사용 중인 컴포넌트들이 원본 메시로 전환하도록 알림
+		USkeletalMesh* MeshToDestroy = PreviewSubdividedMesh;
 		PreviewSubdividedMesh = nullptr;
+
+		// 델리게이트 브로드캐스트하여 프리뷰 씬이 원본 메시로 전환하게 함
+		// (SetFleshRingAsset에서 HasValidPreviewMesh() = false를 보고 원본 사용)
+		OnAssetChanged.Broadcast(this);
+
+		// 렌더 스레드가 메시 전환을 완료할 때까지 대기
+		FlushRenderingCommands();
+
+		// 이제 안전하게 이전 메시 파괴
+		MeshToDestroy->ConditionalBeginDestroy();
 		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+
+		UE_LOG(LogFleshRingAsset, Log, TEXT("GeneratePreviewMesh: 기존 PreviewMesh 제거 완료"));
 	}
 
 	if (!bEnableSubdivision)
@@ -1415,8 +1498,15 @@ void UFleshRingAsset::GeneratePreviewMesh()
 	}
 
 	// 5. 프리뷰용 USkeletalMesh 생성 (DuplicateObject로 ImportedModel 구조 유지)
-	FString MeshName = FString::Printf(TEXT("%s_Preview"), *SourceMesh->GetName());
+	// ★ 고유한 이름 사용 (기존 메시가 GC 대기 중일 수 있으므로 이름 충돌 방지)
+	FString MeshName = FString::Printf(TEXT("%s_Preview_%s"),
+		*SourceMesh->GetName(),
+		*FGuid::NewGuid().ToString(EGuidFormats::Short));
 	PreviewSubdividedMesh = DuplicateObject<USkeletalMesh>(SourceMesh, GetTransientPackage(), FName(*MeshName));
+
+	UE_LOG(LogFleshRingAsset, Log, TEXT("GeneratePreviewMesh: DuplicateObject: %s"),
+		PreviewSubdividedMesh ? *PreviewSubdividedMesh->GetFullName() : TEXT("FAILED"));
+
 	if (!PreviewSubdividedMesh)
 	{
 		UE_LOG(LogFleshRingAsset, Warning, TEXT("GeneratePreviewMesh: 메시 복제 실패"));
