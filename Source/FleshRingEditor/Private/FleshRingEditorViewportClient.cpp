@@ -1281,6 +1281,12 @@ void FFleshRingEditorViewportClient::ToggleShowRingMeshes()
 	}
 
 	Invalidate();
+
+	// 드롭박스가 열려있을 때도 뷰포트 강제 렌더링
+	if (Viewport)
+	{
+		Viewport->Draw();
+	}
 }
 
 void FFleshRingEditorViewportClient::ApplyShowFlagsToScene()
