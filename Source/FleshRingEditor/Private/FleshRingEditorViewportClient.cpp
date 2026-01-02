@@ -1270,6 +1270,17 @@ void FFleshRingEditorViewportClient::TrackingStopped()
 	FEditorViewportClient::TrackingStopped();
 }
 
+void FFleshRingEditorViewportClient::InvalidateAndDraw()
+{
+	Invalidate();
+
+	// 드롭박스가 열려있을 때도 뷰포트 강제 렌더링
+	if (Viewport)
+	{
+		Viewport->Draw();
+	}
+}
+
 void FFleshRingEditorViewportClient::ToggleShowRingMeshes()
 {
 	bShowRingMeshes = !bShowRingMeshes;
@@ -1280,13 +1291,7 @@ void FFleshRingEditorViewportClient::ToggleShowRingMeshes()
 		PreviewScene->SetRingMeshesVisible(bShowRingMeshes);
 	}
 
-	Invalidate();
-
-	// 드롭박스가 열려있을 때도 뷰포트 강제 렌더링
-	if (Viewport)
-	{
-		Viewport->Draw();
-	}
+	InvalidateAndDraw();
 }
 
 void FFleshRingEditorViewportClient::ApplyShowFlagsToScene()
@@ -1327,6 +1332,14 @@ void FFleshRingEditorViewportClient::SaveSettings()
 	GConfig->SetFloat(*SectionName, TEXT("BoneDrawSize"), BoneDrawSize, GEditorPerProjectIni);
 	GConfig->SetInt(*SectionName, TEXT("BoneDrawMode"), static_cast<int32>(BoneDrawMode), GEditorPerProjectIni);
 
+	// 디버그 시각화 옵션 저장 (캐싱된 멤버 변수 사용 - 컴포넌트가 파괴되어도 안전)
+	GConfig->SetBool(*SectionName, TEXT("ShowDebugVisualization"), bCachedShowDebugVisualization, GEditorPerProjectIni);
+	GConfig->SetBool(*SectionName, TEXT("ShowSdfVolume"), bCachedShowSdfVolume, GEditorPerProjectIni);
+	GConfig->SetBool(*SectionName, TEXT("ShowAffectedVertices"), bCachedShowAffectedVertices, GEditorPerProjectIni);
+	GConfig->SetBool(*SectionName, TEXT("ShowSDFSlice"), bCachedShowSDFSlice, GEditorPerProjectIni);
+	GConfig->SetBool(*SectionName, TEXT("ShowBulgeHeatmap"), bCachedShowBulgeHeatmap, GEditorPerProjectIni);
+	GConfig->SetInt(*SectionName, TEXT("DebugSliceZ"), CachedDebugSliceZ, GEditorPerProjectIni);
+
 	// Config 파일에 즉시 저장
 	GConfig->Flush(false, GEditorPerProjectIni);
 }
@@ -1361,6 +1374,31 @@ void FFleshRingEditorViewportClient::LoadSettings()
 	GConfig->GetInt(*SectionName, TEXT("BoneDrawMode"), BoneDrawModeInt, GEditorPerProjectIni);
 	BoneDrawMode = static_cast<EFleshRingBoneDrawMode::Type>(FMath::Clamp(BoneDrawModeInt, 0, 5));
 
+	// 디버그 시각화 옵션 로드 (캐싱된 멤버 변수에 저장)
+	GConfig->GetBool(*SectionName, TEXT("ShowDebugVisualization"), bCachedShowDebugVisualization, GEditorPerProjectIni);
+	GConfig->GetBool(*SectionName, TEXT("ShowSdfVolume"), bCachedShowSdfVolume, GEditorPerProjectIni);
+	GConfig->GetBool(*SectionName, TEXT("ShowAffectedVertices"), bCachedShowAffectedVertices, GEditorPerProjectIni);
+	GConfig->GetBool(*SectionName, TEXT("ShowSDFSlice"), bCachedShowSDFSlice, GEditorPerProjectIni);
+	GConfig->GetBool(*SectionName, TEXT("ShowBulgeHeatmap"), bCachedShowBulgeHeatmap, GEditorPerProjectIni);
+	GConfig->GetInt(*SectionName, TEXT("DebugSliceZ"), CachedDebugSliceZ, GEditorPerProjectIni);
+
+	// 캐싱된 값을 FleshRingComponent에 적용
+	if (PreviewScene)
+	{
+		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
+		{
+			Comp->bShowDebugVisualization = bCachedShowDebugVisualization;
+			Comp->bShowSdfVolume = bCachedShowSdfVolume;
+			Comp->bShowAffectedVertices = bCachedShowAffectedVertices;
+			Comp->bShowSDFSlice = bCachedShowSDFSlice;
+			Comp->bShowBulgeHeatmap = bCachedShowBulgeHeatmap;
+			Comp->DebugSliceZ = CachedDebugSliceZ;
+
+			// SDFSlice 평면 가시성 적용
+			Comp->SetDebugSlicePlanesVisible(Comp->bShowSDFSlice && Comp->bShowDebugVisualization);
+		}
+	}
+
 	// 로드된 Show Flag를 PreviewScene에 적용
 	// (나중에 생성될 컴포넌트에도 적용되도록 상태 저장)
 	ApplyShowFlagsToScene();
@@ -1368,150 +1406,114 @@ void FFleshRingEditorViewportClient::LoadSettings()
 
 void FFleshRingEditorViewportClient::ToggleShowDebugVisualization()
 {
+	bCachedShowDebugVisualization = !bCachedShowDebugVisualization;
 	if (PreviewScene)
 	{
 		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
 		{
-			Comp->bShowDebugVisualization = !Comp->bShowDebugVisualization;
+			Comp->bShowDebugVisualization = bCachedShowDebugVisualization;
 			// 평면 액터 즉시 숨기기/보이기
 			Comp->SetDebugSlicePlanesVisible(Comp->bShowSDFSlice && Comp->bShowDebugVisualization);
-			Invalidate();
 		}
 	}
+	InvalidateAndDraw();
 }
 
 void FFleshRingEditorViewportClient::ToggleShowSdfVolume()
 {
+	bCachedShowSdfVolume = !bCachedShowSdfVolume;
 	if (PreviewScene)
 	{
 		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
 		{
-			Comp->bShowSdfVolume = !Comp->bShowSdfVolume;
-			Invalidate();
+			Comp->bShowSdfVolume = bCachedShowSdfVolume;
 		}
 	}
+	InvalidateAndDraw();
 }
 
 void FFleshRingEditorViewportClient::ToggleShowAffectedVertices()
 {
+	bCachedShowAffectedVertices = !bCachedShowAffectedVertices;
 	if (PreviewScene)
 	{
 		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
 		{
-			Comp->bShowAffectedVertices = !Comp->bShowAffectedVertices;
-			Invalidate();
+			Comp->bShowAffectedVertices = bCachedShowAffectedVertices;
 		}
 	}
+	InvalidateAndDraw();
 }
 
 bool FFleshRingEditorViewportClient::ShouldShowDebugVisualization() const
 {
-	if (PreviewScene)
-	{
-		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
-		{
-			return Comp->bShowDebugVisualization;
-		}
-	}
-	return false;
+	return bCachedShowDebugVisualization;
 }
 
 bool FFleshRingEditorViewportClient::ShouldShowSdfVolume() const
 {
-	if (PreviewScene)
-	{
-		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
-		{
-			return Comp->bShowSdfVolume;
-		}
-	}
-	return false;
+	return bCachedShowSdfVolume;
 }
 
 bool FFleshRingEditorViewportClient::ShouldShowAffectedVertices() const
 {
-	if (PreviewScene)
-	{
-		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
-		{
-			return Comp->bShowAffectedVertices;
-		}
-	}
-	return false;
+	return bCachedShowAffectedVertices;
 }
 
 void FFleshRingEditorViewportClient::ToggleShowSDFSlice()
 {
+	bCachedShowSDFSlice = !bCachedShowSDFSlice;
 	if (PreviewScene)
 	{
 		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
 		{
-			Comp->bShowSDFSlice = !Comp->bShowSDFSlice;
+			Comp->bShowSDFSlice = bCachedShowSDFSlice;
 			// 평면 액터 즉시 숨기기/보이기
 			Comp->SetDebugSlicePlanesVisible(Comp->bShowSDFSlice && Comp->bShowDebugVisualization);
-			Invalidate();
 		}
 	}
+	InvalidateAndDraw();
 }
 
 bool FFleshRingEditorViewportClient::ShouldShowSDFSlice() const
 {
-	if (PreviewScene)
-	{
-		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
-		{
-			return Comp->bShowSDFSlice;
-		}
-	}
-	return false;
+	return bCachedShowSDFSlice;
 }
 
 int32 FFleshRingEditorViewportClient::GetDebugSliceZ() const
 {
-	if (PreviewScene)
-	{
-		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
-		{
-			return Comp->DebugSliceZ;
-		}
-	}
-	return 32;
+	return CachedDebugSliceZ;
 }
 
 void FFleshRingEditorViewportClient::SetDebugSliceZ(int32 NewValue)
 {
+	CachedDebugSliceZ = NewValue;
 	if (PreviewScene)
 	{
 		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
 		{
 			Comp->DebugSliceZ = NewValue;
-			Invalidate();
 		}
 	}
+	Invalidate();
 }
 
 void FFleshRingEditorViewportClient::ToggleShowBulgeHeatmap()
 {
+	bCachedShowBulgeHeatmap = !bCachedShowBulgeHeatmap;
 	if (PreviewScene)
 	{
 		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
 		{
-			Comp->bShowBulgeHeatmap = !Comp->bShowBulgeHeatmap;
-			Invalidate();
+			Comp->bShowBulgeHeatmap = bCachedShowBulgeHeatmap;
 		}
 	}
+	InvalidateAndDraw();
 }
 
 bool FFleshRingEditorViewportClient::ShouldShowBulgeHeatmap() const
 {
-	if (PreviewScene)
-	{
-		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
-		{
-			return Comp->bShowBulgeHeatmap;
-		}
-	}
-	return false;
+	return bCachedShowBulgeHeatmap;
 }
 
 void FFleshRingEditorViewportClient::SetBoneDrawMode(EFleshRingBoneDrawMode::Type InMode)

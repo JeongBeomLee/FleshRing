@@ -172,6 +172,9 @@ public:
 	void SetOnRingSelectedInViewport(FOnRingSelectedInViewport InDelegate) { OnRingSelectedInViewport = InDelegate; }
 
 private:
+	/** Invalidate() + Viewport->Draw() 헬퍼 (드롭박스 열린 상태에서도 즉시 렌더링) */
+	void InvalidateAndDraw();
+
 	/** 에셋별 Config 섹션 이름 생성 */
 	FString GetConfigSectionName() const;
 
@@ -220,6 +223,14 @@ private:
 
 	/** 그릴 본 비트 배열 (Persona 스타일) */
 	TBitArray<> BonesToDraw;
+
+	// 디버그 시각화 옵션 (캐싱 - 컴포넌트 생명주기와 독립적으로 저장/로드)
+	bool bCachedShowDebugVisualization = false;
+	bool bCachedShowSdfVolume = false;
+	bool bCachedShowAffectedVertices = false;
+	bool bCachedShowSDFSlice = false;
+	bool bCachedShowBulgeHeatmap = false;
+	int32 CachedDebugSliceZ = 32;
 
 	// Local/World 좌표계 플래그 (커스텀 관리)
 	bool bUseLocalCoordSystem = true;
