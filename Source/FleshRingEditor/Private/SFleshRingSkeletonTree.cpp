@@ -184,6 +184,7 @@ void SFleshRingSkeletonTree::Construct(const FArguments& InArgs)
 	OnRingSelected = InArgs._OnRingSelected;
 	OnAddRingRequested = InArgs._OnAddRingRequested;
 	OnFocusCameraRequested = InArgs._OnFocusCameraRequested;
+	OnRingDeleted = InArgs._OnRingDeleted;
 
 	BuildTree();
 
@@ -1016,8 +1017,12 @@ void SFleshRingSkeletonTree::OnContextMenuDeleteRing()
 
 		Asset->Rings.RemoveAt(RingIndex);
 
-		// 트리 갱신
-		RefreshTree();
+		// 선택 해제 (Undo 시 정상 복원됨)
+		Asset->EditorSelectedRingIndex = -1;
+		Asset->EditorSelectionType = EFleshRingSelectionType::None;
+
+		// 델리게이트 호출 (HandleRingDeleted에서 RefreshPreview + RefreshTree 처리)
+		OnRingDeleted.ExecuteIfBound();
 	}
 }
 
@@ -1041,6 +1046,16 @@ FReply SFleshRingSkeletonTree::OnKeyDown(const FGeometry& MyGeometry, const FKey
 	{
 		OnFocusCameraRequested.ExecuteIfBound();
 		return FReply::Handled();
+	}
+
+	// Delete 키: 선택된 Ring 삭제
+	if (InKeyEvent.GetKey() == EKeys::Delete)
+	{
+		if (CanDeleteRing())
+		{
+			OnContextMenuDeleteRing();
+			return FReply::Handled();
+		}
 	}
 
 	return SCompoundWidget::OnKeyDown(MyGeometry, InKeyEvent);

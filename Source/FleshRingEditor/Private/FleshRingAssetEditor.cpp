@@ -194,7 +194,8 @@ TSharedRef<SDockTab> FFleshRingAssetEditor::SpawnTab_SkeletonTree(const FSpawnTa
 		.OnBoneSelected(FOnBoneSelected::CreateSP(this, &FFleshRingAssetEditor::OnBoneSelected))
 		.OnRingSelected(FOnRingSelected::CreateSP(this, &FFleshRingAssetEditor::OnRingSelected))
 		.OnAddRingRequested(FOnAddRingRequested::CreateSP(this, &FFleshRingAssetEditor::OnAddRingRequested))
-		.OnFocusCameraRequested(FOnFocusCameraRequested::CreateSP(this, &FFleshRingAssetEditor::OnFocusCameraRequested));
+		.OnFocusCameraRequested(FOnFocusCameraRequested::CreateSP(this, &FFleshRingAssetEditor::OnFocusCameraRequested))
+		.OnRingDeleted(FOnRingDeletedFromTree::CreateSP(this, &FFleshRingAssetEditor::HandleRingDeleted));
 
 	return SNew(SDockTab)
 		.Label(LOCTEXT("SkeletonTreeTabLabel", "Skeleton"))
@@ -218,6 +219,10 @@ TSharedRef<SDockTab> FFleshRingAssetEditor::SpawnTab_Viewport(const FSpawnTabArg
 		// 뷰포트에서 Ring 피킹 시 트리/디테일 패널 동기화
 		ViewportClient->SetOnRingSelectedInViewport(
 			FOnRingSelectedInViewport::CreateSP(this, &FFleshRingAssetEditor::OnRingSelectedInViewport));
+
+		// 뷰포트에서 Ring 삭제 시 공통 처리
+		ViewportClient->SetOnRingDeletedInViewport(
+			FOnRingDeletedInViewport::CreateSP(this, &FFleshRingAssetEditor::HandleRingDeleted));
 	}
 
 	return SNew(SDockTab)
@@ -287,6 +292,14 @@ void FFleshRingAssetEditor::OnObjectPropertyChanged(UObject* Object, FPropertyCh
 		{
 			// Ring 배열 구조 변경 시 전체 갱신 필요 (추가/삭제/클리어/복제/이동)
 			bNeedsFullRefresh = true;
+
+			// 배열 삭제/클리어 시 선택 상태 초기화 (선택된 Ring이 삭제되었을 수 있음)
+			if (PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayRemove ||
+				PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayClear)
+			{
+				EditingAsset->EditorSelectedRingIndex = -1;
+				EditingAsset->EditorSelectionType = EFleshRingSelectionType::None;
+			}
 		}
 
 		if (PropertyChangedEvent.Property)
@@ -436,12 +449,47 @@ void FFleshRingAssetEditor::OnObjectTransacted(UObject* Object, const FTransacti
 								This->SkeletonTreeWidget->RefreshTree();
 							}
 
+							// DetailsView 강제 갱신 (Undo/Redo 후 배열 상태 반영)
+							if (This->DetailsView.IsValid())
+							{
+								This->DetailsView->ForceRefresh();
+							}
+
 							// 에셋의 선택 상태를 뷰포트에 반영 (Undo/Redo로 복원된 값)
 							// (ApplySelectionFromAsset 내부에서도 bSyncingFromViewport 설정하지만
 							//  이미 true이므로 중복 설정해도 무방)
 							This->ApplySelectionFromAsset();
 
 							This->bSyncingFromViewport = false;
+
+							// DetailsView 하이라이트를 다음 틱에서 다시 적용
+							// (ForceRefresh() 후 즉시 HighlightProperty가 작동하지 않을 수 있음)
+							if (This->EditingAsset && GEditor)
+							{
+								int32 RingIndex = This->EditingAsset->EditorSelectedRingIndex;
+								if (RingIndex >= 0 && This->EditingAsset->Rings.IsValidIndex(RingIndex))
+								{
+									GEditor->GetTimerManager()->SetTimerForNextTick(
+										[WeakThis, RingIndex]()
+										{
+											if (TSharedPtr<FFleshRingAssetEditor> InnerThis = WeakThis.Pin())
+											{
+												if (InnerThis->DetailsView.IsValid() && InnerThis->EditingAsset &&
+													InnerThis->EditingAsset->Rings.IsValidIndex(RingIndex))
+												{
+													FProperty* RingsProperty = UFleshRingAsset::StaticClass()->FindPropertyByName(
+														GET_MEMBER_NAME_CHECKED(UFleshRingAsset, Rings));
+													if (RingsProperty)
+													{
+														TSharedRef<FPropertyPath> PropertyPath = FPropertyPath::CreateEmpty();
+														PropertyPath->AddProperty(FPropertyInfo(RingsProperty, RingIndex));
+														InnerThis->DetailsView->HighlightProperty(*PropertyPath);
+													}
+												}
+											}
+										});
+								}
+							}
 
 							// 선택 검증 다시 활성화 - 0.2초 후
 							// (SetFleshRingAsset의 0.1초 Deformer 초기화 타이머보다 늦게 해제해야 함)
@@ -601,6 +649,33 @@ void FFleshRingAssetEditor::OnFocusCameraRequested()
 	}
 }
 
+void FFleshRingAssetEditor::HandleRingDeleted()
+{
+	// Ring 삭제 공통 처리 (뷰포트/트리/디테일 어디서든 호출됨)
+	bSyncingFromViewport = true;
+
+	// 뷰포트 갱신 (Ring 메시 컴포넌트 재생성)
+	if (ViewportWidget.IsValid())
+	{
+		ViewportWidget->RefreshPreview();
+
+		// ViewportClient 선택 상태 갱신
+		TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient();
+		if (ViewportClient.IsValid())
+		{
+			ViewportClient->SetSelectionType(EFleshRingSelectionType::None);
+		}
+	}
+
+	// 트리 갱신
+	if (SkeletonTreeWidget.IsValid())
+	{
+		SkeletonTreeWidget->RefreshTree();
+	}
+
+	bSyncingFromViewport = false;
+}
+
 void FFleshRingAssetEditor::ApplySelectionFromAsset()
 {
 	if (!EditingAsset || !ViewportWidget.IsValid())
@@ -638,7 +713,7 @@ void FFleshRingAssetEditor::ApplySelectionFromAsset()
 		}
 	}
 
-	// 트리에서 해당 Ring 선택 (Details 패널 하이라이트)
+	// 트리에서 해당 Ring 선택
 	// bSyncingFromViewport = true로 설정하여 OnRingSelected에서 SelectRing() 호출 방지
 	// (SelectRing()은 새 트랜잭션을 생성하므로 Undo 히스토리가 꼬임)
 	if (SkeletonTreeWidget.IsValid())
@@ -646,6 +721,25 @@ void FFleshRingAssetEditor::ApplySelectionFromAsset()
 		bSyncingFromViewport = true;
 		SkeletonTreeWidget->SelectRingByIndex(RingIndex);
 		bSyncingFromViewport = false;
+	}
+
+	// Details 패널 하이라이트 (Undo/Redo 시 확실하게 복원)
+	if (DetailsView.IsValid())
+	{
+		if (RingIndex >= 0 && EditingAsset->Rings.IsValidIndex(RingIndex))
+		{
+			FProperty* RingsProperty = UFleshRingAsset::StaticClass()->FindPropertyByName(GET_MEMBER_NAME_CHECKED(UFleshRingAsset, Rings));
+			if (RingsProperty)
+			{
+				TSharedRef<FPropertyPath> PropertyPath = FPropertyPath::CreateEmpty();
+				PropertyPath->AddProperty(FPropertyInfo(RingsProperty, RingIndex));
+				DetailsView->HighlightProperty(*PropertyPath);
+			}
+		}
+		else
+		{
+			DetailsView->HighlightProperty(*FPropertyPath::CreateEmpty());
+		}
 	}
 }
 

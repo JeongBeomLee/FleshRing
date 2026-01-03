@@ -241,6 +241,16 @@ bool FFleshRingEditorViewportClient::InputKey(const FInputKeyEventArgs& EventArg
 			return true;
 		}
 
+		// Delete 키로 선택된 Ring 삭제
+		if (EventArgs.Key == EKeys::Delete)
+		{
+			if (CanDeleteSelectedRing())
+			{
+				DeleteSelectedRing();
+				return true;
+			}
+		}
+
 		// Ctrl+` 로 Local/World 좌표계 전환
 		if (EventArgs.Key == EKeys::Tilde &&
 			(EventArgs.Viewport->KeyState(EKeys::LeftControl) || EventArgs.Viewport->KeyState(EKeys::RightControl)))
@@ -427,6 +437,51 @@ void FFleshRingEditorViewportClient::ClearSelection()
 		PreviewScene->SetSelectedRingIndex(-1);
 	}
 	SelectionType = EFleshRingSelectionType::None;
+	Invalidate();
+}
+
+bool FFleshRingEditorViewportClient::CanDeleteSelectedRing() const
+{
+	if (!EditingAsset.IsValid() || !PreviewScene)
+	{
+		return false;
+	}
+
+	// Ring이 선택되어 있어야 함
+	if (SelectionType == EFleshRingSelectionType::None)
+	{
+		return false;
+	}
+
+	int32 SelectedIndex = PreviewScene->GetSelectedRingIndex();
+	return EditingAsset->Rings.IsValidIndex(SelectedIndex);
+}
+
+void FFleshRingEditorViewportClient::DeleteSelectedRing()
+{
+	if (!CanDeleteSelectedRing())
+	{
+		return;
+	}
+
+	int32 SelectedIndex = PreviewScene->GetSelectedRingIndex();
+
+	// Undo/Redo 지원
+	FScopedTransaction Transaction(NSLOCTEXT("FleshRingEditor", "DeleteRing", "Delete Ring"));
+	EditingAsset->Modify();
+
+	// Ring 삭제
+	EditingAsset->Rings.RemoveAt(SelectedIndex);
+
+	// 선택 해제 (Transient 제거했으므로 Undo 시 정상 복원됨)
+	EditingAsset->EditorSelectedRingIndex = -1;
+	EditingAsset->EditorSelectionType = EFleshRingSelectionType::None;
+	PreviewScene->SetSelectedRingIndex(-1);
+	SelectionType = EFleshRingSelectionType::None;
+
+	// 델리게이트 호출 (트리 갱신)
+	OnRingDeletedInViewport.ExecuteIfBound();
+
 	Invalidate();
 }
 

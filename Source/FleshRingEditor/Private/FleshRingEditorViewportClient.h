@@ -31,6 +31,9 @@ DECLARE_DELEGATE(FOnBoneSelectionCleared);
 /** 뷰포트에서 Ring 선택 델리게이트 (RingIndex, SelectionType) */
 DECLARE_DELEGATE_TwoParams(FOnRingSelectedInViewport, int32 /*RingIndex*/, EFleshRingSelectionType /*SelectionType*/);
 
+/** 뷰포트에서 Ring 삭제 델리게이트 */
+DECLARE_DELEGATE(FOnRingDeletedInViewport);
+
 /**
  * FleshRing 에디터 뷰포트 클라이언트
  * 렌더링, 카메라 컨트롤, 입력 처리 담당
@@ -173,6 +176,15 @@ public:
 	/** Ring 선택 델리게이트 설정 (뷰포트에서 Ring 피킹 시 호출) */
 	void SetOnRingSelectedInViewport(FOnRingSelectedInViewport InDelegate) { OnRingSelectedInViewport = InDelegate; }
 
+	/** Ring 삭제 델리게이트 설정 (뷰포트에서 Ring 삭제 시 호출) */
+	void SetOnRingDeletedInViewport(FOnRingDeletedInViewport InDelegate) { OnRingDeletedInViewport = InDelegate; }
+
+	/** 선택된 Ring 삭제 */
+	void DeleteSelectedRing();
+
+	/** 선택된 Ring 삭제 가능 여부 */
+	bool CanDeleteSelectedRing() const;
+
 private:
 	/** Invalidate() + Viewport->Draw() 헬퍼 (드롭박스 열린 상태에서도 즉시 렌더링) */
 	void InvalidateAndDraw();
@@ -249,4 +261,7 @@ private:
 
 	// Ring 선택 델리게이트 (뷰포트에서 피킹 시)
 	FOnRingSelectedInViewport OnRingSelectedInViewport;
+
+	// Ring 삭제 델리게이트 (뷰포트에서 삭제 시)
+	FOnRingDeletedInViewport OnRingDeletedInViewport;
 };

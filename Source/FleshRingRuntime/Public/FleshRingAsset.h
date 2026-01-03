@@ -90,15 +90,15 @@ public:
 	int32 PreviewSubdivisionLevel = 2;
 
 	// =====================================
-	// Editor Selection State (Transient - Undo 가능, 저장 안 함)
+	// Editor Selection State (Undo 가능, 디스크 저장 시 초기화)
 	// =====================================
 
 	/** 에디터에서 선택된 Ring 인덱스 (-1 = 선택 없음) */
-	UPROPERTY(Transient)
+	UPROPERTY()
 	int32 EditorSelectedRingIndex = -1;
 
 	/** 에디터에서 선택 타입 (Gizmo/Mesh) */
-	UPROPERTY(Transient)
+	UPROPERTY()
 	EFleshRingSelectionType EditorSelectionType = EFleshRingSelectionType::None;
 
 	// =====================================
@@ -161,6 +161,9 @@ public:
 	/** 프리뷰 메시 재생성 필요 여부 (레벨 변경 시 등) */
 	bool NeedsPreviewMeshRegeneration() const;
 #endif
+
+	/** 에셋 로드 후 호출 - 에디터 선택 상태 초기화 */
+	virtual void PostLoad() override;
 
 #if WITH_EDITOR
 	/** 에디터에서 프로퍼티 변경 시 호출 */

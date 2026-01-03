@@ -29,6 +29,16 @@ UFleshRingAsset::UFleshRingAsset()
 	// SdfSettings는 이제 각 Ring별로 FFleshRingSettings에 포함됨
 }
 
+void UFleshRingAsset::PostLoad()
+{
+	Super::PostLoad();
+
+	// 에셋 로드 시 에디터 선택 상태 초기화
+	// (UPROPERTY()로 직렬화되지만, 로드 후에는 항상 초기화)
+	EditorSelectedRingIndex = -1;
+	EditorSelectionType = EFleshRingSelectionType::None;
+}
+
 int32 UFleshRingAsset::AddRing(const FFleshRingSettings& NewRing)
 {
 	return Rings.Add(NewRing);

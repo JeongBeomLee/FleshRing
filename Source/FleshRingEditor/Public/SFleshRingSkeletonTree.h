@@ -78,6 +78,9 @@ DECLARE_DELEGATE_OneParam(FOnAddRingRequested, FName /*BoneName*/);
 /** 카메라 포커스 요청 델리게이트 */
 DECLARE_DELEGATE(FOnFocusCameraRequested);
 
+/** Ring 삭제 델리게이트 (트리에서 삭제 시 뷰포트 갱신용) */
+DECLARE_DELEGATE(FOnRingDeletedFromTree);
+
 /**
  * FleshRing 에디터용 스켈레톤 트리 위젯 (Persona 스타일)
  */
@@ -90,6 +93,7 @@ public:
 		SLATE_EVENT(FOnRingSelected, OnRingSelected)
 		SLATE_EVENT(FOnAddRingRequested, OnAddRingRequested)
 		SLATE_EVENT(FOnFocusCameraRequested, OnFocusCameraRequested)
+		SLATE_EVENT(FOnRingDeletedFromTree, OnRingDeleted)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
@@ -211,6 +215,9 @@ private:
 
 	/** 카메라 포커스 요청 델리게이트 */
 	FOnFocusCameraRequested OnFocusCameraRequested;
+
+	/** Ring 삭제 델리게이트 */
+	FOnRingDeletedFromTree OnRingDeleted;
 
 	/** 루트 아이템들 */
 	TArray<TSharedPtr<FFleshRingTreeItem>> RootItems;

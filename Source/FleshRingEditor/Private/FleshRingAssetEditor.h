@@ -81,6 +81,9 @@ private:
 	/** 카메라 포커스 요청 콜백 */
 	void OnFocusCameraRequested();
 
+	/** Ring 삭제 공통 처리 (뷰포트/트리/디테일 모두에서 호출) */
+	void HandleRingDeleted();
+
 	/** 프로퍼티 변경 콜백 */
 	void OnObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& PropertyChangedEvent);
 
