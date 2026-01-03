@@ -3,6 +3,7 @@
 #include "FleshRingPreviewScene.h"
 #include "FleshRingComponent.h"
 #include "FleshRingAsset.h"
+#include "FleshRingUtils.h"
 #include "Animation/DebugSkelMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
@@ -212,62 +213,12 @@ void FFleshRingPreviewScene::SetSkeletalMesh(USkeletalMesh* InMesh)
 	if (SkeletalMeshComponent)
 	{
 		// 메시 유효성 검사 (Undo/Redo 크래시 방지 + 렌더 리소스 초기화 검증)
-		if (InMesh)
+		if (InMesh && !FleshRingUtils::IsSkeletalMeshValid(InMesh, /*bLogWarnings=*/ true))
 		{
-			// 렌더 리소스 체크
-			FSkeletalMeshRenderData* RenderData = InMesh->GetResourceForRendering();
-			if (!RenderData)
-			{
-				UE_LOG(LogTemp, Warning,
-					TEXT("FleshRingPreviewScene::SetSkeletalMesh: Mesh '%s' has no render resource, skipping"),
-					*InMesh->GetName());
-				return;
-			}
-
-			// LOD 데이터 존재 체크
-			if (RenderData->LODRenderData.Num() == 0)
-			{
-				UE_LOG(LogTemp, Warning,
-					TEXT("FleshRingPreviewScene::SetSkeletalMesh: Mesh '%s' has no LOD data, skipping"),
-					*InMesh->GetName());
-				return;
-			}
-
-			// LOD 0의 버텍스 버퍼 체크 (Null resource in uniform buffer 크래시 방지)
-			const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[0];
-			if (LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices() == 0)
-			{
-				UE_LOG(LogTemp, Warning,
-					TEXT("FleshRingPreviewScene::SetSkeletalMesh: Mesh '%s' has empty position buffer, skipping"),
-					*InMesh->GetName());
-				return;
-			}
-
-			// 스켈레톤 체크
-			const FReferenceSkeleton& RefSkel = InMesh->GetRefSkeleton();
-			const int32 NumBones = RefSkel.GetNum();
-
-			// 본이 없는 메시 스킵
-			if (NumBones == 0)
-			{
-				UE_LOG(LogTemp, Warning,
-					TEXT("FleshRingPreviewScene::SetSkeletalMesh: Mesh '%s' has no bones, skipping"),
-					*InMesh->GetName());
-				return;
-			}
-
-			// 부모 인덱스 유효성 체크 (EnsureParentsExist 크래시 방지)
-			for (int32 i = 0; i < NumBones; ++i)
-			{
-				const int32 ParentIndex = RefSkel.GetParentIndex(i);
-				if (ParentIndex != INDEX_NONE && (ParentIndex < 0 || ParentIndex >= i))
-				{
-					UE_LOG(LogTemp, Warning,
-						TEXT("FleshRingPreviewScene::SetSkeletalMesh: Mesh '%s' has invalid skeleton (bone %d parent %d), skipping"),
-						*InMesh->GetName(), i, ParentIndex);
-					return;
-				}
-			}
+			UE_LOG(LogTemp, Warning,
+				TEXT("FleshRingPreviewScene::SetSkeletalMesh: Mesh '%s' is invalid, skipping"),
+				*InMesh->GetName());
+			return;
 		}
 
 		SkeletalMeshComponent->SetSkeletalMesh(InMesh);

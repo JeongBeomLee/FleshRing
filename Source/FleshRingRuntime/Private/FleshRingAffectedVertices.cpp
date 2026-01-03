@@ -307,9 +307,18 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         return false;
     }
 
+    // Extract mesh indices for adjacency data (Normal recomputation)
+    // 인접 데이터용 메시 인덱스 추출 (노멀 재계산용)
+    CachedMeshIndices.Reset();
+    if (!ExtractMeshIndices(SkeletalMesh, CachedMeshIndices, LODIndex))
+    {
+        UE_LOG(LogFleshRingVertices, Warning,
+            TEXT("RegisterAffectedVertices: Failed to extract mesh indices, Normal recomputation will be disabled"));
+    }
+
     UE_LOG(LogFleshRingVertices, Log,
-        TEXT("RegisterAffectedVertices: Processing %d vertices for %d Rings"),
-        MeshVertices.Num(), Rings.Num());
+        TEXT("RegisterAffectedVertices: Processing %d vertices, %d indices for %d Rings"),
+        MeshVertices.Num(), CachedMeshIndices.Num(), Rings.Num());
 
     // Process each Ring
     // 각 링 처리
@@ -451,9 +460,17 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         // GPU용 패킹 (평면 배열로 변환)
         RingData.PackForGPU();
 
+        // Build adjacency data for Normal recomputation
+        // 노멀 재계산용 인접 데이터 빌드
+        if (CachedMeshIndices.Num() > 0)
+        {
+            BuildAdjacencyData(RingData, CachedMeshIndices);
+        }
+
         UE_LOG(LogFleshRingVertices, Log,
-            TEXT("Ring[%d] '%s': %d affected vertices"),
-            RingIdx, *RingSettings.BoneName.ToString(), RingData.Vertices.Num());
+            TEXT("Ring[%d] '%s': %d affected vertices, %d adjacency triangles"),
+            RingIdx, *RingSettings.BoneName.ToString(),
+            RingData.Vertices.Num(), RingData.AdjacencyTriangles.Num());
 
         RingDataArray.Add(MoveTemp(RingData));
     }
@@ -549,4 +566,167 @@ bool FFleshRingAffectedVerticesManager::ExtractMeshVertices(
     }
 
     return true;
+}
+
+// ============================================================================
+// ExtractMeshIndices - 메시에서 인덱스 버퍼 추출
+// ============================================================================
+bool FFleshRingAffectedVerticesManager::ExtractMeshIndices(
+    const USkeletalMeshComponent* SkeletalMesh,
+    TArray<uint32>& OutIndices,
+    int32 LODIndex)
+{
+    if (!SkeletalMesh)
+    {
+        return false;
+    }
+
+    USkeletalMesh* Mesh = SkeletalMesh->GetSkeletalMeshAsset();
+    if (!Mesh)
+    {
+        return false;
+    }
+
+    const FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
+    if (!RenderData || RenderData->LODRenderData.Num() == 0)
+    {
+        return false;
+    }
+
+    if (LODIndex < 0 || LODIndex >= RenderData->LODRenderData.Num())
+    {
+        LODIndex = 0;
+    }
+
+    const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[LODIndex];
+    const FRawStaticIndexBuffer16or32Interface* IndexBuffer = LODData.MultiSizeIndexContainer.GetIndexBuffer();
+
+    if (!IndexBuffer)
+    {
+        return false;
+    }
+
+    const int32 NumIndices = IndexBuffer->Num();
+    OutIndices.Reset(NumIndices);
+
+    for (int32 i = 0; i < NumIndices; ++i)
+    {
+        OutIndices.Add(IndexBuffer->Get(i));
+    }
+
+    return true;
+}
+
+// ============================================================================
+// BuildAdjacencyData - 인접 삼각형 데이터 빌드
+// ============================================================================
+void FFleshRingAffectedVerticesManager::BuildAdjacencyData(
+    FRingAffectedData& RingData,
+    const TArray<uint32>& MeshIndices)
+{
+    const int32 NumAffected = RingData.Vertices.Num();
+    if (NumAffected == 0 || MeshIndices.Num() == 0)
+    {
+        RingData.AdjacencyOffsets.Reset();
+        RingData.AdjacencyTriangles.Reset();
+        return;
+    }
+
+    // ================================================================
+    // Step 1: Build vertex-to-affected-index lookup
+    // 1단계: 버텍스 인덱스 → 영향받는 버텍스 인덱스 룩업 빌드
+    // ================================================================
+    // 영향받는 버텍스가 전체 버텍스의 일부이므로, 빠른 룩업을 위해 맵 사용
+    TMap<uint32, int32> VertexToAffectedIndex;
+    VertexToAffectedIndex.Reserve(NumAffected);
+
+    for (int32 AffIdx = 0; AffIdx < NumAffected; ++AffIdx)
+    {
+        VertexToAffectedIndex.Add(RingData.Vertices[AffIdx].VertexIndex, AffIdx);
+    }
+
+    // ================================================================
+    // Step 2: Build per-affected-vertex triangle lists
+    // 2단계: 영향받는 버텍스별 삼각형 리스트 빌드
+    // ================================================================
+    // TArray<TArray<uint32>>는 느리므로 2-pass 방식 사용
+    // Pass 1: 각 영향받는 버텍스의 인접 삼각형 수 계산
+    TArray<int32> AdjCounts;
+    AdjCounts.SetNumZeroed(NumAffected);
+
+    const int32 NumTriangles = MeshIndices.Num() / 3;
+
+    for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+    {
+        const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
+        const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
+        const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
+
+        // 이 삼각형의 각 버텍스가 영향받는 버텍스인지 확인
+        if (const int32* AffIdx = VertexToAffectedIndex.Find(I0))
+        {
+            AdjCounts[*AffIdx]++;
+        }
+        if (const int32* AffIdx = VertexToAffectedIndex.Find(I1))
+        {
+            AdjCounts[*AffIdx]++;
+        }
+        if (const int32* AffIdx = VertexToAffectedIndex.Find(I2))
+        {
+            AdjCounts[*AffIdx]++;
+        }
+    }
+
+    // ================================================================
+    // Step 3: Build offsets array (prefix sum)
+    // 3단계: 오프셋 배열 빌드 (누적합)
+    // ================================================================
+    RingData.AdjacencyOffsets.SetNum(NumAffected + 1);  // +1 for sentinel
+    RingData.AdjacencyOffsets[0] = 0;
+
+    for (int32 i = 0; i < NumAffected; ++i)
+    {
+        RingData.AdjacencyOffsets[i + 1] = RingData.AdjacencyOffsets[i] + AdjCounts[i];
+    }
+
+    const uint32 TotalAdjacencies = RingData.AdjacencyOffsets[NumAffected];
+
+    // ================================================================
+    // Step 4: Fill adjacency triangles array
+    // 4단계: 인접 삼각형 배열 채우기
+    // ================================================================
+    RingData.AdjacencyTriangles.SetNum(TotalAdjacencies);
+
+    // 현재 쓰기 위치 추적용 (AdjCounts 재활용)
+    TArray<uint32> WritePos;
+    WritePos.SetNum(NumAffected);
+    for (int32 i = 0; i < NumAffected; ++i)
+    {
+        WritePos[i] = RingData.AdjacencyOffsets[i];
+    }
+
+    for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+    {
+        const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
+        const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
+        const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
+
+        if (const int32* AffIdx = VertexToAffectedIndex.Find(I0))
+        {
+            RingData.AdjacencyTriangles[WritePos[*AffIdx]++] = static_cast<uint32>(TriIdx);
+        }
+        if (const int32* AffIdx = VertexToAffectedIndex.Find(I1))
+        {
+            RingData.AdjacencyTriangles[WritePos[*AffIdx]++] = static_cast<uint32>(TriIdx);
+        }
+        if (const int32* AffIdx = VertexToAffectedIndex.Find(I2))
+        {
+            RingData.AdjacencyTriangles[WritePos[*AffIdx]++] = static_cast<uint32>(TriIdx);
+        }
+    }
+
+    UE_LOG(LogFleshRingVertices, Verbose,
+        TEXT("BuildAdjacencyData: %d affected vertices, %d total adjacencies (avg %.1f triangles/vertex)"),
+        NumAffected, TotalAdjacencies,
+        NumAffected > 0 ? static_cast<float>(TotalAdjacencies) / NumAffected : 0.0f);
 }

@@ -9,6 +9,7 @@
 #include "RendererInterface.h"
 #include "FleshRingTightnessShader.h"
 #include "FleshRingBulgeShader.h"
+#include "FleshRingNormalRecomputeShader.h"
 
 class FSkeletalMeshObject;
 class UFleshRingDeformerInstance;
@@ -54,6 +55,13 @@ struct FFleshRingWorkItem
 		TArray<float> BulgeInfluences;
 		float BulgeStrength = 1.0f;
 		float MaxBulgeDistance = 10.0f;
+
+		// ===== Normal Recomputation용 인접 데이터 =====
+		// AdjacencyOffsets[i] = AffectedVertex i의 인접 삼각형 시작 인덱스
+		// AdjacencyOffsets[NumAffected] = 총 인접 삼각형 수 (sentinel)
+		TArray<uint32> AdjacencyOffsets;
+		// 인접 삼각형 인덱스의 평탄화된 리스트
+		TArray<uint32> AdjacencyTriangles;
 	};
 	TSharedPtr<TArray<FRingDispatchData>> RingDispatchDataPtr;
 
@@ -61,6 +69,10 @@ struct FFleshRingWorkItem
 	// 하나 이상의 Ring에서 Bulge가 활성화되어 있는지 여부
 	// (VolumeAccumBuffer 생성 여부 결정용)
 	bool bAnyRingHasBulge = false;
+
+	// ===== Normal Recomputation용 메시 인덱스 버퍼 =====
+	// 모든 Ring이 공유하는 메시 인덱스 버퍼 (3 indices per triangle)
+	TSharedPtr<TArray<uint32>> MeshIndicesPtr;
 
 	// 캐싱 상태
 	bool bNeedTightnessCaching = false;

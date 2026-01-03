@@ -33,6 +33,12 @@ Buffer<float> SourcePositions;
 // SRV 포맷이 SNORM->float 변환을 처리
 Buffer<float4> SourceTangents;
 
+// Input: Recomputed normals from NormalRecomputeCS (optional, for deformed vertices)
+// 입력: NormalRecomputeCS에서 재계산된 노멀 (선택적, 변형된 버텍스용)
+// Format: 3 floats per vertex (x, y, z)
+// (0,0,0) = 재계산되지 않음 → SourceTangents 사용
+Buffer<float> RecomputedNormals;
+
 // Output: Skinned vertex positions (current frame)
 // 출력: 스키닝된 버텍스 위치 (현재 프레임)
 RWBuffer<float> OutputPositions;
@@ -79,6 +85,7 @@ uint NumVertices;           // Section's vertex count / Section 버텍스 수
 // 디버그/기능 플래그
 uint bProcessTangents;      // 탄젠트 처리 여부 (0 = Position만, 1 = Position + Tangent)
 uint bProcessPreviousPosition; // Previous Position 처리 여부 (0 = 현재만, 1 = 현재 + Previous)
+uint bUseRecomputedNormals; // 재계산된 노멀 사용 여부 (0 = SourceTangents만, 1 = RecomputedNormals 우선)
 
 // Thread Group Size
 #ifndef THREADGROUP_SIZE
@@ -358,6 +365,29 @@ void WritePreviousPosition(uint VertexIndex, float3 Pos)
 // - GpuSkinCommon.ush의 TangentBias_SkinCache / TangentUnbias_SkinCache 사용
 // ============================================================================
 
+// Read recomputed normal from NormalRecomputeCS output buffer
+// NormalRecomputeCS 출력 버퍼에서 재계산된 노멀 읽기
+float3 ReadRecomputedNormal(uint VertexIndex)
+{
+    uint BaseIndex = VertexIndex * 3;
+    return float3(
+        RecomputedNormals[BaseIndex + 0],
+        RecomputedNormals[BaseIndex + 1],
+        RecomputedNormals[BaseIndex + 2]
+    );
+}
+
+// Check if recomputed normal is valid (not zero vector)
+// 재계산된 노멀이 유효한지 확인 (0 벡터가 아닌지)
+bool IsRecomputedNormalValid(float3 Normal)
+{
+    // Normalized normals cannot be (0,0,0)
+    // (0,0,0) means the normal was not recomputed → use original
+    // 정규화된 노멀은 (0,0,0)이 될 수 없음
+    // (0,0,0)은 재계산되지 않았음을 의미 → 원본 사용
+    return dot(Normal, Normal) > 1e-8f;
+}
+
 // Read TangentX (Normal) and TangentZ (Tangent) from buffer
 // 버퍼에서 TangentX (노멀)와 TangentZ (탄젠트) 읽기
 // Optimus 방식: TangentBias_SkinCache() 사용
@@ -370,6 +400,26 @@ void ReadTangents(uint VertexIndex, out float3 OutNormal, out float4 OutTangent)
 
     OutNormal = TangentX.xyz;
     OutTangent = TangentZ; // W contains binormal sign
+}
+
+// Read tangents with optional recomputed normal override
+// 선택적으로 재계산된 노멀로 대체하여 탄젠트 읽기
+void ReadTangentsWithRecomputedNormal(uint VertexIndex, out float3 OutNormal, out float4 OutTangent)
+{
+    // First read original tangents
+    // 먼저 원본 탄젠트 읽기
+    ReadTangents(VertexIndex, OutNormal, OutTangent);
+
+    // If using recomputed normals, check and override
+    // 재계산된 노멀 사용 시, 확인 후 대체
+    if (bUseRecomputedNormals != 0)
+    {
+        float3 RecomputedNormal = ReadRecomputedNormal(VertexIndex);
+        if (IsRecomputedNormalValid(RecomputedNormal))
+        {
+            OutNormal = RecomputedNormal;
+        }
+    }
 }
 
 // Safe normalize: returns default if input is zero/near-zero
@@ -480,13 +530,15 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     // 탄젠트 처리는 선택적 (bProcessTangents 플래그로 제어)
     if (bProcessTangents != 0)
     {
-        // Read original tangents
-        float3 OriginalNormal;
+        // Read tangents (with optional recomputed normal override)
+        // 탄젠트 읽기 (선택적으로 재계산된 노멀로 대체)
+        float3 SourceNormal;
         float4 OriginalTangent;
-        ReadTangents(GlobalVertexIndex, OriginalNormal, OriginalTangent);
+        ReadTangentsWithRecomputedNormal(GlobalVertexIndex, SourceNormal, OriginalTangent);
 
         // Transform tangents by skinning matrix (rotation only)
-        float3 SkinnedNormal = TransformDirectionByMatrix(SkinMatrix, OriginalNormal);
+        // 스키닝 행렬로 탄젠트 변환 (회전만)
+        float3 SkinnedNormal = TransformDirectionByMatrix(SkinMatrix, SourceNormal);
         float3 SkinnedTangentDir = TransformDirectionByMatrix(SkinMatrix, OriginalTangent.xyz);
         float4 SkinnedTangent = float4(SkinnedTangentDir, OriginalTangent.w);
 

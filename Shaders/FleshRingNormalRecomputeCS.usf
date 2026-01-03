@@ -1,0 +1,245 @@
+// ============================================================================
+// FleshRing Normal Recompute Compute Shader
+// FleshRing 노멀 재계산 컴퓨트 셰이더
+// ============================================================================
+// Purpose: Recompute vertex normals for deformed vertices using face normal averaging
+// 목적: Face Normal 평균을 사용하여 변형된 버텍스의 노멀 재계산
+//
+// This shader runs AFTER TightnessCS and BulgeCS, using the final deformed positions
+// to calculate accurate normals for affected vertices only.
+// TightnessCS와 BulgeCS 이후에 실행되며, 최종 변형된 위치를 사용하여
+// 영향받은 버텍스에 대해서만 정확한 노멀을 계산합니다.
+//
+// Algorithm:
+// 1. For each affected vertex, find all adjacent triangles
+// 2. Compute face normal for each adjacent triangle (cross product)
+// 3. Sum all face normals (area-weighted average)
+// 4. Normalize to get final vertex normal
+// ============================================================================
+
+#include "/Engine/Public/Platform.ush"
+
+// ============================================================================
+// Buffer Declarations
+// 버퍼 선언
+// ============================================================================
+
+// Input: Deformed vertex positions (from TightnessCS/BulgeCS)
+// 입력: 변형된 버텍스 위치 (TightnessCS/BulgeCS 결과)
+Buffer<float> DeformedPositions;
+
+// Input: Affected vertex indices to process
+// 입력: 처리할 영향받는 버텍스 인덱스
+StructuredBuffer<uint> AffectedVertexIndices;
+
+// Input: Adjacency offsets - AdjacencyOffsets[i] = start index in AdjacencyTriangles for vertex i
+// 입력: 인접 오프셋 - 각 버텍스의 인접 삼각형 시작 인덱스
+// AdjacencyOffsets[i] to AdjacencyOffsets[i+1] = range of adjacent triangles for vertex i
+StructuredBuffer<uint> AdjacencyOffsets;
+
+// Input: Flattened list of adjacent triangle indices
+// 입력: 인접 삼각형 인덱스의 평탄화된 리스트
+StructuredBuffer<uint> AdjacencyTriangles;
+
+// Input: Mesh index buffer (3 indices per triangle)
+// 입력: 메시 인덱스 버퍼 (삼각형당 3개 인덱스)
+Buffer<uint> IndexBuffer;
+
+// Input: Original normals (bind pose) - used as fallback
+// 입력: 원본 노멀 (바인드 포즈) - 폴백용
+Buffer<float> OriginalNormals;
+
+// Output: Recomputed normals (float3 per vertex)
+// 출력: 재계산된 노멀 (버텍스당 float3)
+RWBuffer<float> OutputNormals;
+
+// ============================================================================
+// Parameters
+// 파라미터
+// ============================================================================
+
+uint NumAffectedVertices;   // Number of affected vertices to process
+                            // 처리할 영향받는 버텍스 수
+uint NumTotalVertices;      // Total mesh vertex count (for bounds check)
+                            // 전체 메시 버텍스 수 (범위 체크용)
+
+// Thread Group Size
+#ifndef THREADGROUP_SIZE
+#define THREADGROUP_SIZE 64
+#endif
+
+// ============================================================================
+// Helper Functions
+// 헬퍼 함수
+// ============================================================================
+
+// Read vertex position from buffer (3 floats per vertex)
+// 버퍼에서 버텍스 위치 읽기 (버텍스당 3 float)
+float3 ReadPosition(uint VertexIndex)
+{
+    uint BaseIndex = VertexIndex * 3;
+    return float3(
+        DeformedPositions[BaseIndex + 0],
+        DeformedPositions[BaseIndex + 1],
+        DeformedPositions[BaseIndex + 2]
+    );
+}
+
+// Read original normal from buffer (3 floats per vertex)
+// 버퍼에서 원본 노멀 읽기 (버텍스당 3 float)
+float3 ReadOriginalNormal(uint VertexIndex)
+{
+    uint BaseIndex = VertexIndex * 3;
+    return float3(
+        OriginalNormals[BaseIndex + 0],
+        OriginalNormals[BaseIndex + 1],
+        OriginalNormals[BaseIndex + 2]
+    );
+}
+
+// Write vertex normal to buffer (3 floats per vertex)
+// 버퍼에 버텍스 노멀 쓰기 (버텍스당 3 float)
+void WriteNormal(uint VertexIndex, float3 Normal)
+{
+    uint BaseIndex = VertexIndex * 3;
+    OutputNormals[BaseIndex + 0] = Normal.x;
+    OutputNormals[BaseIndex + 1] = Normal.y;
+    OutputNormals[BaseIndex + 2] = Normal.z;
+}
+
+// Compute face normal for a triangle (CCW winding assumed)
+// 삼각형의 Face Normal 계산 (CCW 와인딩 가정)
+// Returns unnormalized normal (length = 2 * triangle area) for area-weighted average
+// 면적 가중 평균을 위해 정규화되지 않은 노멀 반환 (길이 = 2 * 삼각형 면적)
+float3 ComputeFaceNormal(float3 P0, float3 P1, float3 P2)
+{
+    float3 Edge1 = P1 - P0;
+    float3 Edge2 = P2 - P0;
+    return cross(Edge1, Edge2);
+}
+
+// Safe normalize with fallback
+// 안전한 정규화 (0 벡터 시 기본값 반환)
+float3 SafeNormalize(float3 V, float3 Default)
+{
+    float LenSq = dot(V, V);
+    return LenSq > 1e-8f ? V * rsqrt(LenSq) : Default;
+}
+
+// ============================================================================
+// Main Compute Shader
+// 메인 컴퓨트 셰이더
+// ============================================================================
+
+[numthreads(THREADGROUP_SIZE, 1, 1)]
+void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    uint ThreadIndex = DispatchThreadId.x;
+
+    // Bounds check: Only process affected vertices
+    // 범위 체크: 영향받는 버텍스만 처리
+    if (ThreadIndex >= NumAffectedVertices)
+    {
+        return;
+    }
+
+    // Get the actual vertex index
+    // 실제 버텍스 인덱스 가져오기
+    uint VertexIndex = AffectedVertexIndices[ThreadIndex];
+
+    // Safety check: Ensure vertex index is valid
+    // 안전 체크: 버텍스 인덱스 유효성 확인
+    if (VertexIndex >= NumTotalVertices)
+    {
+        return;
+    }
+
+    // Get original normal as fallback
+    // 폴백용 원본 노멀 가져오기
+    float3 OriginalNormal = ReadOriginalNormal(VertexIndex);
+
+    // ========================================
+    // Step 1: Get adjacent triangle range
+    // 1단계: 인접 삼각형 범위 가져오기
+    // ========================================
+    uint AdjStart = AdjacencyOffsets[ThreadIndex];
+    uint AdjEnd = AdjacencyOffsets[ThreadIndex + 1];
+
+    // No adjacent triangles - use original normal
+    // 인접 삼각형 없음 - 원본 노멀 사용
+    if (AdjStart >= AdjEnd)
+    {
+        WriteNormal(VertexIndex, OriginalNormal);
+        return;
+    }
+
+    // ========================================
+    // Step 2: Accumulate face normals
+    // 2단계: Face Normal 누적
+    // ========================================
+    float3 NormalSum = float3(0, 0, 0);
+    uint ValidFaceCount = 0;
+
+    for (uint i = AdjStart; i < AdjEnd; i++)
+    {
+        // Get triangle index
+        // 삼각형 인덱스 가져오기
+        uint TriIndex = AdjacencyTriangles[i];
+
+        // Get triangle vertex indices (3 indices per triangle)
+        // 삼각형 버텍스 인덱스 가져오기 (삼각형당 3개)
+        uint I0 = IndexBuffer[TriIndex * 3 + 0];
+        uint I1 = IndexBuffer[TriIndex * 3 + 1];
+        uint I2 = IndexBuffer[TriIndex * 3 + 2];
+
+        // Bounds check for vertex indices
+        // 버텍스 인덱스 범위 체크
+        if (I0 >= NumTotalVertices || I1 >= NumTotalVertices || I2 >= NumTotalVertices)
+        {
+            continue;
+        }
+
+        // Get vertex positions
+        // 버텍스 위치 가져오기
+        float3 P0 = ReadPosition(I0);
+        float3 P1 = ReadPosition(I1);
+        float3 P2 = ReadPosition(I2);
+
+        // Compute face normal (unnormalized for area weighting)
+        // Face Normal 계산 (면적 가중을 위해 정규화하지 않음)
+        float3 FaceNormal = ComputeFaceNormal(P0, P1, P2);
+
+        // Check for degenerate triangle
+        // 퇴화 삼각형 체크
+        float FaceNormalLenSq = dot(FaceNormal, FaceNormal);
+        if (FaceNormalLenSq < 1e-12f)
+        {
+            continue;
+        }
+
+        // Accumulate (area-weighted: larger triangles contribute more)
+        // 누적 (면적 가중: 큰 삼각형이 더 많이 기여)
+        NormalSum += FaceNormal;
+        ValidFaceCount++;
+    }
+
+    // ========================================
+    // Step 3: Normalize and write output
+    // 3단계: 정규화 및 출력 쓰기
+    // ========================================
+    if (ValidFaceCount == 0)
+    {
+        // No valid faces - use original normal
+        // 유효한 면 없음 - 원본 노멀 사용
+        WriteNormal(VertexIndex, OriginalNormal);
+        return;
+    }
+
+    // Normalize the accumulated normal
+    // 누적된 노멀 정규화
+    float3 FinalNormal = SafeNormalize(NormalSum, OriginalNormal);
+
+    // Write the recomputed normal
+    // 재계산된 노멀 쓰기
+    WriteNormal(VertexIndex, FinalNormal);
+}

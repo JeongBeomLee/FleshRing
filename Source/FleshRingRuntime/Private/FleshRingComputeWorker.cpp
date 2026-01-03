@@ -172,6 +172,9 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 	// TightenedBindPose 버퍼 처리
 	FRDGBufferRef TightenedBindPoseBuffer = nullptr;
 
+	// NormalRecomputeCS 출력 버퍼 (SkinningCS에서 사용)
+	FRDGBufferRef RecomputedNormalsBuffer = nullptr;
+
 	if (WorkItem.bNeedTightnessCaching)
 	{
 		// 소스 버퍼 생성
@@ -389,6 +392,132 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 			}
 		}
 
+		// ===== NormalRecomputeCS Dispatch (BulgeCS 이후) =====
+		// 변형된 위치에 대해 Face Normal 평균으로 노멀 재계산
+		if (WorkItem.RingDispatchDataPtr.IsValid() && WorkItem.MeshIndicesPtr.IsValid())
+		{
+			// 메시 인덱스 버퍼 생성
+			const TArray<uint32>& MeshIndices = *WorkItem.MeshIndicesPtr;
+			const uint32 NumMeshIndices = MeshIndices.Num();
+
+			if (NumMeshIndices > 0)
+			{
+				FRDGBufferRef MeshIndexBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), NumMeshIndices),
+					TEXT("FleshRing_MeshIndices")
+				);
+				GraphBuilder.QueueBufferUpload(
+					MeshIndexBuffer,
+					MeshIndices.GetData(),
+					NumMeshIndices * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// 원본 노멀 버퍼 (SourceTangents에서 Normal만 추출하여 업로드)
+				// SourceTangents 포맷: 버텍스당 Normal(float3) + Tangent(float4) = 7 float
+				// 여기서는 원본 Position 데이터에서 Normal을 가져와야 함
+				// 실제로는 SourceTangents SRV를 사용해야 하지만, 현재 구조에서는 별도 버퍼 필요
+				// 일단 BindPose Normal을 SourceDataPtr에서 사용할 수 없으므로
+				// SourceTangentsSRV를 그대로 사용하도록 셰이더를 수정하거나
+				// 바인드포즈 노멀을 별도로 전달해야 함
+
+				// TODO: 바인드포즈 노멀 데이터 필요
+				// 현재는 기본 구현으로 각 Ring별 노멀 재계산 수행
+
+				// 출력 버퍼 생성 (재계산된 노멀)
+				// 0으로 초기화 - 영향받지 않는 버텍스는 0 노멀로 남아 SkinningCS에서 폴백
+				RecomputedNormalsBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateBufferDesc(sizeof(float), ActualBufferSize),
+					TEXT("FleshRing_RecomputedNormals")
+				);
+				AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(RecomputedNormalsBuffer, PF_R32_FLOAT), 0);
+
+				// 각 Ring별로 NormalRecomputeCS 디스패치
+				for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
+				{
+					const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
+
+					// 인접 데이터가 없으면 스킵
+					if (DispatchData.AdjacencyOffsets.Num() == 0 || DispatchData.AdjacencyTriangles.Num() == 0)
+					{
+						continue;
+					}
+
+					const uint32 NumAffected = DispatchData.Indices.Num();
+					if (NumAffected == 0) continue;
+
+					// 영향받는 버텍스 인덱스 버퍼
+					FRDGBufferRef AffectedIndicesBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumAffected),
+						*FString::Printf(TEXT("FleshRing_NormalAffectedIndices_Ring%d"), RingIdx)
+					);
+					GraphBuilder.QueueBufferUpload(
+						AffectedIndicesBuffer,
+						DispatchData.Indices.GetData(),
+						NumAffected * sizeof(uint32),
+						ERDGInitialDataFlags::None
+					);
+
+					// 인접 오프셋 버퍼
+					FRDGBufferRef AdjacencyOffsetsBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), DispatchData.AdjacencyOffsets.Num()),
+						*FString::Printf(TEXT("FleshRing_AdjacencyOffsets_Ring%d"), RingIdx)
+					);
+					GraphBuilder.QueueBufferUpload(
+						AdjacencyOffsetsBuffer,
+						DispatchData.AdjacencyOffsets.GetData(),
+						DispatchData.AdjacencyOffsets.Num() * sizeof(uint32),
+						ERDGInitialDataFlags::None
+					);
+
+					// 인접 삼각형 버퍼
+					FRDGBufferRef AdjacencyTrianglesBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), DispatchData.AdjacencyTriangles.Num()),
+						*FString::Printf(TEXT("FleshRing_AdjacencyTriangles_Ring%d"), RingIdx)
+					);
+					GraphBuilder.QueueBufferUpload(
+						AdjacencyTrianglesBuffer,
+						DispatchData.AdjacencyTriangles.GetData(),
+						DispatchData.AdjacencyTriangles.Num() * sizeof(uint32),
+						ERDGInitialDataFlags::None
+					);
+
+					// 원본 노멀 버퍼 (바인드포즈 노멀 - 0으로 초기화)
+					// 0 노멀은 SafeNormalize에서 기본값으로 대체됨
+					FRDGBufferRef OriginalNormalsBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateBufferDesc(sizeof(float), ActualBufferSize),
+						*FString::Printf(TEXT("FleshRing_OriginalNormals_Ring%d"), RingIdx)
+					);
+					// RDG 버퍼는 반드시 초기화해야 읽을 수 있음
+					AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(OriginalNormalsBuffer, PF_R32_FLOAT), 0);
+
+					// NormalRecomputeCS 디스패치
+					FNormalRecomputeDispatchParams NormalParams(NumAffected, ActualNumVertices);
+
+					DispatchFleshRingNormalRecomputeCS(
+						GraphBuilder,
+						NormalParams,
+						TightenedBindPoseBuffer,      // 변형된 위치
+						AffectedIndicesBuffer,         // 영향받는 버텍스 인덱스
+						AdjacencyOffsetsBuffer,        // 인접 오프셋
+						AdjacencyTrianglesBuffer,      // 인접 삼각형
+						MeshIndexBuffer,               // 메시 인덱스 버퍼
+						OriginalNormalsBuffer,         // 원본 노멀 (폴백)
+						RecomputedNormalsBuffer        // 출력: 재계산된 노멀
+					);
+
+					// [조건부 로그] 첫 프레임만
+					static TSet<int32> LoggedNormalRings;
+					if (!LoggedNormalRings.Contains(RingIdx))
+					{
+						UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] NormalRecomputeCS Dispatch Ring[%d]: AffectedVerts=%d, AdjTriangles=%d"),
+							RingIdx, NumAffected, DispatchData.AdjacencyTriangles.Num());
+						LoggedNormalRings.Add(RingIdx);
+					}
+				}
+			}
+		}
+
 		// 영구 버퍼로 변환하여 캐싱
 		if (WorkItem.CachedBufferSharedPtr.IsValid())
 		{
@@ -449,7 +578,8 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 
 			DispatchFleshRingSkinningCS(GraphBuilder, SkinParams, TightenedBindPoseBuffer,
 				SourceTangentsSRV, OutputPositionBuffer, nullptr,
-				OutputTangentBuffer, BoneMatricesSRV, nullptr, InputWeightStreamSRV);
+				OutputTangentBuffer, BoneMatricesSRV, nullptr, InputWeightStreamSRV,
+				RecomputedNormalsBuffer);
 		}
 	}
 

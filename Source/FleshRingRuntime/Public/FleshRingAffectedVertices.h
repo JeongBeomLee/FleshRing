@@ -134,6 +134,24 @@ struct FRingAffectedData
      */
     TArray<float> PackedInfluences;
 
+    // =========== Adjacency Data for Normal Recomputation ===========
+    // =========== 노멀 재계산용 인접 데이터 ===========
+
+    /**
+     * GPU buffer: Adjacency offsets for each affected vertex
+     * AdjacencyOffsets[i] = start index in AdjacencyTriangles for affected vertex i
+     * AdjacencyOffsets[NumAffectedVertices] = total size of AdjacencyTriangles (sentinel)
+     * GPU 버퍼: 각 영향받는 버텍스의 인접 삼각형 시작 인덱스
+     * AdjacencyOffsets[i]에서 AdjacencyOffsets[i+1] 사이가 해당 버텍스의 인접 삼각형 범위
+     */
+    TArray<uint32> AdjacencyOffsets;
+
+    /**
+     * GPU buffer: Flattened list of adjacent triangle indices
+     * GPU 버퍼: 인접 삼각형 인덱스의 평탄화된 리스트
+     */
+    TArray<uint32> AdjacencyTriangles;
+
     FRingAffectedData()
         : BoneName(NAME_None)
         , RingCenter(FVector::ZeroVector)
@@ -349,6 +367,12 @@ public:
      */
     int32 GetTotalAffectedCount() const;
 
+    /**
+     * Get cached mesh indices for Normal recomputation
+     * 노멀 재계산용 캐시된 메시 인덱스 반환
+     */
+    const TArray<uint32>& GetCachedMeshIndices() const { return CachedMeshIndices; }
+
 private:
     /**
      * Current vertex selector strategy
@@ -363,6 +387,12 @@ private:
     TArray<FRingAffectedData> RingDataArray;
 
     /**
+     * Cached mesh indices for Normal recomputation
+     * 노멀 재계산용 캐시된 메시 인덱스 (모든 Ring 공유)
+     */
+    TArray<uint32> CachedMeshIndices;
+
+    /**
      * Extract vertices from skeletal mesh at specific LOD
      * 스켈레탈 메시의 특정 LOD에서 버텍스 추출 (바인드 포즈 컴포넌트 스페이스)
      */
@@ -370,4 +400,24 @@ private:
         const USkeletalMeshComponent* SkeletalMesh,
         TArray<FVector3f>& OutVertices,
         int32 LODIndex = 0);
+
+    /**
+     * Extract index buffer from skeletal mesh at specific LOD
+     * 스켈레탈 메시의 특정 LOD에서 인덱스 버퍼 추출
+     */
+    bool ExtractMeshIndices(
+        const USkeletalMeshComponent* SkeletalMesh,
+        TArray<uint32>& OutIndices,
+        int32 LODIndex = 0);
+
+    /**
+     * Build adjacency data for a single Ring
+     * 단일 링의 인접 데이터 빌드
+     *
+     * @param RingData - Ring data with Vertices already populated
+     * @param MeshIndices - Mesh index buffer (3 indices per triangle)
+     */
+    void BuildAdjacencyData(
+        FRingAffectedData& RingData,
+        const TArray<uint32>& MeshIndices);
 };

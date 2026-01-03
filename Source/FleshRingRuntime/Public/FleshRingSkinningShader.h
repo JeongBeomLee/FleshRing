@@ -50,6 +50,11 @@ public:
         // Format: SNORM float4 (hardware auto-converts)
         SHADER_PARAMETER_SRV(Buffer<float4>, SourceTangents)
 
+        // Input: Recomputed normals from NormalRecomputeCS (optional)
+        // 입력: NormalRecomputeCS에서 재계산된 노멀 (선택적)
+        // Format: 3 floats per vertex, (0,0,0) = use SourceTangents
+        SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float>, RecomputedNormals)
+
         // ===== Output Buffers (UAV - Read/Write) =====
         // ===== 출력 버퍼 (UAV - 읽기/쓰기) =====
 
@@ -105,6 +110,7 @@ public:
 
         SHADER_PARAMETER(uint32, bProcessTangents)     // 탄젠트 처리 여부 (0 = Position만, 1 = Position + Tangent)
         SHADER_PARAMETER(uint32, bProcessPreviousPosition) // Previous Position 처리 여부 (0 = 현재만, 1 = 현재 + Previous)
+        SHADER_PARAMETER(uint32, bUseRecomputedNormals) // 재계산된 노멀 사용 여부 (0 = SourceTangents만, 1 = RecomputedNormals 우선)
     END_SHADER_PARAMETER_STRUCT()
 
     // Shader Compilation Settings
@@ -207,6 +213,8 @@ struct FSkinningDispatchParams
  *                                  velocity용 이전 프레임 본 행렬 SRV (RHI), nullptr 가능
  * @param InputWeightStreamSRV - Packed bone indices + weights SRV (RHI)
  *                               패킹된 본 인덱스 + 웨이트 SRV (RHI)
+ * @param RecomputedNormalsBuffer - Recomputed normals from NormalRecomputeCS (RDG, optional, can be nullptr)
+ *                                  NormalRecomputeCS에서 재계산된 노멀 (RDG, 선택적, nullptr 가능)
  */
 void DispatchFleshRingSkinningCS(
     FRDGBuilder& GraphBuilder,
@@ -218,4 +226,5 @@ void DispatchFleshRingSkinningCS(
     FRDGBufferRef OutputTangentsBuffer,
     FRHIShaderResourceView* BoneMatricesSRV,
     FRHIShaderResourceView* PreviousBoneMatricesSRV,
-    FRHIShaderResourceView* InputWeightStreamSRV);
+    FRHIShaderResourceView* InputWeightStreamSRV,
+    FRDGBufferRef RecomputedNormalsBuffer = nullptr);

@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "FleshRingAsset.h"
+#include "FleshRingUtils.h"
 #include "Engine/SkeletalMesh.h"
 #include "Rendering/SkeletalMeshRenderData.h"
 #include "Rendering/SkeletalMeshLODRenderData.h"
@@ -165,54 +166,10 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 	}
 }
 
-// Helper: 스켈레탈 메시 유효성 검사 (Undo/Redo 크래시 방지 + 렌더 리소스 초기화 검증)
+// Helper: 스켈레탈 메시 유효성 검사 (공통 유틸리티 래퍼)
 static bool IsSkeletalMeshValidForUse(USkeletalMesh* Mesh)
 {
-	if (!Mesh)
-	{
-		return false;
-	}
-
-	// 렌더 리소스 체크
-	FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
-	if (!RenderData)
-	{
-		return false;
-	}
-
-	// LOD 데이터 존재 체크
-	if (RenderData->LODRenderData.Num() == 0)
-	{
-		return false;
-	}
-
-	// LOD 0의 버텍스 버퍼 체크 (Null resource in uniform buffer 크래시 방지)
-	const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[0];
-	if (LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices() == 0)
-	{
-		return false;
-	}
-
-	// 스켈레톤 체크
-	const FReferenceSkeleton& RefSkel = Mesh->GetRefSkeleton();
-	const int32 NumBones = RefSkel.GetNum();
-
-	if (NumBones == 0)
-	{
-		return false;
-	}
-
-	// 부모 인덱스 유효성 체크
-	for (int32 i = 0; i < NumBones; ++i)
-	{
-		const int32 ParentIndex = RefSkel.GetParentIndex(i);
-		if (ParentIndex != INDEX_NONE && (ParentIndex < 0 || ParentIndex >= i))
-		{
-			return false;
-		}
-	}
-
-	return true;
+	return FleshRingUtils::IsSkeletalMeshValid(Mesh, /*bLogWarnings=*/ false);
 }
 
 void UFleshRingAsset::PostTransacted(const FTransactionObjectEvent& TransactionEvent)
@@ -291,10 +248,9 @@ void UFleshRingAsset::GenerateSubdividedMesh()
 		FlushRenderingCommands();
 
 		// 이제 안전하게 이전 메시 파괴
+		// GUID로 고유 이름 사용하므로 이름 충돌 없음 → CollectGarbage() 불필요
+		// 다음 GC 사이클에서 자동 정리됨
 		MeshToDestroy->ConditionalBeginDestroy();
-
-		// GC 실행하여 이전 객체 완전 제거
-		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
 
 		UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateSubdividedMesh: 기존 SubdividedMesh 제거 완료"));
 	}
@@ -1265,8 +1221,8 @@ void UFleshRingAsset::GeneratePreviewMesh()
 		FlushRenderingCommands();
 
 		// 이제 안전하게 이전 메시 파괴
+		// GUID로 고유 이름 사용하므로 이름 충돌 없음 → CollectGarbage() 불필요
 		MeshToDestroy->ConditionalBeginDestroy();
-		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
 
 		UE_LOG(LogFleshRingAsset, Log, TEXT("GeneratePreviewMesh: 기존 PreviewMesh 제거 완료"));
 	}

@@ -2,6 +2,7 @@
 
 #include "FleshRingComponent.h"
 #include "FleshRingAsset.h"
+#include "FleshRingUtils.h"
 #include "FleshRingMeshExtractor.h"
 #include "FleshRingSDF.h"
 #include "FleshRingDeformerInstance.h"
@@ -61,68 +62,10 @@ static FTransform GetBoneBindPoseTransform(USkeletalMeshComponent* SkelMesh, FNa
 	return ComponentSpaceTransform;
 }
 
-// Helper: 스켈레탈 메시의 유효성 검사
-// Undo/Redo 시 손상된 메시를 SetSkeletalMesh에 전달하면 EnsureParentsExist에서 크래시 발생
-// 렌더 리소스 미초기화 시 Null resource in uniform buffer 크래시 발생
+// Helper: 스켈레탈 메시의 유효성 검사 (공통 유틸리티 래퍼)
 static bool IsSkeletalMeshSkeletonValid(USkeletalMesh* Mesh)
 {
-	if (!Mesh)
-	{
-		return false;
-	}
-
-	// 렌더 리소스 체크
-	FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
-	if (!RenderData)
-	{
-		UE_LOG(LogFleshRingComponent, Warning, TEXT("IsSkeletalMeshSkeletonValid: Mesh '%s' has no render resource"),
-			*Mesh->GetName());
-		return false;
-	}
-
-	// LOD 데이터 존재 체크
-	if (RenderData->LODRenderData.Num() == 0)
-	{
-		UE_LOG(LogFleshRingComponent, Warning, TEXT("IsSkeletalMeshSkeletonValid: Mesh '%s' has no LOD data"),
-			*Mesh->GetName());
-		return false;
-	}
-
-	// LOD 0의 버텍스 버퍼 체크 (Null resource in uniform buffer 크래시 방지)
-	const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[0];
-	if (LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices() == 0)
-	{
-		UE_LOG(LogFleshRingComponent, Warning, TEXT("IsSkeletalMeshSkeletonValid: Mesh '%s' has empty position buffer"),
-			*Mesh->GetName());
-		return false;
-	}
-
-	// 스켈레톤 체크
-	const FReferenceSkeleton& RefSkel = Mesh->GetRefSkeleton();
-	const int32 NumBones = RefSkel.GetNum();
-
-	if (NumBones == 0)
-	{
-		UE_LOG(LogFleshRingComponent, Warning, TEXT("IsSkeletalMeshSkeletonValid: Mesh '%s' has no bones"),
-			*Mesh->GetName());
-		return false;
-	}
-
-	// 부모 인덱스 유효성 체크 (EnsureParentsExist 크래시 방지)
-	for (int32 i = 0; i < NumBones; ++i)
-	{
-		const int32 ParentIndex = RefSkel.GetParentIndex(i);
-		// 루트 본은 INDEX_NONE(-1), 나머지는 0 ~ i-1 범위여야 함
-		if (ParentIndex != INDEX_NONE && (ParentIndex < 0 || ParentIndex >= i))
-		{
-			UE_LOG(LogFleshRingComponent, Warning,
-				TEXT("IsSkeletalMeshSkeletonValid: Mesh '%s' bone %d has invalid parent index %d (NumBones=%d)"),
-				*Mesh->GetName(), i, ParentIndex, NumBones);
-			return false;
-		}
-	}
-
-	return true;
+	return FleshRingUtils::IsSkeletalMeshValid(Mesh, /*bLogWarnings=*/ true);
 }
 
 UFleshRingComponent::UFleshRingComponent()

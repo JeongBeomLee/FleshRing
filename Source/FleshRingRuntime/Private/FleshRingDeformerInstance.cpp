@@ -304,6 +304,10 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		DispatchData.Indices = RingData.PackedIndices;
 		DispatchData.Influences = RingData.PackedInfluences;
 
+		// Normal Recomputation용 인접 데이터 복사
+		DispatchData.AdjacencyOffsets = RingData.AdjacencyOffsets;
+		DispatchData.AdjacencyTriangles = RingData.AdjacencyTriangles;
+
 		// Ring별 InfluenceMode 확인
 		EFleshRingInfluenceMode RingInfluenceMode = EFleshRingInfluenceMode::Auto;
 		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIndex))
@@ -510,6 +514,14 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	WorkItem.TotalVertexCount = TotalVertexCount;
 	WorkItem.SourceDataPtr = MakeShared<TArray<float>>(CurrentLODData.CachedSourcePositions);
 	WorkItem.RingDispatchDataPtr = RingDispatchDataPtr;
+
+	// Normal Recomputation용 메시 인덱스 전달
+	const TArray<uint32>& MeshIndices = CurrentLODData.AffectedVerticesManager.GetCachedMeshIndices();
+	if (MeshIndices.Num() > 0)
+	{
+		WorkItem.MeshIndicesPtr = MakeShared<TArray<uint32>>(MeshIndices);
+	}
+
 	WorkItem.bNeedTightnessCaching = bNeedTightnessCaching;
 	WorkItem.bInvalidatePreviousPosition = bInvalidatePreviousPosition;
 	WorkItem.CachedBufferSharedPtr = CurrentLODData.CachedTightenedBindPoseShared;  // TSharedPtr 복사 (ref count 증가)
