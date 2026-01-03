@@ -42,6 +42,32 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 	MenuBuilder.BeginSection("FleshRingShow", LOCTEXT("FleshRingShowHeader", "FleshRing"));
 	{
 		MenuBuilder.AddMenuEntry(
+			LOCTEXT("ShowSkeletalMesh", "Skeletal Mesh"),
+			LOCTEXT("ShowSkeletalMeshTooltip", "Show/Hide skeletal mesh"),
+			FSlateIcon(),
+			FUIAction(
+				FExecuteAction::CreateLambda([WeakViewportClient]()
+				{
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+					{
+						Client->ToggleShowSkeletalMesh();
+					}
+				}),
+				FCanExecuteAction(),
+				FIsActionChecked::CreateLambda([WeakViewportClient]()
+				{
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+					{
+						return Client->ShouldShowSkeletalMesh();
+					}
+					return false;
+				})
+			),
+			NAME_None,
+			EUserInterfaceActionType::ToggleButton
+		);
+
+		MenuBuilder.AddMenuEntry(
 			LOCTEXT("ShowRingGizmos", "Ring Gizmos"),
 			LOCTEXT("ShowRingGizmosTooltip", "Show/Hide ring gizmos"),
 			FSlateIcon(),

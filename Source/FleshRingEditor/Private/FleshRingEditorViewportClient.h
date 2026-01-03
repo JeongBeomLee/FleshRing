@@ -103,11 +103,13 @@ public:
 	void SelectRing(int32 RingIndex, FName AttachedBoneName = NAME_None);
 
 	// Show 플래그 토글
+	void ToggleShowSkeletalMesh();
 	void ToggleShowRingGizmos() { bShowRingGizmos = !bShowRingGizmos; Invalidate(); }
 	void ToggleShowRingMeshes();
 	void ToggleShowBones() { bShowBones = !bShowBones; Invalidate(); }
 
 	// Show 플래그 상태
+	bool ShouldShowSkeletalMesh() const { return bShowSkeletalMesh; }
 	bool ShouldShowRingGizmos() const { return bShowRingGizmos; }
 	bool ShouldShowRingMeshes() const { return bShowRingMeshes; }
 	bool ShouldShowBones() const { return bShowBones; }
@@ -211,6 +213,7 @@ private:
 	bool bSkipSelectionValidation = false;
 
 	// Show 플래그
+	bool bShowSkeletalMesh = true;
 	bool bShowRingGizmos = true;
 	bool bShowRingMeshes = true;
 	bool bShowBones = true;

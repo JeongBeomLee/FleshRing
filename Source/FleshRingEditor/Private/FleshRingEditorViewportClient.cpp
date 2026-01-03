@@ -1281,6 +1281,21 @@ void FFleshRingEditorViewportClient::InvalidateAndDraw()
 	}
 }
 
+void FFleshRingEditorViewportClient::ToggleShowSkeletalMesh()
+{
+	bShowSkeletalMesh = !bShowSkeletalMesh;
+
+	if (PreviewScene)
+	{
+		if (USkeletalMeshComponent* SkelMeshComp = PreviewScene->GetSkeletalMeshComponent())
+		{
+			SkelMeshComp->SetVisibility(bShowSkeletalMesh);
+		}
+	}
+
+	InvalidateAndDraw();
+}
+
 void FFleshRingEditorViewportClient::ToggleShowRingMeshes()
 {
 	bShowRingMeshes = !bShowRingMeshes;
@@ -1298,6 +1313,12 @@ void FFleshRingEditorViewportClient::ApplyShowFlagsToScene()
 {
 	if (PreviewScene)
 	{
+		// 스켈레탈 메시 가시성 적용
+		if (USkeletalMeshComponent* SkelMeshComp = PreviewScene->GetSkeletalMeshComponent())
+		{
+			SkelMeshComp->SetVisibility(bShowSkeletalMesh);
+		}
+
 		// Ring 메시 가시성 적용
 		PreviewScene->SetRingMeshesVisible(bShowRingMeshes);
 	}
@@ -1322,6 +1343,7 @@ void FFleshRingEditorViewportClient::SaveSettings()
 	GConfig->SetRotator(*SectionName, TEXT("ViewRotation"), GetViewRotation(), GEditorPerProjectIni);
 
 	// 커스텀 쇼플래그 저장
+	GConfig->SetBool(*SectionName, TEXT("ShowSkeletalMesh"), bShowSkeletalMesh, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowRingGizmos"), bShowRingGizmos, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowRingMeshes"), bShowRingMeshes, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowBones"), bShowBones, GEditorPerProjectIni);
@@ -1362,6 +1384,7 @@ void FFleshRingEditorViewportClient::LoadSettings()
 	}
 
 	// 커스텀 쇼플래그 로드
+	GConfig->GetBool(*SectionName, TEXT("ShowSkeletalMesh"), bShowSkeletalMesh, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowRingGizmos"), bShowRingGizmos, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowRingMeshes"), bShowRingMeshes, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowBones"), bShowBones, GEditorPerProjectIni);
