@@ -56,6 +56,19 @@ struct FFleshRingWorkItem
 		float BulgeStrength = 1.0f;
 		float MaxBulgeDistance = 10.0f;
 
+		// ===== Bulge 방향 데이터 =====
+		/**
+		 * Bulge 방향 (-1, 0, +1)
+		 * EBulgeDirectionMode에서 결정됨:
+		 * - Auto 모드: DetectedBulgeDirection 사용
+		 * - Positive: +1
+		 * - Negative: -1
+		 */
+		int32 BulgeAxisDirection = 0;
+
+		/** Auto 감지된 방향 (GenerateSDF에서 계산됨) */
+		int32 DetectedBulgeDirection = 0;
+
 		// ===== Normal Recomputation용 인접 데이터 =====
 		// AdjacencyOffsets[i] = AffectedVertex i의 인접 삼각형 시작 인덱스
 		// AdjacencyOffsets[NumAffected] = 총 인접 삼각형 수 (sentinel)

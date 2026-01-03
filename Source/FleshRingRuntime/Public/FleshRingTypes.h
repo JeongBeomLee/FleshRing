@@ -59,6 +59,23 @@ enum class EFalloffType : uint8
 	Hermite		UMETA(DisplayName = "Hermite (S-Curve)")
 };
 
+/** Bulge 방향 모드 */
+UENUM(BlueprintType)
+enum class EBulgeDirectionMode : uint8
+{
+	/** SDF 경계 버텍스로 자동 감지 (폐쇄 메시는 양방향) */
+	Auto		UMETA(DisplayName = "Auto (Boundary Detection)"),
+
+	/** 양방향 Bulge (도넛형 Ring, 폐쇄 메시) */
+	Bidirectional	UMETA(DisplayName = "Bidirectional (Both)"),
+
+	/** +Z 방향 (위쪽) 강제 */
+	Positive	UMETA(DisplayName = "Positive (+Z)"),
+
+	/** -Z 방향 (아래쪽) 강제 */
+	Negative	UMETA(DisplayName = "Negative (-Z)")
+};
+
 // =====================================
 // 구조체 정의
 // =====================================
@@ -123,6 +140,10 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	/** Bulge 효과 활성화 (부피 보존) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
 	bool bEnableBulge = true;
+
+	/** Bulge 방향 모드 (Auto: SDF 경계 감지, Positive: +Z, Negative: -Z) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge"))
+	EBulgeDirectionMode BulgeDirection = EBulgeDirectionMode::Auto;
 
 	/** 볼록 효과 강도 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "0.0"))

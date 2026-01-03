@@ -361,6 +361,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				BulgeParams.BulgeStrength = DispatchData.BulgeStrength;
 				BulgeParams.MaxBulgeDistance = DispatchData.MaxBulgeDistance;
 				BulgeParams.FixedPointScale = 0.001f;  // uint → float 변환 스케일 (1/1000)
+				BulgeParams.BulgeAxisDirection = DispatchData.BulgeAxisDirection;  // 방향 필터링
 
 				// 이 Ring의 SDF 파라미터
 				BulgeParams.SDFBoundsMin = DispatchData.SDFBoundsMin;
@@ -371,8 +372,8 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				static TSet<int32> LoggedBulgeRings;
 				if (!LoggedBulgeRings.Contains(RingIdx))
 				{
-					UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] BulgeCS Dispatch Ring[%d]: Verts=%d, Strength=%.2f, MaxDist=%.2f"),
-						RingIdx, NumBulgeVertices, BulgeParams.BulgeStrength, BulgeParams.MaxBulgeDistance);
+					UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] BulgeCS Dispatch Ring[%d]: Verts=%d, Strength=%.2f, MaxDist=%.2f, Direction=%d"),
+						RingIdx, NumBulgeVertices, BulgeParams.BulgeStrength, BulgeParams.MaxBulgeDistance, BulgeParams.BulgeAxisDirection);
 					LoggedBulgeRings.Add(RingIdx);
 				}
 

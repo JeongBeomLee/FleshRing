@@ -6,6 +6,7 @@
 #include "FleshRingMeshExtractor.h"
 #include "FleshRingSDF.h"
 #include "FleshRingDeformerInstance.h"
+#include "FleshRingBulgeTypes.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/VolumeTexture.h"
 #include "GameFramework/Actor.h"
@@ -536,6 +537,18 @@ void UFleshRingComponent::GenerateSDF()
 		CachePtr->Resolution = SDFResolution;
 		CachePtr->LocalToComponent = LocalToComponentTransform;
 
+		// 경계 버텍스 기반 Bulge 방향 자동 감지 (CPU)
+		// SDF 중심 = (BoundsMin + BoundsMax) / 2
+		const FVector3f SDFCenter = (BoundsMin + BoundsMax) * 0.5f;
+		CachePtr->DetectedBulgeDirection = FBulgeDirectionDetector::DetectFromBoundaryVertices(
+			CapturedVertices,
+			CapturedIndices,
+			SDFCenter
+		);
+
+		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] Bulge direction auto-detected: %d (SDFCenter: %s)"),
+			RingIndex, CachePtr->DetectedBulgeDirection, *SDFCenter.ToString());
+
 		ENQUEUE_RENDER_COMMAND(GenerateFleshRingSDF)(
 			[CapturedVertices = MoveTemp(CapturedVertices),
 			 CapturedIndices = MoveTemp(CapturedIndices),
@@ -708,6 +721,7 @@ void UFleshRingComponent::UpdateRingTransforms()
 #if WITH_EDITORONLY_DATA
 	// 5. 디버그 시각화 캐시 무효화 (Ring 이동 시 AffectedVertices 재계산)
 	bDebugAffectedVerticesCached = false;
+	bDebugBulgeVerticesCached = false;
 #endif
 }
 
@@ -941,6 +955,10 @@ void UFleshRingComponent::DrawDebugVisualization()
 	{
 		bDebugAffectedVerticesCached = false;
 	}
+	if (DebugBulgeData.Num() != NumRings)
+	{
+		bDebugBulgeVerticesCached = false;
+	}
 
 	for (int32 RingIndex = 0; RingIndex < NumRings; ++RingIndex)
 	{
@@ -957,6 +975,12 @@ void UFleshRingComponent::DrawDebugVisualization()
 		if (bShowSDFSlice)
 		{
 			DrawSDFSlice(RingIndex);
+		}
+
+		if (bShowBulgeHeatmap)
+		{
+			DrawBulgeHeatmap(RingIndex);
+			DrawBulgeDirectionArrow(RingIndex);
 		}
 	}
 }
@@ -1429,6 +1453,10 @@ void UFleshRingComponent::CleanupDebugResources()
 	DebugAffectedData.Empty();
 	DebugBindPoseVertices.Empty();
 	bDebugAffectedVerticesCached = false;
+
+	// 디버그 Bulge 버텍스 데이터 정리
+	DebugBulgeData.Empty();
+	bDebugBulgeVerticesCached = false;
 }
 
 void UFleshRingComponent::CacheAffectedVerticesForDebug()
@@ -1545,6 +1573,380 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 
 	UE_LOG(LogFleshRingComponent, Log, TEXT("CacheAffectedVerticesForDebug: Cached %d rings, %d total vertices"),
 		DebugAffectedData.Num(), DebugBindPoseVertices.Num());
+}
+
+void UFleshRingComponent::DrawBulgeHeatmap(int32 RingIndex)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// 캐싱되지 않았으면 먼저 캐싱
+	if (!bDebugBulgeVerticesCached)
+	{
+		CacheBulgeVerticesForDebug();
+	}
+
+	// 데이터 유효성 검사
+	if (!DebugBulgeData.IsValidIndex(RingIndex) ||
+		DebugBindPoseVertices.Num() == 0)
+	{
+		return;
+	}
+
+	const FRingAffectedData& RingData = DebugBulgeData[RingIndex];
+	if (RingData.Vertices.Num() == 0)
+	{
+		return;
+	}
+
+	// 현재 스켈레탈 메시 컴포넌트
+	USkeletalMeshComponent* SkelMesh = ResolvedTargetMesh.Get();
+	if (!SkelMesh)
+	{
+		return;
+	}
+
+	// 컴포넌트 → 월드 트랜스폼
+	FTransform CompTransform = SkelMesh->GetComponentTransform();
+
+	// 각 Bulge 영향 버텍스에 대해
+	for (const FAffectedVertex& AffectedVert : RingData.Vertices)
+	{
+		if (!DebugBindPoseVertices.IsValidIndex(AffectedVert.VertexIndex))
+		{
+			continue;
+		}
+
+		// 바인드 포즈 위치 (컴포넌트 스페이스)
+		const FVector3f& BindPosePos = DebugBindPoseVertices[AffectedVert.VertexIndex];
+
+		// 월드 공간으로 변환
+		FVector WorldPos = CompTransform.TransformPosition(FVector(BindPosePos));
+
+		// 영향도에 따른 색상 (시안 → 마젠타 그라데이션, 높은 대비)
+		float Influence = AffectedVert.Influence;
+		float T = FMath::Clamp(Influence, 0.0f, 1.0f);
+
+		// 시안(약함) → 마젠타(강함) 그라데이션 (스킨톤과 높은 대비)
+		FColor PointColor(
+			FMath::RoundToInt(255 * T),          // R: 0 → 255
+			FMath::RoundToInt(255 * (1.0f - T)), // G: 255 → 0
+			255                                  // B: 항상 255 (밝은 색 유지)
+		);
+
+		// 점 크기 (영향도에 비례, 더 크게)
+		float PointSize = 5.0f + T * 7.0f;  // 5~12 범위
+
+		// 외곽선 효과: 검은색 큰 점 먼저, 그 위에 색상 점
+		DrawDebugPoint(World, WorldPos, PointSize + 2.0f, FColor::Black, false, -1.0f, SDPG_Foreground);
+		DrawDebugPoint(World, WorldPos, PointSize, PointColor, false, -1.0f, SDPG_Foreground);
+	}
+
+	// 화면에 정보 표시
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::Orange,
+			FString::Printf(TEXT("Ring[%d] Bulge: %d vertices (Mexican Hat filtered)"),
+				RingIndex, RingData.Vertices.Num()));
+	}
+}
+
+void UFleshRingComponent::CacheBulgeVerticesForDebug()
+{
+	// 이미 캐싱되어 있으면 스킵
+	if (bDebugBulgeVerticesCached)
+	{
+		return;
+	}
+
+	// 유효성 검사
+	USkeletalMeshComponent* SkelMesh = ResolvedTargetMesh.Get();
+	if (!SkelMesh || !FleshRingAsset)
+	{
+		return;
+	}
+
+	// 바인드 포즈 버텍스가 없으면 캐싱
+	if (DebugBindPoseVertices.Num() == 0)
+	{
+		CacheAffectedVerticesForDebug();
+	}
+
+	if (DebugBindPoseVertices.Num() == 0)
+	{
+		return;
+	}
+
+	// DebugBulgeData 초기화
+	DebugBulgeData.Reset();
+	DebugBulgeData.SetNum(FleshRingAsset->Rings.Num());
+
+	for (int32 RingIdx = 0; RingIdx < FleshRingAsset->Rings.Num(); ++RingIdx)
+	{
+		const FFleshRingSettings& RingSettings = FleshRingAsset->Rings[RingIdx];
+		FRingAffectedData& BulgeData = DebugBulgeData[RingIdx];
+		BulgeData.BoneName = RingSettings.BoneName;
+
+		// Bulge 비활성화면 스킵
+		if (!RingSettings.bEnableBulge)
+		{
+			continue;
+		}
+
+		// SDF 캐시 가져오기
+		const FRingSDFCache* SDFCache = GetRingSDFCache(RingIdx);
+		if (!SDFCache || !SDFCache->IsValid())
+		{
+			continue;
+		}
+
+		// ===== GPU 셰이더와 동일한 로직으로 Bulge 버텍스 선택 =====
+
+		// Ring 로컬 스페이스 변환
+		FTransform ComponentToLocal = SDFCache->LocalToComponent.Inverse();
+		FVector3f BoundsMin = SDFCache->BoundsMin;
+		FVector3f BoundsMax = SDFCache->BoundsMax;
+		FVector3f BoundsSize = BoundsMax - BoundsMin;
+		FVector3f RingCenter = (BoundsMin + BoundsMax) * 0.5f;
+
+		// Ring 축 감지 (가장 짧은 축)
+		FVector3f RingAxis;
+		if (BoundsSize.X <= BoundsSize.Y && BoundsSize.X <= BoundsSize.Z)
+			RingAxis = FVector3f(1, 0, 0);
+		else if (BoundsSize.Y <= BoundsSize.X && BoundsSize.Y <= BoundsSize.Z)
+			RingAxis = FVector3f(0, 1, 0);
+		else
+			RingAxis = FVector3f(0, 0, 1);
+
+		// EffectWidth (GPU와 동일)
+		float MinSize = FMath::Min3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z);
+		float EffectWidth = MinSize * 0.4f;
+
+		// 확장된 바운드 (BoundsExpansionRatio = 1.3, 30% 확장)
+		const float BoundsExpansionRatio = 1.3f;
+		FVector3f HalfExtent = BoundsSize * 0.5f;
+		FVector3f ExpandedHalfExtent = HalfExtent * BoundsExpansionRatio;
+		FVector3f ExpandedMin = RingCenter - ExpandedHalfExtent;
+		FVector3f ExpandedMax = RingCenter + ExpandedHalfExtent;
+
+		// 방향 결정 (0 = 양방향)
+		int32 DetectedDirection = SDFCache->DetectedBulgeDirection;
+		int32 FinalDirection = 0;
+		switch (RingSettings.BulgeDirection)
+		{
+		case EBulgeDirectionMode::Auto:
+			FinalDirection = DetectedDirection;  // 0이면 양방향 (폐쇄 메시)
+			break;
+		case EBulgeDirectionMode::Bidirectional:
+			FinalDirection = 0;  // 양방향
+			break;
+		case EBulgeDirectionMode::Positive:
+			FinalDirection = 1;
+			break;
+		case EBulgeDirectionMode::Negative:
+			FinalDirection = -1;
+			break;
+		}
+
+		BulgeData.RingCenter = FVector(RingCenter);
+
+		// 모든 버텍스 순회
+		for (int32 VertIdx = 0; VertIdx < DebugBindPoseVertices.Num(); ++VertIdx)
+		{
+			// Component Space → Ring Local Space
+			FVector CompSpacePos = FVector(DebugBindPoseVertices[VertIdx]);
+			FVector LocalSpacePos = ComponentToLocal.TransformPosition(CompSpacePos);
+			FVector3f LocalPos = FVector3f(LocalSpacePos);
+
+			// 확장된 바운드 내에 있는지 확인
+			if (LocalPos.X < ExpandedMin.X || LocalPos.X > ExpandedMax.X ||
+				LocalPos.Y < ExpandedMin.Y || LocalPos.Y > ExpandedMax.Y ||
+				LocalPos.Z < ExpandedMin.Z || LocalPos.Z > ExpandedMax.Z)
+			{
+				continue;
+			}
+
+			// ===== 방향 필터링 (핵심!) =====
+			// Ring 축 방향으로 버텍스가 어느 쪽에 있는지 확인
+			FVector3f ToVertex = LocalPos - RingCenter;
+			float AxialComponent = FVector3f::DotProduct(ToVertex, RingAxis);
+
+			// FinalDirection != 0이면 한쪽만, 0이면 양방향
+			if (FinalDirection != 0)
+			{
+				int32 VertexSide = (AxialComponent > 0.0f) ? 1 : -1;
+				if (VertexSide != FinalDirection)
+				{
+					continue;
+				}
+			}
+
+			// ===== Mexican Hat 필터링 (GPU와 동일) =====
+			float AxialDist = FMath::Abs(AxialComponent);
+			float t = AxialDist / FMath::Max(EffectWidth, 0.001f);
+
+			// Mexican Hat: f(t) = (1 - t²) × exp(-t²/2)
+			float t2 = t * t;
+			float MexicanHat = (1.0f - t2) * FMath::Exp(-t2 * 0.5f);
+
+			// GPU에서는 음수 영역만 Bulge (t > 1)
+			// 디버그 시각화에서는 음수 영역의 절댓값을 Influence로 표시
+			if (MexicanHat < 0.0f)
+			{
+				float BulgeMask = -MexicanHat;
+
+				// 거리 기반 Influence (확장 바운드에서의 거리)
+				FVector3f ToCenter = LocalPos - RingCenter;
+				float MaxNormalizedDist = 0.0f;
+				for (int32 Axis = 0; Axis < 3; ++Axis)
+				{
+					if (ExpandedHalfExtent[Axis] > KINDA_SMALL_NUMBER)
+					{
+						float NormalizedDist = FMath::Abs(ToCenter[Axis]) / ExpandedHalfExtent[Axis];
+						MaxNormalizedDist = FMath::Max(MaxNormalizedDist, NormalizedDist);
+					}
+				}
+				float DistInfluence = FMath::Clamp(1.0f - MaxNormalizedDist, 0.0f, 1.0f);
+
+				// 최종 Influence = BulgeMask × DistInfluence
+				float FinalInfluence = BulgeMask * DistInfluence;
+
+				if (FinalInfluence > KINDA_SMALL_NUMBER)
+				{
+					FAffectedVertex BulgeVert;
+					BulgeVert.VertexIndex = VertIdx;
+					BulgeVert.Influence = FinalInfluence;
+					BulgeData.Vertices.Add(BulgeVert);
+				}
+			}
+		}
+
+		const TCHAR* ModeStr = TEXT("Unknown");
+		switch (RingSettings.BulgeDirection)
+		{
+		case EBulgeDirectionMode::Auto: ModeStr = TEXT("Auto"); break;
+		case EBulgeDirectionMode::Bidirectional: ModeStr = TEXT("Both"); break;
+		case EBulgeDirectionMode::Positive: ModeStr = TEXT("Positive"); break;
+		case EBulgeDirectionMode::Negative: ModeStr = TEXT("Negative"); break;
+		}
+		UE_LOG(LogFleshRingComponent, Log, TEXT("CacheBulgeVerticesForDebug: Ring[%d] - %d Bulge vertices (Direction: %d, Detected: %d, Mode: %s, RingAxis: %s)"),
+			RingIdx, BulgeData.Vertices.Num(), FinalDirection, DetectedDirection, ModeStr, *RingAxis.ToString());
+	}
+
+	bDebugBulgeVerticesCached = true;
+}
+
+void UFleshRingComponent::DrawBulgeDirectionArrow(int32 RingIndex)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// SDF 캐시와 Ring 설정 가져오기
+	const FRingSDFCache* SDFCache = GetRingSDFCache(RingIndex);
+	if (!SDFCache || !SDFCache->IsValid())
+	{
+		return;
+	}
+
+	if (!FleshRingAsset || !FleshRingAsset->Rings.IsValidIndex(RingIndex))
+	{
+		return;
+	}
+
+	const FFleshRingSettings& RingSettings = FleshRingAsset->Rings[RingIndex];
+
+	// Bulge 비활성화면 스킵
+	if (!RingSettings.bEnableBulge)
+	{
+		return;
+	}
+
+	// 감지된 방향
+	int32 DetectedDirection = SDFCache->DetectedBulgeDirection;
+
+	// 최종 사용 방향 결정 (0 = 양방향)
+	int32 FinalDirection = 0;
+	switch (RingSettings.BulgeDirection)
+	{
+	case EBulgeDirectionMode::Auto:
+		FinalDirection = DetectedDirection;  // 0이면 양방향
+		break;
+	case EBulgeDirectionMode::Bidirectional:
+		FinalDirection = 0;  // 양방향
+		break;
+	case EBulgeDirectionMode::Positive:
+		FinalDirection = 1;
+		break;
+	case EBulgeDirectionMode::Negative:
+		FinalDirection = -1;
+		break;
+	}
+
+	// OBB 중심 위치 (월드 공간)
+	FVector LocalCenter = FVector(SDFCache->BoundsMin + SDFCache->BoundsMax) * 0.5f;
+
+	// Component → World 트랜스폼
+	USkeletalMeshComponent* SkelMesh = ResolvedTargetMesh.Get();
+	FTransform LocalToWorld = SDFCache->LocalToComponent;
+	if (SkelMesh)
+	{
+		LocalToWorld = LocalToWorld * SkelMesh->GetComponentTransform();
+	}
+
+	FVector WorldCenter = LocalToWorld.TransformPosition(LocalCenter);
+	FQuat WorldRotation = LocalToWorld.GetRotation();
+
+	// 로컬 Z축을 월드 공간으로 변환
+	FVector LocalZAxis = FVector(0.0f, 0.0f, 1.0f);
+	FVector WorldZAxis = WorldRotation.RotateVector(LocalZAxis);
+
+	// 화살표 크기 (SDF 볼륨 크기에 비례, 작게 유지)
+	float ArrowLength = FVector(SDFCache->BoundsMax - SDFCache->BoundsMin).Size() * 0.05f;
+
+	// 화살표 색상: 검은색으로 통일
+	FColor ArrowColor = FColor::White;
+
+	// 화살표 그리기 (SDPG_Foreground로 메시 앞에 표시)
+	const float ArrowHeadSize = 0.5f;  // 화살표 머리 크기
+	const float ArrowThickness = 0.5f; // 화살표 두께
+
+	if (FinalDirection == 0)
+	{
+		// 양방향: 위아래 둘 다 화살표 그리기
+		FVector ArrowEndUp = WorldCenter + WorldZAxis * ArrowLength;
+		FVector ArrowEndDown = WorldCenter - WorldZAxis * ArrowLength;
+		DrawDebugDirectionalArrow(World, WorldCenter, ArrowEndUp, ArrowHeadSize, ArrowColor, false, -1.0f, SDPG_Foreground, ArrowThickness);
+		DrawDebugDirectionalArrow(World, WorldCenter, ArrowEndDown, ArrowHeadSize, ArrowColor, false, -1.0f, SDPG_Foreground, ArrowThickness);
+	}
+	else
+	{
+		// 단방향
+		FVector ArrowDirection = WorldZAxis * static_cast<float>(FinalDirection);
+		FVector ArrowEnd = WorldCenter + ArrowDirection * ArrowLength;
+		DrawDebugDirectionalArrow(World, WorldCenter, ArrowEnd, ArrowHeadSize, ArrowColor, false, -1.0f, SDPG_Foreground, ArrowThickness);
+	}
+
+	// 화면에 정보 표시
+	if (GEngine)
+	{
+		FString ModeStr;
+		switch (RingSettings.BulgeDirection)
+		{
+		case EBulgeDirectionMode::Auto: ModeStr = TEXT("Auto"); break;
+		case EBulgeDirectionMode::Bidirectional: ModeStr = TEXT("Both"); break;
+		case EBulgeDirectionMode::Positive: ModeStr = TEXT("+Z"); break;
+		case EBulgeDirectionMode::Negative: ModeStr = TEXT("-Z"); break;
+		}
+		GEngine->AddOnScreenDebugMessage(-1, 0.0f, ArrowColor,
+			FString::Printf(TEXT("Ring[%d] Bulge Dir: %s (Detected: %d, Final: %d)"),
+				RingIndex, *ModeStr, DetectedDirection, FinalDirection));
+	}
 }
 
 #endif // WITH_EDITOR

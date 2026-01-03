@@ -41,6 +41,7 @@ public:
 		SHADER_PARAMETER(float, BulgeStrength)
 		SHADER_PARAMETER(float, MaxBulgeDistance)
 		SHADER_PARAMETER(float, FixedPointScale)
+		SHADER_PARAMETER(int32, BulgeAxisDirection)
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
@@ -62,10 +63,11 @@ struct FBulgeDispatchParams
 	float BulgeStrength = 1.0f;		// Bulge 강도
 	float MaxBulgeDistance = 10.0f;	// 최대 Bulge 거리
 	float FixedPointScale = 0.001f;	// TightnessCS와 동일해야 함.
+	int32 BulgeAxisDirection = 0;	// Bulge 방향 (-1: 음의 축, +1: 양의 축, 0: 양방향)
 
 	FVector3f SDFBoundsMin = FVector3f::ZeroVector;			// in Ring Local Space
 	FVector3f SDFBoundsMax = FVector3f::ZeroVector;			// in Ring Local Space
-	FMatrix44f ComponentToSDFLocal = FMatrix44f::Identity;	// Component -> SDF Local 
+	FMatrix44f ComponentToSDFLocal = FMatrix44f::Identity;	// Component -> SDF Local
 };
 
 void DispatchFleshRingBulgeCS(

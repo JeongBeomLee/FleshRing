@@ -8,6 +8,7 @@
 #include "FleshRingSkinningShader.h"
 #include "FleshRingComputeWorker.h"
 #include "FleshRingBulgeProviders.h"
+#include "FleshRingBulgeTypes.h"
 #include "Components/SkinnedMeshComponent.h"
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
@@ -449,7 +450,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			DispatchData.SDFBoundsMin,
 			DispatchData.SDFBoundsMax,
 			DispatchData.SDFLocalToComponent,
-			2.5f,  // BoundsExpansionRatio - 더 넓은 영역에서 Bulge 버텍스 선택
+			1.3f,  // BoundsExpansionRatio - 30% 확장
 			EFalloffType::Linear);
 
 		// Bulge 영역 계산
@@ -472,12 +473,47 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			DispatchData.MaxBulgeDistance = RingMaxBulgeDistance;
 			bAnyRingHasBulge = true;
 
+			// ===== Bulge 방향 데이터 설정 =====
+			// SDF 캐시에서 감지된 방향 가져오기
+			if (FleshRingComponent.IsValid())
+			{
+				const FRingSDFCache* SDFCache = FleshRingComponent->GetRingSDFCache(RingIdx);
+				int32 DetectedDirection = SDFCache ? SDFCache->DetectedBulgeDirection : 0;
+				DispatchData.DetectedBulgeDirection = DetectedDirection;
+
+				// Ring 설정에서 BulgeDirection 모드 가져오기
+				EBulgeDirectionMode BulgeDirectionMode = EBulgeDirectionMode::Auto;
+				if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIdx))
+				{
+					BulgeDirectionMode = (*RingSettingsPtr)[RingIdx].BulgeDirection;
+				}
+
+				// 최종 방향 계산 (Auto 모드면 감지된 방향, 아니면 수동 지정)
+				switch (BulgeDirectionMode)
+				{
+				case EBulgeDirectionMode::Auto:
+					// DetectedDirection == 0이면 폐쇄 메시(Torus) → 양방향 Bulge
+					DispatchData.BulgeAxisDirection = DetectedDirection;  // 0, +1, or -1
+					break;
+				case EBulgeDirectionMode::Bidirectional:
+					DispatchData.BulgeAxisDirection = 0;  // 양방향
+					break;
+				case EBulgeDirectionMode::Positive:
+					DispatchData.BulgeAxisDirection = 1;
+					break;
+				case EBulgeDirectionMode::Negative:
+					DispatchData.BulgeAxisDirection = -1;
+					break;
+				}
+			}
+
 			// [조건부 로그] 첫 프레임만 출력
 			static TSet<int32> LoggedRings;
 			if (!LoggedRings.Contains(RingIdx))
 			{
-				UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] Bulge 데이터 준비 완료: %d vertices, Strength=%.2f"),
-					RingIdx, DispatchData.BulgeIndices.Num(), RingBulgeStrength);
+				UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] Bulge 데이터 준비 완료: %d vertices, Strength=%.2f, Direction=%d (Detected=%d)"),
+					RingIdx, DispatchData.BulgeIndices.Num(), RingBulgeStrength,
+					DispatchData.BulgeAxisDirection, DispatchData.DetectedBulgeDirection);
 				LoggedRings.Add(RingIdx);
 			}
 		}

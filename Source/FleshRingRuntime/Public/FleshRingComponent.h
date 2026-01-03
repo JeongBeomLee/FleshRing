@@ -55,6 +55,14 @@ struct FRingSDFCache
 	 */
 	FTransform LocalToComponent = FTransform::Identity;
 
+	/**
+	 * 자동 감지된 Bulge 방향
+	 * +1 = 위쪽 (경계 버텍스 평균 Z > SDF 중심 Z)
+	 * -1 = 아래쪽 (경계 버텍스 평균 Z < SDF 중심 Z)
+	 *  0 = 감지 실패 (폐쇄 메시 또는 버텍스 없음)
+	 */
+	int32 DetectedBulgeDirection = 0;
+
 	/** 캐싱 완료 여부 */
 	bool bCached = false;
 
@@ -66,6 +74,7 @@ struct FRingSDFCache
 		BoundsMax = FVector3f::ZeroVector;
 		Resolution = FIntVector(64, 64, 64);
 		LocalToComponent = FTransform::Identity;
+		DetectedBulgeDirection = 0;
 		bCached = false;
 	}
 
@@ -344,6 +353,15 @@ private:
 
 	/** 디버그 데이터 캐싱 완료 여부 */
 	bool bDebugAffectedVerticesCached = false;
+
+	/**
+	 * 디버그 시각화용 Bulge 버텍스 데이터 (Ring별)
+	 * Mexican Hat 필터링 + 방향 필터링 적용된 결과
+	 */
+	TArray<FRingAffectedData> DebugBulgeData;
+
+	/** Bulge 디버그 데이터 캐싱 완료 여부 */
+	bool bDebugBulgeVerticesCached = false;
 #endif
 
 #if WITH_EDITOR
@@ -370,5 +388,14 @@ private:
 
 	/** 디버그용 영향받는 버텍스 데이터 캐싱 */
 	void CacheAffectedVerticesForDebug();
+
+	/** Bulge 히트맵 그리기 (Mexican Hat 필터링 + 방향 필터링 적용) */
+	void DrawBulgeHeatmap(int32 RingIndex);
+
+	/** 디버그용 Bulge 버텍스 데이터 캐싱 */
+	void CacheBulgeVerticesForDebug();
+
+	/** 감지된 Bulge 방향 화살표 그리기 */
+	void DrawBulgeDirectionArrow(int32 RingIndex);
 #endif
 };
