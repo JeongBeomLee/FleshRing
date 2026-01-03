@@ -229,7 +229,7 @@ public:
 
 	/** Ring 개수 반환 */
 	int32 GetNumRingSDFCaches() const { return RingSDFCaches.Num(); }
-
+	
 	/** 특정 Ring의 SDF 캐시 반환 (읽기 전용) */
 	const FRingSDFCache* GetRingSDFCache(int32 RingIndex) const
 	{
@@ -251,6 +251,19 @@ public:
 			}
 		}
 		return RingSDFCaches.Num() > 0;
+	}
+
+	/** 하나 이상의 유효한 SDF 캐시가 있는지 확인 (부분 동작 허용) */
+	bool HasAnyValidSDFCaches() const
+	{
+		for (const FRingSDFCache& Cache : RingSDFCaches)
+		{
+			if (Cache.IsValid())
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 private:

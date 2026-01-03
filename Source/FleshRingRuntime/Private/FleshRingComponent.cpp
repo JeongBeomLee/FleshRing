@@ -86,8 +86,8 @@ void UFleshRingComponent::BeginPlay()
 		GenerateSDF();
 		FlushRenderingCommands();  // SDF 생성 완료 대기
 
-		// 유효한 SDF 캐시가 있을 때만 Deformer 설정 (Ring 메쉬가 없으면 스킵)
-		if (AreAllSDFCachesValid())
+		// 유효한 SDF 캐시가 하나라도 있으면 Deformer 설정 (메시 없는 Ring은 개별 스킵)
+		if (HasAnyValidSDFCaches())
 		{
 			SetupDeformer();
 		}
@@ -625,8 +625,8 @@ void UFleshRingComponent::InitializeForEditorPreview()
 	GenerateSDF();
 	FlushRenderingCommands();
 
-	// 유효한 SDF 캐시가 있을 때만 Deformer 설정 (Ring 메쉬가 없으면 SDF 캐시가 비어있음)
-	if (!AreAllSDFCachesValid())
+	// 유효한 SDF 캐시가 하나라도 있어야 Deformer 설정 (메시 없는 Ring은 개별 스킵)
+	if (!HasAnyValidSDFCaches())
 	{
 		UE_LOG(LogFleshRingComponent, Warning, TEXT("InitializeForEditorPreview: No valid SDF caches, skipping Deformer setup"));
 		bEditorPreviewInitialized = true;
