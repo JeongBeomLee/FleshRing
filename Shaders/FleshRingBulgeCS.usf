@@ -25,6 +25,7 @@ float BulgeStrength;
 float MaxBulgeDistance;
 float FixedPointScale;
 int BulgeAxisDirection;  // -1: 음의 축, +1: 양의 축, 0: 양방향
+uint RingIndex;          // Ring 인덱스 (VolumeAccumBuffer 슬롯 지정용)
 
 #ifndef THREADGROUP_SIZE
 #define THREADGROUP_SIZE 64
@@ -152,8 +153,8 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
-    // Volume Loss (TightnessCS에서 Atomic 누적)
-    uint VolumeAccumFixed = VolumeAccumBuffer[0];
+    // Volume Loss (TightnessCS에서 Ring별 Atomic 누적)
+    uint VolumeAccumFixed = VolumeAccumBuffer[RingIndex];
     float VolumeLoss = float(VolumeAccumFixed) * FixedPointScale;
 
     if (VolumeLoss < 0.001)

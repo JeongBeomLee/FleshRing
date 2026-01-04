@@ -132,6 +132,7 @@ uint NumTotalVertices;      // Total mesh vertex count (for bounds check)
 
 uint bAccumulateVolume;     // 부피 누적 활성화 플래그 (0 = 비활성, 1 = 활성)
 float FixedPointScale;      // Fixed-point 스케일 (예: 1000.0, float×Scale → uint)
+uint RingIndex;             // Ring 인덱스 (VolumeAccumBuffer 슬롯 지정용)
 
 // Thread Group Size
 #ifndef THREADGROUP_SIZE
@@ -665,11 +666,26 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // STEP 4.5: 레이마칭 결과 검증 - 실제로 구멍에 도달했는지 확인
+    // ─────────────────────────────────────────────────────────────────────────
+    // [버그 수정] 47회 반복 후에도 구멍 못 찾으면 변형 안 함
+    // 링이 살에 닿지 않았을 때 잘못된 Tightness/Bulge 방지
+    {
+        float3 FinalUV = saturate((CurrentPos - SDFBoundsMin) / BoundsSize);
+        float FinalDist = SDFTexture.SampleLevel(SDFSampler, FinalUV, 0).r;
+        if (FinalDist >= 0.0)
+        {
+            // 구멍에 도달 못함 → 링이 살을 관통하지 않음 → 변형 불필요
+            return Pos;
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // STEP 5: 사후 검증 (레이마칭 결과 유효성)
     // ─────────────────────────────────────────────────────────────────────────
 
     // lastDir 체크 테스트
-    
+
     // 5-1: lastDir이 0이면 레이마칭이 한 번도 안 됨 → 변형 불필요
     if (length(lastDir) <= 0.0001)
         return Pos;
@@ -810,9 +826,9 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     // Step 3: Volume Accumulation (for Bulge pass)
     // 3단계: 부피 누적 (Bulge 패스용)
     // ========================================
-    // Tightness로 눌린 양을 Atomic으로 전역 누적
-    // 모든 Ring의 압축량이 VolumeAccumBuffer[0]에 합산됨 (Balloon/Pressure 모델)
-    // BulgeCS에서 이 총합을 읽어서 SDF Gradient 방향으로 재분배
+    // Tightness로 눌린 양을 Atomic으로 Ring별 누적
+    // 각 Ring의 압축량이 VolumeAccumBuffer[RingIndex]에 저장됨
+    // BulgeCS에서 자신의 Ring 슬롯을 읽어서 Bulge 적용
     if (bAccumulateVolume != 0)
     {
         // 압축량 = 이동 거리
@@ -824,8 +840,8 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
             // Float → Fixed-point (예: 0.5 * 1000 = 500)
             uint compressedFixed = uint(compressionAmount * FixedPointScale);
 
-            // Atomic 연산으로 전역 누적
-            InterlockedAdd(VolumeAccumBuffer[0], compressedFixed);
+            // Atomic 연산으로 Ring별 슬롯에 누적
+            InterlockedAdd(VolumeAccumBuffer[RingIndex], compressedFixed);
         }
     }
 

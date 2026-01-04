@@ -199,12 +199,16 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 		AddCopyBufferPass(GraphBuilder, TightenedBindPoseBuffer, SourceBuffer);
 
 		// ===== VolumeAccumBuffer 생성 (하나 이상의 Ring에서 Bulge 활성화 시) =====
+		// [버그 수정] 각 Ring이 독립된 VolumeAccum 슬롯을 사용하도록 변경
+		// 이전: 크기 1 버퍼를 모든 Ring이 공유 → Ring A의 압축량이 Ring B에 영향
+		// 수정: Ring 개수만큼 버퍼 생성 → 각 Ring이 자신의 슬롯만 사용
 		FRDGBufferRef VolumeAccumBuffer = nullptr;
+		const int32 NumRings = WorkItem.RingDispatchDataPtr.IsValid() ? WorkItem.RingDispatchDataPtr->Num() : 0;
 
-		if (WorkItem.bAnyRingHasBulge)
+		if (WorkItem.bAnyRingHasBulge && NumRings > 0)
 		{
 			VolumeAccumBuffer = GraphBuilder.CreateBuffer(
-				FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), 1),
+				FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), NumRings),
 				TEXT("FleshRing_VolumeAccum")
 			);
 			// 0으로 초기화 (Atomic 연산 전)
@@ -281,6 +285,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				{
 					Params.bAccumulateVolume = 1;
 					Params.FixedPointScale = 1000.0f;  // float → uint 변환 스케일
+					Params.RingIndex = RingIdx;       // Ring별 VolumeAccumBuffer 슬롯 지정
 				}
 
 				DispatchFleshRingTightnessCS(
@@ -362,6 +367,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				BulgeParams.MaxBulgeDistance = DispatchData.MaxBulgeDistance;
 				BulgeParams.FixedPointScale = 0.001f;  // uint → float 변환 스케일 (1/1000)
 				BulgeParams.BulgeAxisDirection = DispatchData.BulgeAxisDirection;  // 방향 필터링
+				BulgeParams.RingIndex = RingIdx;      // Ring별 VolumeAccumBuffer 슬롯 지정
 
 				// 이 Ring의 SDF 파라미터
 				BulgeParams.SDFBoundsMin = DispatchData.SDFBoundsMin;

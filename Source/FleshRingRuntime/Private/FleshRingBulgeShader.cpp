@@ -74,6 +74,7 @@ void DispatchFleshRingBulgeCS(
 	PassParameters->MaxBulgeDistance = Params.MaxBulgeDistance;
 	PassParameters->FixedPointScale = Params.FixedPointScale;
 	PassParameters->BulgeAxisDirection = Params.BulgeAxisDirection;
+	PassParameters->RingIndex = Params.RingIndex;
 
 	TShaderMapRef<FFleshRingBulgeCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
 

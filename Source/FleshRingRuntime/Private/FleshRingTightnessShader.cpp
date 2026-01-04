@@ -153,6 +153,7 @@ void DispatchFleshRingTightnessCS(
     // ===== 부피 누적 파라미터 (Bulge 패스용) =====
     PassParameters->bAccumulateVolume = Params.bAccumulateVolume;
     PassParameters->FixedPointScale = Params.FixedPointScale;
+    PassParameters->RingIndex = Params.RingIndex;
 
     if (VolumeAccumBuffer)
     {

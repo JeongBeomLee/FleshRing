@@ -107,6 +107,7 @@ public:
 
         SHADER_PARAMETER(uint32, bAccumulateVolume)   // 부피 누적 활성화 (0 = 비활성, 1 = 활성)
         SHADER_PARAMETER(float, FixedPointScale)      // Fixed-point 스케일 (예: 1000.0)
+        SHADER_PARAMETER(uint32, RingIndex)           // Ring 인덱스 (VolumeAccumBuffer 슬롯 지정)
 
         // ===== SDF Parameters (OBB Design) =====
         // ===== SDF 파라미터 (OBB 설계) =====
@@ -311,6 +312,12 @@ struct FTightnessDispatchParams
      */
     float FixedPointScale;
 
+    /**
+     * Ring index for per-ring VolumeAccumBuffer slot
+     * Ring별 VolumeAccumBuffer 슬롯 지정용 인덱스
+     */
+    uint32 RingIndex;
+
     FTightnessDispatchParams()
         : RingCenter(FVector3f::ZeroVector)
         , RingAxis(FVector3f::UpVector)
@@ -330,6 +337,7 @@ struct FTightnessDispatchParams
         , SDFInfluenceFalloffDistance(5.0f)
         , bAccumulateVolume(0)
         , FixedPointScale(1000.0f)
+        , RingIndex(0)
     {
     }
 };
