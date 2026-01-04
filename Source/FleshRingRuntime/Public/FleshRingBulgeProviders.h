@@ -43,4 +43,10 @@ private:
 	bool IsWithinExpandedBounds(const FVector3f& VertexPosLocal, const FVector3f& ExpandedMin, const FVector3f& ExpandedMax) const;
 	float CalculateApproximateInfluence(const FVector3f& VertexPosLocal, const FVector3f& ExpandedMin, const FVector3f& ExpandedMax) const;
 	float ApplyFalloff(float NormalizedDistance) const;
+
+	/** Ring 축 감지 (가장 짧은 SDF 바운드 축) */
+	FVector3f DetectRingAxis() const;
+
+	/** Mexican Hat (Ricker Wavelet) 함수: f(t) = (1 - t²) × exp(-t²/2) */
+	static float MexicanHat(float t);
 };
