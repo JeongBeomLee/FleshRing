@@ -38,6 +38,9 @@ struct FFleshRingTreeItem : public TSharedFromThis<FFleshRingTreeItem>
 	/** Ring 인덱스 (Ring 타입) */
 	int32 RingIndex = INDEX_NONE;
 
+	/** 편집 중인 에셋 (Ring 이름 표시용) */
+	TWeakObjectPtr<UFleshRingAsset> EditingAsset;
+
 	/** 자식 노드들 */
 	TArray<TSharedPtr<FFleshRingTreeItem>> Children;
 
@@ -63,7 +66,7 @@ struct FFleshRingTreeItem : public TSharedFromThis<FFleshRingTreeItem>
 	static TSharedPtr<FFleshRingTreeItem> CreateBone(FName InBoneName, int32 InBoneIndex);
 
 	/** Ring 생성자 */
-	static TSharedPtr<FFleshRingTreeItem> CreateRing(FName InBoneName, int32 InRingIndex);
+	static TSharedPtr<FFleshRingTreeItem> CreateRing(FName InBoneName, int32 InRingIndex, UFleshRingAsset* InAsset);
 };
 
 /** 본 선택 델리게이트 */
@@ -134,6 +137,12 @@ private:
 
 	/** TreeView 더블클릭 */
 	void OnTreeDoubleClick(TSharedPtr<FFleshRingTreeItem> Item);
+
+	/** Ring 이름 변경 처리 */
+	void HandleRingRenamed(int32 RingIndex, const FString& NewName);
+
+	/** Asset 변경 델리게이트 핸들러 (디테일 패널에서 이름 변경 시) */
+	void OnAssetChangedHandler(UFleshRingAsset* Asset);
 
 	/** TreeView 확장 변경 */
 	void OnTreeExpansionChanged(TSharedPtr<FFleshRingTreeItem> Item, bool bIsExpanded);

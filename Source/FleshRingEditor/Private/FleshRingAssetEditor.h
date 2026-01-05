@@ -96,6 +96,9 @@ private:
 	/** 에셋의 선택 상태를 뷰포트에 반영 (Undo/Redo 시 호출) */
 	void ApplySelectionFromAsset();
 
+	/** Ring 선택 변경 콜백 (디테일 패널에서) */
+	void OnRingSelectionChangedFromDetails(int32 RingIndex);
+
 private:
 	/** 편집 중인 Asset */
 	UFleshRingAsset* EditingAsset = nullptr;

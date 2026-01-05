@@ -53,6 +53,58 @@ bool UFleshRingAsset::RemoveRing(int32 Index)
 	return false;
 }
 
+bool UFleshRingAsset::IsRingNameUnique(const FString& Name, int32 ExcludeIndex) const
+{
+	for (int32 i = 0; i < Rings.Num(); ++i)
+	{
+		if (i != ExcludeIndex && Rings[i].RingName == Name)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+FString UFleshRingAsset::MakeUniqueRingName(const FString& BaseName, int32 ExcludeIndex) const
+{
+	// 이미 고유하면 그대로 반환
+	if (IsRingNameUnique(BaseName, ExcludeIndex))
+	{
+		return BaseName;
+	}
+
+	// 기존 이름에서 "_숫자" suffix 패턴 확인
+	FString ActualBaseName = BaseName;
+	int32 StartCounter = 0;
+
+	// 마지막 '_' 위치 찾기
+	int32 LastUnderscoreIndex = INDEX_NONE;
+	if (BaseName.FindLastChar(TEXT('_'), LastUnderscoreIndex) && LastUnderscoreIndex > 0)
+	{
+		// '_' 뒤의 문자열이 숫자인지 확인
+		FString SuffixStr = BaseName.Mid(LastUnderscoreIndex + 1);
+		if (SuffixStr.Len() > 0 && SuffixStr.IsNumeric())
+		{
+			// 숫자 suffix가 있으면 base name 추출하고 카운터 시작값 설정
+			ActualBaseName = BaseName.Left(LastUnderscoreIndex);
+			StartCounter = FCString::Atoi(*SuffixStr) + 1;
+		}
+	}
+
+	// suffix 추가하여 고유한 이름 생성
+	int32 Counter = StartCounter;
+	FString UniqueName;
+
+	do
+	{
+		UniqueName = FString::Printf(TEXT("%s_%d"), *ActualBaseName, Counter);
+		Counter++;
+	}
+	while (!IsRingNameUnique(UniqueName, ExcludeIndex));
+
+	return UniqueName;
+}
+
 bool UFleshRingAsset::IsValid() const
 {
 	// 타겟 메시가 설정되어 있어야 함
@@ -132,6 +184,67 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 	{
 		Ring.RingRotation = Ring.RingEulerRotation.Quaternion();
 		Ring.MeshRotation = Ring.MeshEulerRotation.Quaternion();
+	}
+
+	// RingName 고유성 보장 (빈 이름 및 중복 이름 처리)
+	for (int32 i = 0; i < Rings.Num(); ++i)
+	{
+		FString& CurrentName = Rings[i].RingName;
+
+		// 1. 빈 이름이면 기본 이름 설정
+		if (CurrentName.IsEmpty())
+		{
+			CurrentName = FString::Printf(TEXT("FleshRing_%d"), i);
+		}
+
+		// 2. 중복 이름 확인 (이전 인덱스들과 비교)
+		bool bIsDuplicate = false;
+		for (int32 j = 0; j < i; ++j)
+		{
+			if (Rings[j].RingName == CurrentName)
+			{
+				bIsDuplicate = true;
+				break;
+			}
+		}
+
+		// 3. 중복이면 suffix 추가하여 고유한 이름 생성
+		if (bIsDuplicate)
+		{
+			// 기존 이름에서 "_숫자" suffix 패턴 확인
+			FString ActualBaseName = CurrentName;
+			int32 StartCounter = 0;
+
+			int32 LastUnderscoreIndex = INDEX_NONE;
+			if (CurrentName.FindLastChar(TEXT('_'), LastUnderscoreIndex) && LastUnderscoreIndex > 0)
+			{
+				FString SuffixStr = CurrentName.Mid(LastUnderscoreIndex + 1);
+				if (SuffixStr.Len() > 0 && SuffixStr.IsNumeric())
+				{
+					ActualBaseName = CurrentName.Left(LastUnderscoreIndex);
+					StartCounter = FCString::Atoi(*SuffixStr) + 1;
+				}
+			}
+
+			int32 Counter = StartCounter;
+			bool bUnique = false;
+
+			while (!bUnique)
+			{
+				CurrentName = FString::Printf(TEXT("%s_%d"), *ActualBaseName, Counter);
+				bUnique = true;
+
+				for (int32 j = 0; j < Rings.Num(); ++j)
+				{
+					if (j != i && Rings[j].RingName == CurrentName)
+					{
+						bUnique = false;
+						Counter++;
+						break;
+					}
+				}
+			}
+		}
 	}
 
 	// 에셋이 수정되었음을 표시
@@ -1633,5 +1746,14 @@ bool UFleshRingAsset::NeedsPreviewMeshRegeneration() const
 		return false;
 	}
 	return PreviewSubdividedMesh == nullptr;
+}
+
+void UFleshRingAsset::SetEditorSelectedRingIndex(int32 RingIndex, EFleshRingSelectionType SelectionType)
+{
+	EditorSelectedRingIndex = RingIndex;
+	EditorSelectionType = SelectionType;
+
+	// 델리게이트 브로드캐스트 (디테일 패널 → 뷰포트/트리 동기화)
+	OnRingSelectionChanged.Broadcast(RingIndex);
 }
 #endif

@@ -19,8 +19,13 @@
 #include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "HAL/PlatformApplicationMisc.h"
 #include "Widgets/Views/SExpanderArrow.h"
+#include "Widgets/Text/SInlineEditableTextBlock.h"
+#include "ScopedTransaction.h"
 
 #define LOCTEXT_NAMESPACE "FleshRingSkeletonTree"
+
+/** Ring 이름 변경 델리게이트 */
+DECLARE_DELEGATE_TwoParams(FOnRingRenamed, int32 /*RingIndex*/, const FString& /*NewName*/);
 
 /**
  * FleshRing 트리 행 위젯 (SExpanderArrow + Wires 지원)
@@ -32,6 +37,8 @@ public:
 		SLATE_ARGUMENT(TSharedPtr<FFleshRingTreeItem>, Item)
 		SLATE_ARGUMENT(FText, HighlightText)
 		SLATE_ARGUMENT(int32, RowIndex)
+		SLATE_ARGUMENT(UFleshRingAsset*, Asset)
+		SLATE_EVENT(FOnRingRenamed, OnRingRenamed)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& InOwnerTable)
@@ -39,19 +46,28 @@ public:
 		Item = InArgs._Item;
 		HighlightText = InArgs._HighlightText;
 		RowIndex = InArgs._RowIndex;
+		Asset = InArgs._Asset;
+		OnRingRenamed = InArgs._OnRingRenamed;
+
+		// 원본 이름 저장 (검증 실패 시 복원용)
+		if (Item.IsValid())
+		{
+			OriginalName = Item->GetDisplayName().ToString();
+		}
 
 		// 아이콘과 색상, 툴팁 결정
 		const FSlateBrush* IconBrush = nullptr;
 		FSlateColor TextColor = FSlateColor::UseForeground();
 		FSlateColor IconColor = FSlateColor::UseForeground();
 		FText TooltipText;
+		bool bIsRing = (Item->ItemType == EFleshRingTreeItemType::Ring);
 
-		if (Item->ItemType == EFleshRingTreeItemType::Ring)
+		if (bIsRing)
 		{
 			IconBrush = FAppStyle::GetBrush("Icons.FilledCircle");
 			IconColor = FSlateColor(FLinearColor(1.0f, 0.3f, 0.3f));
 			TextColor = FSlateColor(FLinearColor(1.0f, 0.6f, 0.2f));
-			TooltipText = FText::Format(LOCTEXT("RingTooltip", "Ring attached to bone: {0}"), FText::FromName(Item->BoneName));
+			TooltipText = FText::Format(LOCTEXT("RingTooltip", "Ring attached to bone: {0}\nDouble-click to rename"), FText::FromName(Item->BoneName));
 		}
 		else
 		{
@@ -82,6 +98,11 @@ public:
 			.Padding(FMargin(0, 0)),
 			InOwnerTable
 		);
+
+		// 이름 위젯 생성 (Ring은 인라인 편집 가능)
+		TSharedRef<SWidget> NameWidget = bIsRing
+			? CreateRingNameWidget(TextColor, TooltipText)
+			: CreateBoneNameWidget(TextColor, TooltipText);
 
 		// 기본 expander 대신 우리 Content 직접 설정
 		// SExpanderArrow를 최외곽에 배치해서 전체 행 높이에 와이어가 그려지게 함
@@ -116,29 +137,136 @@ public:
 						SNew(SImage)
 						.Image(IconBrush)
 						.ColorAndOpacity(IconColor)
-						.DesiredSizeOverride(Item->ItemType == EFleshRingTreeItemType::Ring ? FVector2D(12, 12) : FVector2D(18, 18))
+						.DesiredSizeOverride(bIsRing ? FVector2D(12, 12) : FVector2D(18, 18))
 					]
 					// 이름
 					+ SHorizontalBox::Slot()
 					.FillWidth(1.0f)
 					.VAlign(VAlign_Center)
 					[
-						SNew(STextBlock)
-						.Text(Item->GetDisplayName())
-						.ColorAndOpacity(TextColor)
-						.Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
-						.HighlightText(HighlightText)
-						.ToolTipText(TooltipText)
+						NameWidget
 					]
 				]
 			]
 		];
 	}
 
+	/** 편집 모드 진입 */
+	void EnterEditingMode()
+	{
+		if (InlineTextBlock.IsValid())
+		{
+			InlineTextBlock->EnterEditingMode();
+		}
+	}
+
 private:
+	/** Ring 이름 위젯 생성 (인라인 편집 가능, 검증 포함) */
+	TSharedRef<SWidget> CreateRingNameWidget(FSlateColor TextColor, FText TooltipText)
+	{
+		return SAssignNew(ValidationBorder, SBorder)
+			.BorderImage(FAppStyle::GetBrush("NoBorder"))
+			.Padding(0)
+			[
+				SAssignNew(InlineTextBlock, SInlineEditableTextBlock)
+				.Text(Item->GetDisplayName())
+				.ColorAndOpacity(TextColor)
+				.Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+				.HighlightText(HighlightText)
+				.ToolTipText(TooltipText)
+				.IsSelected(this, &SFleshRingTreeRow::IsSelectedExclusively)
+				.OnVerifyTextChanged(this, &SFleshRingTreeRow::OnVerifyRingNameChanged)
+				.OnTextCommitted(this, &SFleshRingTreeRow::OnRingNameCommitted)
+			];
+	}
+
+	/** Bone 이름 위젯 생성 (읽기 전용) */
+	TSharedRef<SWidget> CreateBoneNameWidget(FSlateColor TextColor, FText TooltipText)
+	{
+		return SNew(STextBlock)
+			.Text(Item->GetDisplayName())
+			.ColorAndOpacity(TextColor)
+			.Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+			.HighlightText(HighlightText)
+			.ToolTipText(TooltipText);
+	}
+
+	/** Ring 이름 검증 (중복 체크) */
+	bool OnVerifyRingNameChanged(const FText& NewText, FText& OutErrorMessage)
+	{
+		if (!Asset || !Item.IsValid())
+		{
+			return true;
+		}
+
+		FString NewName = NewText.ToString();
+
+		// 중복 이름 체크
+		if (!Asset->IsRingNameUnique(NewName, Item->RingIndex))
+		{
+			OutErrorMessage = LOCTEXT("DuplicateNameError", "This name is already in use. Please choose a different name.");
+			bIsNameValid = false;
+
+			// 빨간 테두리 표시
+			if (ValidationBorder.IsValid())
+			{
+				ValidationBorder->SetBorderImage(FAppStyle::GetBrush("WhiteBrush"));
+				ValidationBorder->SetBorderBackgroundColor(FLinearColor(0.8f, 0.2f, 0.2f, 0.5f));
+			}
+
+			return false;  // Enter 키로 확정 불가
+		}
+
+		bIsNameValid = true;
+
+		// 정상 테두리로 복원
+		if (ValidationBorder.IsValid())
+		{
+			ValidationBorder->SetBorderImage(FAppStyle::GetBrush("NoBorder"));
+		}
+
+		return true;
+	}
+
+	/** Ring 이름 커밋 */
+	void OnRingNameCommitted(const FText& NewText, ETextCommit::Type CommitType)
+	{
+		// 검증 테두리 초기화
+		if (ValidationBorder.IsValid())
+		{
+			ValidationBorder->SetBorderImage(FAppStyle::GetBrush("NoBorder"));
+		}
+
+		if (CommitType == ETextCommit::OnEnter)
+		{
+			// Enter로 확정: 유효한 이름만 적용
+			if (bIsNameValid && Item.IsValid() && OnRingRenamed.IsBound())
+			{
+				OnRingRenamed.Execute(Item->RingIndex, NewText.ToString());
+			}
+		}
+		else if (CommitType == ETextCommit::OnUserMovedFocus)
+		{
+			// 포커스 이동: 유효하면 적용, 유효하지 않으면 원래 이름으로 복원
+			if (bIsNameValid && Item.IsValid() && OnRingRenamed.IsBound())
+			{
+				OnRingRenamed.Execute(Item->RingIndex, NewText.ToString());
+			}
+			// 유효하지 않으면 InlineTextBlock이 원래 텍스트로 자동 복원됨
+		}
+
+		bIsNameValid = true;  // 상태 초기화
+	}
+
 	TSharedPtr<FFleshRingTreeItem> Item;
 	FText HighlightText;
 	int32 RowIndex = 0;
+	UFleshRingAsset* Asset = nullptr;
+	FOnRingRenamed OnRingRenamed;
+	TSharedPtr<SInlineEditableTextBlock> InlineTextBlock;
+	TSharedPtr<SBorder> ValidationBorder;
+	FString OriginalName;
+	bool bIsNameValid = true;
 };
 
 #undef LOCTEXT_NAMESPACE
@@ -151,7 +279,15 @@ FText FFleshRingTreeItem::GetDisplayName() const
 {
 	if (ItemType == EFleshRingTreeItemType::Ring)
 	{
-		return FText::Format(LOCTEXT("RingDisplayName", "Ring [{0}]"), FText::AsNumber(RingIndex));
+		// 커스텀 Ring 이름 또는 기본 이름 (FleshRing_인덱스)
+		if (UFleshRingAsset* Asset = EditingAsset.Get())
+		{
+			if (Asset->Rings.IsValidIndex(RingIndex))
+			{
+				return FText::FromString(Asset->Rings[RingIndex].GetDisplayName(RingIndex));
+			}
+		}
+		return FText::Format(LOCTEXT("RingDisplayName", "FleshRing_{0}"), FText::AsNumber(RingIndex));
 	}
 	return FText::FromName(BoneName);
 }
@@ -165,12 +301,13 @@ TSharedPtr<FFleshRingTreeItem> FFleshRingTreeItem::CreateBone(FName InBoneName, 
 	return Item;
 }
 
-TSharedPtr<FFleshRingTreeItem> FFleshRingTreeItem::CreateRing(FName InBoneName, int32 InRingIndex)
+TSharedPtr<FFleshRingTreeItem> FFleshRingTreeItem::CreateRing(FName InBoneName, int32 InRingIndex, UFleshRingAsset* InAsset)
 {
 	TSharedPtr<FFleshRingTreeItem> Item = MakeShared<FFleshRingTreeItem>();
 	Item->ItemType = EFleshRingTreeItemType::Ring;
 	Item->BoneName = InBoneName;
 	Item->RingIndex = InRingIndex;
+	Item->EditingAsset = InAsset;
 	return Item;
 }
 
@@ -185,6 +322,12 @@ void SFleshRingSkeletonTree::Construct(const FArguments& InArgs)
 	OnAddRingRequested = InArgs._OnAddRingRequested;
 	OnFocusCameraRequested = InArgs._OnFocusCameraRequested;
 	OnRingDeleted = InArgs._OnRingDeleted;
+
+	// 에셋 변경 델리게이트 구독 (디테일 패널에서 이름 변경 시 트리 갱신)
+	if (UFleshRingAsset* Asset = EditingAsset.Get())
+	{
+		Asset->OnAssetChanged.AddSP(this, &SFleshRingSkeletonTree::OnAssetChangedHandler);
+	}
 
 	BuildTree();
 
@@ -523,8 +666,30 @@ bool SFleshRingSkeletonTree::IsShowBonesWithRingsOnlyChecked() const
 
 void SFleshRingSkeletonTree::SetAsset(UFleshRingAsset* InAsset)
 {
+	// 기존 델리게이트 해제
+	if (UFleshRingAsset* OldAsset = EditingAsset.Get())
+	{
+		OldAsset->OnAssetChanged.RemoveAll(this);
+	}
+
 	EditingAsset = InAsset;
+
+	// 새 에셋의 델리게이트 구독 (디테일 패널에서 이름 변경 시 트리 갱신)
+	if (InAsset)
+	{
+		InAsset->OnAssetChanged.AddSP(this, &SFleshRingSkeletonTree::OnAssetChangedHandler);
+	}
+
 	RefreshTree();
+}
+
+void SFleshRingSkeletonTree::OnAssetChangedHandler(UFleshRingAsset* Asset)
+{
+	// 디테일 패널에서 Ring 이름 변경 시 트리 갱신
+	if (TreeView.IsValid())
+	{
+		TreeView->RebuildList();
+	}
 }
 
 void SFleshRingSkeletonTree::RefreshTree()
@@ -839,7 +1004,7 @@ void SFleshRingSkeletonTree::UpdateRingItems()
 
 		if (TSharedPtr<FFleshRingTreeItem>* FoundBone = BoneItemMap.Find(Ring.BoneName))
 		{
-			TSharedPtr<FFleshRingTreeItem> RingItem = FFleshRingTreeItem::CreateRing(Ring.BoneName, RingIndex);
+			TSharedPtr<FFleshRingTreeItem> RingItem = FFleshRingTreeItem::CreateRing(Ring.BoneName, RingIndex, Asset);
 			RingItem->Parent = *FoundBone;
 
 			// Ring은 본의 자식들 앞에 추가 (맨 앞)
@@ -887,7 +1052,9 @@ TSharedRef<ITableRow> SFleshRingSkeletonTree::GenerateTreeRow(TSharedPtr<FFleshR
 	return SNew(SFleshRingTreeRow, OwnerTable)
 		.Item(Item)
 		.HighlightText(FText::FromString(SearchText))
-		.RowIndex(RowIndexCounter++);
+		.RowIndex(RowIndexCounter++)
+		.Asset(EditingAsset.Get())
+		.OnRingRenamed(this, &SFleshRingSkeletonTree::HandleRingRenamed);
 }
 
 void SFleshRingSkeletonTree::GetChildrenForTree(TSharedPtr<FFleshRingTreeItem> Item, TArray<TSharedPtr<FFleshRingTreeItem>>& OutChildren)
@@ -950,11 +1117,48 @@ void SFleshRingSkeletonTree::OnTreeDoubleClick(TSharedPtr<FFleshRingTreeItem> It
 {
 	if (Item.IsValid() && TreeView.IsValid())
 	{
-		// 본 더블클릭: 확장/축소 토글
 		if (Item->ItemType == EFleshRingTreeItemType::Bone)
 		{
+			// 본 더블클릭: 확장/축소 토글
 			bool bIsExpanded = TreeView->IsItemExpanded(Item);
 			TreeView->SetItemExpansion(Item, !bIsExpanded);
+		}
+		else if (Item->ItemType == EFleshRingTreeItemType::Ring)
+		{
+			// Ring 더블클릭: 이름 편집 모드
+			TSharedPtr<ITableRow> RowWidget = TreeView->WidgetFromItem(Item);
+			if (RowWidget.IsValid())
+			{
+				TSharedPtr<SFleshRingTreeRow> TreeRow = StaticCastSharedPtr<SFleshRingTreeRow>(RowWidget);
+				if (TreeRow.IsValid())
+				{
+					TreeRow->EnterEditingMode();
+				}
+			}
+		}
+	}
+}
+
+void SFleshRingSkeletonTree::HandleRingRenamed(int32 RingIndex, const FString& NewName)
+{
+	if (UFleshRingAsset* Asset = EditingAsset.Get())
+	{
+		if (Asset->Rings.IsValidIndex(RingIndex))
+		{
+			// Row에서 이미 검증했으므로 바로 적용
+			FScopedTransaction Transaction(LOCTEXT("RenameRingFromTree", "Rename Ring"));
+			Asset->Modify();
+			Asset->Rings[RingIndex].RingName = NewName;
+			Asset->PostEditChange();
+
+			// 디테일 패널 등 다른 UI 갱신
+			Asset->OnAssetChanged.Broadcast(Asset);
+
+			// 트리 갱신 (RebuildList로 행 재생성하여 이름 업데이트)
+			if (TreeView.IsValid())
+			{
+				TreeView->RebuildList();
+			}
 		}
 	}
 }

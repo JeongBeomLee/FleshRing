@@ -11,6 +11,7 @@
 
 class IDetailChildrenBuilder;
 class SComboButton;
+class SInlineEditableTextBlock;
 
 /**
  * Bone 드롭다운용 트리 아이템
@@ -216,4 +217,28 @@ private:
 
 	/** Asset에서 TargetSkeletalMesh 가져오기 */
 	class USkeletalMesh* GetTargetSkeletalMesh() const;
+
+	/** 상위 Asset 가져오기 */
+	class UFleshRingAsset* GetOuterAsset() const;
+
+	/** 헤더 클릭 시 Ring 선택 */
+	FReply OnHeaderClicked(int32 RingIndex);
+
+	/** 헤더 클릭 시 Ring 선택 (void 버전, FSimpleDelegate용) */
+	void OnHeaderClickedVoid();
+
+	/** 표시용 Ring 이름 가져오기 */
+	FText GetDisplayRingName(int32 Index) const;
+
+	/** Ring 이름 커밋 시 호출 */
+	void OnRingNameCommitted(const FText& NewText, ETextCommit::Type CommitType);
+
+	/** 이 Ring이 현재 선택되어 있는지 확인 */
+	bool IsThisRingSelected() const;
+
+	/** 배열 인덱스 캐시 */
+	int32 CachedArrayIndex = INDEX_NONE;
+
+	/** Ring 이름 인라인 편집 위젯 참조 */
+	TSharedPtr<class SRingNameWidget> RingNameWidget;
 };

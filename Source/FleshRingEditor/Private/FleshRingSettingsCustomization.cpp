@@ -26,10 +26,271 @@
 #include "Rendering/SkeletalMeshRenderData.h"
 #include "Styling/AppStyle.h"
 #include "Widgets/Colors/SColorBlock.h"
+#include "Widgets/Text/SInlineEditableTextBlock.h"
 #include "Misc/DefaultValueHelper.h"
 #include "ScopedTransaction.h"
 
 #define LOCTEXT_NAMESPACE "FleshRingSettingsCustomization"
+
+/**
+ * Ring 이름 인라인 편집 위젯
+ * - 싱글 클릭: Ring 선택
+ * - 더블 클릭: 이름 편집 모드
+ * - 중복 이름 검증 (빨간 테두리 + 오류 메시지)
+ */
+class SRingNameWidget : public SCompoundWidget
+{
+public:
+	SLATE_BEGIN_ARGS(SRingNameWidget) {}
+		SLATE_ARGUMENT(FText, InitialText)
+		SLATE_ATTRIBUTE(bool, IsSelected)
+		SLATE_ARGUMENT(UFleshRingAsset*, Asset)
+		SLATE_ARGUMENT(int32, RingIndex)
+		SLATE_EVENT(FSimpleDelegate, OnClicked)
+		SLATE_EVENT(FOnTextCommitted, OnTextCommitted)
+	SLATE_END_ARGS()
+
+	void Construct(const FArguments& InArgs)
+	{
+		OnClickedDelegate = InArgs._OnClicked;
+		OnTextCommittedDelegate = InArgs._OnTextCommitted;
+		IsSelectedAttr = InArgs._IsSelected;
+		Asset = InArgs._Asset;
+		RingIndex = InArgs._RingIndex;
+
+		// 초기 텍스트 저장 (바인딩 아님 - 고정값)
+		CurrentText = InArgs._InitialText;
+
+		// 에셋 변경 델리게이트 구독 (스켈레톤 트리에서 이름 변경 시 업데이트)
+		if (Asset)
+		{
+			Asset->OnAssetChanged.AddSP(this, &SRingNameWidget::OnAssetChangedHandler);
+		}
+
+		ChildSlot
+		[
+			SAssignNew(ValidationBorder, SBorder)
+			.BorderImage(FAppStyle::GetBrush("NoBorder"))
+			.Padding(0)
+			[
+				SAssignNew(InlineTextBlock, SInlineEditableTextBlock)
+				.Text(CurrentText)
+				.IsSelected(this, &SRingNameWidget::IsSelected)
+				.OnVerifyTextChanged(this, &SRingNameWidget::OnVerifyNameChanged)
+				.OnTextCommitted(this, &SRingNameWidget::OnNameCommitted)
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		];
+	}
+
+	~SRingNameWidget()
+	{
+		// 델리게이트 해제
+		if (Asset)
+		{
+			Asset->OnAssetChanged.RemoveAll(this);
+		}
+	}
+
+	/** 텍스트 업데이트 (외부에서 호출) */
+	void SetText(const FText& NewText)
+	{
+		CurrentText = NewText;
+		if (InlineTextBlock.IsValid())
+		{
+			InlineTextBlock->SetText(NewText);
+		}
+	}
+
+	/** 에셋 변경 핸들러 (스켈레톤 트리에서 이름 변경 시) */
+	void OnAssetChangedHandler(UFleshRingAsset* ChangedAsset)
+	{
+		if (Asset && Asset->Rings.IsValidIndex(RingIndex))
+		{
+			FText NewText = FText::FromString(Asset->Rings[RingIndex].GetDisplayName(RingIndex));
+			CurrentText = NewText;
+			if (InlineTextBlock.IsValid())
+			{
+				InlineTextBlock->SetText(NewText);
+			}
+		}
+	}
+
+	virtual FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
+	{
+		if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+		{
+			// 싱글 클릭: Ring 선택
+			OnClickedDelegate.ExecuteIfBound();
+			return FReply::Handled();
+		}
+		return FReply::Unhandled();
+	}
+
+	virtual FReply OnMouseButtonDoubleClick(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
+	{
+		if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+		{
+			// 더블클릭: 편집 모드 진입
+			EnterEditingMode();
+			return FReply::Handled();
+		}
+		return FReply::Unhandled();
+	}
+
+	/** 편집 모드 진입 */
+	void EnterEditingMode()
+	{
+		if (InlineTextBlock.IsValid())
+		{
+			InlineTextBlock->EnterEditingMode();
+		}
+	}
+
+private:
+	bool IsSelected() const
+	{
+		return IsSelectedAttr.Get(false);
+	}
+
+	/** 이름 검증 (중복 체크) */
+	bool OnVerifyNameChanged(const FText& NewText, FText& OutErrorMessage)
+	{
+		if (!Asset)
+		{
+			bIsNameValid = true;
+			return true;
+		}
+
+		FString NewName = NewText.ToString();
+
+		// 중복 이름 체크
+		if (!Asset->IsRingNameUnique(NewName, RingIndex))
+		{
+			OutErrorMessage = LOCTEXT("DuplicateNameError", "This name is already in use. Please choose a different name.");
+			bIsNameValid = false;
+
+			// 빨간 테두리 표시
+			if (ValidationBorder.IsValid())
+			{
+				ValidationBorder->SetBorderImage(FAppStyle::GetBrush("WhiteBrush"));
+				ValidationBorder->SetBorderBackgroundColor(FLinearColor(0.8f, 0.2f, 0.2f, 0.5f));
+			}
+
+			return false;  // 커밋 차단, 텍스트 유지
+		}
+
+		bIsNameValid = true;
+
+		// 정상 테두리로 복원
+		if (ValidationBorder.IsValid())
+		{
+			ValidationBorder->SetBorderImage(FAppStyle::GetBrush("NoBorder"));
+		}
+
+		return true;
+	}
+
+	/** 이름 커밋 */
+	void OnNameCommitted(const FText& NewText, ETextCommit::Type CommitType)
+	{
+		// 테두리 초기화
+		if (ValidationBorder.IsValid())
+		{
+			ValidationBorder->SetBorderImage(FAppStyle::GetBrush("NoBorder"));
+		}
+
+		if (CommitType == ETextCommit::OnEnter || CommitType == ETextCommit::OnUserMovedFocus)
+		{
+			// OnVerifyTextChanged에서 false 반환 시 여기까지 오지 않음
+			// 여기 도달했다면 유효한 이름
+			CurrentText = NewText;
+			if (InlineTextBlock.IsValid())
+			{
+				InlineTextBlock->SetText(NewText);
+			}
+			OnTextCommittedDelegate.ExecuteIfBound(NewText, CommitType);
+		}
+
+		bIsNameValid = true;
+	}
+
+	TSharedPtr<SInlineEditableTextBlock> InlineTextBlock;
+	TSharedPtr<SBorder> ValidationBorder;
+	FSimpleDelegate OnClickedDelegate;
+	FOnTextCommitted OnTextCommittedDelegate;
+	TAttribute<bool> IsSelectedAttr;
+	UFleshRingAsset* Asset = nullptr;
+	int32 RingIndex = INDEX_NONE;
+	bool bIsNameValid = true;
+	FText CurrentText;
+};
+
+/**
+ * 클릭/더블클릭 가능한 Row 버튼 위젯
+ */
+class SClickableRowButton : public SCompoundWidget
+{
+public:
+	SLATE_BEGIN_ARGS(SClickableRowButton) {}
+		SLATE_DEFAULT_SLOT(FArguments, Content)
+		SLATE_EVENT(FSimpleDelegate, OnClicked)
+		SLATE_EVENT(FSimpleDelegate, OnDoubleClicked)
+		SLATE_ATTRIBUTE(FText, ToolTipText)
+	SLATE_END_ARGS()
+
+	void Construct(const FArguments& InArgs)
+	{
+		OnClickedDelegate = InArgs._OnClicked;
+		OnDoubleClickedDelegate = InArgs._OnDoubleClicked;
+
+		ChildSlot
+		[
+			SNew(SBorder)
+			.BorderImage(FAppStyle::GetBrush("NoBorder"))
+			.Padding(FMargin(4, 2))
+			.ToolTipText(InArgs._ToolTipText)
+			[
+				InArgs._Content.Widget
+			]
+		];
+	}
+
+	virtual FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
+	{
+		if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+		{
+			return FReply::Handled();
+		}
+		return FReply::Unhandled();
+	}
+
+	virtual FReply OnMouseButtonUp(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
+	{
+		if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+		{
+			// 싱글 클릭
+			OnClickedDelegate.ExecuteIfBound();
+			return FReply::Handled();
+		}
+		return FReply::Unhandled();
+	}
+
+	virtual FReply OnMouseButtonDoubleClick(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
+	{
+		if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+		{
+			// 더블클릭
+			OnDoubleClickedDelegate.ExecuteIfBound();
+			return FReply::Handled();
+		}
+		return FReply::Unhandled();
+	}
+
+private:
+	FSimpleDelegate OnClickedDelegate;
+	FSimpleDelegate OnDoubleClickedDelegate;
+};
 
 /**
  * Bone 드롭다운용 트리 행 위젯 (SExpanderArrow + Wires 지원)
@@ -153,19 +414,134 @@ void FFleshRingSettingsCustomization::CustomizeHeader(
 	// 메인 프로퍼티 핸들 캐싱 (Asset 접근용)
 	MainPropertyHandle = PropertyHandle;
 
+	// 배열 인덱스 캐싱 (클릭 선택 및 이름 표시용)
+	CachedArrayIndex = PropertyHandle->GetIndexInArray();
+
 	// BoneName 핸들 미리 가져오기 (헤더 미리보기용)
 	BoneNameHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BoneName));
 
-	// 헤더: 이름 + 본 이름 미리보기
-	HeaderRow.NameContent()
+	// 헤더: 전체 row 클릭 가능 (클릭=선택, 더블클릭=이름 편집)
+	FText TooltipText = LOCTEXT("RingHeaderTooltip", "Ring Name\nClick to select, Double-click to rename");
+
+	// 배열 컨트롤용 핸들
+	TSharedRef<IPropertyHandle> PropHandleRef = PropertyHandle;
+
+	HeaderRow.WholeRowContent()
 	[
-		PropertyHandle->CreatePropertyNameWidget()
-	]
-	.ValueContent()
-	[
-		SNew(STextBlock)
-		.Text(this, &FFleshRingSettingsCustomization::GetCurrentBoneName)
-		.Font(IDetailLayoutBuilder::GetDetailFont())
+		SNew(SHorizontalBox)
+		// 클릭 가능한 메인 영역
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		[
+			SNew(SClickableRowButton)
+			.OnClicked(FSimpleDelegate::CreateRaw(this, &FFleshRingSettingsCustomization::OnHeaderClickedVoid))
+			.OnDoubleClicked(FSimpleDelegate::CreateLambda([this]() {
+				if (RingNameWidget.IsValid())
+				{
+					RingNameWidget->EnterEditingMode();
+				}
+			}))
+			.ToolTipText(TooltipText)
+			[
+				SNew(SHorizontalBox)
+				// Ring 이름 (인라인 편집 가능)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				.Padding(FMargin(0, 0, 8, 0))
+				[
+					SAssignNew(RingNameWidget, SRingNameWidget)
+					.InitialText(GetDisplayRingName(CachedArrayIndex))
+					.IsSelected(this, &FFleshRingSettingsCustomization::IsThisRingSelected)
+					.Asset(GetOuterAsset())
+					.RingIndex(CachedArrayIndex)
+					.OnClicked(FSimpleDelegate::CreateRaw(this, &FFleshRingSettingsCustomization::OnHeaderClickedVoid))
+					.OnTextCommitted(this, &FFleshRingSettingsCustomization::OnRingNameCommitted)
+				]
+				// Bone 이름 (서브 정보)
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				.VAlign(VAlign_Center)
+				[
+					SNew(STextBlock)
+					.Text(this, &FFleshRingSettingsCustomization::GetCurrentBoneName)
+					.Font(IDetailLayoutBuilder::GetDetailFont())
+					.ColorAndOpacity(FSlateColor::UseSubduedForeground())
+				]
+			]
+		]
+		// 삽입 버튼
+		+ SHorizontalBox::Slot()
+		.AutoWidth()
+		.VAlign(VAlign_Center)
+		.Padding(2, 0)
+		[
+			SNew(SButton)
+			.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+			.OnClicked_Lambda([PropHandleRef]() -> FReply {
+				if (TSharedPtr<IPropertyHandleArray> ArrayHandle = PropHandleRef->GetParentHandle()->AsArray())
+				{
+					int32 Index = PropHandleRef->GetIndexInArray();
+					ArrayHandle->Insert(Index);
+				}
+				return FReply::Handled();
+			})
+			.ToolTipText(LOCTEXT("InsertTooltip", "Insert"))
+			.ContentPadding(2)
+			[
+				SNew(SImage)
+				.Image(FAppStyle::GetBrush("Icons.PlusCircle"))
+				.ColorAndOpacity(FSlateColor::UseForeground())
+			]
+		]
+		// 복제 버튼
+		+ SHorizontalBox::Slot()
+		.AutoWidth()
+		.VAlign(VAlign_Center)
+		.Padding(2, 0)
+		[
+			SNew(SButton)
+			.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+			.OnClicked_Lambda([PropHandleRef]() -> FReply {
+				if (TSharedPtr<IPropertyHandleArray> ArrayHandle = PropHandleRef->GetParentHandle()->AsArray())
+				{
+					int32 Index = PropHandleRef->GetIndexInArray();
+					ArrayHandle->DuplicateItem(Index);
+				}
+				return FReply::Handled();
+			})
+			.ToolTipText(LOCTEXT("DuplicateTooltip", "Duplicate"))
+			.ContentPadding(2)
+			[
+				SNew(SImage)
+				.Image(FAppStyle::GetBrush("Icons.Duplicate"))
+				.ColorAndOpacity(FSlateColor::UseForeground())
+			]
+		]
+		// 삭제 버튼
+		+ SHorizontalBox::Slot()
+		.AutoWidth()
+		.VAlign(VAlign_Center)
+		.Padding(2, 0)
+		[
+			SNew(SButton)
+			.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+			.OnClicked_Lambda([PropHandleRef]() -> FReply {
+				if (TSharedPtr<IPropertyHandleArray> ArrayHandle = PropHandleRef->GetParentHandle()->AsArray())
+				{
+					int32 Index = PropHandleRef->GetIndexInArray();
+					ArrayHandle->DeleteItem(Index);
+				}
+				return FReply::Handled();
+			})
+			.ToolTipText(LOCTEXT("DeleteTooltip", "Delete"))
+			.ContentPadding(2)
+			[
+				SNew(SImage)
+				.Image(FAppStyle::GetBrush("Icons.Delete"))
+				.ColorAndOpacity(FSlateColor::UseForeground())
+			]
+		]
 	];
 }
 
@@ -261,6 +637,12 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 
 		// BoneName은 이미 커스터마이징했으므로 스킵
 		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BoneName))
+		{
+			continue;
+		}
+
+		// RingName은 헤더에서 인라인 편집 가능하므로 스킵
+		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingName))
 		{
 			continue;
 		}
@@ -565,6 +947,16 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 
 USkeletalMesh* FFleshRingSettingsCustomization::GetTargetSkeletalMesh() const
 {
+	UFleshRingAsset* Asset = GetOuterAsset();
+	if (Asset)
+	{
+		return Asset->TargetSkeletalMesh.LoadSynchronous();
+	}
+	return nullptr;
+}
+
+UFleshRingAsset* FFleshRingSettingsCustomization::GetOuterAsset() const
+{
 	if (!MainPropertyHandle.IsValid())
 	{
 		return nullptr;
@@ -579,11 +971,70 @@ USkeletalMesh* FFleshRingSettingsCustomization::GetTargetSkeletalMesh() const
 	{
 		if (UFleshRingAsset* Asset = Cast<UFleshRingAsset>(Obj))
 		{
-			return Asset->TargetSkeletalMesh.LoadSynchronous();
+			return Asset;
 		}
 	}
 
 	return nullptr;
+}
+
+FReply FFleshRingSettingsCustomization::OnHeaderClicked(int32 RingIndex)
+{
+	// Asset의 SetEditorSelectedRingIndex 호출 (델리게이트 브로드캐스트됨)
+	if (UFleshRingAsset* Asset = GetOuterAsset())
+	{
+		FScopedTransaction Transaction(LOCTEXT("SelectRingFromDetails", "Select Ring"));
+		Asset->Modify();
+		Asset->SetEditorSelectedRingIndex(RingIndex, EFleshRingSelectionType::Mesh);
+	}
+	return FReply::Handled();
+}
+
+FText FFleshRingSettingsCustomization::GetDisplayRingName(int32 Index) const
+{
+	if (UFleshRingAsset* Asset = GetOuterAsset())
+	{
+		if (Asset->Rings.IsValidIndex(Index))
+		{
+			return FText::FromString(Asset->Rings[Index].GetDisplayName(Index));
+		}
+	}
+	return FText::Format(LOCTEXT("DefaultRingName", "FleshRing_{0}"), FText::AsNumber(Index));
+}
+
+void FFleshRingSettingsCustomization::OnHeaderClickedVoid()
+{
+	OnHeaderClicked(CachedArrayIndex);
+}
+
+void FFleshRingSettingsCustomization::OnRingNameCommitted(const FText& NewText, ETextCommit::Type CommitType)
+{
+	if (CommitType == ETextCommit::OnEnter || CommitType == ETextCommit::OnUserMovedFocus)
+	{
+		if (UFleshRingAsset* Asset = GetOuterAsset())
+		{
+			if (Asset->Rings.IsValidIndex(CachedArrayIndex))
+			{
+				// 위젯에서 이미 검증되었으므로 바로 적용
+				FScopedTransaction Transaction(LOCTEXT("RenameRing", "Rename Ring"));
+				Asset->Modify();
+				Asset->Rings[CachedArrayIndex].RingName = NewText.ToString();
+				Asset->PostEditChange();
+
+				// 스켈레톤 트리 등 다른 UI 갱신
+				Asset->OnAssetChanged.Broadcast(Asset);
+			}
+		}
+	}
+}
+
+bool FFleshRingSettingsCustomization::IsThisRingSelected() const
+{
+	if (UFleshRingAsset* Asset = GetOuterAsset())
+	{
+		return Asset->EditorSelectedRingIndex == CachedArrayIndex;
+	}
+	return false;
 }
 
 void FFleshRingSettingsCustomization::BuildBoneTree()

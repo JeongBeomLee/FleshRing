@@ -76,6 +76,10 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
 	FName BoneName;
 
+	/** Ring 커스텀 이름 (비어있으면 "FleshRing_인덱스" 형식 사용) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
+	FString RingName;
+
 	/** Ring 메쉬 (시각적 표현 + SDF 소스) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
 	TSoftObjectPtr<UStaticMesh> RingMesh;
@@ -179,5 +183,15 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		const FQuat WorldRotation = BoneRotation * MeshRotation;
 
 		return FTransform(WorldRotation, WorldLocation, MeshScale);
+	}
+
+	/**
+	 * 표시용 Ring 이름 반환
+	 * @param Index 배열 인덱스 (커스텀 이름이 없을 때 fallback용)
+	 * @return 커스텀 이름 또는 "FleshRing_인덱스" 형식
+	 */
+	FString GetDisplayName(int32 Index) const
+	{
+		return RingName.IsEmpty() ? FString::Printf(TEXT("FleshRing_%d"), Index) : RingName;
 	}
 };

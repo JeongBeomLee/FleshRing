@@ -10,6 +10,9 @@
 /** 에셋 변경 시 브로드캐스트되는 델리게이트 (구조적 변경 시 전체 리프레시) */
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnFleshRingAssetChanged, UFleshRingAsset*);
 
+/** Ring 선택 변경 시 브로드캐스트되는 델리게이트 (디테일 패널 → 뷰포트/트리 동기화) */
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnRingSelectionChanged, int32 /*RingIndex*/);
+
 /**
  * FleshRing 설정을 저장하는 에셋
  * Content Browser에서 생성하여 여러 캐릭터에 재사용 가능
@@ -117,6 +120,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "FleshRing")
 	int32 GetNumRings() const { return Rings.Num(); }
 
+	/** Ring 이름이 고유한지 확인 (특정 인덱스 제외) */
+	bool IsRingNameUnique(const FString& Name, int32 ExcludeIndex = INDEX_NONE) const;
+
+	/** 고유한 Ring 이름 생성 (중복 시 suffix 추가) */
+	FString MakeUniqueRingName(const FString& BaseName, int32 ExcludeIndex = INDEX_NONE) const;
+
 	/** 유효성 검사 */
 	UFUNCTION(BlueprintPure, Category = "FleshRing")
 	bool IsValid() const;
@@ -173,5 +182,14 @@ public:
 
 	/** 에셋 변경 델리게이트 - 구조적 변경 시 전체 리프레시 */
 	FOnFleshRingAssetChanged OnAssetChanged;
+
+	/** Ring 선택 변경 델리게이트 - 디테일 패널 → 뷰포트/트리 동기화 */
+	FOnRingSelectionChanged OnRingSelectionChanged;
+
+	/**
+	 * Ring 선택 설정 (델리게이트 호출 포함)
+	 * 디테일 패널에서 Ring 클릭 시 뷰포트/트리 동기화를 위해 사용
+	 */
+	void SetEditorSelectedRingIndex(int32 RingIndex, EFleshRingSelectionType SelectionType);
 #endif
 };

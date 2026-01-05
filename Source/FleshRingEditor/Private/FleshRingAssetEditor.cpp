@@ -25,6 +25,12 @@ FFleshRingAssetEditor::FFleshRingAssetEditor()
 
 FFleshRingAssetEditor::~FFleshRingAssetEditor()
 {
+	// Ring 선택 변경 델리게이트 해제
+	if (EditingAsset)
+	{
+		EditingAsset->OnRingSelectionChanged.RemoveAll(this);
+	}
+
 	// 프로퍼티 변경 델리게이트 해제
 	if (OnPropertyChangedHandle.IsValid())
 	{
@@ -96,6 +102,13 @@ void FFleshRingAssetEditor::InitFleshRingAssetEditor(
 	// Undo/Redo 델리게이트 구독
 	OnObjectTransactedHandle = FCoreUObjectDelegates::OnObjectTransacted.AddRaw(
 		this, &FFleshRingAssetEditor::OnObjectTransacted);
+
+	// Ring 선택 변경 델리게이트 구독 (디테일 패널 → 뷰포트/트리 동기화)
+	if (EditingAsset)
+	{
+		EditingAsset->OnRingSelectionChanged.AddRaw(
+			this, &FFleshRingAssetEditor::OnRingSelectionChangedFromDetails);
+	}
 }
 
 
@@ -754,6 +767,20 @@ void FFleshRingAssetEditor::ApplySelectionFromAsset()
 			DetailsView->HighlightProperty(*FPropertyPath::CreateEmpty());
 		}
 	}
+}
+
+void FFleshRingAssetEditor::OnRingSelectionChangedFromDetails(int32 RingIndex)
+{
+	// 순환 호출 방지 (뷰포트/트리에서 이미 선택 중인 경우)
+	if (bSyncingFromViewport)
+	{
+		return;
+	}
+
+	// 디테일 패널에서 Ring 클릭 시 뷰포트/트리 동기화
+	bSyncingFromViewport = true;
+	ApplySelectionFromAsset();
+	bSyncingFromViewport = false;
 }
 
 #undef LOCTEXT_NAMESPACE
