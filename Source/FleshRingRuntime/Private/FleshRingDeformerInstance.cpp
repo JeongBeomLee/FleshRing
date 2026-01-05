@@ -432,10 +432,14 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		bool bBulgeEnabledInSettings = true;
 		float RingBulgeStrength = 1.0f;
 		float RingMaxBulgeDistance = 10.0f;
+		float RingBulgeAxialRange = 3.0f;
+		float RingBulgeRadialRange = 1.5f;
 		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIdx))
 		{
 			bBulgeEnabledInSettings = (*RingSettingsPtr)[RingIdx].bEnableBulge;
 			RingBulgeStrength = (*RingSettingsPtr)[RingIdx].BulgeIntensity;
+			RingBulgeAxialRange = (*RingSettingsPtr)[RingIdx].BulgeAxialRange;
+			RingBulgeRadialRange = (*RingSettingsPtr)[RingIdx].BulgeRadialRange;
 		}
 
 		// bEnableBulge가 true이고 BulgeIntensity > 0이면 Bulge 활성화
@@ -450,8 +454,8 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			DispatchData.SDFBoundsMin,
 			DispatchData.SDFBoundsMax,
 			DispatchData.SDFLocalToComponent,
-			1.3f,  // BoundsExpansionRatio - 30% 확장
-			EFalloffType::Linear);
+			RingBulgeAxialRange,
+			RingBulgeRadialRange);
 
 		// Bulge 영역 계산
 		TArray<uint32> BulgeIndices;

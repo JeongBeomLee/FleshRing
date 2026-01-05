@@ -1,4 +1,4 @@
-﻿// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -357,7 +357,7 @@ private:
 
 	/**
 	 * 디버그 시각화용 Bulge 버텍스 데이터 (Ring별)
-	 * Mexican Hat 필터링 + 방향 필터링 적용된 결과
+	 * Smoothstep 거리 기반 필터링 + 방향 필터링 적용된 결과
 	 */
 	TArray<FRingAffectedData> DebugBulgeData;
 
@@ -390,7 +390,7 @@ private:
 	/** 디버그용 영향받는 버텍스 데이터 캐싱 */
 	void CacheAffectedVerticesForDebug();
 
-	/** Bulge 히트맵 그리기 (Mexican Hat 필터링 + 방향 필터링 적용) */
+	/** Bulge 히트맵 그리기 (Smoothstep 거리 기반 필터링 + 방향 필터링 적용) */
 	void DrawBulgeHeatmap(int32 RingIndex);
 
 	/** 디버그용 Bulge 버텍스 데이터 캐싱 */

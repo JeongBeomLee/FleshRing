@@ -1,4 +1,4 @@
-﻿// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "FleshRingComponent.h"
 #include "FleshRingAsset.h"
@@ -1648,7 +1648,7 @@ void UFleshRingComponent::DrawBulgeHeatmap(int32 RingIndex)
 	if (GEngine)
 	{
 		GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::Orange,
-			FString::Printf(TEXT("Ring[%d] Bulge: %d vertices (Mexican Hat filtered)"),
+			FString::Printf(TEXT("Ring[%d] Bulge: %d vertices (Smoothstep filtered)"),
 				RingIndex, RingData.Vertices.Num()));
 	}
 }
@@ -1720,16 +1720,16 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 		else
 			RingAxis = FVector3f(0, 0, 1);
 
-		// EffectWidth (GPU와 동일)
-		float MinSize = FMath::Min3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z);
-		float EffectWidth = MinSize * 0.4f;
+		// Ring 크기 계산 (FleshRingBulgeProviders.cpp와 동일)
+		const float RingWidth = FMath::Min3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z);  // 축 방향 크기
+		const float RingRadius = FMath::Max3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z) * 0.5f;  // 반경 방향 크기
 
-		// 확장된 바운드 (BoundsExpansionRatio = 1.3, 30% 확장)
-		const float BoundsExpansionRatio = 1.3f;
-		FVector3f HalfExtent = BoundsSize * 0.5f;
-		FVector3f ExpandedHalfExtent = HalfExtent * BoundsExpansionRatio;
-		FVector3f ExpandedMin = RingCenter - ExpandedHalfExtent;
-		FVector3f ExpandedMax = RingCenter + ExpandedHalfExtent;
+		// Bulge 시작 거리 (Ring 경계)
+		const float BulgeStartDist = RingWidth * 0.5f;
+
+		// 직교 범위 제한 (각 축 독립적으로 제어)
+		const float AxialLimit = RingWidth * 0.5f * RingSettings.BulgeAxialRange;   // 위아래 최대 범위
+		const float RadialLimit = RingRadius * RingSettings.BulgeRadialRange;       // 옆 최대 범위
 
 		// 방향 결정 (0 = 양방향)
 		int32 DetectedDirection = SDFCache->DetectedBulgeDirection;
@@ -1760,20 +1760,40 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 			FVector LocalSpacePos = ComponentToLocal.TransformPosition(CompSpacePos);
 			FVector3f LocalPos = FVector3f(LocalSpacePos);
 
-			// 확장된 바운드 내에 있는지 확인
-			if (LocalPos.X < ExpandedMin.X || LocalPos.X > ExpandedMax.X ||
-				LocalPos.Y < ExpandedMin.Y || LocalPos.Y > ExpandedMax.Y ||
-				LocalPos.Z < ExpandedMin.Z || LocalPos.Z > ExpandedMax.Z)
+			// Ring 중심으로부터의 벡터
+			FVector3f ToVertex = LocalPos - RingCenter;
+
+			// 1. 축 방향 거리 (위아래)
+			float AxialComponent = FVector3f::DotProduct(ToVertex, RingAxis);
+			float AxialDist = FMath::Abs(AxialComponent);
+
+			// Bulge 시작점(Ring 경계) 이전은 제외 - Tightness 영역
+			if (AxialDist < BulgeStartDist)
 			{
 				continue;
 			}
 
-			// ===== 방향 필터링 (핵심!) =====
-			// Ring 축 방향으로 버텍스가 어느 쪽에 있는지 확인
-			FVector3f ToVertex = LocalPos - RingCenter;
-			float AxialComponent = FVector3f::DotProduct(ToVertex, RingAxis);
+			// 축 방향 범위 초과 체크
+			if (AxialDist > AxialLimit)
+			{
+				continue;
+			}
 
-			// FinalDirection != 0이면 한쪽만, 0이면 양방향
+			// 2. 반경 방향 거리 (옆)
+			FVector3f RadialVec = ToVertex - RingAxis * AxialComponent;
+			float RadialDist = RadialVec.Size();
+
+			// Axial 거리에 따라 RadialLimit 동적 확장 (몸이 위아래로 넓어지는 것 보정)
+			const float AxialRatio = (AxialDist - BulgeStartDist) / FMath::Max(AxialLimit - BulgeStartDist, 0.001f);
+			const float DynamicRadialLimit = RadialLimit * (1.0f + AxialRatio * 0.5f);
+
+			// 반경 방향 범위 초과 체크 (다른 허벅지 영향 방지)
+			if (RadialDist > DynamicRadialLimit)
+			{
+				continue;
+			}
+
+			// 3. 방향 필터링 (FinalDirection != 0이면 한쪽만)
 			if (FinalDirection != 0)
 			{
 				int32 VertexSide = (AxialComponent > 0.0f) ? 1 : -1;
@@ -1783,43 +1803,22 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 				}
 			}
 
-			// ===== Mexican Hat 필터링 (GPU와 동일) =====
-			float AxialDist = FMath::Abs(AxialComponent);
-			float t = AxialDist / FMath::Max(EffectWidth, 0.001f);
+			// 4. 축 방향 거리 기반 Smoothstep 감쇠
+			// Ring 경계에서 1.0, AxialLimit에서 0으로 부드럽게 감쇠
+			const float AxialFalloffRange = AxialLimit - BulgeStartDist;
+			float NormalizedDist = (AxialDist - BulgeStartDist) / FMath::Max(AxialFalloffRange, 0.001f);
+			float ClampedDist = FMath::Clamp(NormalizedDist, 0.0f, 1.0f);
 
-			// Mexican Hat: f(t) = (1 - t²) × exp(-t²/2)
-			float t2 = t * t;
-			float MexicanHat = (1.0f - t2) * FMath::Exp(-t2 * 0.5f);
+			// Smoothstep: 1 → 0 (가까울수록 강함)
+			float t = 1.0f - ClampedDist;
+			float BulgeInfluence = t * t * (3.0f - 2.0f * t);  // Hermite smoothstep
 
-			// GPU에서는 음수 영역만 Bulge (t > 1)
-			// 디버그 시각화에서는 음수 영역의 절댓값을 Influence로 표시
-			if (MexicanHat < 0.0f)
+			if (BulgeInfluence > KINDA_SMALL_NUMBER)
 			{
-				float BulgeMask = -MexicanHat;
-
-				// 거리 기반 Influence (확장 바운드에서의 거리)
-				FVector3f ToCenter = LocalPos - RingCenter;
-				float MaxNormalizedDist = 0.0f;
-				for (int32 Axis = 0; Axis < 3; ++Axis)
-				{
-					if (ExpandedHalfExtent[Axis] > KINDA_SMALL_NUMBER)
-					{
-						float NormalizedDist = FMath::Abs(ToCenter[Axis]) / ExpandedHalfExtent[Axis];
-						MaxNormalizedDist = FMath::Max(MaxNormalizedDist, NormalizedDist);
-					}
-				}
-				float DistInfluence = FMath::Clamp(1.0f - MaxNormalizedDist, 0.0f, 1.0f);
-
-				// 최종 Influence = BulgeMask × DistInfluence
-				float FinalInfluence = BulgeMask * DistInfluence;
-
-				if (FinalInfluence > KINDA_SMALL_NUMBER)
-				{
-					FAffectedVertex BulgeVert;
-					BulgeVert.VertexIndex = VertIdx;
-					BulgeVert.Influence = FinalInfluence;
-					BulgeData.Vertices.Add(BulgeVert);
-				}
+				FAffectedVertex BulgeVert;
+				BulgeVert.VertexIndex = VertIdx;
+				BulgeVert.Influence = BulgeInfluence;
+				BulgeData.Vertices.Add(BulgeVert);
 			}
 		}
 

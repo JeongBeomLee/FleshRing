@@ -4,7 +4,6 @@
 
 #include "CoreMinimal.h"
 #include "FleshRingBulgeTypes.h"
-#include "FleshRingTypes.h"
 
 /**
  * SDF 바운드 기반 Bulge 영역 계산
@@ -18,8 +17,8 @@ public:
 	FVector3f SDFBoundsMax = FVector3f::ZeroVector;	// SDF Local
 	FTransform LocalToComponent = FTransform::Identity;
 
-	float BoundsExpansionRatio = 1.5f;	// 1.0 = 바운드 그대로, 1.5 = 50% 확장
-	EFalloffType FalloffType = EFalloffType::Linear;
+	float AxialRange = 3.0f;	// 축 방향(위아래) 범위 배율
+	float RadialRange = 1.5f;	// 반경 방향(옆) 범위 배율
 
 public:
 	FSDFBulgeProvider() = default;
@@ -28,8 +27,8 @@ public:
 		const FVector3f& InBoundsMin,
 		const FVector3f& InBoundsMax,
 		const FTransform& InLocalToComponent,
-		float InBoundsExpansionRatio = 1.5f,
-		EFalloffType InFalloffType = EFalloffType::Linear);
+		float InAxialRange = 3.0f,
+		float InRadialRange = 1.5f);
 
 	// IBulgeRegionProvider
 	virtual void CalculateBulgeRegion(
@@ -40,13 +39,6 @@ public:
 	) const override;
 
 private:
-	bool IsWithinExpandedBounds(const FVector3f& VertexPosLocal, const FVector3f& ExpandedMin, const FVector3f& ExpandedMax) const;
-	float CalculateApproximateInfluence(const FVector3f& VertexPosLocal, const FVector3f& ExpandedMin, const FVector3f& ExpandedMax) const;
-	float ApplyFalloff(float NormalizedDistance) const;
-
 	/** Ring 축 감지 (가장 짧은 SDF 바운드 축) */
 	FVector3f DetectRingAxis() const;
-
-	/** Mexican Hat (Ricker Wavelet) 함수: f(t) = (1 - t²) × exp(-t²/2) */
-	static float MexicanHat(float t);
 };

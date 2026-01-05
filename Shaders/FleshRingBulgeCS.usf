@@ -115,6 +115,57 @@ float3 ComputePureRadialDirection(float3 LocalPos, FRingGeometry Ring)
     return RadialVec / radialLen;
 }
 
+// SDF Gradient 계산 (표면 법선 방향)
+float3 ComputeSDFGradient(float3 LocalPos)
+{
+    float3 BoundsSize = SDFBoundsMax - SDFBoundsMin;
+    float epsilon = max(BoundsSize.x, max(BoundsSize.y, BoundsSize.z)) / 64.0;
+
+    float3 grad;
+    float3 uvX1 = saturate((LocalPos + float3(epsilon, 0, 0) - SDFBoundsMin) / BoundsSize);
+    float3 uvX2 = saturate((LocalPos - float3(epsilon, 0, 0) - SDFBoundsMin) / BoundsSize);
+    grad.x = SDFTexture.SampleLevel(SDFSampler, uvX1, 0).r - SDFTexture.SampleLevel(SDFSampler, uvX2, 0).r;
+
+    float3 uvY1 = saturate((LocalPos + float3(0, epsilon, 0) - SDFBoundsMin) / BoundsSize);
+    float3 uvY2 = saturate((LocalPos - float3(0, epsilon, 0) - SDFBoundsMin) / BoundsSize);
+    grad.y = SDFTexture.SampleLevel(SDFSampler, uvY1, 0).r - SDFTexture.SampleLevel(SDFSampler, uvY2, 0).r;
+
+    float3 uvZ1 = saturate((LocalPos + float3(0, 0, epsilon) - SDFBoundsMin) / BoundsSize);
+    float3 uvZ2 = saturate((LocalPos - float3(0, 0, epsilon) - SDFBoundsMin) / BoundsSize);
+    grad.z = SDFTexture.SampleLevel(SDFSampler, uvZ1, 0).r - SDFTexture.SampleLevel(SDFSampler, uvZ2, 0).r;
+
+    float len = length(grad);
+    return (len > 0.0001) ? (grad / len) : float3(0, 0, 1);
+}
+
+// 살이 링을 덮는 방향 계산 (Radial 70% + Axial 30%)
+// 리서치: 링 윗부분은 위로, 아랫부분은 아래로 밀려나는 느낌
+float3 ComputeFleshCoveringDirection(float3 LocalPos, FRingGeometry Ring)
+{
+    float3 ToVertex = LocalPos - Ring.Center;
+    float axialComponent = dot(ToVertex, Ring.Axis);
+
+    // 방사 방향 (바깥으로)
+    float3 RadialDir = ComputePureRadialDirection(LocalPos, Ring);
+
+    // 축 방향 (위/아래): 버텍스가 링 위면 위로, 아래면 아래로
+    float3 AxialDir = Ring.Axis * sign(axialComponent);
+
+    // 70% Radial + 30% Axial
+    float3 CombinedDir = RadialDir * 0.7 + AxialDir * 0.3;
+
+    float len = length(CombinedDir);
+    return (len > 0.0001) ? (CombinedDir / len) : RadialDir;
+}
+
+// 융기 커브: 급상승 후 점진적 감소
+// f(t) = t * exp(-t * k), k=3.0
+float ApplyBulgeCurve(float t)
+{
+    float k = 3.0;
+    return t * exp(-t * k);
+}
+
 // Debug
 #define DEBUG_FORCE_BULGE 0
 #define DEBUG_IGNORE_VOLUME 0
@@ -139,9 +190,9 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     {
         float3 LocalPos = TransformToSDFLocal(Pos);
         FRingGeometry Ring = ComputeRingGeometry();
-        float3 RadialDir = ComputePureRadialDirection(LocalPos, Ring);
-        float3 RadialDirComponent = normalize(TransformDirectionToComponent(RadialDir));
-        WritePosition(VertexIndex, Pos + RadialDirComponent * 5.0);
+        float3 BulgeDir = ComputeFleshCoveringDirection(LocalPos, Ring);
+        float3 BulgeDirComponent = normalize(TransformDirectionToComponent(BulgeDir));
+        WritePosition(VertexIndex, Pos + BulgeDirComponent * 5.0);
         return;
     }
 #endif
@@ -185,17 +236,17 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     // CPUInfluence에 BulgeMask가 이미 포함되어 있음
     // GPU는 방사 방향 계산 + Bulge 적용만 수행
 
-    // 방사 방향
-    float3 RadialDirLocal = ComputePureRadialDirection(LocalPos, Ring);
-    float3 RadialDirComponent = TransformDirectionToComponent(RadialDirLocal);
+    // Bulge 방향: Radial 70% + Axial 30% (살이 링을 덮는 방향)
+    float3 BulgeDirLocal = ComputeFleshCoveringDirection(LocalPos, Ring);
+    float3 BulgeDirComponent = TransformDirectionToComponent(BulgeDirLocal);
 
-    float dirLen = length(RadialDirComponent);
+    float dirLen = length(BulgeDirComponent);
     if (dirLen < 0.0001 || isnan(dirLen) || isinf(dirLen))
     {
         WritePosition(VertexIndex, Pos);
         return;
     }
-    RadialDirComponent = RadialDirComponent / dirLen;
+    BulgeDirComponent = BulgeDirComponent / dirLen;
 
     // Bulge 계산
     // CPUInfluence = BulgeMask × DistInfluence (CPU에서 사전 계산됨)
@@ -209,7 +260,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     BulgeAmount = clamp(BulgeAmount, 0.0, MaxBulgeDistance);
 
     // 위치 업데이트
-    float3 PosDelta = RadialDirComponent * BulgeAmount;
+    float3 PosDelta = BulgeDirComponent * BulgeAmount;
 
     if (any(isnan(PosDelta)) || any(isinf(PosDelta)))
     {
