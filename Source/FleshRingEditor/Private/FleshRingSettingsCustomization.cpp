@@ -36,7 +36,7 @@
  * Ring 이름 인라인 편집 위젯
  * - 싱글 클릭: Ring 선택
  * - 더블 클릭: 이름 편집 모드
- * - 중복 이름 검증 (빨간 테두리 + 오류 메시지)
+ * - 중복 이름 검증 (느낌표 아이콘 + 오류 툴팁)
  */
 class SRingNameWidget : public SCompoundWidget
 {
@@ -69,17 +69,12 @@ public:
 
 		ChildSlot
 		[
-			SAssignNew(ValidationBorder, SBorder)
-			.BorderImage(FAppStyle::GetBrush("NoBorder"))
-			.Padding(0)
-			[
-				SAssignNew(InlineTextBlock, SInlineEditableTextBlock)
-				.Text(CurrentText)
-				.IsSelected(this, &SRingNameWidget::IsSelected)
-				.OnVerifyTextChanged(this, &SRingNameWidget::OnVerifyNameChanged)
-				.OnTextCommitted(this, &SRingNameWidget::OnNameCommitted)
-				.Font(IDetailLayoutBuilder::GetDetailFont())
-			]
+			SAssignNew(InlineTextBlock, SInlineEditableTextBlock)
+			.Text(CurrentText)
+			.IsSelected(this, &SRingNameWidget::IsSelected)
+			.OnVerifyTextChanged(this, &SRingNameWidget::OnVerifyNameChanged)
+			.OnTextCommitted(this, &SRingNameWidget::OnNameCommitted)
+			.Font(IDetailLayoutBuilder::GetDetailFont())
 		];
 	}
 
@@ -158,7 +153,6 @@ private:
 	{
 		if (!Asset)
 		{
-			bIsNameValid = true;
 			return true;
 		}
 
@@ -168,24 +162,7 @@ private:
 		if (!Asset->IsRingNameUnique(NewName, RingIndex))
 		{
 			OutErrorMessage = LOCTEXT("DuplicateNameError", "This name is already in use. Please choose a different name.");
-			bIsNameValid = false;
-
-			// 빨간 테두리 표시
-			if (ValidationBorder.IsValid())
-			{
-				ValidationBorder->SetBorderImage(FAppStyle::GetBrush("WhiteBrush"));
-				ValidationBorder->SetBorderBackgroundColor(FLinearColor(0.8f, 0.2f, 0.2f, 0.5f));
-			}
-
 			return false;  // 커밋 차단, 텍스트 유지
-		}
-
-		bIsNameValid = true;
-
-		// 정상 테두리로 복원
-		if (ValidationBorder.IsValid())
-		{
-			ValidationBorder->SetBorderImage(FAppStyle::GetBrush("NoBorder"));
 		}
 
 		return true;
@@ -194,12 +171,6 @@ private:
 	/** 이름 커밋 */
 	void OnNameCommitted(const FText& NewText, ETextCommit::Type CommitType)
 	{
-		// 테두리 초기화
-		if (ValidationBorder.IsValid())
-		{
-			ValidationBorder->SetBorderImage(FAppStyle::GetBrush("NoBorder"));
-		}
-
 		if (CommitType == ETextCommit::OnEnter || CommitType == ETextCommit::OnUserMovedFocus)
 		{
 			// OnVerifyTextChanged에서 false 반환 시 여기까지 오지 않음
@@ -211,18 +182,14 @@ private:
 			}
 			OnTextCommittedDelegate.ExecuteIfBound(NewText, CommitType);
 		}
-
-		bIsNameValid = true;
 	}
 
 	TSharedPtr<SInlineEditableTextBlock> InlineTextBlock;
-	TSharedPtr<SBorder> ValidationBorder;
 	FSimpleDelegate OnClickedDelegate;
 	FOnTextCommitted OnTextCommittedDelegate;
 	TAttribute<bool> IsSelectedAttr;
 	UFleshRingAsset* Asset = nullptr;
 	int32 RingIndex = INDEX_NONE;
-	bool bIsNameValid = true;
 	FText CurrentText;
 };
 
