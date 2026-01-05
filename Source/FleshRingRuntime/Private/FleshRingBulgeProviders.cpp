@@ -49,8 +49,12 @@ void FSDFBulgeProvider::CalculateBulgeRegion(
 	const float BulgeStartDist = RingWidth * 0.5f;
 
 	// 직교 범위 제한 (각 축 독립적으로 제어)
-	const float AxialLimit = RingWidth * 0.5f * AxialRange;   // 위아래 최대 범위
-	const float RadialLimit = RingRadius * RadialRange;       // 옆 최대 범위
+	// AxialLimit = 시작점 + 확장량 (AxialRange=1이면 RingWidth*0.5 만큼 확장)
+	const float AxialLimit = BulgeStartDist + RingWidth * 0.5f * AxialRange;
+	const float RadialLimit = RingRadius * RadialRange;
+
+	//const float AxialLimit = RingWidth * 0.5f * AxialRange;   // 위아래 최대 범위
+	//const float RadialLimit = RingRadius * RadialRange;       // 옆 최대 범위
 
 	const FTransform ComponentToLocal = LocalToComponent.Inverse();
 	const int32 NumVertices = AllVertexPositions.Num();

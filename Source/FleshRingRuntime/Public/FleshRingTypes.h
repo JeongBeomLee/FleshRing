@@ -118,15 +118,15 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 
 	/** 볼록 효과 강도 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "0.0"))
-	float BulgeIntensity = 0.5f;
+	float BulgeIntensity = 1.0f;
 
 	/** Bulge 축 방향 범위 (Ring 높이 대비 배수, 위아래로 얼마나 퍼지는지) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "1.0", ClampMax = "8.0"))
-	float BulgeAxialRange = 3.0f;
+	float BulgeAxialRange = 5.0f;
 
 	/** Bulge 반경 방향 범위 (Ring 반지름 대비 배수, 옆으로 얼마나 퍼지는지) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "1.0", ClampMax = "3.0"))
-	float BulgeRadialRange = 1.5f;
+	float BulgeRadialRange = 1.0f;
 
 	/** 조이기 강도 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "3.0"))
@@ -163,9 +163,9 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		, RingThickness(1.0f)
 		, RingWidth(2.0f)
 		, bEnableBulge(true)
-		, BulgeIntensity(0.5f)
-		, BulgeAxialRange(3.0f)
-		, BulgeRadialRange(1.5f)
+		, BulgeIntensity(1.0f)
+		, BulgeAxialRange(5.0f)
+		, BulgeRadialRange(1.0f)
 		, TightnessStrength(1.0f)
 		, FalloffType(EFalloffType::Linear)
 	{

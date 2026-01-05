@@ -729,7 +729,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			continue;
 		}
 
-		// BulgeIntensity - 기본값: 0.5
+		// BulgeIntensity - 기본값: 1.0
 		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeIntensity))
 		{
 			ChildBuilder.AddProperty(ChildHandle)
@@ -738,10 +738,48 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
 							float Value;
 							Handle->GetValue(Value);
-							return !FMath::IsNearlyEqual(Value, 0.5f);
+							return !FMath::IsNearlyEqual(Value, 1.0f);
 						}),
 						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-							Handle->SetValue(0.5f);
+							Handle->SetValue(1.0f);
+						})
+					)
+				);
+			continue;
+		}
+
+		// BulgeAxialRange - 기본값: 5.0
+		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeAxialRange))
+		{
+			ChildBuilder.AddProperty(ChildHandle)
+				.OverrideResetToDefault(
+					FResetToDefaultOverride::Create(
+						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							float Value;
+							Handle->GetValue(Value);
+							return !FMath::IsNearlyEqual(Value, 5.0f);
+						}),
+						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							Handle->SetValue(5.0f);
+						})
+					)
+				);
+			continue;
+		}
+
+		// BulgeRadialRange - 기본값: 1.0
+		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeRadialRange))
+		{
+			ChildBuilder.AddProperty(ChildHandle)
+				.OverrideResetToDefault(
+					FResetToDefaultOverride::Create(
+						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							float Value;
+							Handle->GetValue(Value);
+							return !FMath::IsNearlyEqual(Value, 1.0f);
+						}),
+						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							Handle->SetValue(1.0f);
 						})
 					)
 				);

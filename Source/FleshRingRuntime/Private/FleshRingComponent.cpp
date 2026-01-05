@@ -1,4 +1,4 @@
-﻿// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "FleshRingComponent.h"
 #include "FleshRingAsset.h"
@@ -1728,8 +1728,9 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 		const float BulgeStartDist = RingWidth * 0.5f;
 
 		// 직교 범위 제한 (각 축 독립적으로 제어)
-		const float AxialLimit = RingWidth * 0.5f * RingSettings.BulgeAxialRange;   // 위아래 최대 범위
-		const float RadialLimit = RingRadius * RingSettings.BulgeRadialRange;       // 옆 최대 범위
+		// AxialLimit = 시작점 + 확장량 (AxialRange=1이면 RingWidth*0.5 만큼 확장)
+		const float AxialLimit = BulgeStartDist + RingWidth * 0.5f * RingSettings.BulgeAxialRange;
+		const float RadialLimit = RingRadius * RingSettings.BulgeRadialRange;
 
 		// 방향 결정 (0 = 양방향)
 		int32 DetectedDirection = SDFCache->DetectedBulgeDirection;
