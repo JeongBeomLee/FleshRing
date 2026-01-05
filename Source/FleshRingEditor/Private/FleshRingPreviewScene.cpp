@@ -136,9 +136,17 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 
 	SetSkeletalMesh(OriginalMesh);
 
-	// 원본 메시 캐싱 (복원용) - 최초 설정 시에만
-	if (!CachedOriginalMesh.IsValid() && OriginalMesh)
+	// 원본 메시 캐싱 (복원용) - 메시 변경 시에도 갱신
+	if (CachedOriginalMesh.IsValid() && CachedOriginalMesh.Get() != OriginalMesh)
 	{
+		// 메시가 변경되었으면 캐시 갱신
+		CachedOriginalMesh = OriginalMesh;
+		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Updated cached mesh to '%s' (mesh changed)"),
+			OriginalMesh ? *OriginalMesh->GetName() : TEXT("null"));
+	}
+	else if (!CachedOriginalMesh.IsValid() && OriginalMesh)
+	{
+		// 최초 설정
 		CachedOriginalMesh = OriginalMesh;
 		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Cached original mesh '%s' for restoration"),
 			*OriginalMesh->GetName());

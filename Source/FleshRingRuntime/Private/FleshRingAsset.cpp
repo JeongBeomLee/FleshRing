@@ -277,6 +277,24 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 			bNeedsFullRefresh = true;
 		}
 
+		// TargetSkeletalMesh 변경 시 Subdivision 메시들 클리어 (새 메시로 재생성 필요)
+		if (PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, TargetSkeletalMesh))
+		{
+			if (PreviewSubdividedMesh)
+			{
+				ClearPreviewMesh();
+				UE_LOG(LogFleshRingAsset, Log, TEXT("PostEditChangeProperty: TargetSkeletalMesh 변경으로 PreviewMesh 클리어"));
+			}
+			// SubdividedMesh도 클리어 (소스 메시가 변경되었으므로 재생성 필요)
+			if (SubdividedMesh)
+			{
+				ClearSubdividedMesh();
+				// ClearSubdividedMesh()가 OnAssetChanged.Broadcast()를 호출하므로 중복 방지
+				bNeedsFullRefresh = false;
+				UE_LOG(LogFleshRingAsset, Log, TEXT("PostEditChangeProperty: TargetSkeletalMesh 변경으로 SubdividedMesh 클리어"));
+			}
+		}
+
 		// bEnableSubdivision이 false로 변경되면 SubdividedMesh도 정리
 		// (상태 불일치로 인한 크래시 방지)
 		if (PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, bEnableSubdivision))
@@ -318,16 +336,19 @@ void UFleshRingAsset::PostTransacted(const FTransactionObjectEvent& TransactionE
 		return;
 	}
 
-	// SubdividedMesh가 손상된 경우 제거
-	// ::IsValid()로 dangling pointer 먼저 체크 (Undo로 파괴된 객체 포인터가 복원될 수 있음)
-	if (SubdividedMesh && (!::IsValid(SubdividedMesh) || !IsSkeletalMeshValidForUse(SubdividedMesh)))
+	// SubdividedMesh도 Undo/Redo 후 무조건 클리어
+	// (Undo로 dangling pointer가 복원되거나 TargetMesh와 불일치할 수 있음)
+	// 재생성은 사용자가 GenerateSubdividedMesh 버튼으로 명시적으로 해야 함
+	if (SubdividedMesh)
 	{
-		UE_LOG(LogFleshRingAsset, Warning,
-			TEXT("PostTransacted: SubdividedMesh is invalid after Undo/Redo, clearing..."));
-
-		// 손상된 메시 제거 (재생성은 사용자가 명시적으로 해야 함)
-		// 자동 재생성하면 또 다른 Undo 트랜잭션 이슈 발생 가능
+		if (::IsValid(SubdividedMesh))
+		{
+			FlushRenderingCommands();
+			SubdividedMesh->ConditionalBeginDestroy();
+		}
 		SubdividedMesh = nullptr;
+		UE_LOG(LogFleshRingAsset, Log,
+			TEXT("PostTransacted: SubdividedMesh cleared (user must regenerate)"));
 	}
 
 	// PreviewSubdividedMesh는 Transient이므로 Undo 시 무조건 제거 후 재생성
@@ -1303,7 +1324,7 @@ void UFleshRingAsset::ClearSubdividedMesh()
 		SubdivisionParamsHash = 0;
 
 		// Subdivision 비활성화 (프리뷰에서 재생성 방지)
-		bEnableSubdivision = false;
+		//bEnableSubdivision = false;
 
 		// 에디터 프리뷰 메시도 함께 제거 (원본 메시로 완전 복원)
 		ClearPreviewMesh();
