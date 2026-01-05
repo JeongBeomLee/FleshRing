@@ -26,7 +26,6 @@ DEFINE_LOG_CATEGORY_STATIC(LogFleshRingAsset, Log, All);
 
 UFleshRingAsset::UFleshRingAsset()
 {
-	// SdfSettings는 이제 각 Ring별로 FFleshRingSettings에 포함됨
 }
 
 void UFleshRingAsset::PostLoad()

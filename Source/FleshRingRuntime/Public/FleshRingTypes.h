@@ -31,20 +31,6 @@ enum class EFleshRingInfluenceMode : uint8
 	Manual	UMETA(DisplayName = "Manual")
 };
 
-/** SDF 업데이트 모드 */
-UENUM(BlueprintType)
-enum class EFleshRingSdfUpdateMode : uint8
-{
-	/** 매 틱마다 업데이트 */
-	OnTick		UMETA(DisplayName = "On Tick"),
-
-	/** 값 변경 시에만 업데이트 */
-	OnChange	UMETA(DisplayName = "On Change"),
-
-	/** 수동 업데이트 */
-	Manual		UMETA(DisplayName = "Manual")
-};
-
 /** 감쇠 곡선 타입 */
 UENUM(BlueprintType)
 enum class EFalloffType : uint8
@@ -79,25 +65,6 @@ enum class EBulgeDirectionMode : uint8
 // =====================================
 // 구조체 정의
 // =====================================
-
-/** SDF 관련 설정 (Ring별) */
-USTRUCT(BlueprintType)
-struct FLESHRINGRUNTIME_API FFleshRingSdfSettings
-{
-	GENERATED_BODY()
-
-	/** SDF 볼륨 해상도 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "16", ClampMax = "128"))
-	int32 Resolution = 64;
-
-	/** JFA 반복 횟수 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "1", ClampMax = "16"))
-	int32 JfaIterations = 8;
-
-	/** 업데이트 모드 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF")
-	EFleshRingSdfUpdateMode UpdateMode = EFleshRingSdfUpdateMode::OnChange;
-};
 
 /** 개별 Ring 설정 */
 USTRUCT(BlueprintType)
@@ -156,10 +123,6 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	/** 감쇠 곡선 타입 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
 	EFalloffType FalloffType = EFalloffType::Linear;
-
-	/** 이 Ring의 SDF 설정 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF")
-	FFleshRingSdfSettings SdfSettings;
 
 	/** Ring 회전 (실제 적용되는 쿼터니언, 런타임에서 사용) */
 	UPROPERTY()
