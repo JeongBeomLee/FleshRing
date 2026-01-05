@@ -595,38 +595,80 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 
 		MenuBuilder.AddSeparator();
 
-		// Show Bulge Heatmap
-		MenuBuilder.AddMenuEntry(
-			LOCTEXT("ShowBulgeHeatmap", "Show Bulge Heatmap"),
-			LOCTEXT("ShowBulgeHeatmapTooltip", "Show/Hide bulge heatmap visualization"),
-			FSlateIcon(),
-			FUIAction(
-				FExecuteAction::CreateLambda([WeakViewportClient]()
-				{
-					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
-					{
-						Client->ToggleShowBulgeHeatmap();
-					}
-				}),
-				FCanExecuteAction::CreateLambda([WeakViewportClient]()
-				{
-					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
-					{
-						return Client->ShouldShowDebugVisualization();
-					}
-					return false;
-				}),
-				FIsActionChecked::CreateLambda([WeakViewportClient]()
-				{
-					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
-					{
-						return Client->ShouldShowBulgeHeatmap();
-					}
-					return false;
-				})
-			),
-			NAME_None,
-			EUserInterfaceActionType::ToggleButton
+		// Bulge Heatmap 서브메뉴
+		MenuBuilder.AddSubMenu(
+			LOCTEXT("BulgeHeatmap", "Bulge Heatmap"),
+			LOCTEXT("BulgeHeatmapTooltip", "Bulge heatmap options"),
+			FNewMenuDelegate::CreateLambda([WeakViewportClient](FMenuBuilder& SubMenuBuilder)
+			{
+				// Enable 토글
+				SubMenuBuilder.AddMenuEntry(
+					LOCTEXT("BulgeHeatmapEnable", "Enable"),
+					LOCTEXT("BulgeHeatmapEnableTooltip", "Show/Hide bulge heatmap visualization"),
+					FSlateIcon(),
+					FUIAction(
+						FExecuteAction::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								Client->ToggleShowBulgeHeatmap();
+							}
+						}),
+						FCanExecuteAction::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								return Client->ShouldShowDebugVisualization();
+							}
+							return false;
+						}),
+						FIsActionChecked::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								return Client->ShouldShowBulgeHeatmap();
+							}
+							return false;
+						})
+					),
+					NAME_None,
+					EUserInterfaceActionType::ToggleButton
+				);
+
+				// Show Arrows 토글
+				SubMenuBuilder.AddMenuEntry(
+					LOCTEXT("BulgeShowArrows", "Show Arrows"),
+					LOCTEXT("BulgeShowArrowsTooltip", "Show/Hide direction arrows on bulge heatmap"),
+					FSlateIcon(),
+					FUIAction(
+						FExecuteAction::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								Client->ToggleShowBulgeArrows();
+							}
+						}),
+						FCanExecuteAction::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								return Client->ShouldShowDebugVisualization() && Client->ShouldShowBulgeHeatmap();
+							}
+							return false;
+						}),
+						FIsActionChecked::CreateLambda([WeakViewportClient]()
+						{
+							if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+							{
+								return Client->ShouldShowBulgeArrows();
+							}
+							return false;
+						})
+					),
+					NAME_None,
+					EUserInterfaceActionType::ToggleButton
+				);
+			})
 		);
 	}
 	MenuBuilder.EndSection();

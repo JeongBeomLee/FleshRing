@@ -1461,6 +1461,7 @@ void FFleshRingEditorViewportClient::SaveSettings()
 	GConfig->SetBool(*SectionName, TEXT("ShowAffectedVertices"), bCachedShowAffectedVertices, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowSDFSlice"), bCachedShowSDFSlice, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowBulgeHeatmap"), bCachedShowBulgeHeatmap, GEditorPerProjectIni);
+	GConfig->SetBool(*SectionName, TEXT("ShowBulgeArrows"), bCachedShowBulgeArrows, GEditorPerProjectIni);
 	GConfig->SetInt(*SectionName, TEXT("DebugSliceZ"), CachedDebugSliceZ, GEditorPerProjectIni);
 
 	// Config 파일에 즉시 저장
@@ -1597,6 +1598,7 @@ void FFleshRingEditorViewportClient::LoadSettings()
 	GConfig->GetBool(*SectionName, TEXT("ShowAffectedVertices"), bCachedShowAffectedVertices, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowSDFSlice"), bCachedShowSDFSlice, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowBulgeHeatmap"), bCachedShowBulgeHeatmap, GEditorPerProjectIni);
+	GConfig->GetBool(*SectionName, TEXT("ShowBulgeArrows"), bCachedShowBulgeArrows, GEditorPerProjectIni);
 	GConfig->GetInt(*SectionName, TEXT("DebugSliceZ"), CachedDebugSliceZ, GEditorPerProjectIni);
 
 	// 캐싱된 값을 FleshRingComponent에 적용
@@ -1609,6 +1611,7 @@ void FFleshRingEditorViewportClient::LoadSettings()
 			Comp->bShowAffectedVertices = bCachedShowAffectedVertices;
 			Comp->bShowSDFSlice = bCachedShowSDFSlice;
 			Comp->bShowBulgeHeatmap = bCachedShowBulgeHeatmap;
+			Comp->bShowBulgeArrows = bCachedShowBulgeArrows;
 			Comp->DebugSliceZ = CachedDebugSliceZ;
 
 			// SDFSlice 평면 가시성 적용
@@ -1730,6 +1733,24 @@ void FFleshRingEditorViewportClient::ToggleShowBulgeHeatmap()
 bool FFleshRingEditorViewportClient::ShouldShowBulgeHeatmap() const
 {
 	return bCachedShowBulgeHeatmap;
+}
+
+void FFleshRingEditorViewportClient::ToggleShowBulgeArrows()
+{
+	bCachedShowBulgeArrows = !bCachedShowBulgeArrows;
+	if (PreviewScene)
+	{
+		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
+		{
+			Comp->bShowBulgeArrows = bCachedShowBulgeArrows;
+		}
+	}
+	InvalidateAndDraw();
+}
+
+bool FFleshRingEditorViewportClient::ShouldShowBulgeArrows() const
+{
+	return bCachedShowBulgeArrows;
 }
 
 void FFleshRingEditorViewportClient::SetBoneDrawMode(EFleshRingBoneDrawMode::Type InMode)

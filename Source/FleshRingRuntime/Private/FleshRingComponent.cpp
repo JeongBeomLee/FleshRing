@@ -1912,23 +1912,26 @@ void UFleshRingComponent::DrawBulgeDirectionArrow(int32 RingIndex)
 	FColor ArrowColor = FColor::White;
 
 	// 화살표 그리기 (SDPG_Foreground로 메시 앞에 표시)
-	const float ArrowHeadSize = 0.5f;  // 화살표 머리 크기
-	const float ArrowThickness = 0.5f; // 화살표 두께
+	if (bShowBulgeArrows)
+	{
+		const float ArrowHeadSize = 0.5f;  // 화살표 머리 크기
+		const float ArrowThickness = 0.5f; // 화살표 두께
 
-	if (FinalDirection == 0)
-	{
-		// 양방향: 위아래 둘 다 화살표 그리기
-		FVector ArrowEndUp = WorldCenter + WorldZAxis * ArrowLength;
-		FVector ArrowEndDown = WorldCenter - WorldZAxis * ArrowLength;
-		DrawDebugDirectionalArrow(World, WorldCenter, ArrowEndUp, ArrowHeadSize, ArrowColor, false, -1.0f, SDPG_Foreground, ArrowThickness);
-		DrawDebugDirectionalArrow(World, WorldCenter, ArrowEndDown, ArrowHeadSize, ArrowColor, false, -1.0f, SDPG_Foreground, ArrowThickness);
-	}
-	else
-	{
-		// 단방향
-		FVector ArrowDirection = WorldZAxis * static_cast<float>(FinalDirection);
-		FVector ArrowEnd = WorldCenter + ArrowDirection * ArrowLength;
-		DrawDebugDirectionalArrow(World, WorldCenter, ArrowEnd, ArrowHeadSize, ArrowColor, false, -1.0f, SDPG_Foreground, ArrowThickness);
+		if (FinalDirection == 0)
+		{
+			// 양방향: 위아래 둘 다 화살표 그리기
+			FVector ArrowEndUp = WorldCenter + WorldZAxis * ArrowLength;
+			FVector ArrowEndDown = WorldCenter - WorldZAxis * ArrowLength;
+			DrawDebugDirectionalArrow(World, WorldCenter, ArrowEndUp, ArrowHeadSize, ArrowColor, false, -1.0f, SDPG_Foreground, ArrowThickness);
+			DrawDebugDirectionalArrow(World, WorldCenter, ArrowEndDown, ArrowHeadSize, ArrowColor, false, -1.0f, SDPG_Foreground, ArrowThickness);
+		}
+		else
+		{
+			// 단방향
+			FVector ArrowDirection = WorldZAxis * static_cast<float>(FinalDirection);
+			FVector ArrowEnd = WorldCenter + ArrowDirection * ArrowLength;
+			DrawDebugDirectionalArrow(World, WorldCenter, ArrowEnd, ArrowHeadSize, ArrowColor, false, -1.0f, SDPG_Foreground, ArrowThickness);
+		}
 	}
 
 	// 화면에 정보 표시

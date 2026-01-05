@@ -195,6 +195,10 @@ public:
 	/** Bulge 히트맵 표시 */
 	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
 	bool bShowBulgeHeatmap = false;
+
+	/** Bulge 방향 화살표 표시 */
+	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization && bShowBulgeHeatmap"))
+	bool bShowBulgeArrows = true;
 #endif
 
 	// =====================================
