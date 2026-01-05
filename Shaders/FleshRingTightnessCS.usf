@@ -6,31 +6,15 @@
 #include "/Engine/Public/Platform.ush"
 #include "/Engine/Private/GpuSkinCommon.ush"
 #include "FleshRingSDFSampling.ush"
-// ============================================================================
-// Buffer Declarations
-// 버퍼 선언
-// ============================================================================
 
-// Input: All mesh vertex positions (bind pose component space)
-// 입력: 메시의 원본 정점 위치 (바인드 포즈 컴포넌트 스페이스)
-Buffer<float> SourcePositions;
-
-// Input: Indices of affected vertices to process
-// 입력: 처리할 영향받는 정점 인덱스
-StructuredBuffer<uint> AffectedIndices;
-
-// Input: Per-vertex influence weights (0-1, from falloff calculation)
-// 입력: 정점별 영향도 (0~1, 감쇠 계산에서 산출)
-StructuredBuffer<float> Influences;
-
-// Output: Deformed vertex positions
-// 출력: 변형된 정점 위치
-RWBuffer<float> OutputPositions;
-
-// Output: Volume accumulation buffer for Bulge pass (Atomic operation)
-// 출력: Bulge 패스용 부피 누적 버퍼 (Atomic 연산)
-// Tightness에서 눌린 부피를 누적 → BulgeCS에서 읽어서 분배
-RWBuffer<uint> VolumeAccumBuffer;
+/**
+ * Buffer Declarations
+ */
+Buffer<float> SourcePositions;              // 메시의 원본 정점 위치(바인드 포즈 컴포넌트 스페이스)
+StructuredBuffer<uint> AffectedIndices;     // 영향받는 정점 인덱스
+StructuredBuffer<float> Influences;         // 정점별 영향도 (0~1, 감쇠 계산에서 산출)
+RWBuffer<float> OutputPositions;            // 출력: 변형된 정점 위치
+RWBuffer<uint> VolumeAccumBuffer;           // 출력: Bulge 패스용 부피 누적 버퍼 (Atomic 연산)
 
 // ============================================================================
 // Skinning Data (from GpuSkinCommon.ush pattern)
@@ -64,75 +48,28 @@ float3 RingCenter;          // Ring center position (component space)
                             // 링 중심 위치 (컴포넌트 스페이스)
 float3 RingAxis;            // Ring axis direction (normalized)
                             // 링 축 방향 (정규화됨)
-float TightnessStrength;    // Tightness deformation strength
-                            // 조이기 변형 강도
-float RingRadius;           // Ring inner radius
-                            // 링 내부 반지름
-float RingWidth;            // Ring height along axis
-                            // 링 높이 (축 방향)
+float TightnessStrength;    // 조이기 변형 강도
 
 // ============================================================================
-// SDF Parameters (OBB Design)
-// SDF 파라미터 (OBB 설계)
+// SDF Parameters
 // ============================================================================
-//
-// Design: SDF in Ring Local Space (OBB)
-// 설계: SDF를 Ring 로컬 스페이스에서 생성 (OBB)
-//
-// ┌─────────────────────────────────────────────────────────────────────┐
-// │ SDF Generation:                                                     │
-// │   Ring Mesh는 로컬 스페이스에서 SDF 생성 (회전 적용 X)               │
-// │   → 바운딩 박스가 AABB로 유지되어 효율적                             │
-// │                                                                     │
-// │ Shader Sampling:                                                    │
-// │   BindPos (Component Space) → ComponentToSDFLocal 역변환            │
-// │   → LocalPos로 SDF 샘플링                                           │
-// └─────────────────────────────────────────────────────────────────────┘
-//
-// Benefit: OBB 지원, Ring 회전 시에도 효율적인 바운딩 유지
-//
 
-// SDF 3D texture (Ring 로컬 스페이스)
-// SDF 3D 텍스처
 Texture3D<float> SDFTexture;
-
-// Trilinear sampler for smooth SDF interpolation
-// 부드러운 SDF 보간용 삼선형 샘플러
 SamplerState SDFSampler;
-
-// SDF volume bounds (Ring 로컬 스페이스)
-// SDF 볼륨 바운드
-float3 SDFBoundsMin;        // Volume minimum corner / 볼륨 최소 코너
-float3 SDFBoundsMax;        // Volume maximum corner / 볼륨 최대 코너
-
-// Flag: 0 = Use Influences buffer (Manual), 1 = Use SDF sampling (Auto)
-// 플래그: 0 = Influences 버퍼 사용 (수동), 1 = SDF 샘플링 사용 (자동)
-uint bUseSDFInfluence;
-
-// Component space → SDF local space transform matrix (OBB support)
-// 컴포넌트 스페이스 → SDF 로컬 스페이스 변환 행렬 (OBB 지원)
-// [주의] C++에서는 Component→Local이지만, HLSL column-major 규약으로 인해
-//        그대로 사용하면 Local→Component로 동작함. transpose 필요.
-float4x4 ComponentToSDFLocal;
+float3 SDFBoundsMin;
+float3 SDFBoundsMax;
+uint bUseSDFInfluence;              // 0 = Manual, 1 = SDF
+float4x4 ComponentToSDFLocal;       // Component → SDF Local (row vector 곱셈 사용)
 
 // ============================================================================
-// Counts
-// 버텍스 수
+// Counts & Volume Accumulation
 // ============================================================================
 
-uint NumAffectedVertices;   // Number of affected vertices to process
-                            // 처리할 영향받는 버텍스 수
-uint NumTotalVertices;      // Total mesh vertex count (for bounds check)
-                            // 전체 메시 버텍스 수 (범위 체크용)
-
-// ============================================================================
-// Volume Accumulation Parameters (for Bulge pass)
-// 부피 누적 파라미터 (Bulge 패스용)
-// ============================================================================
-
-uint bAccumulateVolume;     // 부피 누적 활성화 플래그 (0 = 비활성, 1 = 활성)
-float FixedPointScale;      // Fixed-point 스케일 (예: 1000.0, float×Scale → uint)
-uint RingIndex;             // Ring 인덱스 (VolumeAccumBuffer 슬롯 지정용)
+uint NumAffectedVertices;
+uint NumTotalVertices;
+uint bAccumulateVolume;     // Bulge용 부피 누적 활성화
+float FixedPointScale;      // float → uint 변환 스케일
+uint RingIndex;             // VolumeAccumBuffer 슬롯
 
 // Thread Group Size
 #ifndef THREADGROUP_SIZE
@@ -229,402 +166,49 @@ void WritePosition(uint VertexIndex, float3 Pos)
 }
 
 // ============================================================================
-// SDF Sampling Helper Functions
-// SDF 샘플링 헬퍼 함수
-// ============================================================================
-//
-// OBB Design: Transform vertex to local space before sampling
-// OBB 설계: SDF 샘플링 전에 버텍스를 로컬 스페이스로 변환
-//
-// SDF는 Ring 로컬 스페이스에서 생성됨
-// BindPos(컴포넌트 스페이스)를 ComponentToSDFLocal로 역변환 후 샘플링
-//
-
-// Transform component space position to SDF local space
-// 컴포넌트 스페이스 위치를 SDF 로컬 스페이스로 변환
-float3 TransformToSDFLocal(float3 ComponentPos)
-{
-    //float4 LocalPos = mul(float4(ComponentPos, 1.0f), ComponentToSDFLocal);
-    float4 LocalPos = mul(ComponentToSDFLocal, float4(ComponentPos, 1.0f));
-    return LocalPos.xyz;
-}
-
-// Convert local position to SDF UV coordinates [0, 1]
-// 로컬 위치를 SDF UV 좌표 [0, 1]로 변환
-float3 PositionToSDFUV(float3 LocalPos)
-{
-    float3 Range = SDFBoundsMax - SDFBoundsMin;
-
-    // Avoid division by zero / 0으로 나누기 방지
-    Range = max(Range, float3(0.001, 0.001, 0.001));
-
-    return (LocalPos - SDFBoundsMin) / Range;
-}
-
-// Sample SDF distance at local position
-// 로컬 위치에서 SDF 거리 샘플링
-// Returns: Signed distance (negative = inside, positive = outside)
-// 반환: 부호 있는 거리 (음수 = 내부, 양수 = 외부)
-float SampleSDFDistance(float3 LocalPos)
-{
-    float3 UV = PositionToSDFUV(LocalPos);
-
-    // Clamp to valid range / 유효 범위로 클램프
-    UV = saturate(UV);
-
-    // Trilinear sampling / 삼선형 샘플링
-    return SDFTexture.SampleLevel(SDFSampler, UV, 0).r;
-}
-
-// Calculate influence from SDF distance (OBB version)
-// SDF 거리에서 영향도 계산 (OBB 버전)
-// Input: ComponentPos (컴포넌트 스페이스 위치)
-// Returns: Influence [0, 1] / 반환: 영향도 [0, 1]
-//
-// SDF 부호 (시각화 기준):
-//   파란색 (SDF < 0): 링 구멍 내부 → 영향 없음
-//   빨간색 (SDF > 0): 링 바깥 튀어나옴 → 밀어내야 함
-//
-float CalculateInfluenceFromSDF(float3 ComponentPos)
-{
-    float3 LocalPos = TransformToSDFLocal(ComponentPos);
-    float Distance = SampleSDFDistance(LocalPos);
-
-    // SDF < 0: 링 구멍 내부 (파란색) → 영향 없음
-    if (Distance < 0.0)
-    {
-        return 0.0;
-    }
-
-    // SDF >= 0: 링 바깥 (빨간색) → 밀어내야 함
-    // 일단 최대 영향 1.0 반환
-    return 1.0;
-}
-
-// ============================================================================
-// Tightness Deformation Function
-// 조이기 변형 함수
+// Tightness Deformation Functions
 // ============================================================================
 
-// [FLEXIBLE] Deformation Formula
-// This function can be modified to implement different deformation algorithms
-// (e.g., volume-preserving deformation based on research papers)
-// 이 함수는 다양한 변형 알고리즘으로 수정 가능
-// (예: 부피 보존 변형, 라플라시안 제약 등)
-
-// Current implementation: Simple radial inward displacement
-// 현재 구현: 단순 반경 방향 내부 변위
-float3 ApplyTightnessDeformation(
-    float3 Pos,
-    float3 Center,
-    float3 Axis,
-    float Influence,
-    float Strength)
+// Manual 모드: 단순 반경 방향 내부 변위
+float3 ApplyTightnessDeformation(float3 Pos, float3 Center, float3 Axis, float Influence, float Strength)
 {
-    // Ring center to vertex
-    // 링 중심에서 버텍스까지
     float3 ToVertex = Pos - Center;
-
-    // Project onto ring axis to find axial distance
-    // 축에 투영하여 축 방향 거리 계산
     float AxisDist = dot(ToVertex, Axis);
-
-    // Calculate radial vector (perpendicular to axis)
-    // 반경 벡터 계산 (축에 수직)
     float3 RadialVec = ToVertex - Axis * AxisDist;
     float RadialDist = length(RadialVec);
 
-    // Safety check for vertices on the axis
-    // 축 위에 있는 버텍스 안전 체크
     if (RadialDist < 0.001)
-    {
         return Pos;
-    }
 
-    // Calculate inward direction (toward ring axis)
-    // 안쪽 방향 계산 (링 축을 향해)
     float3 InwardDir = -RadialVec / RadialDist;
-
-    // [CHANGEABLE] Calculate displacement amount
-    // Current: Linear displacement based on strength and influence
-    // Future: Can be modified for volume preservation
-    // [변경 가능] 변위량 계산
-    // 현재: 강도와 영향도 기반 선형 변위
-    // 미래: 부피 보존용으로 수정 가능
-    float Displacement = Strength * Influence;
-
-    // Apply inward displacement
-    // 안쪽 변위 적용
-    float3 NewPos = Pos + InwardDir * Displacement;
-
-    return NewPos;
+    return Pos + InwardDir * Strength * Influence;
 }
-// Component Space에서 직접 Gradient 계산
-float3 SampleSDFGradient_ComponentSpace(float3 ComponentPos)
-{
-    float epsilon = 0.5f;
-    
-    float3 gradient;
-    
-    // X 방향 - SampleSDFDistance 사용!
-    float3 LocalPosX1 = TransformToSDFLocal(ComponentPos + float3(epsilon, 0, 0));
-    float3 LocalPosX2 = TransformToSDFLocal(ComponentPos - float3(epsilon, 0, 0));
-    gradient.x = SampleSDFDistance(LocalPosX1) - SampleSDFDistance(LocalPosX2);
-    
-    // Y 방향
-    float3 LocalPosY1 = TransformToSDFLocal(ComponentPos + float3(0, epsilon, 0));
-    float3 LocalPosY2 = TransformToSDFLocal(ComponentPos - float3(0, epsilon, 0));
-    gradient.y = SampleSDFDistance(LocalPosY1) - SampleSDFDistance(LocalPosY2);
-    
-    // Z 방향
-    float3 LocalPosZ1 = TransformToSDFLocal(ComponentPos + float3(0, 0, epsilon));
-    float3 LocalPosZ2 = TransformToSDFLocal(ComponentPos - float3(0, 0, epsilon));
-    gradient.z = SampleSDFDistance(LocalPosZ1) - SampleSDFDistance(LocalPosZ2);
-    
-    float len = length(gradient);
-    if (len < 0.0001f)
-        return float3(0, 0, 1);
-    
-    return gradient / len;
-}
-// SDF 변형 함수
+
+// SDF 모드: 방사형 투영 기반 변형
 float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
 {
-    //// Local Space에서 SDF 샘플링
-    //float3 LocalPos = TransformToSDFLocal(BindPos);
-    
-    //// ===== 범위 체크: SDF 볼륨 밖이면 변형 없음 =====
-    //float3 UV = PositionToSDFUV(LocalPos);
-    //if (any(UV < 0.0) || any(UV > 1.0))
-        //return Pos;
-    
-    //float Distance = SampleSDFDistance(LocalPos);
-    
-    //// 내부 = 변형 없음
-    //if (Distance <= 0.0)
-        //return Pos;
-    
-    //// Component Space에서 Gradient 계산
-    //float3 PushDir = -SampleSDFGradient_ComponentSpace(BindPos);
-    //float PushAmount = Distance*10; // Strength 들어오는 값이 3이라 너무 세서 Distance만 사용하도록 바꿔놓음
-    ////float PushAmount = Distance * Strength;
-    
-    //return Pos + PushDir * PushAmount;
-    
-//    // ===== Position 변환: Component → Local =====
-//    float4x4 PosMatrix = transpose(ComponentToSDFLocal);
-//    float3 LocalPos = mul(PosMatrix, float4(BindPos, 1.0)).xyz;
-
-//// UV 계산
-//    float3 BoundsSize = SDFBoundsMax - SDFBoundsMin;
-//    float3 UV = (LocalPos - SDFBoundsMin) / BoundsSize;
-
-//    if (any(UV < 0.0) || any(UV > 1.0))
-//        return Pos;
-
-//// SDF 샘플링
-//    float Distance = SDFTexture.SampleLevel(SDFSampler, UV, 0).r;
-
-//    if (Distance <= 0.0)
-//        return Pos;
-
-//    Distance = min(Distance, 2.0);
-
-//// Gradient 계산 (Local Space)
-//    float epsilon = max(BoundsSize.x, max(BoundsSize.y, BoundsSize.z)) / 64.0;
-//    float3 gradient;
-
-//    float3 uvX1 = (LocalPos + float3(epsilon, 0, 0) - SDFBoundsMin) / BoundsSize;
-//    float3 uvX2 = (LocalPos - float3(epsilon, 0, 0) - SDFBoundsMin) / BoundsSize;
-//    gradient.x = SDFTexture.SampleLevel(SDFSampler, saturate(uvX1), 0).r
-//           - SDFTexture.SampleLevel(SDFSampler, saturate(uvX2), 0).r;
-
-//    float3 uvY1 = (LocalPos + float3(0, epsilon, 0) - SDFBoundsMin) / BoundsSize;
-//    float3 uvY2 = (LocalPos - float3(0, epsilon, 0) - SDFBoundsMin) / BoundsSize;
-//    gradient.y = SDFTexture.SampleLevel(SDFSampler, saturate(uvY1), 0).r
-//           - SDFTexture.SampleLevel(SDFSampler, saturate(uvY2), 0).r;
-
-//    float3 uvZ1 = (LocalPos + float3(0, 0, epsilon) - SDFBoundsMin) / BoundsSize;
-//    float3 uvZ2 = (LocalPos - float3(0, 0, epsilon) - SDFBoundsMin) / BoundsSize;
-//    gradient.z = SDFTexture.SampleLevel(SDFSampler, saturate(uvZ1), 0).r
-//           - SDFTexture.SampleLevel(SDFSampler, saturate(uvZ2), 0).r;
-
-//    float len = length(gradient);
-//    if (len < 0.0001)
-//        return Pos;
-
-//    float3 gradientLocal = gradient / len;
-
-//// ===== Direction 변환: Local → Component =====
-//// Direction은 transpose 안 함 (inverse-transpose 관계)
-//    float3 gradientComponent = mul((float3x3) ComponentToSDFLocal, gradientLocal);
-//    gradientComponent = normalize(gradientComponent);
-
-//// -Gradient 방향 = SDF 감소 방향 = 표면 방향
-//    float3 PushDir = -gradientComponent;
-
-//    return Pos + PushDir * Distance * Strength;
-    
-    
-    //// 되는 버전 
-    //float4x4 ToLocal = transpose(ComponentToSDFLocal);
-    //float3 LocalPos = mul(ToLocal, float4(BindPos, 1.0)).xyz;
-
-    //float3 BoundsSize = SDFBoundsMax - SDFBoundsMin;
-    //float3 UV = (LocalPos - SDFBoundsMin) / BoundsSize;
-
-    //if (any(UV < 0.0) || any(UV > 1.0))
-    //    return Pos;
-
-    //float Distance = SDFTexture.SampleLevel(SDFSampler, UV, 0).r;
-
-    //if (Distance <= 0.0)
-    //    return Pos;
-
-    //// ===== 레이마칭: 매 스텝마다 gradient 재계산 =====
-    //float3 CurrentPos = LocalPos;
-    //float epsilon = max(BoundsSize.x, max(BoundsSize.y, BoundsSize.z)) / 64.0;
-
-    //for (int i = 0; i < 8; i++)
-    //{
-    //    float3 CurUV = (CurrentPos - SDFBoundsMin) / BoundsSize;
-    //    float CurDist = SDFTexture.SampleLevel(SDFSampler, saturate(CurUV), 0).r;
-
-    //    if (CurDist <= 0.0)
-    //        break;
-
-    //    // 현재 위치에서 gradient 계산
-    //    float3 grad;
-    //    float3 uvX1 = (CurrentPos + float3(epsilon, 0, 0) - SDFBoundsMin) / BoundsSize;
-    //    float3 uvX2 = (CurrentPos - float3(epsilon, 0, 0) - SDFBoundsMin) / BoundsSize;
-    //    grad.x = SDFTexture.SampleLevel(SDFSampler, saturate(uvX1), 0).r
-    //       - SDFTexture.SampleLevel(SDFSampler, saturate(uvX2), 0).r;
-
-    //    float3 uvY1 = (CurrentPos + float3(0, epsilon, 0) - SDFBoundsMin) / BoundsSize;
-    //    float3 uvY2 = (CurrentPos - float3(0, epsilon, 0) - SDFBoundsMin) / BoundsSize;
-    //    grad.y = SDFTexture.SampleLevel(SDFSampler, saturate(uvY1), 0).r
-    //       - SDFTexture.SampleLevel(SDFSampler, saturate(uvY2), 0).r;
-
-    //    float3 uvZ1 = (CurrentPos + float3(0, 0, epsilon) - SDFBoundsMin) / BoundsSize;
-    //    float3 uvZ2 = (CurrentPos - float3(0, 0, epsilon) - SDFBoundsMin) / BoundsSize;
-    //    grad.z = SDFTexture.SampleLevel(SDFSampler, saturate(uvZ1), 0).r
-    //       - SDFTexture.SampleLevel(SDFSampler, saturate(uvZ2), 0).r;
-
-    //    float len = length(grad);
-    //    if (len < 0.0001)
-    //        break;
-
-    //    // -gradient 방향으로 CurDist만큼 이동
-    //    float3 dir = -grad / len;
-    //    CurrentPos += dir * CurDist;
-    //}
-
-    //// ===== Local Space 변위 계산 =====
-    //float3 DisplacementLocal = CurrentPos - LocalPos;
-
-    //// ===== Local → Component 변환 =====
-    //float3 DisplacementComponent = mul((float3x3) ComponentToSDFLocal, DisplacementLocal);
-
-    // ============================================================================
-    // ApplyTightnessDeformation_SDF - SDF 기반 조이기 변형
-    // ============================================================================
-    //
-    // [개요]
-    // 살(Flesh) 버텍스를 링 구멍 안쪽으로 밀어서 "조이는" 효과를 만듦.
-    // SDF(Signed Distance Field)를 사용해 링 표면까지의 거리와 방향을 계산.
-    //
-    // [SDF 값의 의미]
-    // - SDF > 0 (빨강): 링 메시 외부. 표면에서 떨어진 거리.
-    // - SDF = 0 (검정): 링 메시 표면.
-    // - SDF < 0 (파랑): 링 구멍 내부. 구멍 중심에서의 거리.
-    //
-    // [알고리즘 흐름]
-    // 1. 좌표 변환: Component Space → SDF Local Space
-    // 2. SDF 샘플링 및 조기 종료 (이미 내부면 패스)
-    // 3. Z 슬라이스 구멍 체크 (원래 Z 높이에 구멍 없으면 패스)
-    // 4. 레이마칭: SDF gradient를 따라 링 표면까지 이동
-    // 5. 사후 검증: 레이마칭 결과 유효성 (lastDir, Probe)
-    // 6. 변위 계산 및 적용
-    //
-    // ============================================================================
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // STEP 1: 좌표 변환 (Component Space → SDF Local Space)
-    // ─────────────────────────────────────────────────────────────────────────
-    // SDF 텍스처는 링의 로컬 스페이스에서 생성됨.
-    // 버텍스 위치를 같은 공간으로 변환해야 SDF 샘플링 가능.
-    // transpose: HLSL column-major 규약 보정 (위 변수 선언부 주석 참고)
-
-    // UE row-major → HLSL column-major 전달 시 자동 transpose됨
-    // 따라서 row vector 곱셈 (v * M) 사용
+    // STEP 1: Component → SDF Local 좌표 변환
     float3 LocalPos = mul(float4(BindPos, 1.0), ComponentToSDFLocal).xyz;
-
-    // UV 좌표 계산 (SDF 텍스처 샘플링용, 0~1 범위)
     float3 BoundsSize = SDFBoundsMax - SDFBoundsMin;
     float3 UV = (LocalPos - SDFBoundsMin) / BoundsSize;
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // STEP 2: SDF 샘플링 및 조기 종료 체크
-    // ─────────────────────────────────────────────────────────────────────────
-    // AffectedVertices는 CPU에서 이미 바운드 내 버텍스만 필터링됨.
-    // saturate: 부동소수점 오차로 인한 미세한 범위 이탈 방지용.
-
+    // STEP 2: 조기 종료 (이미 내부면 패스)
     float Distance = SDFTexture.SampleLevel(SDFSampler, saturate(UV), 0).r;
-
-    // 이미 내부(SDF <= 0)면 변형 불필요
     if (Distance <= 0.0)
         return Pos;
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // STEP 3: Z 슬라이스 구멍 체크
-    // ─────────────────────────────────────────────────────────────────────────
-    // [문제 상황]
-    // 링 위/아래 버텍스가 3D 레이마칭으로 링 옆쪽으로 이동하면서
-    // 구멍을 발견해 잘못된 변형이 적용되는 것을 방지.
-    //
-    // [해결]
-    // 버텍스의 원래 Z 슬라이스 중앙에서 SDF 확인.
-    // 그 Z에 구멍(파란색)이 없으면 변형 안 함.
-    //
-    // [시각화]
-    //   링 위 버텍스 → Z 슬라이스 중앙 = 빨강 → 변형 X
-    //   링 레벨 버텍스 → Z 슬라이스 중앙 = 파랑 → 변형 O
-
+    // STEP 3: Z 범위 체크 (링 위/아래 버텍스 필터링)
     float originalZ_UV = (LocalPos.z - SDFBoundsMin.z) / BoundsSize.z;
-
-    // STEP 3: 링 Z 범위 체크 (링 위/아래 버텍스 필터링)
-    // 버텍스의 Z가 링 Z 범위(0~1) 밖이면 변형 안 함
-    // 약간의 여유(0.1)를 줘서 경계 버텍스도 포함
     if (originalZ_UV < -0.1 || originalZ_UV > 1.1)
         return Pos;
-    
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // STEP 4: 레이마칭 (Sphere Tracing)
-    // ─────────────────────────────────────────────────────────────────────────
-    // SDF gradient를 따라 링 표면(SDF = 0)까지 이동.
-    //
-    // [원리]
-    // - gradient: SDF가 증가하는 방향 (표면에서 멀어지는 방향)
-    // - -gradient: SDF가 감소하는 방향 (표면으로 가까워지는 방향)
-    // - 매 스텝마다 현재 SDF 값만큼 이동 (sphere tracing)
-    //
-    // [결과]
-    // CurrentPos = 링 표면 위치
-    // lastDir = 마지막 이동 방향 (표면 진입 방향)
+    // STEP 4: 방사형 레이마칭 (Radial Projection)
+    float3 CurrentPos = LocalPos;
+    float epsilon = max(BoundsSize.x, max(BoundsSize.y, BoundsSize.z)) / 64.0;
+    float3 lastDir = float3(0, 0, 0);
 
-    float3 CurrentPos = LocalPos; // 레이마칭 시작 위치 = 버텍스의 로컬 좌표
-    float epsilon = max(BoundsSize.x, max(BoundsSize.y, BoundsSize.z)) / 64.0; // gradient 계산용(바운드 크기의 1/64)
-    float3 lastDir = float3(0, 0, 0); // 마지막 이동 방향 저장용 (나중에 probe 체크)
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // 방사형 투영 (Radial Projection)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    // [수정 1] SDF 볼륨 중심 사용 (RingCenter 변환 X - 좌표계가 다름)
+    // 바운드에서 링 중심/축 추론 (가장 얇은 축 = 구멍의 축 방향)
     float3 LocalRingCenter = (SDFBoundsMin + SDFBoundsMax) * 0.5;
-
-    // [수정 2] 바운드에서 축 추론 (가장 얇은 축 = 구멍의 축 방향)
     float3 LocalRingAxis;
     if (BoundsSize.z < BoundsSize.x && BoundsSize.z < BoundsSize.y)
         LocalRingAxis = float3(0, 0, 1);
@@ -633,117 +217,61 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
     else
         LocalRingAxis = float3(1, 0, 0);
 
+    // 방사형 레이마칭: 축을 향해 이동하며 구멍(SDF < 0) 찾기
+    // Gradient 방식 대신 방사형 사용 이유: 링 바깥면에 붙는 현상 방지
     for (int i = 0; i < 47; i++)
     {
         float3 CurUV = saturate((CurrentPos - SDFBoundsMin) / BoundsSize);
         float CurDist = SDFTexture.SampleLevel(SDFSampler, CurUV, 0).r;
 
-        // 구멍 내부 도달 (SDF < 0)
         if (CurDist < 0.0)
             break;
 
-        // 방사형 방향 계산: 현재 위치에서 링 축까지의 최단 방향
-        // 1. 중심에서 현재 위치까지의 벡터
+        // 방사형 방향: 축 성분 제거 후 안쪽으로
         float3 fromCenter = CurrentPos - LocalRingCenter;
-
-        // 2. 축 방향 성분 제거 → 순수 방사형 벡터 (축에서 바깥을 향함)
         float axialDist = dot(fromCenter, LocalRingAxis);
         float3 outwardRadial = fromCenter - LocalRingAxis * axialDist;
 
         float radialLen = length(outwardRadial);
         if (radialLen < 0.0001)
-            break;  // 이미 축 위에 있음
+            break;
 
-        // 안쪽 방향 = -outwardRadial (축을 향해)
         float3 dir = -outwardRadial / radialLen;
         lastDir = dir;
 
-        // Relaxed stepping: SDF 거리만큼 방사형 방향으로 이동
         // omega ∈ [1, 2): over-relaxation factor로 수렴 속도 향상
         // Reference: Keinert et al. 2014, Bálint & Valasek 2018
-        float omega = 1.3;
-        CurrentPos += dir * CurDist * omega;
+        // Over-relaxation (omega=1.3)으로 수렴 가속
+        CurrentPos += dir * CurDist * 1.3;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // STEP 4.5: 레이마칭 결과 검증 - 실제로 구멍에 도달했는지 확인
-    // ─────────────────────────────────────────────────────────────────────────
-    // [버그 수정] 47회 반복 후에도 구멍 못 찾으면 변형 안 함
-    // 링이 살에 닿지 않았을 때 잘못된 Tightness/Bulge 방지
-    {
-        float3 FinalUV = saturate((CurrentPos - SDFBoundsMin) / BoundsSize);
-        float FinalDist = SDFTexture.SampleLevel(SDFSampler, FinalUV, 0).r;
-        if (FinalDist >= 0.0)
-        {
-            // 구멍에 도달 못함 → 링이 살을 관통하지 않음 → 변형 불필요
-            return Pos;
-        }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // STEP 5: 사후 검증 (레이마칭 결과 유효성)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    // lastDir 체크 테스트
-
-    // 5-1: lastDir이 0이면 레이마칭이 한 번도 안 됨 → 변형 불필요
+    // STEP 5: 사후 검증
     if (length(lastDir) <= 0.0001)
         return Pos;
-    
 
-    // 5-2: Probe 체크 - 표면 너머가 구멍인지 확인
-    // ─────────────────────────────────────────────────────────────────────────
-    // 레이마칭으로 표면에 도달했지만, 그 표면이 "구멍으로 가는 입구"인지
-    // "그냥 링 옆면"인지 구분해야 함.
-    //
-    // [방법]
-    // 표면에서 조금 더 진행한 위치(probePos)에서 SDF 샘플링.
-    //
-    // [케이스 분류]
-    // - 케이스 1 (링 중앙): probe = 파랑(구멍) → 변형 O
-    // - 케이스 2 (링 위/아래): probe = 빨강(외부) → 변형 X
-    // - 케이스 3 (링 가장자리): probe = 빨강(외부) → 변형 X
-
-    {
-        // probe 거리를 충분히 크게 해서 확실히 구멍 안쪽을 샘플링
-        float3 probePos = CurrentPos + lastDir * epsilon * 8.0;
-        float3 probeUV = saturate((probePos - SDFBoundsMin) / BoundsSize);
-        float probeSDF = SDFTexture.SampleLevel(SDFSampler, probeUV, 0).r;
-
-        // 임계값 0.2: 경계에서 약간 양수여도 통과 (구멍 입구 경계 케이스 허용)
-        if (probeSDF > 0.6)
-        {
-            // 표면 너머가 확실히 외부 → 구멍 아님 → 변형 안 함
-            return Pos;
-        }
-        // probeSDF <= 0.1 → 구멍 또는 경계 → 변형 적용 계속
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // STEP 6: 변위 계산 및 적용
-    // ─────────────────────────────────────────────────────────────────────────
-
-    // 6-1: 변위 = 레이마칭 도착 위치 - 원래 위치
-    float3 DisplacementLocal = CurrentPos - LocalPos;
-
-    // 6-2: Z축 변위 제한 (링 축 방향으로 너무 큰 이동은 비정상)
-    // 링 위/아래 버텍스가 구멍으로 들어가려면 Z축으로 많이 이동해야 함 → 필터링
-    float zDisplacement = abs(DisplacementLocal.z);
-    float maxZDisplacement = BoundsSize.z * 0.5;
-    if (zDisplacement > maxZDisplacement)
+    // Probe 체크: 표면 너머가 구멍인지 확인
+    // - 구멍으로 가는 입구 vs 링 옆면 구분
+    // - probePos에서 SDF < 0.6이면 구멍, 아니면 외부
+    float3 probePos = CurrentPos + lastDir * epsilon * 8.0;
+    float3 probeUV = saturate((probePos - SDFBoundsMin) / BoundsSize);
+    float probeSDF = SDFTexture.SampleLevel(SDFSampler, probeUV, 0).r;
+    if (probeSDF > 0.6)
         return Pos;
 
-    // [수정 3] 변위를 SDF Local Space → Component Space로 변환
-    // ComponentToSDFLocal은 Component→Local 변환이므로,
-    // Local→Component 변환에는 역행렬(transpose) 필요
-    float3 DisplacementComponent = mul(DisplacementLocal, (float3x3)transpose(ComponentToSDFLocal));
+    // STEP 6: 변위 계산 및 적용
+    float3 DisplacementLocal = CurrentPos - LocalPos;
 
+    // Z축 변위 제한 (링 위/아래 버텍스가 구멍으로 들어가는 것 방지)
+    if (abs(DisplacementLocal.z) > BoundsSize.z * 0.5)
+        return Pos;
+
+    // Local → Component 변환 (transpose = 역행렬)
+    float3 DisplacementComponent = mul(DisplacementLocal, (float3x3)transpose(ComponentToSDFLocal));
     return Pos + DisplacementComponent * Strength;
 }
 
 // ============================================================================
 // Main Compute Shader
-// 메인 컴퓨트 셰이더
 // ============================================================================
 
 [numthreads(THREADGROUP_SIZE, 1, 1)]
