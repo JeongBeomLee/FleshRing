@@ -725,6 +725,9 @@ void UFleshRingComponent::ApplyAsset()
 	// 기존 설정 정리 후 재설정
 	CleanupRingMeshes();
 	CleanupDeformer();
+#if WITH_EDITOR
+	CleanupDebugResources();
+#endif
 
 	// 에디터 프리뷰 상태 리셋
 	bEditorPreviewInitialized = false;
@@ -908,6 +911,12 @@ void UFleshRingComponent::SetDebugSlicePlanesVisible(bool bVisible)
 
 void UFleshRingComponent::DrawDebugVisualization()
 {
+	// TargetMesh가 없으면 디버그 시각화 스킵
+	if (!ResolvedTargetMesh.IsValid() || !ResolvedTargetMesh->GetSkeletalMeshAsset())
+	{
+		return;
+	}
+
 	// 마스터 스위치가 꺼지면 슬라이스 평면 숨기기
 	if (!bShowDebugVisualization || !bShowSDFSlice)
 	{

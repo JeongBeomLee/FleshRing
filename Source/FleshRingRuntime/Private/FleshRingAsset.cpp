@@ -163,6 +163,20 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 		{
 			bNeedsFullRefresh = true;
 		}
+
+		// bEnableSubdivision이 false로 변경되면 SubdividedMesh도 정리
+		// (상태 불일치로 인한 크래시 방지)
+		if (PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, bEnableSubdivision))
+		{
+			if (!bEnableSubdivision && SubdividedMesh)
+			{
+				// ClearSubdividedMesh() 내부에서 OnAssetChanged.Broadcast() 호출함
+				ClearSubdividedMesh();
+				// 중복 브로드캐스트 방지
+				bNeedsFullRefresh = false;
+			}
+		}
+
 		// 트랜스폼 관련 프로퍼티 (Offset, Rotation, Scale, Radius, Strength, Falloff 등)는
 		// 전체 갱신 불필요 - 경량 업데이트로 처리
 	}
@@ -192,23 +206,30 @@ void UFleshRingAsset::PostTransacted(const FTransactionObjectEvent& TransactionE
 	}
 
 	// SubdividedMesh가 손상된 경우 제거
-	if (SubdividedMesh && !IsSkeletalMeshValidForUse(SubdividedMesh))
+	// ::IsValid()로 dangling pointer 먼저 체크 (Undo로 파괴된 객체 포인터가 복원될 수 있음)
+	if (SubdividedMesh && (!::IsValid(SubdividedMesh) || !IsSkeletalMeshValidForUse(SubdividedMesh)))
 	{
 		UE_LOG(LogFleshRingAsset, Warning,
-			TEXT("PostTransacted: SubdividedMesh '%s' is invalid after Undo/Redo, clearing..."),
-			*SubdividedMesh->GetName());
+			TEXT("PostTransacted: SubdividedMesh is invalid after Undo/Redo, clearing..."));
 
 		// 손상된 메시 제거 (재생성은 사용자가 명시적으로 해야 함)
 		// 자동 재생성하면 또 다른 Undo 트랜잭션 이슈 발생 가능
 		SubdividedMesh = nullptr;
 	}
 
-	// PreviewSubdividedMesh도 검사 (Transient이지만 세션 중 손상 가능)
-	if (PreviewSubdividedMesh && !IsSkeletalMeshValidForUse(PreviewSubdividedMesh))
+	// PreviewSubdividedMesh는 Transient이므로 Undo 시 무조건 제거 후 재생성
+	// (Undo로 dangling pointer가 복원될 수 있어 ::IsValid() 체크만으로는 불충분)
+	if (PreviewSubdividedMesh)
 	{
-		UE_LOG(LogFleshRingAsset, Warning,
-			TEXT("PostTransacted: PreviewSubdividedMesh is invalid after Undo/Redo, clearing..."));
+		if (::IsValid(PreviewSubdividedMesh))
+		{
+			// 유효한 경우 명시적 파괴
+			FlushRenderingCommands();
+			PreviewSubdividedMesh->ConditionalBeginDestroy();
+		}
 		PreviewSubdividedMesh = nullptr;
+		UE_LOG(LogFleshRingAsset, Log,
+			TEXT("PostTransacted: PreviewSubdividedMesh cleared for regeneration"));
 	}
 
 	// 프리뷰 씬에서 재생성할 수 있도록 브로드캐스트

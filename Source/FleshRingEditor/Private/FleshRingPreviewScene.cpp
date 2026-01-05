@@ -119,6 +119,21 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	// 1단계: 먼저 원본 메시로 설정 (FleshRingComponent 초기화용)
 	// ============================================
 	USkeletalMesh* OriginalMesh = InAsset->TargetSkeletalMesh.LoadSynchronous();
+
+	// TargetSkeletalMesh가 null이면 씬 정리 후 리턴
+	if (!OriginalMesh)
+	{
+		SetSkeletalMesh(nullptr);
+		CachedOriginalMesh.Reset();  // 캐시 초기화 (다시 복원 안 되게)
+		if (FleshRingComponent)
+		{
+			FleshRingComponent->FleshRingAsset = InAsset;
+			FleshRingComponent->ApplyAsset();
+		}
+		RefreshRings(TArray<FFleshRingSettings>());  // Ring도 정리
+		return;
+	}
+
 	SetSkeletalMesh(OriginalMesh);
 
 	// 원본 메시 캐싱 (복원용) - 최초 설정 시에만
@@ -230,6 +245,11 @@ void FFleshRingPreviewScene::SetSkeletalMesh(USkeletalMesh* InMesh)
 			SkeletalMeshComponent->SetVisibility(true);
 			SkeletalMeshComponent->UpdateBounds();
 			SkeletalMeshComponent->MarkRenderStateDirty();
+		}
+		else
+		{
+			// 메시가 nullptr이면 컴포넌트 숨기기
+			SkeletalMeshComponent->SetVisibility(false);
 		}
 	}
 }
