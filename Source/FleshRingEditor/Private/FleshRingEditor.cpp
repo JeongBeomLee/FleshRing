@@ -6,8 +6,10 @@
 #include "AssetToolsModule.h"
 #include "IAssetTools.h"
 #include "FleshRingDetailCustomization.h"
+#include "FleshRingAssetDetailCustomization.h"
 #include "FleshRingSettingsCustomization.h"
 #include "FleshRingComponent.h"
+#include "FleshRingAsset.h"
 #include "PropertyEditorModule.h"
 #include "ToolMenus.h"
 #include "SEditorViewport.h"
@@ -29,20 +31,26 @@ void FFleshRingEditorModule::StartupModule()
 	FleshRingDeformerAssetTypeActions = MakeShared<FFleshRingDeformerAssetTypeActions>();
 	AssetTools.RegisterAssetTypeActions(FleshRingDeformerAssetTypeActions.ToSharedRef());
 
-	// FleshRing Asset type actions 깅줉
+	// FleshRing Asset type actions 등록
 	FleshRingAssetTypeActions = MakeShared<FFleshRingAssetTypeActions>();
 	AssetTools.RegisterAssetTypeActions(FleshRingAssetTypeActions.ToSharedRef());
 
-	// PropertyEditor 紐⑤뱢 媛몄삤湲
+	// PropertyEditor 모듈 가져오기
 	FPropertyEditorModule& PropertyModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
 
-	// UFleshRingComponentDetail Customization 깅줉
+	// UFleshRingComponentDetail Customization 등록
 	PropertyModule.RegisterCustomClassLayout(
 		UFleshRingComponent::StaticClass()->GetFName(),
 		FOnGetDetailCustomizationInstance::CreateStatic(&FFleshRingDetailCustomization::MakeInstance)
 	);
 
-	// FFleshRingSettings 援ъ“泥댁뿉 Property Type Customization 깅줉
+	// UFleshRingAsset Detail Customization 등록
+	PropertyModule.RegisterCustomClassLayout(
+		UFleshRingAsset::StaticClass()->GetFName(),
+		FOnGetDetailCustomizationInstance::CreateStatic(&FFleshRingAssetDetailCustomization::MakeInstance)
+	);
+
+	// FFleshRingSettings Property Type Customization 등록
 	PropertyModule.RegisterCustomPropertyTypeLayout(
 		FFleshRingSettings::StaticStruct()->GetFName(),
 		FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FFleshRingSettingsCustomization::MakeInstance)
@@ -240,11 +248,12 @@ void FFleshRingEditorModule::ShutdownModule()
 			AssetTools.UnregisterAssetTypeActions(FleshRingAssetTypeActions.ToSharedRef());
 		}
 	}
-	// 紐⑤뱢 몃줈깅줉 댁젣
+
 	if (FModuleManager::Get().IsModuleLoaded("PropertyEditor"))
 	{
 		FPropertyEditorModule& PropertyModule = FModuleManager::GetModuleChecked<FPropertyEditorModule>("PropertyEditor");
 		PropertyModule.UnregisterCustomClassLayout(UFleshRingComponent::StaticClass()->GetFName());
+		PropertyModule.UnregisterCustomClassLayout(UFleshRingAsset::StaticClass()->GetFName());
 		PropertyModule.UnregisterCustomPropertyTypeLayout(FFleshRingSettings::StaticStruct()->GetFName());
 	}
 }

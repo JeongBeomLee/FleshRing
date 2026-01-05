@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -43,19 +43,19 @@ public:
 	// =====================================
 
 	/** Subdivision 활성화 (Low-Poly 메시용) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision Settings")
 	bool bEnableSubdivision = false;
 
 	/** 최대 Subdivision 레벨 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision", meta = (ClampMin = "1", ClampMax = "6", EditCondition = "bEnableSubdivision"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision Settings", meta = (ClampMin = "1", ClampMax = "6", EditCondition = "bEnableSubdivision"))
 	int32 MaxSubdivisionLevel = 4;
 
 	/** 최소 엣지 길이 (이보다 작으면 subdivision 중단) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision", meta = (ClampMin = "0.1", EditCondition = "bEnableSubdivision"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision Settings", meta = (ClampMin = "0.1"))
 	float MinEdgeLength = 1.0f;
 
 	/** Ring 영향 범위 배율 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision", meta = (ClampMin = "1.0", ClampMax = "5.0", EditCondition = "bEnableSubdivision"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision Settings", meta = (ClampMin = "1.0", ClampMax = "5.0", EditCondition = "bEnableSubdivision"))
 	float InfluenceRadiusMultiplier = 2.0f;
 
 	// =====================================
@@ -66,7 +66,7 @@ public:
 	 * Subdivision된 SkeletalMesh (이 에셋 안에 내장됨)
 	 * GenerateSubdividedMesh()로 생성됨 - 런타임용 (Ring 영역만 subdivision)
 	 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Subdivision|Generated")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Subdivision Settings|Generated", meta = (EditCondition = "bEnableSubdivision"))
 	TObjectPtr<USkeletalMesh> SubdividedMesh;
 
 	/** Subdivision 생성 시점의 파라미터 해시 (재생성 필요 여부 판단용) */
@@ -86,7 +86,7 @@ public:
 	TObjectPtr<USkeletalMesh> PreviewSubdividedMesh;
 
 	/** 에디터 프리뷰용 Subdivision 레벨 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision|Preview", meta = (ClampMin = "1", ClampMax = "4", EditCondition = "bEnableSubdivision"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision Settings|Preview", meta = (ClampMin = "1", ClampMax = "4"))
 	int32 PreviewSubdivisionLevel = 2;
 
 	// =====================================
@@ -137,12 +137,11 @@ public:
 	 * Subdivided SkeletalMesh 생성 (에디터 전용)
 	 * Ring 영향 영역의 삼각형을 subdivision하고 SkinWeight를 barycentric 보간
 	 * 런타임용 - Ring 영역만 부분 subdivision
+	 * DetailCustomization에서 버튼으로 호출됨
 	 */
-	UFUNCTION(CallInEditor, Category = "Subdivision")
 	void GenerateSubdividedMesh();
 
-	/** Subdivided 메시 제거 */
-	UFUNCTION(CallInEditor, Category = "Subdivision")
+	/** Subdivided 메시 제거 (DetailCustomization에서 버튼으로 호출됨) */
 	void ClearSubdividedMesh();
 
 	/**
