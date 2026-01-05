@@ -339,28 +339,18 @@ void UFleshRingAsset::PostTransacted(const FTransactionObjectEvent& TransactionE
 	// SubdividedMesh도 Undo/Redo 후 무조건 클리어
 	// (Undo로 dangling pointer가 복원되거나 TargetMesh와 불일치할 수 있음)
 	// 재생성은 사용자가 GenerateSubdividedMesh 버튼으로 명시적으로 해야 함
+	// ★ 즉시 파괴하지 않고 포인터만 null로 설정 (렌더 스레드 안전)
 	if (SubdividedMesh)
 	{
-		if (::IsValid(SubdividedMesh))
-		{
-			FlushRenderingCommands();
-			SubdividedMesh->ConditionalBeginDestroy();
-		}
 		SubdividedMesh = nullptr;
 		UE_LOG(LogFleshRingAsset, Log,
 			TEXT("PostTransacted: SubdividedMesh cleared (user must regenerate)"));
 	}
 
 	// PreviewSubdividedMesh는 Transient이므로 Undo 시 무조건 제거 후 재생성
-	// (Undo로 dangling pointer가 복원될 수 있어 ::IsValid() 체크만으로는 불충분)
+	// ★ 즉시 파괴하지 않고 포인터만 null로 설정 (렌더 스레드 안전)
 	if (PreviewSubdividedMesh)
 	{
-		if (::IsValid(PreviewSubdividedMesh))
-		{
-			// 유효한 경우 명시적 파괴
-			FlushRenderingCommands();
-			PreviewSubdividedMesh->ConditionalBeginDestroy();
-		}
 		PreviewSubdividedMesh = nullptr;
 		UE_LOG(LogFleshRingAsset, Log,
 			TEXT("PostTransacted: PreviewSubdividedMesh cleared for regeneration"));
@@ -378,9 +368,8 @@ void UFleshRingAsset::GenerateSubdividedMesh()
 	{
 		UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateSubdividedMesh: 기존 SubdividedMesh 제거 중..."));
 
-		// ★ 중요: 메시를 파괴하기 전에 사용 중인 컴포넌트들이 원본 메시로 전환하도록 알림
-		// 먼저 포인터를 임시 저장하고 nullptr로 설정 → 컴포넌트들이 원본 메시로 전환
-		USkeletalMesh* MeshToDestroy = SubdividedMesh;
+		// ★ 즉시 파괴하지 않고 포인터만 null로 설정 (렌더 스레드 안전)
+		// GC가 안전하게 정리하게 함
 		SubdividedMesh = nullptr;
 
 		// 델리게이트 브로드캐스트하여 프리뷰 씬 등이 원본 메시로 전환하게 함
@@ -408,15 +397,7 @@ void UFleshRingAsset::GenerateSubdividedMesh()
 			}
 		}
 
-		// 렌더 스레드가 메시 전환을 완료할 때까지 대기
-		FlushRenderingCommands();
-
-		// 이제 안전하게 이전 메시 파괴
-		// GUID로 고유 이름 사용하므로 이름 충돌 없음 → CollectGarbage() 불필요
-		// 다음 GC 사이클에서 자동 정리됨
-		MeshToDestroy->ConditionalBeginDestroy();
-
-		UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateSubdividedMesh: 기존 SubdividedMesh 제거 완료"));
+		UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateSubdividedMesh: 기존 SubdividedMesh 참조 해제 완료"));
 	}
 
 	if (!bEnableSubdivision)
@@ -1317,14 +1298,10 @@ void UFleshRingAsset::ClearSubdividedMesh()
 {
 	if (SubdividedMesh)
 	{
-		// 먼저 컴포넌트들에게 알림하여 원본 메시로 전환하도록 함
-		// SubdividedMesh를 파괴하기 전에 호출해야 함
-		USkeletalMesh* MeshToDestroy = SubdividedMesh;
+		// ★ 즉시 파괴하지 않고 포인터만 null로 설정
+		// 렌더 스레드가 아직 메시를 사용 중일 수 있으므로 GC가 안전하게 정리하게 함
 		SubdividedMesh = nullptr;
 		SubdivisionParamsHash = 0;
-
-		// Subdivision 비활성화 (프리뷰에서 재생성 방지)
-		//bEnableSubdivision = false;
 
 		// 에디터 프리뷰 메시도 함께 제거 (원본 메시로 완전 복원)
 		ClearPreviewMesh();
@@ -1354,15 +1331,9 @@ void UFleshRingAsset::ClearSubdividedMesh()
 			}
 		}
 
-		// 렌더링 스레드가 메시 전환을 완료할 때까지 대기
-		FlushRenderingCommands();
-
-		// 이제 안전하게 메시 파괴
-		MeshToDestroy->ConditionalBeginDestroy();
-
 		MarkPackageDirty();
 
-		UE_LOG(LogFleshRingAsset, Log, TEXT("ClearSubdividedMesh: Subdivided 메시 제거됨"));
+		UE_LOG(LogFleshRingAsset, Log, TEXT("ClearSubdividedMesh: Subdivided 메시 참조 해제 (GC가 정리 예정)"));
 	}
 }
 
@@ -1373,22 +1344,14 @@ void UFleshRingAsset::GeneratePreviewMesh()
 	{
 		UE_LOG(LogFleshRingAsset, Log, TEXT("GeneratePreviewMesh: 기존 PreviewMesh 제거 중..."));
 
-		// ★ 중요: 메시를 파괴하기 전에 사용 중인 컴포넌트들이 원본 메시로 전환하도록 알림
-		USkeletalMesh* MeshToDestroy = PreviewSubdividedMesh;
+		// ★ 즉시 파괴하지 않고 포인터만 null로 설정 (렌더 스레드 안전)
+		// GC가 안전하게 정리하게 함
 		PreviewSubdividedMesh = nullptr;
 
 		// 델리게이트 브로드캐스트하여 프리뷰 씬이 원본 메시로 전환하게 함
-		// (SetFleshRingAsset에서 HasValidPreviewMesh() = false를 보고 원본 사용)
 		OnAssetChanged.Broadcast(this);
 
-		// 렌더 스레드가 메시 전환을 완료할 때까지 대기
-		FlushRenderingCommands();
-
-		// 이제 안전하게 이전 메시 파괴
-		// GUID로 고유 이름 사용하므로 이름 충돌 없음 → CollectGarbage() 불필요
-		MeshToDestroy->ConditionalBeginDestroy();
-
-		UE_LOG(LogFleshRingAsset, Log, TEXT("GeneratePreviewMesh: 기존 PreviewMesh 제거 완료"));
+		UE_LOG(LogFleshRingAsset, Log, TEXT("GeneratePreviewMesh: 기존 PreviewMesh 참조 해제 완료"));
 	}
 
 	if (!bEnableSubdivision)
@@ -1753,10 +1716,11 @@ void UFleshRingAsset::ClearPreviewMesh()
 {
 	if (PreviewSubdividedMesh)
 	{
-		FlushRenderingCommands();
-		PreviewSubdividedMesh->ConditionalBeginDestroy();
+		// ★ 즉시 파괴하지 않고 포인터만 null로 설정
+		// 렌더 스레드가 아직 메시를 사용 중일 수 있으므로 GC가 안전하게 정리하게 함
+		// (ConditionalBeginDestroy()를 호출하면 렌더 스레드 크래시 발생 가능)
 		PreviewSubdividedMesh = nullptr;
-		UE_LOG(LogFleshRingAsset, Log, TEXT("ClearPreviewMesh: Preview 메시 제거됨"));
+		UE_LOG(LogFleshRingAsset, Log, TEXT("ClearPreviewMesh: Preview 메시 참조 해제 (GC가 정리 예정)"));
 	}
 }
 
