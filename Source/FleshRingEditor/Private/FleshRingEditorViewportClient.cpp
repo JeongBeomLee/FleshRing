@@ -1393,11 +1393,50 @@ void FFleshRingEditorViewportClient::SaveSettings()
 {
 	const FString SectionName = GetConfigSectionName();
 
-	// 카메라 설정 저장
-	GConfig->SetVector(*SectionName, TEXT("ViewLocation"), GetViewLocation(), GEditorPerProjectIni);
-	GConfig->SetRotator(*SectionName, TEXT("ViewRotation"), GetViewRotation(), GEditorPerProjectIni);
+	// === 뷰포트 타입 저장 ===
+	GConfig->SetInt(*SectionName, TEXT("ViewportType"), static_cast<int32>(GetViewportType()), GEditorPerProjectIni);
 
-	// 커스텀 쇼플래그 저장
+	// === 원근 카메라 설정 저장 ===
+	GConfig->SetVector(*SectionName, TEXT("PerspectiveViewLocation"), ViewTransformPerspective.GetLocation(), GEditorPerProjectIni);
+	GConfig->SetRotator(*SectionName, TEXT("PerspectiveViewRotation"), ViewTransformPerspective.GetRotation(), GEditorPerProjectIni);
+
+	// === 직교 카메라 설정 저장 ===
+	GConfig->SetVector(*SectionName, TEXT("OrthographicViewLocation"), ViewTransformOrthographic.GetLocation(), GEditorPerProjectIni);
+	GConfig->SetRotator(*SectionName, TEXT("OrthographicViewRotation"), ViewTransformOrthographic.GetRotation(), GEditorPerProjectIni);
+	GConfig->SetFloat(*SectionName, TEXT("OrthoZoom"), ViewTransformOrthographic.GetOrthoZoom(), GEditorPerProjectIni);
+
+	// === 카메라 속도 저장 ===
+	GConfig->SetFloat(*SectionName, TEXT("CameraSpeed"), GetCameraSpeedSettings().GetCurrentSpeed(), GEditorPerProjectIni);
+
+	// === FOV 저장 ===
+	GConfig->SetFloat(*SectionName, TEXT("ViewFOV"), ViewFOV, GEditorPerProjectIni);
+
+	// === 클리핑 평면 저장 ===
+	GConfig->SetFloat(*SectionName, TEXT("NearClipPlane"), GetNearClipPlane(), GEditorPerProjectIni);
+	GConfig->SetFloat(*SectionName, TEXT("FarClipPlane"), GetFarClipPlaneOverride(), GEditorPerProjectIni);
+
+	// 직교 클리핑 평면
+	TOptional<double> OrthoNear = GetOrthographicNearPlaneOverride();
+	TOptional<double> OrthoFar = GetOrthographicFarPlaneOverride();
+	GConfig->SetBool(*SectionName, TEXT("HasOrthoNearClip"), OrthoNear.IsSet(), GEditorPerProjectIni);
+	GConfig->SetBool(*SectionName, TEXT("HasOrthoFarClip"), OrthoFar.IsSet(), GEditorPerProjectIni);
+	if (OrthoNear.IsSet())
+	{
+		GConfig->SetDouble(*SectionName, TEXT("OrthoNearClipPlane"), OrthoNear.GetValue(), GEditorPerProjectIni);
+	}
+	if (OrthoFar.IsSet())
+	{
+		GConfig->SetDouble(*SectionName, TEXT("OrthoFarClipPlane"), OrthoFar.GetValue(), GEditorPerProjectIni);
+	}
+
+	// === 노출 설정 저장 ===
+	GConfig->SetFloat(*SectionName, TEXT("ExposureFixedEV100"), ExposureSettings.FixedEV100, GEditorPerProjectIni);
+	GConfig->SetBool(*SectionName, TEXT("ExposureBFixed"), ExposureSettings.bFixed, GEditorPerProjectIni);
+
+	// === 뷰모드 저장 (Lit, Unlit, Wireframe 등) ===
+	GConfig->SetInt(*SectionName, TEXT("ViewMode"), static_cast<int32>(GetViewMode()), GEditorPerProjectIni);
+
+	// === 커스텀 Show 플래그 저장 ===
 	GConfig->SetBool(*SectionName, TEXT("ShowSkeletalMesh"), bShowSkeletalMesh, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowRingGizmos"), bShowRingGizmos, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowRingMeshes"), bShowRingMeshes, GEditorPerProjectIni);
@@ -1409,7 +1448,7 @@ void FFleshRingEditorViewportClient::SaveSettings()
 	GConfig->SetFloat(*SectionName, TEXT("BoneDrawSize"), BoneDrawSize, GEditorPerProjectIni);
 	GConfig->SetInt(*SectionName, TEXT("BoneDrawMode"), static_cast<int32>(BoneDrawMode), GEditorPerProjectIni);
 
-	// 디버그 시각화 옵션 저장 (캐싱된 멤버 변수 사용 - 컴포넌트가 파괴되어도 안전)
+	// 디버그 시각화 옵션 저장
 	GConfig->SetBool(*SectionName, TEXT("ShowDebugVisualization"), bCachedShowDebugVisualization, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowSdfVolume"), bCachedShowSdfVolume, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowAffectedVertices"), bCachedShowAffectedVertices, GEditorPerProjectIni);
@@ -1425,20 +1464,113 @@ void FFleshRingEditorViewportClient::LoadSettings()
 {
 	const FString SectionName = GetConfigSectionName();
 
-	// 카메라 설정 로드
-	FVector SavedLocation;
-	if (GConfig->GetVector(*SectionName, TEXT("ViewLocation"), SavedLocation, GEditorPerProjectIni))
+	// === 뷰포트 타입 로드 (가장 먼저 - 카메라 위치 적용 전에 타입 설정) ===
+	int32 SavedViewportType = static_cast<int32>(ELevelViewportType::LVT_Perspective);
+	if (GConfig->GetInt(*SectionName, TEXT("ViewportType"), SavedViewportType, GEditorPerProjectIni))
 	{
-		SetViewLocation(SavedLocation);
+		SetViewportType(static_cast<ELevelViewportType>(SavedViewportType));
 	}
 
-	FRotator SavedRotation;
-	if (GConfig->GetRotator(*SectionName, TEXT("ViewRotation"), SavedRotation, GEditorPerProjectIni))
+	// === 원근 카메라 설정 로드 ===
+	FVector SavedPerspectiveLocation;
+	if (GConfig->GetVector(*SectionName, TEXT("PerspectiveViewLocation"), SavedPerspectiveLocation, GEditorPerProjectIni))
 	{
-		SetViewRotation(SavedRotation);
+		ViewTransformPerspective.SetLocation(SavedPerspectiveLocation);
 	}
 
-	// 커스텀 쇼플래그 로드
+	FRotator SavedPerspectiveRotation;
+	if (GConfig->GetRotator(*SectionName, TEXT("PerspectiveViewRotation"), SavedPerspectiveRotation, GEditorPerProjectIni))
+	{
+		ViewTransformPerspective.SetRotation(SavedPerspectiveRotation);
+	}
+
+	// === 직교 카메라 설정 로드 ===
+	FVector SavedOrthographicLocation;
+	if (GConfig->GetVector(*SectionName, TEXT("OrthographicViewLocation"), SavedOrthographicLocation, GEditorPerProjectIni))
+	{
+		ViewTransformOrthographic.SetLocation(SavedOrthographicLocation);
+	}
+
+	FRotator SavedOrthographicRotation;
+	if (GConfig->GetRotator(*SectionName, TEXT("OrthographicViewRotation"), SavedOrthographicRotation, GEditorPerProjectIni))
+	{
+		ViewTransformOrthographic.SetRotation(SavedOrthographicRotation);
+	}
+
+	float SavedOrthoZoom = DEFAULT_ORTHOZOOM;
+	if (GConfig->GetFloat(*SectionName, TEXT("OrthoZoom"), SavedOrthoZoom, GEditorPerProjectIni))
+	{
+		ViewTransformOrthographic.SetOrthoZoom(SavedOrthoZoom);
+	}
+
+	// === 카메라 속도 로드 ===
+	float SavedCameraSpeed = 1.0f;
+	if (GConfig->GetFloat(*SectionName, TEXT("CameraSpeed"), SavedCameraSpeed, GEditorPerProjectIni))
+	{
+		FEditorViewportCameraSpeedSettings SpeedSettings = GetCameraSpeedSettings();
+		SpeedSettings.SetCurrentSpeed(SavedCameraSpeed);
+		SetCameraSpeedSettings(SpeedSettings);
+	}
+
+	// === FOV 로드 ===
+	float SavedFOV = 90.0f;
+	if (GConfig->GetFloat(*SectionName, TEXT("ViewFOV"), SavedFOV, GEditorPerProjectIni))
+	{
+		ViewFOV = SavedFOV;
+	}
+
+	// === 클리핑 평면 로드 ===
+	float SavedNearClip = 1.0f;
+	if (GConfig->GetFloat(*SectionName, TEXT("NearClipPlane"), SavedNearClip, GEditorPerProjectIni))
+	{
+		OverrideNearClipPlane(SavedNearClip);
+	}
+
+	float SavedFarClip = 0.0f;
+	if (GConfig->GetFloat(*SectionName, TEXT("FarClipPlane"), SavedFarClip, GEditorPerProjectIni))
+	{
+		if (SavedFarClip > 0.0f)
+		{
+			OverrideFarClipPlane(SavedFarClip);
+		}
+	}
+
+	// 직교 클리핑 평면 로드
+	bool bHasOrthoNearClip = false;
+	bool bHasOrthoFarClip = false;
+	GConfig->GetBool(*SectionName, TEXT("HasOrthoNearClip"), bHasOrthoNearClip, GEditorPerProjectIni);
+	GConfig->GetBool(*SectionName, TEXT("HasOrthoFarClip"), bHasOrthoFarClip, GEditorPerProjectIni);
+
+	if (bHasOrthoNearClip)
+	{
+		double OrthoNearValue = 0.0;
+		if (GConfig->GetDouble(*SectionName, TEXT("OrthoNearClipPlane"), OrthoNearValue, GEditorPerProjectIni))
+		{
+			SetOrthographicNearPlaneOverride(OrthoNearValue);
+		}
+	}
+
+	if (bHasOrthoFarClip)
+	{
+		double OrthoFarValue = 0.0;
+		if (GConfig->GetDouble(*SectionName, TEXT("OrthoFarClipPlane"), OrthoFarValue, GEditorPerProjectIni))
+		{
+			SetOrthographicFarPlaneOverride(OrthoFarValue);
+		}
+	}
+
+	// === 노출 설정 로드 ===
+	GConfig->GetFloat(*SectionName, TEXT("ExposureFixedEV100"), ExposureSettings.FixedEV100, GEditorPerProjectIni);
+	GConfig->GetBool(*SectionName, TEXT("ExposureBFixed"), ExposureSettings.bFixed, GEditorPerProjectIni);
+
+	// === 뷰모드 로드 (Lit, Unlit, Wireframe 등) ===
+	int32 SavedViewMode = static_cast<int32>(VMI_Lit);
+	if (GConfig->GetInt(*SectionName, TEXT("ViewMode"), SavedViewMode, GEditorPerProjectIni))
+	{
+		SetViewMode(static_cast<EViewModeIndex>(SavedViewMode));
+	}
+
+	// === 커스텀 Show 플래그 로드 ===
 	GConfig->GetBool(*SectionName, TEXT("ShowSkeletalMesh"), bShowSkeletalMesh, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowRingGizmos"), bShowRingGizmos, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowRingMeshes"), bShowRingMeshes, GEditorPerProjectIni);
@@ -1452,7 +1584,7 @@ void FFleshRingEditorViewportClient::LoadSettings()
 	GConfig->GetInt(*SectionName, TEXT("BoneDrawMode"), BoneDrawModeInt, GEditorPerProjectIni);
 	BoneDrawMode = static_cast<EFleshRingBoneDrawMode::Type>(FMath::Clamp(BoneDrawModeInt, 0, 5));
 
-	// 디버그 시각화 옵션 로드 (캐싱된 멤버 변수에 저장)
+	// 디버그 시각화 옵션 로드
 	GConfig->GetBool(*SectionName, TEXT("ShowDebugVisualization"), bCachedShowDebugVisualization, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowSdfVolume"), bCachedShowSdfVolume, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowAffectedVertices"), bCachedShowAffectedVertices, GEditorPerProjectIni);
@@ -1478,7 +1610,6 @@ void FFleshRingEditorViewportClient::LoadSettings()
 	}
 
 	// 로드된 Show Flag를 PreviewScene에 적용
-	// (나중에 생성될 컴포넌트에도 적용되도록 상태 저장)
 	ApplyShowFlagsToScene();
 }
 
