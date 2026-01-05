@@ -4,6 +4,7 @@
 #include "FleshRingComponent.h"
 #include "FleshRingAsset.h"
 #include "FleshRingUtils.h"
+#include "FleshRingMeshComponent.h"
 #include "Animation/DebugSkelMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
@@ -137,7 +138,7 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 		// ApplyAsset() 후 즉시 Ring 메시 가시성 적용 (깜빡임 방지)
 		// 주의: SetupRingMeshes()에서 RegisterComponent() 전에 이미 설정됨
 		// 여기서는 bRingMeshesVisible이 변경된 경우를 위해 다시 적용
-		const TArray<TObjectPtr<UStaticMeshComponent>>& ComponentRingMeshes = FleshRingComponent->GetRingMeshComponents();
+		const auto& ComponentRingMeshes = FleshRingComponent->GetRingMeshComponents();
 		for (UStaticMeshComponent* RingComp : ComponentRingMeshes)
 		{
 			if (RingComp)
@@ -258,7 +259,8 @@ void FFleshRingPreviewScene::RefreshRings(const TArray<FFleshRingSettings>& Ring
 	{
 		const FFleshRingSettings& RingSetting = Rings[i];
 
-		UStaticMeshComponent* RingComp = NewObject<UStaticMeshComponent>(PreviewActor);
+		UFleshRingMeshComponent* RingComp = NewObject<UFleshRingMeshComponent>(PreviewActor);
+		RingComp->SetRingIndex(i);  // HitProxy에서 사용할 Ring 인덱스 설정
 		RingComp->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 		RingComp->SetCollisionResponseToAllChannels(ECR_Ignore);
 		RingComp->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
@@ -370,7 +372,7 @@ void FFleshRingPreviewScene::SetRingMeshesVisible(bool bVisible)
 	// 2. FleshRingComponent의 RingMeshComponents (Deformer 활성화 시)
 	if (FleshRingComponent)
 	{
-		const TArray<TObjectPtr<UStaticMeshComponent>>& ComponentRingMeshes = FleshRingComponent->GetRingMeshComponents();
+		const auto& ComponentRingMeshes = FleshRingComponent->GetRingMeshComponents();
 		for (UStaticMeshComponent* RingComp : ComponentRingMeshes)
 		{
 			if (RingComp)
@@ -467,7 +469,7 @@ void FFleshRingPreviewScene::ExecutePendingDeformerInit()
 	FleshRingComponent->InitializeForEditorPreview();
 
 	// FleshRingComponent가 생성한 Ring 메시에 Show Flag 적용
-	const TArray<TObjectPtr<UStaticMeshComponent>>& RingMeshes = FleshRingComponent->GetRingMeshComponents();
+	const auto& RingMeshes = FleshRingComponent->GetRingMeshComponents();
 	for (UStaticMeshComponent* RingComp : RingMeshes)
 	{
 		if (RingComp)

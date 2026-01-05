@@ -75,6 +75,9 @@ private:
 	/** 본 선택 해제 콜백 (뷰포트에서) */
 	void OnBoneSelectionCleared();
 
+	/** 본 선택 콜백 (뷰포트에서 피킹) */
+	void OnBoneSelectedInViewport(FName BoneName);
+
 	/** Ring 추가 요청 콜백 */
 	void OnAddRingRequested(FName BoneName);
 

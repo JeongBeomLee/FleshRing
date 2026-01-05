@@ -9,6 +9,7 @@
 
 class USkeletalMesh;
 class UStaticMeshComponent;
+class UFleshRingMeshComponent;
 class UFleshRingComponent;
 class UFleshRingAsset;
 class AActor;
@@ -54,7 +55,7 @@ public:
 	UFleshRingComponent* GetFleshRingComponent() const { return FleshRingComponent; }
 
 	/** Ring 메시 컴포넌트 배열 반환 */
-	const TArray<UStaticMeshComponent*>& GetRingMeshComponents() const { return RingMeshComponents; }
+	const TArray<UFleshRingMeshComponent*>& GetRingMeshComponents() const { return RingMeshComponents; }
 
 	/** Ring 메시 가시성 설정 */
 	void SetRingMeshesVisible(bool bVisible);
@@ -79,7 +80,7 @@ private:
 	UFleshRingComponent* FleshRingComponent = nullptr;
 
 	/** Ring 메시 컴포넌트 배열 (시각화용) */
-	TArray<UStaticMeshComponent*> RingMeshComponents;
+	TArray<UFleshRingMeshComponent*> RingMeshComponents;
 
 	/** 현재 편집 중인 Asset */
 	UFleshRingAsset* CurrentAsset = nullptr;

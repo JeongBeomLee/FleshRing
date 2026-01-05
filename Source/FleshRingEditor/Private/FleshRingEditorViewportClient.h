@@ -34,6 +34,9 @@ DECLARE_DELEGATE_TwoParams(FOnRingSelectedInViewport, int32 /*RingIndex*/, EFles
 /** 뷰포트에서 Ring 삭제 델리게이트 */
 DECLARE_DELEGATE(FOnRingDeletedInViewport);
 
+/** 뷰포트에서 본 선택 델리게이트 */
+DECLARE_DELEGATE_OneParam(FOnBoneSelectedInViewport, FName /*BoneName*/);
+
 /**
  * FleshRing 에디터 뷰포트 클라이언트
  * 렌더링, 카메라 컨트롤, 입력 처리 담당
@@ -179,6 +182,9 @@ public:
 	/** Ring 삭제 델리게이트 설정 (뷰포트에서 Ring 삭제 시 호출) */
 	void SetOnRingDeletedInViewport(FOnRingDeletedInViewport InDelegate) { OnRingDeletedInViewport = InDelegate; }
 
+	/** 본 선택 델리게이트 설정 (뷰포트에서 본 피킹 시 호출) */
+	void SetOnBoneSelectedInViewport(FOnBoneSelectedInViewport InDelegate) { OnBoneSelectedInViewport = InDelegate; }
+
 	/** 선택된 Ring 삭제 */
 	void DeleteSelectedRing();
 
@@ -239,6 +245,12 @@ private:
 	/** 그릴 본 비트 배열 (Persona 스타일) */
 	TBitArray<> BonesToDraw;
 
+	/** 캐시된 본 HitProxy 배열 (매 프레임 재생성 방지) */
+	TArray<TRefCountPtr<HHitProxy>> CachedBoneHitProxies;
+
+	/** 마지막 캐싱 시 스켈레탈 메시 (변경 감지용) */
+	TWeakObjectPtr<USkeletalMesh> CachedSkeletalMesh;
+
 	// 디버그 시각화 옵션 (캐싱 - 컴포넌트 생명주기와 독립적으로 저장/로드)
 	bool bCachedShowDebugVisualization = false;
 	bool bCachedShowSdfVolume = false;
@@ -264,4 +276,7 @@ private:
 
 	// Ring 삭제 델리게이트 (뷰포트에서 삭제 시)
 	FOnRingDeletedInViewport OnRingDeletedInViewport;
+
+	// 본 선택 델리게이트 (뷰포트에서 피킹 시)
+	FOnBoneSelectedInViewport OnBoneSelectedInViewport;
 };

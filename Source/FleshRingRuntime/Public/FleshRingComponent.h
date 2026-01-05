@@ -15,6 +15,7 @@
 class UStaticMesh;
 class UVolumeTexture;
 class UFleshRingAsset;
+class UFleshRingMeshComponent;
 struct IPooledRenderTarget;
 
 // =====================================
@@ -230,7 +231,7 @@ public:
 	void SetDebugSlicePlanesVisible(bool bVisible);
 
 	/** Ring 메시 컴포넌트 배열 반환 (에디터 피킹용) */
-	const TArray<TObjectPtr<UStaticMeshComponent>>& GetRingMeshComponents() const { return RingMeshComponents; }
+	const TArray<TObjectPtr<UFleshRingMeshComponent>>& GetRingMeshComponents() const { return RingMeshComponents; }
 
 	// =====================================
 	// SDF 캐시 접근 (Deformer에서 사용)
@@ -306,7 +307,7 @@ private:
 	 * - CleanupRingMeshes()에서 제거
 	 */
 	UPROPERTY(Transient)
-	TArray<TObjectPtr<UStaticMeshComponent>> RingMeshComponents;
+	TArray<TObjectPtr<UFleshRingMeshComponent>> RingMeshComponents;
 
 	/** 대상 SkeletalMeshComponent 검색 및 설정 */
 	void ResolveTargetMesh();

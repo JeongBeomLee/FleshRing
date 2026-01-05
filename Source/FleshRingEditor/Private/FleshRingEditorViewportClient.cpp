@@ -7,6 +7,7 @@
 #include "FleshRingAsset.h"
 #include "FleshRingComponent.h"
 #include "FleshRingHitProxy.h"
+#include "FleshRingMeshComponent.h"
 #include "FleshRingTypes.h"
 #include "Animation/DebugSkelMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -21,8 +22,9 @@
 #include "Settings/LevelEditorViewportSettings.h"
 
 IMPLEMENT_HIT_PROXY(HFleshRingGizmoHitProxy, HHitProxy);
-IMPLEMENT_HIT_PROXY(HFleshRingMeshHitProxy, HHitProxy);
 IMPLEMENT_HIT_PROXY(HFleshRingAxisHitProxy, HHitProxy);
+// HFleshRingMeshHitProxy는 FleshRingMeshComponent.cpp (Runtime 모듈)에서 IMPLEMENT_HIT_PROXY됨
+IMPLEMENT_HIT_PROXY(HFleshRingBoneHitProxy, HHitProxy);
 
 // 에셋별 설정 저장용 Config 섹션 베이스
 static const FString FleshRingViewportConfigSectionBase = TEXT("FleshRingEditorViewport");
@@ -323,7 +325,7 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 				}
 				return;
 			}
-			// Ring 메시 클릭 (HitProxy 직접 등록된 경우)
+			// Ring 메시 클릭 (커스텀 HitProxy) - 본보다 높은 우선순위 (HPP_Foreground)
 			else if (HitProxy->IsA(HFleshRingMeshHitProxy::StaticGetType()))
 			{
 				HFleshRingMeshHitProxy* MeshProxy = static_cast<HFleshRingMeshHitProxy*>(HitProxy);
@@ -344,60 +346,34 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 				}
 				return;
 			}
-			// StaticMeshComponent 클릭 (HActor HitProxy)
-			else if (HitProxy->IsA(HActor::StaticGetType()))
+
+			// 본 클릭 처리 (Ring 피킹보다 우선순위 낮음 - HPP_World)
+			if (HitProxy->IsA(HFleshRingBoneHitProxy::StaticGetType()))
 			{
-				HActor* ActorProxy = static_cast<HActor*>(HitProxy);
-				if (PreviewScene && ActorProxy->PrimComponent && EditingAsset.IsValid())
+				HFleshRingBoneHitProxy* BoneProxy = static_cast<HFleshRingBoneHitProxy*>(HitProxy);
+				FName ClickedBoneName = BoneProxy->BoneName;
+
+				// 기존 Ring 선택 해제
+				if (PreviewScene)
 				{
-					// 1. PreviewScene의 RingMeshComponents에서 찾기 (Deformer 비활성화 시)
-					const TArray<UStaticMeshComponent*>& RingMeshComponents = PreviewScene->GetRingMeshComponents();
-					for (int32 i = 0; i < RingMeshComponents.Num(); ++i)
-					{
-						if (RingMeshComponents[i] == ActorProxy->PrimComponent)
-						{
-							// 선택 트랜잭션 생성 (Undo 가능)
-							FScopedTransaction Transaction(NSLOCTEXT("FleshRingEditor", "SelectRingMesh", "Select Ring Mesh"));
-							EditingAsset->Modify();
-							EditingAsset->EditorSelectedRingIndex = i;
-							EditingAsset->EditorSelectionType = EFleshRingSelectionType::Mesh;
-
-							PreviewScene->SetSelectedRingIndex(i);
-							SelectionType = EFleshRingSelectionType::Mesh;
-							Invalidate();
-
-							// 트리/디테일 패널 동기화를 위한 델리게이트 호출
-							OnRingSelectedInViewport.ExecuteIfBound(i, EFleshRingSelectionType::Mesh);
-							return;
-						}
-					}
-
-					// 2. FleshRingComponent의 RingMeshComponents에서 찾기 (Deformer 활성화 시)
-					UFleshRingComponent* FleshRingComp = PreviewScene->GetFleshRingComponent();
-					if (FleshRingComp)
-					{
-						const TArray<TObjectPtr<UStaticMeshComponent>>& ComponentRingMeshes = FleshRingComp->GetRingMeshComponents();
-						for (int32 i = 0; i < ComponentRingMeshes.Num(); ++i)
-						{
-							if (ComponentRingMeshes[i] == ActorProxy->PrimComponent)
-							{
-								// 선택 트랜잭션 생성 (Undo 가능)
-								FScopedTransaction Transaction(NSLOCTEXT("FleshRingEditor", "SelectRingMesh", "Select Ring Mesh"));
-								EditingAsset->Modify();
-								EditingAsset->EditorSelectedRingIndex = i;
-								EditingAsset->EditorSelectionType = EFleshRingSelectionType::Mesh;
-
-								PreviewScene->SetSelectedRingIndex(i);
-								SelectionType = EFleshRingSelectionType::Mesh;
-								Invalidate();
-
-								// 트리/디테일 패널 동기화를 위한 델리게이트 호출
-								OnRingSelectedInViewport.ExecuteIfBound(i, EFleshRingSelectionType::Mesh);
-								return;
-							}
-						}
-					}
+					PreviewScene->SetSelectedRingIndex(INDEX_NONE);
 				}
+				SelectionType = EFleshRingSelectionType::None;
+
+				if (EditingAsset.IsValid())
+				{
+					EditingAsset->EditorSelectedRingIndex = INDEX_NONE;
+					EditingAsset->EditorSelectionType = EFleshRingSelectionType::None;
+				}
+
+				// 본 선택
+				SetSelectedBone(ClickedBoneName);
+
+				// 스켈레톤 트리 동기화 델리게이트 호출
+				OnBoneSelectedInViewport.ExecuteIfBound(ClickedBoneName);
+
+				Invalidate();
+				return;
 			}
 		}
 
@@ -735,6 +711,18 @@ void FFleshRingEditorViewportClient::DrawMeshBones(FPrimitiveDrawInterface* PDI)
 		}
 	}
 
+	// 본 피킹용 HitProxy 배열 (캐싱 - 스켈레탈 메시 변경 시만 재생성)
+	USkeletalMesh* CurrentSkelMesh = MeshComponent->GetSkeletalMeshAsset();
+	if (CachedSkeletalMesh.Get() != CurrentSkelMesh || CachedBoneHitProxies.Num() != NumBones)
+	{
+		CachedSkeletalMesh = CurrentSkelMesh;
+		CachedBoneHitProxies.SetNum(NumBones);
+		for (int32 i = 0; i < NumBones; ++i)
+		{
+			CachedBoneHitProxies[i] = new HFleshRingBoneHitProxy(i, RefSkeleton.GetBoneName(i));
+		}
+	}
+
 	// EFleshRingBoneDrawMode를 EBoneDrawMode로 변환
 	EBoneDrawMode::Type EngineBoneDrawMode = EBoneDrawMode::All;
 	switch (BoneDrawMode)
@@ -765,7 +753,7 @@ void FFleshRingEditorViewportClient::DrawMeshBones(FPrimitiveDrawInterface* PDI)
 	DrawConfig.BoneDrawMode = EngineBoneDrawMode;
 	DrawConfig.BoneDrawSize = BoneDrawSize;
 	DrawConfig.bForceDraw = false;
-	DrawConfig.bAddHitProxy = false;
+	DrawConfig.bAddHitProxy = true;  // 본 피킹 활성화
 	DrawConfig.bUseMultiColorAsDefaultColor = bShowMultiColorBones;
 	DrawConfig.DefaultBoneColor = GetDefault<UPersonaOptions>()->DefaultBoneColor;
 	DrawConfig.SelectedBoneColor = GetDefault<UPersonaOptions>()->SelectedBoneColor;  // 초록색
@@ -781,7 +769,7 @@ void FFleshRingEditorViewportClient::DrawMeshBones(FPrimitiveDrawInterface* PDI)
 		WorldTransforms,
 		SelectedBones,  // 선택된 본 전달 (초록색 + 부모 노란색 연결선)
 		BoneColors,
-		TArray<TRefCountPtr<HHitProxy>>(),  // HitProxy 없음
+		CachedBoneHitProxies,  // 캐시된 본 피킹용 HitProxy 배열
 		DrawConfig,
 		BonesToDraw
 	);
@@ -807,12 +795,6 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 	{
 		const FFleshRingSettings& Ring = Rings[i];
 
-		// Manual 모드일 때만 Ring 기즈모 표시 (SDF 모드에서는 Radius가 의미 없음)
-		if (Ring.InfluenceMode != EFleshRingInfluenceMode::Manual)
-		{
-			continue;
-		}
-
 		// 본 Transform 가져오기
 		int32 BoneIndex = SkelMeshComp->GetBoneIndex(Ring.BoneName);
 		if (BoneIndex == INDEX_NONE)
@@ -823,6 +805,31 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 		FTransform BoneTransform = SkelMeshComp->GetBoneTransform(BoneIndex);
 		FVector BoneLocation = BoneTransform.GetLocation();
 		FQuat BoneRotation = BoneTransform.GetRotation();
+
+		// Ring 메시 피킹 영역 (모든 모드에서 적용, 메시가 있을 때만)
+		UStaticMesh* RingMesh = Ring.RingMesh.LoadSynchronous();
+		if (RingMesh)
+		{
+			PDI->SetHitProxy(new HFleshRingMeshHitProxy(i));
+
+			// 메시 위치 계산
+			FVector MeshLocation = BoneLocation + BoneRotation.RotateVector(Ring.MeshOffset);
+
+			// 메시 바운드 기반 피킹 영역 크기
+			FBoxSphereBounds MeshBounds = RingMesh->GetBounds();
+			float MeshRadius = MeshBounds.SphereRadius * FMath::Max3(Ring.MeshScale.X, Ring.MeshScale.Y, Ring.MeshScale.Z);
+
+			// 보이지 않는 구체로 피킹 영역 설정 (SDPG_World로 본보다 뒤에)
+			DrawWireSphere(PDI, MeshLocation, FLinearColor(0, 0, 0, 0), MeshRadius, 8, SDPG_World);
+
+			PDI->SetHitProxy(nullptr);
+		}
+
+		// Manual 모드일 때만 Ring 기즈모 표시 (SDF 모드에서는 Radius가 의미 없음)
+		if (Ring.InfluenceMode != EFleshRingInfluenceMode::Manual)
+		{
+			continue;
+		}
 
 		// 본 회전 * 링 회전 = 월드 회전 (기본값으로 본의 X축과 링의 Z축이 일치)
 		FQuat RingWorldRotation = BoneRotation * Ring.RingRotation;
@@ -1236,7 +1243,7 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		FQuat WorldRotation = BoneRotation * Ring.MeshRotation;
 
 		// 1. PreviewScene의 RingMeshComponents 업데이트 (Deformer 비활성화 시)
-		const TArray<UStaticMeshComponent*>& RingMeshComponents = PreviewScene->GetRingMeshComponents();
+		const TArray<UFleshRingMeshComponent*>& RingMeshComponents = PreviewScene->GetRingMeshComponents();
 		if (RingMeshComponents.IsValidIndex(SelectedIndex) && RingMeshComponents[SelectedIndex])
 		{
 			RingMeshComponents[SelectedIndex]->SetWorldLocationAndRotation(MeshLocation, WorldRotation);
@@ -1247,7 +1254,7 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		UFleshRingComponent* FleshRingComp = PreviewScene->GetFleshRingComponent();
 		if (FleshRingComp)
 		{
-			const TArray<TObjectPtr<UStaticMeshComponent>>& ComponentRingMeshes = FleshRingComp->GetRingMeshComponents();
+			const auto& ComponentRingMeshes = FleshRingComp->GetRingMeshComponents();
 			if (ComponentRingMeshes.IsValidIndex(SelectedIndex) && ComponentRingMeshes[SelectedIndex])
 			{
 				ComponentRingMeshes[SelectedIndex]->SetWorldLocationAndRotation(MeshLocation, WorldRotation);

@@ -223,6 +223,10 @@ TSharedRef<SDockTab> FFleshRingAssetEditor::SpawnTab_Viewport(const FSpawnTabArg
 		// 뷰포트에서 Ring 삭제 시 공통 처리
 		ViewportClient->SetOnRingDeletedInViewport(
 			FOnRingDeletedInViewport::CreateSP(this, &FFleshRingAssetEditor::HandleRingDeleted));
+
+		// 뷰포트에서 본 피킹 시 스켈레톤 트리 동기화
+		ViewportClient->SetOnBoneSelectedInViewport(
+			FOnBoneSelectedInViewport::CreateSP(this, &FFleshRingAssetEditor::OnBoneSelectedInViewport));
 	}
 
 	return SNew(SDockTab)
@@ -536,6 +540,15 @@ void FFleshRingAssetEditor::OnBoneSelectionCleared()
 	if (SkeletonTreeWidget.IsValid())
 	{
 		SkeletonTreeWidget->ClearSelection();
+	}
+}
+
+void FFleshRingAssetEditor::OnBoneSelectedInViewport(FName BoneName)
+{
+	// 뷰포트에서 본 피킹 시 스켈레톤 트리에서 해당 본 선택
+	if (SkeletonTreeWidget.IsValid())
+	{
+		SkeletonTreeWidget->SelectBone(BoneName);
 	}
 }
 

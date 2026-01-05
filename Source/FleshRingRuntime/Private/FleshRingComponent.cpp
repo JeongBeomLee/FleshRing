@@ -3,6 +3,7 @@
 #include "FleshRingComponent.h"
 #include "FleshRingAsset.h"
 #include "FleshRingUtils.h"
+#include "FleshRingMeshComponent.h"
 #include "FleshRingMeshExtractor.h"
 #include "FleshRingSDF.h"
 #include "FleshRingDeformerInstance.h"
@@ -807,15 +808,18 @@ void UFleshRingComponent::SetupRingMeshes()
 			continue;
 		}
 
-		// StaticMeshComponent 생성
+		// FleshRingMeshComponent 생성 (에디터에서 본보다 높은 피킹 우선순위)
 		FName ComponentName = FName(*FString::Printf(TEXT("RingMesh_%d"), RingIndex));
-		UStaticMeshComponent* MeshComp = NewObject<UStaticMeshComponent>(Owner, ComponentName);
+		UFleshRingMeshComponent* MeshComp = NewObject<UFleshRingMeshComponent>(Owner, ComponentName);
 		if (!MeshComp)
 		{
-			UE_LOG(LogFleshRingComponent, Error, TEXT("FleshRingComponent: Failed to create StaticMeshComponent for Ring[%d]"), RingIndex);
+			UE_LOG(LogFleshRingComponent, Error, TEXT("FleshRingComponent: Failed to create FleshRingMeshComponent for Ring[%d]"), RingIndex);
 			RingMeshComponents.Add(nullptr);
 			continue;
 		}
+
+		// Ring 인덱스 설정 (HitProxy에서 사용)
+		MeshComp->SetRingIndex(RingIndex);
 
 		// StaticMesh 설정
 		MeshComp->SetStaticMesh(RingMesh);

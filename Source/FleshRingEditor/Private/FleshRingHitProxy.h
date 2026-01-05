@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "HitProxies.h"
+#include "FleshRingMeshHitProxy.h"  // Runtime 모듈의 HFleshRingMeshHitProxy
 
 /** Transform Gizmo 축 타입 */
 enum class EFleshRingGizmoAxis : uint8
@@ -38,29 +39,6 @@ struct HFleshRingGizmoHitProxy : public HHitProxy
 };
 
 /**
- * Ring 메시 클릭 감지용 HitProxy
- * 뷰포트에서 Ring 스태틱 메시를 클릭했을 때 어떤 Ring인지 식별
- */
-struct HFleshRingMeshHitProxy : public HHitProxy
-{
-	DECLARE_HIT_PROXY();
-
-	/** Ring 인덱스 */
-	int32 RingIndex;
-
-	HFleshRingMeshHitProxy(int32 InRingIndex)
-		: HHitProxy(HPP_UI)
-		, RingIndex(InRingIndex)
-	{
-	}
-
-	virtual EMouseCursor::Type GetMouseCursor() override
-	{
-		return EMouseCursor::CardinalCross;
-	}
-};
-
-/**
  * Transform Gizmo 축 드래그용 HitProxy
  * 이동 핸들(화살표) 드래그 감지
  */
@@ -84,6 +62,35 @@ struct HFleshRingAxisHitProxy : public HHitProxy
 	virtual EMouseCursor::Type GetMouseCursor() override
 	{
 		return EMouseCursor::CardinalCross;
+	}
+};
+
+// HFleshRingMeshHitProxy는 FleshRingMeshHitProxy.h (Runtime 모듈)에서 정의됨
+
+/**
+ * 스켈레탈 본 클릭 감지용 HitProxy
+ * 뷰포트에서 본을 클릭했을 때 어떤 본인지 식별
+ */
+struct HFleshRingBoneHitProxy : public HHitProxy
+{
+	DECLARE_HIT_PROXY();
+
+	/** 본 인덱스 */
+	int32 BoneIndex;
+
+	/** 본 이름 */
+	FName BoneName;
+
+	HFleshRingBoneHitProxy(int32 InBoneIndex, FName InBoneName)
+		: HHitProxy(HPP_World)  // Ring 메시(HPP_Foreground)보다 낮은 우선순위
+		, BoneIndex(InBoneIndex)
+		, BoneName(InBoneName)
+	{
+	}
+
+	virtual EMouseCursor::Type GetMouseCursor() override
+	{
+		return EMouseCursor::Crosshairs;
 	}
 };
 
