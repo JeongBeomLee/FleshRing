@@ -433,10 +433,11 @@ void SFleshRingSkeletonTree::ApplyFilter()
 		}
 		else if (Item->ItemType == EFleshRingTreeItemType::Ring)
 		{
-			// Ring도 검색 필터 적용 (부착된 본 이름 기준)
+			// Ring 검색: 표시 이름("Ring [X]") 또는 부착된 본 이름으로 검색
 			if (!SearchText.IsEmpty())
 			{
-				bPassesFilter = Item->BoneName.ToString().Contains(SearchText);
+				FString DisplayName = Item->GetDisplayName().ToString();
+				bPassesFilter = DisplayName.Contains(SearchText) || Item->BoneName.ToString().Contains(SearchText);
 			}
 		}
 
