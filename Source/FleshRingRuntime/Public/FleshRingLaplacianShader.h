@@ -96,6 +96,18 @@ public:
         // Smoothing parameters
         SHADER_PARAMETER(float, SmoothingLambda)
         SHADER_PARAMETER(float, VolumePreservation)
+
+        // Bulge smoothing factor (0=no smoothing on bulge, 1=full smoothing)
+        SHADER_PARAMETER(float, BulgeSmoothingFactor)
+
+        // Bounds Scale (Z-direction only, for future Z falloff if needed)
+        SHADER_PARAMETER(float, BoundsScale)
+
+        // Per-vertex layer types (for excluding stocking from smoothing)
+        SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<uint>, VertexLayerTypes)
+
+        // Exclude stocking layer from smoothing (0 = smooth all, 1 = exclude)
+        SHADER_PARAMETER(uint32, bExcludeStockingFromSmoothing)
     END_SHADER_PARAMETER_STRUCT()
 
     static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
@@ -126,11 +138,53 @@ struct FLaplacianDispatchParams
     /** Smoothing strength (0-1, typical: 0.3-0.7) */
     float SmoothingLambda;
 
-    /** Volume preservation factor (0-1) */
+    /** Volume preservation factor (0-1) - ignored when using Taubin */
     float VolumePreservation;
 
     /** Number of smoothing iterations */
     int32 NumIterations;
+
+    /** Bulge smoothing factor (0=no smoothing on bulge, 1=full smoothing) */
+    float BulgeSmoothingFactor;
+
+    /** Bounds scale for this pass (Z-direction only) */
+    float BoundsScale;
+
+    /** Exclude stocking layer from smoothing */
+    bool bExcludeStockingFromSmoothing;
+
+    // ========================================
+    // Taubin Smoothing Parameters
+    // ========================================
+    // Taubin smoothing prevents shrinkage by alternating λ (shrink) and μ (expand)
+    // Mathematical basis: Acts as a band-pass filter
+    //   - Low frequencies (overall shape) preserved → No shrinkage
+    //   - High frequencies (noise, bumps) attenuated → Smoothing
+    //
+    // Typical values: λ = 0.5, μ = -0.53
+    // Requirement: μ < -λ (|μ| > λ)
+
+    /** Enable Taubin smoothing (alternating λ-μ passes) instead of standard Laplacian */
+    bool bUseTaubinSmoothing;
+
+    /**
+     * Taubin expansion factor (negative value)
+     * Must satisfy: TaubinMu < -SmoothingLambda
+     * Typical: -0.53 when Lambda = 0.5
+     *
+     * If set to 0, will be auto-calculated as: -(Lambda + 0.01)
+     */
+    float TaubinMu;
+
+    // ========================================
+    // Lambda/Mu Safety Limits
+    // ========================================
+    // λ > 0.8 causes numerical instability:
+    //   λ = 1.0 → vertex moves 100% to neighbor average → structure collapse
+    //   μ = -1.01 → vertex overshoots 201% → oscillation/scaly mesh
+    // Safe range: λ ∈ [0.1, 0.8], typical: 0.5
+    static constexpr float MaxSafeLambda = 0.8f;
+    static constexpr float MinSafeLambda = 0.1f;
 
     FLaplacianDispatchParams()
         : NumAffectedVertices(0)
@@ -138,6 +192,11 @@ struct FLaplacianDispatchParams
         , SmoothingLambda(0.5f)
         , VolumePreservation(0.3f)
         , NumIterations(2)
+        , BulgeSmoothingFactor(0.0f)  // Default: no smoothing on bulge areas
+        , BoundsScale(1.5f)
+        , bExcludeStockingFromSmoothing(true)  // Default: exclude stocking from smoothing
+        , bUseTaubinSmoothing(true)  // Default: use Taubin for no-shrinkage smoothing
+        , TaubinMu(-0.53f)  // Typical value
     {
     }
 };
@@ -156,6 +215,7 @@ struct FLaplacianDispatchParams
  * @param AffectedIndicesBuffer - Affected vertex indices
  * @param InfluencesBuffer - Per-vertex influence weights
  * @param AdjacencyDataBuffer - Packed adjacency data
+ * @param VertexLayerTypesBuffer - Per-vertex layer types (optional)
  */
 void DispatchFleshRingLaplacianCS(
     FRDGBuilder& GraphBuilder,
@@ -164,7 +224,8 @@ void DispatchFleshRingLaplacianCS(
     FRDGBufferRef OutputPositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
-    FRDGBufferRef AdjacencyDataBuffer);
+    FRDGBufferRef AdjacencyDataBuffer,
+    FRDGBufferRef VertexLayerTypesBuffer);  // Optional: nullptr if not excluding stocking
 
 /**
  * Dispatch multiple iterations of Laplacian smoothing
@@ -176,6 +237,7 @@ void DispatchFleshRingLaplacianCS(
  * @param AffectedIndicesBuffer - Affected vertex indices
  * @param InfluencesBuffer - Per-vertex influence weights
  * @param AdjacencyDataBuffer - Packed adjacency data
+ * @param VertexLayerTypesBuffer - Per-vertex layer types (optional)
  */
 void DispatchFleshRingLaplacianCS_MultiPass(
     FRDGBuilder& GraphBuilder,
@@ -183,4 +245,5 @@ void DispatchFleshRingLaplacianCS_MultiPass(
     FRDGBufferRef PositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
-    FRDGBufferRef AdjacencyDataBuffer);
+    FRDGBufferRef AdjacencyDataBuffer,
+    FRDGBufferRef VertexLayerTypesBuffer);  // Optional: nullptr if not excluding stocking

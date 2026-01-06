@@ -1,0 +1,278 @@
+// ============================================================================
+// FleshRingTangentRelaxCS.usf - Tangent Space Relaxation Compute Shader
+// ============================================================================
+// Purpose: Redistribute vertices along tangent directions while preserving
+//          normal-direction displacement (SDF deformation depth)
+//          접선 방향으로 버텍스 재배치 (노멀 방향 변형은 유지)
+//
+// Key Concept (Tangent Space Relaxation):
+//   - Normal direction: Preserve SDF deformation depth (keep vertices "depth")
+//   - Tangent direction: Relax toward neighbor centroid (improve uniformity)
+//   - Result: Uniform vertex distribution on deformed surface
+//
+// Algorithm:
+//   1. Compute vertex normal from deformed positions
+//   2. Find centroid of 1-ring neighbors
+//   3. Calculate displacement toward centroid
+//   4. Remove normal component (keep only tangent component)
+//   5. Apply tangent displacement with strength
+//
+// ============================================================================
+
+#include "/Engine/Public/Platform.ush"
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+#ifndef THREADGROUP_SIZE
+#define THREADGROUP_SIZE 64
+#endif
+
+#ifndef MAX_NEIGHBORS
+#define MAX_NEIGHBORS 12
+#endif
+
+#define EPSILON 0.0001f
+
+// ============================================================================
+// Buffer Declarations
+// ============================================================================
+
+// Input: Deformed vertex positions (from TightnessCS + PBDEdgeCS)
+Buffer<float> InputPositions;
+
+// Output: Relaxed vertex positions
+RWBuffer<float> OutputPositions;
+
+// Affected vertex indices
+StructuredBuffer<uint> AffectedIndices;
+
+// Per-vertex deform amount (0~1) - used to control relaxation strength
+// 변형량이 큰 버텍스는 relaxation 적용량 감소 (고정에 가깝게)
+StructuredBuffer<float> DeformAmounts;
+
+// Adjacency data (without rest lengths, just neighbor indices)
+// Format per vertex: [Count, Neighbor0, Neighbor1, ...]
+// Size per vertex: 1 + MAX_NEIGHBORS = 13 uints
+StructuredBuffer<uint> AdjacencyData;
+
+// ============================================================================
+// Parameters
+// ============================================================================
+
+uint NumAffectedVertices;
+uint NumTotalVertices;
+
+// Relaxation strength (0~1) - higher = more smoothing
+// 완화 강도 (0~1) - 높을수록 더 많이 스무딩
+float RelaxStrength;
+
+// Deform amount influence on relaxation
+// 변형량이 relaxation에 미치는 영향
+// 0 = 변형량 무관하게 동일 적용, 1 = 많이 변형된 곳은 적게 적용
+float DeformAmountInfluence;
+
+// Bounds scale for Z-direction falloff (reserved for future use)
+float BoundsScale;
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+// Read vertex position from buffer
+float3 ReadPosition(Buffer<float> PositionBuffer, uint VertexIndex)
+{
+    uint BaseIndex = VertexIndex * 3;
+    return float3(
+        PositionBuffer[BaseIndex + 0],
+        PositionBuffer[BaseIndex + 1],
+        PositionBuffer[BaseIndex + 2]
+    );
+}
+
+// Write vertex position to buffer
+void WritePosition(uint VertexIndex, float3 Pos)
+{
+    uint BaseIndex = VertexIndex * 3;
+    OutputPositions[BaseIndex + 0] = Pos.x;
+    OutputPositions[BaseIndex + 1] = Pos.y;
+    OutputPositions[BaseIndex + 2] = Pos.z;
+}
+
+// Get adjacency data offset for a thread
+uint GetAdjacencyOffset(uint ThreadIndex)
+{
+    // Each vertex has: [Count, Neighbor0, Neighbor1, ..., NeighborMAX-1]
+    // = 1 + MAX_NEIGHBORS = 13 uints
+    return ThreadIndex * (1 + MAX_NEIGHBORS);
+}
+
+// Get neighbor count
+uint GetNeighborCount(uint AdjacencyOffset)
+{
+    return AdjacencyData[AdjacencyOffset];
+}
+
+// Get neighbor vertex index
+uint GetNeighborIndex(uint AdjacencyOffset, uint NeighborSlot)
+{
+    return AdjacencyData[AdjacencyOffset + 1 + NeighborSlot];
+}
+
+// ============================================================================
+// Normal Computation (Area-Weighted Average)
+// ============================================================================
+
+// Compute vertex normal from 1-ring neighborhood
+// Uses area-weighted face normals for better quality
+float3 ComputeVertexNormal(uint ThreadIndex, uint VertexIndex, float3 CurrentPos)
+{
+    uint AdjacencyOffset = GetAdjacencyOffset(ThreadIndex);
+    uint NeighborCount = GetNeighborCount(AdjacencyOffset);
+
+    if (NeighborCount < 2)
+    {
+        // Not enough neighbors for normal computation
+        return float3(0, 1, 0);  // Default up
+    }
+
+    float3 NormalSum = float3(0, 0, 0);
+
+    // For each consecutive pair of neighbors, compute face normal
+    // 연속된 이웃 쌍에 대해 면 노멀 계산
+    for (uint i = 0; i < NeighborCount; i++)
+    {
+        uint Neighbor0 = GetNeighborIndex(AdjacencyOffset, i);
+        uint Neighbor1 = GetNeighborIndex(AdjacencyOffset, (i + 1) % NeighborCount);
+
+        if (Neighbor0 >= NumTotalVertices || Neighbor1 >= NumTotalVertices)
+            continue;
+
+        float3 P0 = ReadPosition(InputPositions, Neighbor0);
+        float3 P1 = ReadPosition(InputPositions, Neighbor1);
+
+        float3 Edge0 = P0 - CurrentPos;
+        float3 Edge1 = P1 - CurrentPos;
+
+        // Cross product gives face normal weighted by area
+        float3 FaceNormal = cross(Edge0, Edge1);
+        NormalSum += FaceNormal;
+    }
+
+    float NormalLen = length(NormalSum);
+    if (NormalLen < EPSILON)
+    {
+        return float3(0, 1, 0);  // Fallback
+    }
+
+    return NormalSum / NormalLen;
+}
+
+// ============================================================================
+// Centroid Computation
+// ============================================================================
+
+// Compute centroid of 1-ring neighbors
+float3 ComputeNeighborCentroid(uint ThreadIndex, uint VertexIndex)
+{
+    uint AdjacencyOffset = GetAdjacencyOffset(ThreadIndex);
+    uint NeighborCount = GetNeighborCount(AdjacencyOffset);
+
+    if (NeighborCount == 0)
+    {
+        return ReadPosition(InputPositions, VertexIndex);
+    }
+
+    float3 Centroid = float3(0, 0, 0);
+    uint ValidCount = 0;
+
+    for (uint i = 0; i < NeighborCount && i < MAX_NEIGHBORS; i++)
+    {
+        uint NeighborIndex = GetNeighborIndex(AdjacencyOffset, i);
+
+        if (NeighborIndex >= NumTotalVertices)
+            continue;
+
+        Centroid += ReadPosition(InputPositions, NeighborIndex);
+        ValidCount++;
+    }
+
+    if (ValidCount == 0)
+    {
+        return ReadPosition(InputPositions, VertexIndex);
+    }
+
+    return Centroid / (float)ValidCount;
+}
+
+// ============================================================================
+// Main Compute Shader
+// ============================================================================
+
+[numthreads(THREADGROUP_SIZE, 1, 1)]
+void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    uint ThreadIndex = DispatchThreadId.x;
+
+    // Bounds check
+    if (ThreadIndex >= NumAffectedVertices)
+    {
+        return;
+    }
+
+    // Get actual vertex index
+    uint VertexIndex = AffectedIndices[ThreadIndex];
+
+    if (VertexIndex >= NumTotalVertices)
+    {
+        return;
+    }
+
+    // Read current position
+    float3 CurrentPos = ReadPosition(InputPositions, VertexIndex);
+
+    // Get deform amount
+    float DeformAmount = DeformAmounts[ThreadIndex];
+
+    // ========================================
+    // Step 1: Compute Vertex Normal
+    // ========================================
+    float3 Normal = ComputeVertexNormal(ThreadIndex, VertexIndex, CurrentPos);
+
+    // ========================================
+    // Step 2: Compute Neighbor Centroid
+    // ========================================
+    float3 Centroid = ComputeNeighborCentroid(ThreadIndex, VertexIndex);
+
+    // ========================================
+    // Step 3: Calculate Displacement Toward Centroid
+    // ========================================
+    float3 TowardCentroid = Centroid - CurrentPos;
+
+    // ========================================
+    // Step 4: Extract Tangent Component Only
+    // ========================================
+    // Remove normal component = keep only tangent
+    // 노멀 성분 제거 = 접선 성분만 유지
+    float NormalComponent = dot(TowardCentroid, Normal);
+    float3 TangentDisplacement = TowardCentroid - Normal * NormalComponent;
+
+    // ========================================
+    // Step 5: Apply With Strength Modulation
+    // ========================================
+    // Modulate strength based on deform amount:
+    // - High deform amount = less relaxation (more fixed)
+    // - Low deform amount = more relaxation (free to move)
+    // 변형량에 따른 강도 조절:
+    // - 변형량 높음 = relaxation 적게 (고정에 가깝게)
+    // - 변형량 낮음 = relaxation 많이 (자유롭게 이동)
+    float EffectiveStrength = RelaxStrength * lerp(1.0f, 0.2f, DeformAmount * DeformAmountInfluence);
+
+    float3 NewPos = CurrentPos + TangentDisplacement * EffectiveStrength;
+
+    // ========================================
+    // Step 6: Write Output
+    // ========================================
+    WritePosition(VertexIndex, NewPos);
+}

@@ -44,6 +44,17 @@ StructuredBuffer<uint> AffectedIndices;
 // Used to blend between original and smoothed position
 StructuredBuffer<float> Influences;
 
+// Input: Per-vertex layer types (optional, for excluding stocking from smoothing)
+// 0=Skin, 1=Stocking, 2=Underwear, 3=Outerwear, 4=Unknown
+Buffer<uint> VertexLayerTypes;
+
+// Layer type constants (must match EFleshRingLayerType in C++)
+#define LAYER_SKIN       0
+#define LAYER_STOCKING   1
+#define LAYER_UNDERWEAR  2
+#define LAYER_OUTERWEAR  3
+#define LAYER_UNKNOWN    4
+
 // ============================================================================
 // Adjacency Data Structure
 // ============================================================================
@@ -71,6 +82,9 @@ float SmoothingLambda;
 // Preserve volume: blend factor for volume preservation
 // 0 = pure Laplacian, 1 = volume-preserving (HC algorithm style)
 float VolumePreservation;
+
+// Exclude stocking layer from smoothing (0 = smooth all, 1 = exclude stocking)
+uint bExcludeStockingFromSmoothing;
 
 // ============================================================================
 // Helper Functions
@@ -183,6 +197,19 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
     // Read current position
     float3 CurrentPos = ReadPosition(InputPositions, VertexIndex);
+
+    // ===== 레이어별 스무딩 제외 =====
+    // 스타킹 레이어 제외 옵션이 켜져 있으면 스타킹은 스무딩하지 않음
+    if (bExcludeStockingFromSmoothing != 0)
+    {
+        uint LayerType = VertexLayerTypes[VertexIndex];
+        if (LayerType == LAYER_STOCKING)
+        {
+            // 스타킹: 원래 위치 그대로 출력
+            WritePosition(VertexIndex, CurrentPos);
+            return;
+        }
+    }
 
     // Get influence (how much this vertex should be smoothed)
     float Influence = Influences[ThreadIndex];

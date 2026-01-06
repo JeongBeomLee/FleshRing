@@ -1,0 +1,361 @@
+// ============================================================================
+// FleshRingCollisionCS.usf - Self-Collision Detection & Resolution
+// ============================================================================
+// Detects and resolves triangle-triangle intersections within SDF region
+// Uses Möller's triangle-triangle intersection algorithm
+// ============================================================================
+
+#include "/Engine/Public/Platform.ush"
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+#ifndef THREADGROUP_SIZE
+#define THREADGROUP_SIZE 64
+#endif
+
+// Collision pair structure: [TriangleA, TriangleB, PenetrationDepth (as uint bits)]
+#define COLLISION_PAIR_STRIDE 3
+
+// Small epsilon for floating point comparisons
+#define TRI_EPSILON 0.0001f
+
+// ============================================================================
+// Buffer Declarations - Detection Pass
+// ============================================================================
+
+// Vertex positions (3 floats per vertex)
+Buffer<float> Positions;
+
+// Triangle indices (3 uints per triangle)
+Buffer<uint> TriangleIndices;
+
+// Output: Collision pairs
+RWStructuredBuffer<uint> CollisionPairs;
+
+// Output: Collision count (atomic)
+RWBuffer<uint> CollisionCount;
+
+// Parameters
+uint NumTriangles;
+uint MaxCollisionPairs;
+
+// ============================================================================
+// Buffer Declarations - Resolution Pass
+// ============================================================================
+
+// For resolution pass, positions are read/write
+RWBuffer<float> PositionsRW;
+
+// Collision pairs from detection
+StructuredBuffer<uint> CollisionPairsRead;
+
+// Collision count from detection
+Buffer<uint> CollisionCountRead;
+
+// Parameters for resolution
+uint NumTotalVertices;
+float ResolutionStrength;
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+float3 ReadPosition(uint VertexIndex)
+{
+    uint Base = VertexIndex * 3;
+    return float3(Positions[Base], Positions[Base + 1], Positions[Base + 2]);
+}
+
+float3 ReadPositionRW(uint VertexIndex)
+{
+    uint Base = VertexIndex * 3;
+    return float3(PositionsRW[Base], PositionsRW[Base + 1], PositionsRW[Base + 2]);
+}
+
+void WritePositionRW(uint VertexIndex, float3 Pos)
+{
+    uint Base = VertexIndex * 3;
+    PositionsRW[Base + 0] = Pos.x;
+    PositionsRW[Base + 1] = Pos.y;
+    PositionsRW[Base + 2] = Pos.z;
+}
+
+uint3 GetTriangleIndices(uint TriangleIndex)
+{
+    uint Base = TriangleIndex * 3;
+    return uint3(TriangleIndices[Base], TriangleIndices[Base + 1], TriangleIndices[Base + 2]);
+}
+
+// ============================================================================
+// Triangle-Triangle Intersection (Möller's Algorithm)
+// ============================================================================
+
+// Compute signed distance from point to plane
+float SignedDistanceToPlane(float3 Point, float3 PlaneNormal, float PlaneD)
+{
+    return dot(PlaneNormal, Point) + PlaneD;
+}
+
+// Check if two intervals overlap
+bool IntervalsOverlap(float Min1, float Max1, float Min2, float Max2)
+{
+    return !(Max1 < Min2 - TRI_EPSILON || Max2 < Min1 - TRI_EPSILON);
+}
+
+// Project triangle onto axis and get interval
+void ProjectTriangle(float3 V0, float3 V1, float3 V2, float3 Axis, out float OutMin, out float OutMax)
+{
+    float P0 = dot(V0, Axis);
+    float P1 = dot(V1, Axis);
+    float P2 = dot(V2, Axis);
+    OutMin = min(min(P0, P1), P2);
+    OutMax = max(max(P0, P1), P2);
+}
+
+// SAT-based triangle-triangle intersection test
+// Returns true if triangles intersect
+bool TrianglesIntersect(
+    float3 A0, float3 A1, float3 A2,  // Triangle A vertices
+    float3 B0, float3 B1, float3 B2)  // Triangle B vertices
+{
+    // Compute edges
+    float3 EdgeA0 = A1 - A0;
+    float3 EdgeA1 = A2 - A1;
+    float3 EdgeA2 = A0 - A2;
+
+    float3 EdgeB0 = B1 - B0;
+    float3 EdgeB1 = B2 - B1;
+    float3 EdgeB2 = B0 - B2;
+
+    // Compute face normals
+    float3 NormalA = cross(EdgeA0, EdgeA1);
+    float3 NormalB = cross(EdgeB0, EdgeB1);
+
+    float LenA = length(NormalA);
+    float LenB = length(NormalB);
+
+    // Degenerate triangles
+    if (LenA < TRI_EPSILON || LenB < TRI_EPSILON)
+        return false;
+
+    NormalA /= LenA;
+    NormalB /= LenB;
+
+    // Test 11 separating axes:
+    // 1. Normal of triangle A
+    // 2. Normal of triangle B
+    // 3-11. Cross products of edges (3 edges A x 3 edges B = 9)
+
+    float MinA, MaxA, MinB, MaxB;
+
+    // Axis 1: Normal A
+    {
+        ProjectTriangle(A0, A1, A2, NormalA, MinA, MaxA);
+        ProjectTriangle(B0, B1, B2, NormalA, MinB, MaxB);
+        if (!IntervalsOverlap(MinA, MaxA, MinB, MaxB))
+            return false;
+    }
+
+    // Axis 2: Normal B
+    {
+        ProjectTriangle(A0, A1, A2, NormalB, MinA, MaxA);
+        ProjectTriangle(B0, B1, B2, NormalB, MinB, MaxB);
+        if (!IntervalsOverlap(MinA, MaxA, MinB, MaxB))
+            return false;
+    }
+
+    // Axes 3-11: Edge cross products
+    float3 EdgesA[3] = { EdgeA0, EdgeA1, EdgeA2 };
+    float3 EdgesB[3] = { EdgeB0, EdgeB1, EdgeB2 };
+
+    [unroll]
+    for (int i = 0; i < 3; i++)
+    {
+        [unroll]
+        for (int j = 0; j < 3; j++)
+        {
+            float3 Axis = cross(EdgesA[i], EdgesB[j]);
+            float AxisLen = length(Axis);
+
+            if (AxisLen < TRI_EPSILON)
+                continue;  // Parallel edges, skip
+
+            Axis /= AxisLen;
+
+            ProjectTriangle(A0, A1, A2, Axis, MinA, MaxA);
+            ProjectTriangle(B0, B1, B2, Axis, MinB, MaxB);
+
+            if (!IntervalsOverlap(MinA, MaxA, MinB, MaxB))
+                return false;
+        }
+    }
+
+    // No separating axis found - triangles intersect
+    return true;
+}
+
+// Calculate penetration depth and separation direction
+// Returns separation vector (direction * depth)
+float3 CalculateSeparation(
+    float3 A0, float3 A1, float3 A2,
+    float3 B0, float3 B1, float3 B2)
+{
+    // Simplified: use triangle centroids and normals
+    float3 CenterA = (A0 + A1 + A2) / 3.0f;
+    float3 CenterB = (B0 + B1 + B2) / 3.0f;
+
+    float3 NormalA = normalize(cross(A1 - A0, A2 - A0));
+    float3 NormalB = normalize(cross(B1 - B0, B2 - B0));
+
+    // Direction from B to A
+    float3 Dir = CenterA - CenterB;
+    float Dist = length(Dir);
+
+    if (Dist < TRI_EPSILON)
+    {
+        // Coincident centroids, use average normal
+        Dir = normalize(NormalA + NormalB);
+        Dist = TRI_EPSILON;
+    }
+    else
+    {
+        Dir /= Dist;
+    }
+
+    // Estimate penetration depth (simplified)
+    // More accurate would require computing actual intersection
+    float Depth = 0.1f;  // Small fixed separation
+
+    return Dir * Depth;
+}
+
+// ============================================================================
+// Detection Pass - Main CS
+// ============================================================================
+
+[numthreads(THREADGROUP_SIZE, 1, 1)]
+void DetectCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    // Each thread checks one triangle pair
+    // Using triangular indexing: thread i checks pair (a, b) where a < b
+
+    uint PairIndex = DispatchThreadId.x;
+
+    // Total pairs = NumTriangles * (NumTriangles - 1) / 2
+    uint TotalPairs = NumTriangles * (NumTriangles - 1) / 2;
+
+    if (PairIndex >= TotalPairs)
+        return;
+
+    // Convert linear index to (TriA, TriB) where TriA < TriB
+    // Using inverse triangular number formula
+    uint TriB = (uint)(floor(0.5f + sqrt(0.25f + 2.0f * (float)PairIndex)));
+    uint TriA = PairIndex - (TriB * (TriB - 1) / 2);
+
+    // Ensure TriB > TriA (due to floating point, might need adjustment)
+    if (TriA >= TriB)
+    {
+        TriB = TriA + 1;
+    }
+
+    if (TriA >= NumTriangles || TriB >= NumTriangles)
+        return;
+
+    // Get triangle vertices
+    uint3 IndicesA = GetTriangleIndices(TriA);
+    uint3 IndicesB = GetTriangleIndices(TriB);
+
+    // Skip if triangles share a vertex (adjacent triangles)
+    if (IndicesA.x == IndicesB.x || IndicesA.x == IndicesB.y || IndicesA.x == IndicesB.z ||
+        IndicesA.y == IndicesB.x || IndicesA.y == IndicesB.y || IndicesA.y == IndicesB.z ||
+        IndicesA.z == IndicesB.x || IndicesA.z == IndicesB.y || IndicesA.z == IndicesB.z)
+    {
+        return;
+    }
+
+    float3 A0 = ReadPosition(IndicesA.x);
+    float3 A1 = ReadPosition(IndicesA.y);
+    float3 A2 = ReadPosition(IndicesA.z);
+
+    float3 B0 = ReadPosition(IndicesB.x);
+    float3 B1 = ReadPosition(IndicesB.y);
+    float3 B2 = ReadPosition(IndicesB.z);
+
+    // Quick AABB rejection
+    float3 MinA = min(min(A0, A1), A2);
+    float3 MaxA = max(max(A0, A1), A2);
+    float3 MinB = min(min(B0, B1), B2);
+    float3 MaxB = max(max(B0, B1), B2);
+
+    if (any(MaxA < MinB - TRI_EPSILON) || any(MaxB < MinA - TRI_EPSILON))
+        return;  // AABBs don't overlap
+
+    // Precise intersection test
+    if (TrianglesIntersect(A0, A1, A2, B0, B1, B2))
+    {
+        // Record collision
+        uint CollisionIndex;
+        InterlockedAdd(CollisionCount[0], 1, CollisionIndex);
+
+        if (CollisionIndex < MaxCollisionPairs)
+        {
+            uint BaseOffset = CollisionIndex * COLLISION_PAIR_STRIDE;
+            CollisionPairs[BaseOffset + 0] = TriA;
+            CollisionPairs[BaseOffset + 1] = TriB;
+            CollisionPairs[BaseOffset + 2] = asuint(0.1f);  // Penetration depth placeholder
+        }
+    }
+}
+
+// ============================================================================
+// Resolution Pass - Main CS
+// ============================================================================
+
+[numthreads(THREADGROUP_SIZE, 1, 1)]
+void ResolveCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    uint CollisionIndex = DispatchThreadId.x;
+
+    uint NumCollisions = CollisionCountRead[0];
+
+    if (CollisionIndex >= NumCollisions)
+        return;
+
+    // Read collision pair
+    uint BaseOffset = CollisionIndex * COLLISION_PAIR_STRIDE;
+    uint TriA = CollisionPairsRead[BaseOffset + 0];
+    uint TriB = CollisionPairsRead[BaseOffset + 1];
+    float PenetrationDepth = asfloat(CollisionPairsRead[BaseOffset + 2]);
+
+    // Get triangle indices
+    uint3 IndicesA = GetTriangleIndices(TriA);
+    uint3 IndicesB = GetTriangleIndices(TriB);
+
+    // Get current positions
+    float3 A0 = ReadPositionRW(IndicesA.x);
+    float3 A1 = ReadPositionRW(IndicesA.y);
+    float3 A2 = ReadPositionRW(IndicesA.z);
+
+    float3 B0 = ReadPositionRW(IndicesB.x);
+    float3 B1 = ReadPositionRW(IndicesB.y);
+    float3 B2 = ReadPositionRW(IndicesB.z);
+
+    // Calculate separation
+    float3 Separation = CalculateSeparation(A0, A1, A2, B0, B1, B2);
+
+    // Apply separation (move each triangle half the distance)
+    float3 HalfSep = Separation * 0.5f * ResolutionStrength;
+
+    // Move triangle A outward, triangle B inward
+    // Note: Using atomics would be more correct but slower
+    // For now, just write directly (may have race conditions)
+    WritePositionRW(IndicesA.x, A0 + HalfSep);
+    WritePositionRW(IndicesA.y, A1 + HalfSep);
+    WritePositionRW(IndicesA.z, A2 + HalfSep);
+
+    WritePositionRW(IndicesB.x, B0 - HalfSep);
+    WritePositionRW(IndicesB.y, B1 - HalfSep);
+    WritePositionRW(IndicesB.z, B2 - HalfSep);
+}

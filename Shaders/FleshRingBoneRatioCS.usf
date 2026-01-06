@@ -1,0 +1,282 @@
+// ============================================================================
+// FleshRingBoneRatioCS.usf - Bone Distance Ratio Preserve Compute Shader
+// ============================================================================
+// Purpose: Equalize radial distance for same-slice vertices
+// Solves the "cracking" problem where SDF sampling causes non-uniform deformation
+//
+// Algorithm: Bone Distance Ratio Preservation
+//   1. For each vertex, find all vertices in the same height slice
+//   2. Calculate average deformation ratio: (deformed_distance / original_distance)
+//   3. Apply average ratio to all vertices in the slice
+//   4. Result: Same-height vertices have same radial distance (uniform circle)
+//
+// Design:
+//   - Operates on AffectedVertices only (not entire mesh)
+//   - Uses pre-computed slice grouping from CPU
+//   - Preserves tightness effect while removing non-uniformity
+// ============================================================================
+
+#include "/Engine/Public/Platform.ush"
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+// Maximum vertices per slice
+#define MAX_SLICE_VERTICES 32
+
+// Packed size per vertex: [Count, V0, V1, ..., V31]
+#define SLICE_PACKED_SIZE 33
+
+// Thread group size
+#ifndef THREADGROUP_SIZE
+#define THREADGROUP_SIZE 64
+#endif
+
+// ============================================================================
+// Buffer Declarations
+// ============================================================================
+
+// Input/Output: Vertex positions (read and write)
+Buffer<float> InputPositions;
+RWBuffer<float> OutputPositions;
+
+// Input: Indices of affected vertices to process
+StructuredBuffer<uint> AffectedIndices;
+
+// Input: Per-vertex influence weights (0-1)
+StructuredBuffer<float> Influences;
+
+// Input: Original bone distances (bind pose)
+StructuredBuffer<float> OriginalBoneDistances;
+
+// Input: Axis heights for each affected vertex (for Gaussian weighting)
+StructuredBuffer<float> AxisHeights;
+
+// Input: Slice data - [Count, V0, V1, ..., V31] per affected vertex
+StructuredBuffer<uint> SliceData;
+
+// ============================================================================
+// Parameters
+// ============================================================================
+
+// Number of affected vertices
+uint NumAffectedVertices;
+
+// Total mesh vertex count (for bounds checking)
+uint NumTotalVertices;
+
+// Ring axis (normalized, for radial direction calculation)
+float3 RingAxis;
+
+// Ring center position
+float3 RingCenter;
+
+// Blend strength (0 = no effect, 1 = full equalization)
+float BlendStrength;
+
+// Height sigma for Gaussian weighting (bucket size used as sigma)
+// Larger values = smoother transitions but less uniform slices
+float HeightSigma;
+
+// Bounds scale for Z-direction falloff (reserved for future use)
+float BoundsScale;
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+// Read vertex position from buffer (3 floats per vertex)
+float3 ReadPosition(Buffer<float> PositionBuffer, uint VertexIndex)
+{
+    uint BaseIndex = VertexIndex * 3;
+    return float3(
+        PositionBuffer[BaseIndex + 0],
+        PositionBuffer[BaseIndex + 1],
+        PositionBuffer[BaseIndex + 2]
+    );
+}
+
+// Write vertex position to buffer (3 floats per vertex)
+void WritePosition(uint VertexIndex, float3 Pos)
+{
+    uint BaseIndex = VertexIndex * 3;
+    OutputPositions[BaseIndex + 0] = Pos.x;
+    OutputPositions[BaseIndex + 1] = Pos.y;
+    OutputPositions[BaseIndex + 2] = Pos.z;
+}
+
+// Calculate radial distance from ring axis
+float CalculateRadialDistance(float3 Position)
+{
+    float3 ToVertex = Position - RingCenter;
+    float AxisDist = dot(ToVertex, RingAxis);
+    float3 RadialVec = ToVertex - RingAxis * AxisDist;
+    return length(RadialVec);
+}
+
+// Calculate radial direction from ring axis (normalized)
+float3 CalculateRadialDirection(float3 Position)
+{
+    float3 ToVertex = Position - RingCenter;
+    float AxisDist = dot(ToVertex, RingAxis);
+    float3 RadialVec = ToVertex - RingAxis * AxisDist;
+    float RadialLen = length(RadialVec);
+
+    if (RadialLen < 0.0001f)
+    {
+        return float3(1, 0, 0);  // Fallback direction
+    }
+
+    return RadialVec / RadialLen;
+}
+
+// ============================================================================
+// Main Compute Shader
+// ============================================================================
+
+[numthreads(THREADGROUP_SIZE, 1, 1)]
+void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    uint ThreadIndex = DispatchThreadId.x;
+
+    // Bounds check
+    if (ThreadIndex >= NumAffectedVertices)
+    {
+        return;
+    }
+
+    // Get actual vertex index
+    uint VertexIndex = AffectedIndices[ThreadIndex];
+
+    // Safety check
+    if (VertexIndex >= NumTotalVertices)
+    {
+        return;
+    }
+
+    // Read current (deformed) position
+    float3 CurrentPos = ReadPosition(InputPositions, VertexIndex);
+
+    // Get influence (how much this vertex should be affected)
+    float Influence = Influences[ThreadIndex];
+
+    // Skip if influence is negligible
+    if (Influence < 0.001f)
+    {
+        WritePosition(VertexIndex, CurrentPos);
+        return;
+    }
+
+    // Get original bone distance for this vertex
+    float OriginalDist = OriginalBoneDistances[ThreadIndex];
+
+    // Skip if original distance is too small (vertex at center)
+    if (OriginalDist < 0.001f)
+    {
+        WritePosition(VertexIndex, CurrentPos);
+        return;
+    }
+
+    // ================================================================
+    // Calculate weighted average deformation ratio for nearby vertices
+    // Uses Gaussian weighting based on height difference for smooth transitions
+    // ================================================================
+
+    // Slice data offset for this vertex
+    uint SliceOffset = ThreadIndex * SLICE_PACKED_SIZE;
+    uint SliceCount = SliceData[SliceOffset];
+
+    // Skip if no slice data
+    if (SliceCount == 0)
+    {
+        WritePosition(VertexIndex, CurrentPos);
+        return;
+    }
+
+    // Get this vertex's height for Gaussian weighting
+    float MyHeight = AxisHeights[ThreadIndex];
+
+    // Precompute Gaussian denominator: 2 * sigma^2
+    float GaussDenom = 2.0f * HeightSigma * HeightSigma;
+
+    // Sum ratios from vertices in adjacent slices with Gaussian weighting
+    float RatioSum = 0.0f;
+    float WeightSum = 0.0f;
+
+    for (uint i = 0; i < SliceCount && i < MAX_SLICE_VERTICES; i++)
+    {
+        uint OtherThreadIndex = SliceData[SliceOffset + 1 + i];
+
+        // Bounds check
+        if (OtherThreadIndex >= NumAffectedVertices)
+        {
+            continue;
+        }
+
+        uint OtherVertexIndex = AffectedIndices[OtherThreadIndex];
+
+        if (OtherVertexIndex >= NumTotalVertices)
+        {
+            continue;
+        }
+
+        // Get other vertex's original distance and current distance
+        float OtherOriginalDist = OriginalBoneDistances[OtherThreadIndex];
+
+        if (OtherOriginalDist < 0.001f)
+        {
+            continue;
+        }
+
+        float3 OtherPos = ReadPosition(InputPositions, OtherVertexIndex);
+        float OtherCurrentDist = CalculateRadialDistance(OtherPos);
+
+        // Calculate ratio: deformed / original
+        float Ratio = OtherCurrentDist / OtherOriginalDist;
+
+        // Get height difference for Gaussian weight
+        float OtherHeight = AxisHeights[OtherThreadIndex];
+        float HeightDiff = MyHeight - OtherHeight;
+
+        // Gaussian weight: exp(-d^2 / (2*sigma^2))
+        // Closer in height = higher weight
+        float GaussWeight = exp(-(HeightDiff * HeightDiff) / GaussDenom);
+
+        // Combine Gaussian weight with influence
+        float OtherInfluence = Influences[OtherThreadIndex];
+        float CombinedWeight = GaussWeight * OtherInfluence;
+
+        RatioSum += Ratio * CombinedWeight;
+        WeightSum += CombinedWeight;
+    }
+
+    // Calculate weighted average ratio
+    float AvgRatio = (WeightSum > 0.001f) ? (RatioSum / WeightSum) : 1.0f;
+
+    // ================================================================
+    // Apply average ratio to this vertex
+    // ================================================================
+
+    // Target distance = original distance * average ratio
+    float TargetDist = OriginalDist * AvgRatio;
+
+    // Get radial direction (perpendicular to axis)
+    float3 RadialDir = CalculateRadialDirection(CurrentPos);
+
+    // Calculate axis height (preserve it)
+    float3 ToVertex = CurrentPos - RingCenter;
+    float AxisHeight = dot(ToVertex, RingAxis);
+
+    // New position: center + axis_component + radial_component
+    float3 AxisComponent = RingAxis * AxisHeight;
+    float3 RadialComponent = RadialDir * TargetDist;
+    float3 TargetPos = RingCenter + AxisComponent + RadialComponent;
+
+    // Blend based on influence and blend strength
+    float FinalBlend = Influence * BlendStrength;
+    float3 FinalPos = lerp(CurrentPos, TargetPos, FinalBlend);
+
+    // Write output
+    WritePosition(VertexIndex, FinalPos);
+}

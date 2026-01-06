@@ -29,7 +29,8 @@ void DispatchFleshRingLaplacianCS(
     FRDGBufferRef OutputPositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
-    FRDGBufferRef AdjacencyDataBuffer)
+    FRDGBufferRef AdjacencyDataBuffer,
+    FRDGBufferRef VertexLayerTypesBuffer)
 {
     // Early out if no vertices to process
     if (Params.NumAffectedVertices == 0)
@@ -53,6 +54,19 @@ void DispatchFleshRingLaplacianCS(
     PassParameters->NumTotalVertices = Params.NumTotalVertices;
     PassParameters->SmoothingLambda = Params.SmoothingLambda;
     PassParameters->VolumePreservation = Params.VolumePreservation;
+    PassParameters->BulgeSmoothingFactor = Params.BulgeSmoothingFactor;
+    PassParameters->BoundsScale = Params.BoundsScale;
+
+    // Layer types for stocking exclusion
+    if (VertexLayerTypesBuffer && Params.bExcludeStockingFromSmoothing)
+    {
+        PassParameters->VertexLayerTypes = GraphBuilder.CreateSRV(VertexLayerTypesBuffer, PF_R32_UINT);
+        PassParameters->bExcludeStockingFromSmoothing = 1;
+    }
+    else
+    {
+        PassParameters->bExcludeStockingFromSmoothing = 0;
+    }
 
     // Get shader
     TShaderMapRef<FFleshRingLaplacianCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
@@ -81,7 +95,8 @@ void DispatchFleshRingLaplacianCS_MultiPass(
     FRDGBufferRef PositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
-    FRDGBufferRef AdjacencyDataBuffer)
+    FRDGBufferRef AdjacencyDataBuffer,
+    FRDGBufferRef VertexLayerTypesBuffer)
 {
     if (Params.NumAffectedVertices == 0 || Params.NumIterations <= 0)
     {
@@ -108,7 +123,8 @@ void DispatchFleshRingLaplacianCS_MultiPass(
             PositionsBuffer,
             AffectedIndicesBuffer,
             InfluencesBuffer,
-            AdjacencyDataBuffer
+            AdjacencyDataBuffer,
+            VertexLayerTypesBuffer
         );
         return;
     }
@@ -151,7 +167,8 @@ void DispatchFleshRingLaplacianCS_MultiPass(
             WriteBuffer,
             AffectedIndicesBuffer,
             InfluencesBuffer,
-            AdjacencyDataBuffer
+            AdjacencyDataBuffer,
+            VertexLayerTypesBuffer
         );
     }
 

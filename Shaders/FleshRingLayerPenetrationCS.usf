@@ -1,0 +1,499 @@
+// ============================================================================
+// FleshRingLayerPenetrationCS.usf - Layer Penetration Resolution
+// ============================================================================
+// Ensures outer layers (stocking) never penetrate inner layers (skin)
+// Uses material-based layer hierarchy for proper ordering
+//
+// Layer Hierarchy (inner to outer):
+//   0 = Skin (base layer)
+//   1 = Stocking (directly on skin)
+//   2 = Underwear (on stocking)
+//   3 = Outerwear (outermost)
+//   4 = Unknown (ignored)
+// ============================================================================
+
+#include "/Engine/Public/Platform.ush"
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+#ifndef THREADGROUP_SIZE
+#define THREADGROUP_SIZE 64
+#endif
+
+// Layer type constants
+#define LAYER_SKIN       0
+#define LAYER_STOCKING   1
+#define LAYER_UNDERWEAR  2
+#define LAYER_OUTERWEAR  3
+#define LAYER_UNKNOWN    4
+
+// Small epsilon for floating point comparisons
+#define LAYER_EPSILON 0.0001f
+
+// ============================================================================
+// Buffer Declarations - Build Triangle Layer Pass
+// ============================================================================
+
+// Per-vertex layer types
+Buffer<uint> VertexLayerTypes;
+
+// Triangle indices (3 uints per triangle)
+Buffer<uint> TriangleIndices;
+
+// Output: Per-triangle layer types
+RWBuffer<uint> TriangleLayerTypesRW;
+
+// Number of triangles
+uint NumTriangles;
+
+// ============================================================================
+// Buffer Declarations - Penetration Resolution Pass
+// ============================================================================
+
+// Vertex positions (read/write)
+RWBuffer<float> PositionsRW;
+
+// Vertex normals (for push direction)
+Buffer<float> Normals;
+
+// Affected vertex indices
+Buffer<uint> AffectedIndices;
+
+// Per-triangle layer types (from build pass)
+Buffer<uint> TriangleLayerTypes;
+
+// Number of affected vertices
+uint NumAffectedVertices;
+
+// Separation parameters
+float MinSeparation;        // Base minimum separation (fallback)
+float MaxPushDistance;
+
+// Ring geometry for radial direction
+float3 RingCenter;
+float3 RingAxis;
+
+// ============================================================================
+// Dynamic Separation & Bidirectional Push Parameters
+// 동적 간격 & 양방향 밀어내기 파라미터
+// ============================================================================
+
+// Current tightness strength (0~1) - affects layer separation
+// Tightness 강도 (0~1) - 레이어 간격에 영향
+float TightnessStrength;
+
+// Push ratio: how much each layer moves when penetration is detected
+// 밀어내기 비율: 침투 감지 시 각 레이어가 얼마나 이동하는지
+float OuterLayerPushRatio;   // e.g., 0.7 = stocking moves 70% outward
+float InnerLayerPushRatio;   // e.g., 0.3 = skin moves 30% inward
+
+// Output: Skin vertex push amounts (for bidirectional push)
+// 출력: Skin 버텍스 밀어내기 양 (양방향 밀어내기용)
+RWBuffer<float> SkinPushAmountsRW;
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+float3 ReadPosition(uint VertexIndex)
+{
+    uint Base = VertexIndex * 3;
+    return float3(PositionsRW[Base], PositionsRW[Base + 1], PositionsRW[Base + 2]);
+}
+
+void WritePosition(uint VertexIndex, float3 Pos)
+{
+    uint Base = VertexIndex * 3;
+    PositionsRW[Base + 0] = Pos.x;
+    PositionsRW[Base + 1] = Pos.y;
+    PositionsRW[Base + 2] = Pos.z;
+}
+
+float3 ReadNormal(uint VertexIndex)
+{
+    uint Base = VertexIndex * 3;
+    return float3(Normals[Base], Normals[Base + 1], Normals[Base + 2]);
+}
+
+uint3 GetTriangleIndices(uint TriangleIndex)
+{
+    uint Base = TriangleIndex * 3;
+    return uint3(TriangleIndices[Base], TriangleIndices[Base + 1], TriangleIndices[Base + 2]);
+}
+
+// Check if layerA should be outside of layerB (layerA > layerB in hierarchy)
+bool ShouldBeOutside(uint LayerA, uint LayerB)
+{
+    // Unknown layers are ignored
+    if (LayerA == LAYER_UNKNOWN || LayerB == LAYER_UNKNOWN)
+        return false;
+
+    // Layer A should be outside Layer B if A > B in hierarchy
+    // Stocking (1) should be outside Skin (0)
+    // Underwear (2) should be outside Stocking (1) and Skin (0)
+    // etc.
+    return LayerA > LayerB;
+}
+
+// ============================================================================
+// Dynamic Separation Calculation (v2 - Larger Margin)
+// 동적 간격 계산 (v2 - 더 큰 마진)
+// ============================================================================
+// 수렴 보장을 위해 마진을 크게 설정
+// 여러 iteration 후에도 안전한 간격 유지
+//
+// 핵심 변경: 최소 간격을 0.05mm → 0.5mm로 증가
+// 이유: Jacobi iteration에서 연쇄 효과로 인한 잔여 penetration 방지
+
+float CalculateDynamicSeparation()
+{
+    // 단위: cm (언리얼 기본 단위)
+    // v2: 마진 대폭 증가로 수렴 보장
+    float MaxSeparation = 0.1f;    // 느슨할 때 최대 간격 (1mm = 0.1cm)
+    float MinSeparationTight = 0.05f;  // 조였을 때 최소 간격 (0.5mm = 0.05cm)
+
+    // 선형 보간: Tightness가 강할수록 간격 감소
+    return lerp(MaxSeparation, MinSeparationTight, saturate(TightnessStrength));
+}
+
+// Compute signed distance from point to plane
+float SignedDistanceToPlane(float3 Point, float3 PlanePoint, float3 PlaneNormal)
+{
+    return dot(Point - PlanePoint, PlaneNormal);
+}
+
+// Project point onto triangle and check if inside
+// Returns: 0 if inside, distance to nearest edge if outside
+float PointInTriangle(float3 P, float3 A, float3 B, float3 C, out float3 OutClosestPoint)
+{
+    float3 AB = B - A;
+    float3 AC = C - A;
+    float3 AP = P - A;
+
+    float d1 = dot(AB, AP);
+    float d2 = dot(AC, AP);
+
+    // Vertex region outside A
+    if (d1 <= 0.0f && d2 <= 0.0f)
+    {
+        OutClosestPoint = A;
+        return length(P - A);
+    }
+
+    float3 BP = P - B;
+    float d3 = dot(AB, BP);
+    float d4 = dot(AC, BP);
+
+    // Vertex region outside B
+    if (d3 >= 0.0f && d4 <= d3)
+    {
+        OutClosestPoint = B;
+        return length(P - B);
+    }
+
+    // Edge region AB
+    float vc = d1 * d4 - d3 * d2;
+    if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f)
+    {
+        float v = d1 / (d1 - d3);
+        OutClosestPoint = A + v * AB;
+        return length(P - OutClosestPoint);
+    }
+
+    float3 CP = P - C;
+    float d5 = dot(AB, CP);
+    float d6 = dot(AC, CP);
+
+    // Vertex region outside C
+    if (d6 >= 0.0f && d5 <= d6)
+    {
+        OutClosestPoint = C;
+        return length(P - C);
+    }
+
+    // Edge region AC
+    float vb = d5 * d2 - d1 * d6;
+    if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f)
+    {
+        float w = d2 / (d2 - d6);
+        OutClosestPoint = A + w * AC;
+        return length(P - OutClosestPoint);
+    }
+
+    // Edge region BC
+    float va = d3 * d6 - d5 * d4;
+    if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f)
+    {
+        float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        OutClosestPoint = B + w * (C - B);
+        return length(P - OutClosestPoint);
+    }
+
+    // Inside triangle
+    float denom = 1.0f / (va + vb + vc);
+    float v = vb * denom;
+    float w = vc * denom;
+    OutClosestPoint = A + AB * v + AC * w;
+    return 0.0f;  // Inside triangle
+}
+
+// Get triangle normal (unnormalized for efficiency, normalized later)
+float3 GetTriangleNormal(float3 V0, float3 V1, float3 V2)
+{
+    float3 E1 = V1 - V0;
+    float3 E2 = V2 - V0;
+    return cross(E1, E2);
+}
+
+// Calculate radial direction from ring axis
+float3 GetRadialDirection(float3 Point)
+{
+    // Project point onto axis
+    float3 ToPoint = Point - RingCenter;
+    float AxisDist = dot(ToPoint, RingAxis);
+    float3 AxisPoint = RingCenter + RingAxis * AxisDist;
+
+    // Radial direction is from axis to point
+    float3 Radial = Point - AxisPoint;
+    float RadialLen = length(Radial);
+
+    if (RadialLen < LAYER_EPSILON)
+        return float3(0, 0, 0);
+
+    return Radial / RadialLen;
+}
+
+// ============================================================================
+// Build Triangle Layer Types - Main CS
+// ============================================================================
+// Determines each triangle's layer type from its vertices
+// Uses minimum layer type (most inner) as the triangle's layer
+
+[numthreads(THREADGROUP_SIZE, 1, 1)]
+void BuildTriangleLayerCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    uint TriIdx = DispatchThreadId.x;
+
+    if (TriIdx >= NumTriangles)
+        return;
+
+    // Get vertex indices
+    uint3 Indices = GetTriangleIndices(TriIdx);
+
+    // Get layer types for each vertex
+    uint Layer0 = VertexLayerTypes[Indices.x];
+    uint Layer1 = VertexLayerTypes[Indices.y];
+    uint Layer2 = VertexLayerTypes[Indices.z];
+
+    // Triangle layer = minimum of vertex layers (most inner layer wins)
+    // This ensures mixed triangles are treated as the inner layer
+    uint TriangleLayer = min(min(Layer0, Layer1), Layer2);
+
+    // If all vertices are Unknown, keep as Unknown
+    if (Layer0 == LAYER_UNKNOWN && Layer1 == LAYER_UNKNOWN && Layer2 == LAYER_UNKNOWN)
+    {
+        TriangleLayer = LAYER_UNKNOWN;
+    }
+
+    TriangleLayerTypesRW[TriIdx] = TriangleLayer;
+}
+
+// ============================================================================
+// Layer Penetration Resolution - Main CS (v2 - Fixed Over-Push)
+// ============================================================================
+// For each outer-layer vertex, find nearest inner-layer triangle
+// If vertex penetrates the triangle, push it outward
+//
+// v2 수정사항:
+// 1. SearchRadius를 DynamicSeparation 기반으로 대폭 축소 (4cm → 0.5cm)
+// 2. 실제 침투(SignedDist < 0)와 근접(0 < SignedDist < Sep) 분리 처리
+// 3. 가장 가까운 삼각형 기준으로 처리 (최대 침투 → 최소 거리)
+// 4. Normal alignment 조건 강화 (-0.5 → 0.0)
+
+[numthreads(THREADGROUP_SIZE, 1, 1)]
+void LayerPenetrationCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    uint ThreadIdx = DispatchThreadId.x;
+
+    if (ThreadIdx >= NumAffectedVertices)
+        return;
+
+    // Get vertex index and its layer type
+    uint VertexIdx = AffectedIndices[ThreadIdx];
+    uint VertexLayer = VertexLayerTypes[VertexIdx];
+
+    // Skip unknown layer vertices
+    if (VertexLayer == LAYER_UNKNOWN)
+        return;
+
+    // Skip skin vertices (nothing should be inside skin)
+    if (VertexLayer == LAYER_SKIN)
+        return;
+
+    // Get current vertex position
+    float3 VertexPos = ReadPosition(VertexIdx);
+
+    // ========================================
+    // Compute radial direction for alignment check
+    // 정렬 체크용 방사 방향 계산
+    // ========================================
+    // NOTE: 노멀 버퍼 대신 방사 방향 사용 (노멀이 0일 수 있음)
+    float3 VertexRadialDir = GetRadialDirection(VertexPos);
+
+    // If radial direction is invalid, skip this vertex
+    // 방사 방향이 유효하지 않으면 이 버텍스 스킵
+    if (length(VertexRadialDir) < LAYER_EPSILON)
+        return;
+
+    // ========================================
+    // Calculate Dynamic Separation (Tightness-dependent)
+    // 동적 간격 계산 (Tightness 의존)
+    // ========================================
+    float DynamicSeparation = CalculateDynamicSeparation();
+
+    // ========================================
+    // v5: 검색 반경 대폭 확대
+    // ========================================
+    // 스무딩 등으로 인해 침투가 상당히 클 수 있음
+    // 충분히 큰 범위에서 삼각형 검색
+    float SearchRadius = MaxPushDistance * 4.0f;  // MaxPush의 4배 (기본 4cm)
+
+    // ========================================
+    // v2: 가장 가까운 삼각형 찾기 (최대 침투 X)
+    // ========================================
+    float NearestDistance = 1e10f;           // 가장 가까운 삼각형까지 거리
+    float NearestSignedDist = 1e10f;         // 그 삼각형에 대한 signed distance
+    float3 NearestPushDirection = float3(0, 0, 0);
+    bool bFoundNearbyTriangle = false;
+
+    for (uint TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+    {
+        // Get triangle layer
+        uint TriangleLayer = TriangleLayerTypes[TriIdx];
+
+        // Skip if this triangle is not an inner layer relative to vertex
+        if (!ShouldBeOutside(VertexLayer, TriangleLayer))
+            continue;
+
+        // Get triangle vertices
+        uint3 TriIndices = GetTriangleIndices(TriIdx);
+        float3 V0 = ReadPosition(TriIndices.x);
+        float3 V1 = ReadPosition(TriIndices.y);
+        float3 V2 = ReadPosition(TriIndices.z);
+
+        // Quick distance check (bounding sphere)
+        float3 TriCenter = (V0 + V1 + V2) / 3.0f;
+        float DistToTriCenter = length(VertexPos - TriCenter);
+
+        // Estimate triangle radius
+        float TriRadius = max(max(length(V1 - V0), length(V2 - V1)), length(V0 - V2)) * 0.5f;
+
+        if (DistToTriCenter > SearchRadius + TriRadius)
+            continue;
+
+        // Get triangle normal
+        float3 TriNormal = GetTriangleNormal(V0, V1, V2);
+        float TriNormalLen = length(TriNormal);
+
+        if (TriNormalLen < LAYER_EPSILON)
+            continue;
+
+        TriNormal /= TriNormalLen;
+
+        // ========================================
+        // v5: 삼각형-버텍스 방향 기반 필터 (RadialAlignment 대체)
+        // ========================================
+        // 기존 RadialAlignment는 Ring 축 기준이라 Z 확장 영역에서 부정확
+        // 대신: 삼각형 노멀이 버텍스를 향하는지 확인
+        // → 버텍스가 삼각형 "앞"에 있어야 침투 검사가 의미 있음
+        float3 TriToVertex = VertexPos - TriCenter;
+        float FacingAlignment = dot(normalize(TriToVertex), TriNormal);
+
+        // FacingAlignment > 0: 버텍스가 삼각형 앞에 있음 (침투 가능)
+        // FacingAlignment < 0: 버텍스가 삼각형 뒤에 있음 (이 삼각형은 관련 없음)
+        // -0.3으로 약간의 여유를 줌 (거의 평행한 경우도 허용)
+        if (FacingAlignment < -0.3f)
+            continue;
+
+        // Find closest point on triangle to vertex
+        float3 ClosestPoint;
+        float DistToEdge = PointInTriangle(VertexPos, V0, V1, V2, ClosestPoint);
+
+        // Calculate signed distance to triangle plane
+        float SignedDist = SignedDistanceToPlane(VertexPos, V0, TriNormal);
+
+        // ========================================
+        // v2: 실제 거리 기반으로 가장 가까운 삼각형 찾기
+        // ========================================
+        // 삼각형까지의 실제 3D 거리 계산
+        float ActualDistance;
+        if (DistToEdge < LAYER_EPSILON)
+        {
+            // 삼각형 영역 내부 투영
+            ActualDistance = abs(SignedDist);
+        }
+        else
+        {
+            // 삼각형 외부 - 가장 가까운 점까지 거리
+            ActualDistance = length(VertexPos - ClosestPoint);
+        }
+
+        // 검색 반경 내에서 가장 가까운 삼각형 선택
+        if (ActualDistance < SearchRadius && ActualDistance < NearestDistance)
+        {
+            NearestDistance = ActualDistance;
+            NearestSignedDist = SignedDist;
+
+            // Push direction: radial from ring axis
+            float3 RadialDir = GetRadialDirection(VertexPos);
+            if (length(RadialDir) > LAYER_EPSILON)
+            {
+                NearestPushDirection = RadialDir;
+            }
+            else
+            {
+                NearestPushDirection = TriNormal;
+            }
+
+            bFoundNearbyTriangle = true;
+        }
+    }
+
+    // ========================================
+    // v2: 침투 해결 로직 개선
+    // ========================================
+    if (bFoundNearbyTriangle)
+    {
+        float PushAmount = 0.0f;
+
+        if (NearestSignedDist < 0.0f)
+        {
+            // Case 1: 실제 침투 (버텍스가 삼각형 뒤에 있음)
+            // 삼각형 앞으로 + 동적 분리만큼 이동
+            PushAmount = abs(NearestSignedDist) + DynamicSeparation;
+        }
+        else if (NearestSignedDist < DynamicSeparation)
+        {
+            // Case 2: 침투는 아니지만 동적 분리보다 가까움
+            // 동적 분리 위치까지만 살짝 밀어냄
+            PushAmount = DynamicSeparation - NearestSignedDist;
+        }
+        // else: Case 3: 충분히 떨어져 있음 - 아무것도 안 함
+
+        // 푸시 적용
+        if (PushAmount > LAYER_EPSILON)
+        {
+            // 최대 푸시 제한 (MaxPushDistance 파라미터 사용, 기본 2cm)
+            PushAmount = min(PushAmount, MaxPushDistance);
+
+            // OuterLayerPushRatio 적용
+            float FinalPush = PushAmount * OuterLayerPushRatio;
+
+            // 새 위치 계산
+            float3 NewPos = VertexPos + NearestPushDirection * FinalPush;
+            WritePosition(VertexIdx, NewPos);
+        }
+    }
+}
