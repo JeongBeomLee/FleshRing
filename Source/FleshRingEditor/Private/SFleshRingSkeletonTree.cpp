@@ -154,10 +154,27 @@ public:
 	/** 편집 모드 진입 */
 	void EnterEditingMode()
 	{
+		// 편집 시작 시 원본 이름 저장 (검증 실패 시 복원용)
+		if (Item.IsValid())
+		{
+			OriginalName = Item->GetDisplayName().ToString();
+		}
+		bIsEnterPressed = false;
+
 		if (InlineTextBlock.IsValid())
 		{
 			InlineTextBlock->EnterEditingMode();
 		}
+	}
+
+	virtual FReply OnPreviewKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent) override
+	{
+		// Enter 키 감지 (OnVerifyRingNameChanged에서 이전 이름으로 되돌리기 위해)
+		if (InKeyEvent.GetKey() == EKeys::Enter)
+		{
+			bIsEnterPressed = true;
+		}
+		return STableRow<TSharedPtr<FFleshRingTreeItem>>::OnPreviewKeyDown(MyGeometry, InKeyEvent);
 	}
 
 private:
@@ -191,40 +208,46 @@ private:
 			.ToolTipText(TooltipText);
 	}
 
-	/** Ring 이름 검증 (중복 체크) */
+	/** Ring 이름 검증 (빈 이름/중복 체크) */
 	bool OnVerifyRingNameChanged(const FText& NewText, FText& OutErrorMessage)
 	{
 		if (!Asset || !Item.IsValid())
 		{
+			bIsEnterPressed = false;
 			return true;
 		}
 
 		FString NewName = NewText.ToString();
+		bool bIsValid = true;
 
+		// 빈 이름 체크
+		if (NewName.IsEmpty())
+		{
+			OutErrorMessage = LOCTEXT("EmptyNameError", "Name cannot be empty.");
+			bIsValid = false;
+		}
 		// 중복 이름 체크
-		if (!Asset->IsRingNameUnique(NewName, Item->RingIndex))
+		else if (!Asset->IsRingNameUnique(NewName, Item->RingIndex))
 		{
 			OutErrorMessage = LOCTEXT("DuplicateNameError", "This name is already in use. Please choose a different name.");
+			bIsValid = false;
+		}
+
+		if (!bIsValid)
+		{
 			bIsNameValid = false;
 
-			// 빨간 테두리 표시
-			if (ValidationBorder.IsValid())
+			// Enter 시에만 이전 이름으로 되돌림
+			if (bIsEnterPressed && InlineTextBlock.IsValid())
 			{
-				ValidationBorder->SetBorderImage(FAppStyle::GetBrush("WhiteBrush"));
-				ValidationBorder->SetBorderBackgroundColor(FLinearColor(0.8f, 0.2f, 0.2f, 0.5f));
+				InlineTextBlock->SetText(FText::FromString(OriginalName));
 			}
-
-			return false;  // Enter 키로 확정 불가
+			bIsEnterPressed = false;
+			return false;  // 편집 모드 유지
 		}
 
 		bIsNameValid = true;
-
-		// 정상 테두리로 복원
-		if (ValidationBorder.IsValid())
-		{
-			ValidationBorder->SetBorderImage(FAppStyle::GetBrush("NoBorder"));
-		}
-
+		bIsEnterPressed = false;
 		return true;
 	}
 
@@ -267,6 +290,7 @@ private:
 	TSharedPtr<SBorder> ValidationBorder;
 	FString OriginalName;
 	bool bIsNameValid = true;
+	bool bIsEnterPressed = false;	// Enter 키 감지 플래그
 };
 
 #undef LOCTEXT_NAMESPACE

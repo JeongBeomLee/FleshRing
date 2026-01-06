@@ -136,10 +136,24 @@ public:
 	/** 편집 모드 진입 */
 	void EnterEditingMode()
 	{
+		// 편집 시작 시 원본 텍스트 저장 (검증 실패 시 복원용)
+		OriginalText = CurrentText;
+		bIsEnterPressed = false;
+
 		if (InlineTextBlock.IsValid())
 		{
 			InlineTextBlock->EnterEditingMode();
 		}
+	}
+
+	virtual FReply OnPreviewKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent) override
+	{
+		// Enter 키 감지 (OnVerifyNameChanged에서 이전 이름으로 되돌리기 위해)
+		if (InKeyEvent.GetKey() == EKeys::Enter)
+		{
+			bIsEnterPressed = true;
+		}
+		return SCompoundWidget::OnPreviewKeyDown(MyGeometry, InKeyEvent);
 	}
 
 private:
@@ -148,23 +162,43 @@ private:
 		return IsSelectedAttr.Get(false);
 	}
 
-	/** 이름 검증 (중복 체크) */
+	/** 이름 검증 (빈 이름/중복 체크) */
 	bool OnVerifyNameChanged(const FText& NewText, FText& OutErrorMessage)
 	{
 		if (!Asset)
 		{
+			bIsEnterPressed = false;
 			return true;
 		}
 
 		FString NewName = NewText.ToString();
+		bool bIsValid = true;
 
+		// 빈 이름 체크
+		if (NewName.IsEmpty())
+		{
+			OutErrorMessage = LOCTEXT("EmptyNameError", "Name cannot be empty.");
+			bIsValid = false;
+		}
 		// 중복 이름 체크
-		if (!Asset->IsRingNameUnique(NewName, RingIndex))
+		else if (!Asset->IsRingNameUnique(NewName, RingIndex))
 		{
 			OutErrorMessage = LOCTEXT("DuplicateNameError", "This name is already in use. Please choose a different name.");
-			return false;  // 커밋 차단, 텍스트 유지
+			bIsValid = false;
 		}
 
+		if (!bIsValid)
+		{
+			// Enter 시에만 이전 이름으로 되돌림
+			if (bIsEnterPressed && InlineTextBlock.IsValid())
+			{
+				InlineTextBlock->SetText(OriginalText);
+			}
+			bIsEnterPressed = false;
+			return false;  // 편집 모드 유지
+		}
+
+		bIsEnterPressed = false;
 		return true;
 	}
 
@@ -191,6 +225,8 @@ private:
 	UFleshRingAsset* Asset = nullptr;
 	int32 RingIndex = INDEX_NONE;
 	FText CurrentText;
+	FText OriginalText;			// 편집 시작 시 원본 텍스트 (검증 실패 시 복원용)
+	bool bIsEnterPressed = false;	// Enter 키 감지 플래그
 };
 
 /**
