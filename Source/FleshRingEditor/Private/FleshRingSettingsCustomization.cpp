@@ -29,6 +29,8 @@
 #include "Widgets/Text/SInlineEditableTextBlock.h"
 #include "Misc/DefaultValueHelper.h"
 #include "ScopedTransaction.h"
+#include "Framework/MultiBox/MultiBoxBuilder.h"
+#include "Framework/Application/SlateApplication.h"
 
 #define LOCTEXT_NAMESPACE "FleshRingSettingsCustomization"
 
@@ -76,6 +78,13 @@ public:
 			.OnTextCommitted(this, &SRingNameWidget::OnNameCommitted)
 			.Font(IDetailLayoutBuilder::GetDetailFont())
 		];
+
+		// 자식 위젯이 직접 마우스 이벤트를 받지 못하도록 설정
+		// (편집 모드 진입 시에만 다시 활성화)
+		if (InlineTextBlock.IsValid())
+		{
+			InlineTextBlock->SetVisibility(EVisibility::HitTestInvisible);
+		}
 	}
 
 	~SRingNameWidget()
@@ -111,12 +120,28 @@ public:
 		}
 	}
 
+	virtual bool SupportsKeyboardFocus() const override
+	{
+		return true;
+	}
+
 	virtual FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
 	{
 		if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 		{
-			// 싱글 클릭: Ring 선택
+			// 좌클릭 눌림 상태 추적
+			bIsLeftMouseButtonDown = true;
+			// 싱글 클릭: Ring 선택 + 포커스 설정 (F2 키 처리를 위해)
 			OnClickedDelegate.ExecuteIfBound();
+			return FReply::Handled().SetUserFocus(AsShared(), EFocusCause::Mouse);
+		}
+		else if (MouseEvent.GetEffectingButton() == EKeys::RightMouseButton)
+		{
+			// 좌클릭 눌린 상태면 우클릭 무시 (동시 클릭 방지)
+			if (bIsLeftMouseButtonDown)
+			{
+				return FReply::Handled();
+			}
 			return FReply::Handled();
 		}
 		return FReply::Unhandled();
@@ -126,11 +151,77 @@ public:
 	{
 		if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 		{
+			// 우클릭이 동시에 눌려있으면 더블클릭 무시
+			if (MouseEvent.IsMouseButtonDown(EKeys::RightMouseButton))
+			{
+				return FReply::Handled();
+			}
 			// 더블클릭: 편집 모드 진입
 			EnterEditingMode();
 			return FReply::Handled();
 		}
 		return FReply::Unhandled();
+	}
+
+	virtual FReply OnMouseButtonUp(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
+	{
+		if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+		{
+			// 좌클릭 해제
+			bIsLeftMouseButtonDown = false;
+			return FReply::Handled();
+		}
+		else if (MouseEvent.GetEffectingButton() == EKeys::RightMouseButton)
+		{
+			// 좌클릭이 눌려있으면 컨텍스트 메뉴 표시 안 함
+			if (bIsLeftMouseButtonDown)
+			{
+				return FReply::Handled();
+			}
+
+			// 우클릭: 컨텍스트 메뉴 표시
+			ShowContextMenu(MouseEvent.GetScreenSpacePosition());
+			return FReply::Handled();
+		}
+		return FReply::Unhandled();
+	}
+
+	/** 컨텍스트 메뉴 표시 */
+	void ShowContextMenu(const FVector2D& ScreenPosition)
+	{
+		FMenuBuilder MenuBuilder(true, nullptr);
+
+		// Rename Ring 메뉴 항목
+		FMenuEntryParams RenameParams;
+		RenameParams.LabelOverride = LOCTEXT("RenameRingName", "Rename Ring");
+		RenameParams.ToolTipOverride = LOCTEXT("RenameRingNameTooltip", "Rename this ring");
+		RenameParams.IconOverride = FSlateIcon(FAppStyle::GetAppStyleSetName(), "GenericCommands.Rename");
+		RenameParams.DirectActions = FUIAction(
+			FExecuteAction::CreateSP(this, &SRingNameWidget::EnterEditingMode)
+		);
+		RenameParams.InputBindingOverride = FText::FromString(TEXT("F2"));
+		MenuBuilder.AddMenuEntry(RenameParams);
+
+		FWidgetPath WidgetPath;
+		FSlateApplication::Get().GeneratePathToWidgetChecked(AsShared(), WidgetPath);
+		FSlateApplication::Get().PushMenu(
+			AsShared(),
+			WidgetPath,
+			MenuBuilder.MakeWidget(),
+			ScreenPosition,
+			FPopupTransitionEffect::ContextMenu
+		);
+	}
+
+	virtual FReply OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent) override
+	{
+		// F2 키: 이름 편집 모드 진입
+		if (InKeyEvent.GetKey() == EKeys::F2)
+		{
+			EnterEditingMode();
+			return FReply::Handled();
+		}
+		return SCompoundWidget::OnKeyDown(MyGeometry, InKeyEvent);
 	}
 
 	/** 편집 모드 진입 */
@@ -142,6 +233,8 @@ public:
 
 		if (InlineTextBlock.IsValid())
 		{
+			// 편집 중에는 마우스 이벤트를 받을 수 있도록 활성화
+			InlineTextBlock->SetVisibility(EVisibility::Visible);
 			InlineTextBlock->EnterEditingMode();
 		}
 	}
@@ -216,6 +309,12 @@ private:
 			}
 			OnTextCommittedDelegate.ExecuteIfBound(NewText, CommitType);
 		}
+
+		// 편집 종료 후 다시 마우스 이벤트 차단
+		if (InlineTextBlock.IsValid())
+		{
+			InlineTextBlock->SetVisibility(EVisibility::HitTestInvisible);
+		}
 	}
 
 	TSharedPtr<SInlineEditableTextBlock> InlineTextBlock;
@@ -225,8 +324,9 @@ private:
 	UFleshRingAsset* Asset = nullptr;
 	int32 RingIndex = INDEX_NONE;
 	FText CurrentText;
-	FText OriginalText;			// 편집 시작 시 원본 텍스트 (검증 실패 시 복원용)
-	bool bIsEnterPressed = false;	// Enter 키 감지 플래그
+	FText OriginalText;				// 편집 시작 시 원본 텍스트 (검증 실패 시 복원용)
+	bool bIsEnterPressed = false;		// Enter 키 감지 플래그
+	bool bIsLeftMouseButtonDown = false;	// 좌클릭 눌림 상태 (동시 클릭 방지용)
 };
 
 /**

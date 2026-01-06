@@ -533,6 +533,18 @@ TSharedPtr<SWidget> SFleshRingSkeletonTree::CreateContextMenu()
 
 		MenuBuilder.BeginSection("RingActions", LOCTEXT("RingActionsSection", "Ring"));
 		{
+			// Rename Ring (아이콘 + 단축키 힌트)
+			FMenuEntryParams RenameParams;
+			RenameParams.LabelOverride = LOCTEXT("RenameRing", "Rename Ring");
+			RenameParams.ToolTipOverride = LOCTEXT("RenameRingTooltip", "Rename this ring");
+			RenameParams.IconOverride = FSlateIcon(FAppStyle::GetAppStyleSetName(), "GenericCommands.Rename");
+			RenameParams.DirectActions = FUIAction(
+				FExecuteAction::CreateSP(this, &SFleshRingSkeletonTree::OnContextMenuRenameRing)
+			);
+			RenameParams.InputBindingOverride = FText::FromString(TEXT("F2"));
+			MenuBuilder.AddMenuEntry(RenameParams);
+
+			// Ring 삭제
 			MenuBuilder.AddMenuEntry(
 				LOCTEXT("DeleteRing", "Delete Ring"),
 				LOCTEXT("DeleteRingTooltip", "Delete this ring"),
@@ -1271,6 +1283,22 @@ bool SFleshRingSkeletonTree::CanDeleteRing() const
 	return SelectedItem.IsValid() && SelectedItem->ItemType == EFleshRingTreeItemType::Ring;
 }
 
+void SFleshRingSkeletonTree::OnContextMenuRenameRing()
+{
+	if (SelectedItem.IsValid() && SelectedItem->ItemType == EFleshRingTreeItemType::Ring)
+	{
+		TSharedPtr<ITableRow> RowWidget = TreeView->WidgetFromItem(SelectedItem);
+		if (RowWidget.IsValid())
+		{
+			TSharedPtr<SFleshRingTreeRow> TreeRow = StaticCastSharedPtr<SFleshRingTreeRow>(RowWidget);
+			if (TreeRow.IsValid())
+			{
+				TreeRow->EnterEditingMode();
+			}
+		}
+	}
+}
+
 void SFleshRingSkeletonTree::OnContextMenuCopyBoneName()
 {
 	if (SelectedItem.IsValid())
@@ -1281,6 +1309,16 @@ void SFleshRingSkeletonTree::OnContextMenuCopyBoneName()
 
 FReply SFleshRingSkeletonTree::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent)
 {
+	// F2 키: Ring 이름 변경
+	if (InKeyEvent.GetKey() == EKeys::F2)
+	{
+		if (SelectedItem.IsValid() && SelectedItem->ItemType == EFleshRingTreeItemType::Ring)
+		{
+			OnContextMenuRenameRing();
+			return FReply::Handled();
+		}
+	}
+
 	// F 키: 카메라 포커스
 	if (InKeyEvent.GetKey() == EKeys::F)
 	{

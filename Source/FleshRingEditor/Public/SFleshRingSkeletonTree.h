@@ -206,6 +206,9 @@ private:
 	void OnContextMenuDeleteRing();
 	bool CanDeleteRing() const;
 
+	/** Ring 이름 변경 */
+	void OnContextMenuRenameRing();
+
 	/** 본 이름 복사 */
 	void OnContextMenuCopyBoneName();
 
