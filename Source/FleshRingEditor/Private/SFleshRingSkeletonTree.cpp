@@ -491,9 +491,18 @@ TSharedPtr<SWidget> SFleshRingSkeletonTree::CreateContextMenu()
 {
 	FMenuBuilder MenuBuilder(true, nullptr);
 
+	// TreeView에서 현재 선택된 아이템 직접 조회 (타이밍 이슈 해결)
+	// OnContextMenuOpening이 OnSelectionChanged보다 먼저 호출될 수 있어서
+	// SelectedItem 멤버 변수 대신 TreeView에서 직접 가져옴
+	TArray<TSharedPtr<FFleshRingTreeItem>> SelectedItems = TreeView->GetSelectedItems();
+	TSharedPtr<FFleshRingTreeItem> CurrentItem = SelectedItems.Num() > 0 ? SelectedItems[0] : nullptr;
+
 	// 본 선택 시
-	if (SelectedItem.IsValid() && SelectedItem->ItemType == EFleshRingTreeItemType::Bone)
+	if (CurrentItem.IsValid() && CurrentItem->ItemType == EFleshRingTreeItemType::Bone)
 	{
+		// SelectedItem 동기화 (CanAddRing() 등에서 사용)
+		SelectedItem = CurrentItem;
+
 		MenuBuilder.BeginSection("BoneActions", LOCTEXT("BoneActionsSection", "Bone"));
 		{
 			MenuBuilder.AddMenuEntry(
@@ -518,8 +527,10 @@ TSharedPtr<SWidget> SFleshRingSkeletonTree::CreateContextMenu()
 		MenuBuilder.EndSection();
 	}
 	// Ring 선택 시
-	else if (SelectedItem.IsValid() && SelectedItem->ItemType == EFleshRingTreeItemType::Ring)
+	else if (CurrentItem.IsValid() && CurrentItem->ItemType == EFleshRingTreeItemType::Ring)
 	{
+		SelectedItem = CurrentItem;
+
 		MenuBuilder.BeginSection("RingActions", LOCTEXT("RingActionsSection", "Ring"));
 		{
 			MenuBuilder.AddMenuEntry(
