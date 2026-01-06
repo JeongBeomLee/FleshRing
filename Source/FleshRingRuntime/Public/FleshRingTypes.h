@@ -34,20 +34,6 @@ enum class EFleshRingInfluenceMode : uint8
 	ProceduralBand	UMETA(DisplayName = "Procedural Band")
 };
 
-/** SDF 업데이트 모드 */
-UENUM(BlueprintType)
-enum class EFleshRingSdfUpdateMode : uint8
-{
-	/** 매 틱마다 업데이트 */
-	OnTick		UMETA(DisplayName = "On Tick"),
-
-	/** 값 변경 시에만 업데이트 */
-	OnChange	UMETA(DisplayName = "On Change"),
-
-	/** 수동 업데이트 */
-	Manual		UMETA(DisplayName = "Manual")
-};
-
 /** 감쇠 곡선 타입 */
 UENUM(BlueprintType)
 enum class EFalloffType : uint8
@@ -141,63 +127,6 @@ struct FLESHRINGRUNTIME_API FMaterialLayerMapping
 		, MaterialSlotName(InSlotName)
 		, LayerType(InLayerType)
 	{
-	}
-};
-
-/** SDF 관련 설정 (Ring별) */
-USTRUCT(BlueprintType)
-struct FLESHRINGRUNTIME_API FFleshRingSdfSettings
-{
-	GENERATED_BODY()
-
-	/** SDF 볼륨 해상도 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "16", ClampMax = "128"))
-	int32 Resolution = 64;
-
-	/** JFA 반복 횟수 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "1", ClampMax = "16"))
-	int32 JfaIterations = 8;
-
-	/** 업데이트 모드 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF")
-	EFleshRingSdfUpdateMode UpdateMode = EFleshRingSdfUpdateMode::OnChange;
-
-	/**
-	 * Z축 상단 확장 거리 (절대값, cm)
-	 * 링 위쪽으로 얼마나 확장할지 설정
-	 * 0 = 확장 없음, 5 = 5cm 확장
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "0.0", ClampMax = "50.0", DisplayName = "Z Expand Top (cm)"))
-	float BoundsZTop = 5.0f;
-
-	/**
-	 * Z축 하단 확장 거리 (절대값, cm)
-	 * 링 아래쪽으로 얼마나 확장할지 설정
-	 * 0 = 확장 없음, 5 = 5cm 확장
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "0.0", ClampMax = "50.0", DisplayName = "Z Expand Bottom (cm)"))
-	float BoundsZBottom = 0.0f;
-
-	/**
-	 * [Deprecated] 볼륨 배율 (Z 방향만 확장) - BoundsZTop/Bottom으로 대체됨
-	 * 하위 호환성을 위해 유지. GetMaxBoundsScale()에서 사용.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "1.0", ClampMax = "100.0", DisplayName = "Volume Scale (Legacy)"))
-	float BoundsScale = 1.5f;
-
-	/** 볼륨 배율 반환 (버텍스 선택용) - 새 값들 기반으로 계산 */
-	float GetMaxBoundsScale() const
-	{
-		// BoundsZTop/Bottom이 설정되어 있으면 그 값 기반으로 계산
-		// 그렇지 않으면 레거시 BoundsScale 사용
-		float MaxExpand = FMath::Max(BoundsZTop, BoundsZBottom);
-		if (MaxExpand > 0.01f)
-		{
-			// 대략적인 배율 계산 (정확한 값은 런타임에 BoundsSize.Z 필요)
-			// 여기서는 보수적으로 큰 값 반환
-			return FMath::Max(BoundsScale, 1.0f + MaxExpand / 10.0f);
-		}
-		return BoundsScale;
 	}
 };
 
@@ -453,6 +382,22 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing"))
 	EFalloffType HopFalloffType = EFalloffType::Hermite;
 
+	/**
+	 * 스무딩 영역 상단 확장 거리 (cm)
+	 * - 링 위쪽으로 스무딩 영역을 얼마나 확장할지 설정
+	 * - 0 = 확장 없음, 5 = 5cm 확장
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing", ClampMin = "0.0", ClampMax = "50.0", DisplayName = "Bounds Expand Top (cm)"))
+	float SmoothingBoundsZTop = 5.0f;
+
+	/**
+	 * 스무딩 영역 하단 확장 거리 (cm)
+	 * - 링 아래쪽으로 스무딩 영역을 얼마나 확장할지 설정
+	 * - 0 = 확장 없음, 5 = 5cm 확장
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing", ClampMin = "0.0", ClampMax = "50.0", DisplayName = "Bounds Expand Bottom (cm)"))
+	float SmoothingBoundsZBottom = 0.0f;
+
 	// ===== PBD Edge Constraint 설정 (변형 전파) =====
 
 	/**
@@ -495,10 +440,6 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	/** 감쇠 곡선 타입 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
 	EFalloffType FalloffType = EFalloffType::Linear;
-
-	/** 이 Ring의 SDF 설정 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF")
-	FFleshRingSdfSettings SdfSettings;
 
 	/** 프로시저럴 밴드 설정 (ProceduralBand 모드에서만 사용) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Band", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::ProceduralBand"))

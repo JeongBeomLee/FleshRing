@@ -216,20 +216,6 @@ void UFleshRingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 	// Optimus 방식: 엔진의 SendRenderDynamicData_Concurrent()가 자동으로 deformer의 EnqueueWork를 호출
 	// 초기화 시점(SetupDeformer)에서만 MarkRenderStateDirty/MarkRenderDynamicDataDirty 호출
 
-	// SDF 업데이트 (각 Ring의 UpdateMode에 따라 GenerateSDF에서 처리)
-	if (FleshRingAsset)
-	{
-		// OnTick 모드인 Ring이 있으면 SDF 갱신
-		for (const FFleshRingSettings& Ring : FleshRingAsset->Rings)
-		{
-			if (Ring.SdfSettings.UpdateMode == EFleshRingSdfUpdateMode::OnTick)
-			{
-				GenerateSDF();
-				break;
-			}
-		}
-	}
-
 #if WITH_EDITOR
 	// 디버그 시각화
 	DrawDebugVisualization();
@@ -499,7 +485,7 @@ void UFleshRingComponent::GenerateSDF()
 			}
 
 			// 3. SDF 해상도 결정
-			const int32 Resolution = Ring.SdfSettings.Resolution;
+			const int32 Resolution = 64;
 			const FIntVector SDFResolution(Resolution, Resolution, Resolution);
 
 			// 4. Bounds 계산
