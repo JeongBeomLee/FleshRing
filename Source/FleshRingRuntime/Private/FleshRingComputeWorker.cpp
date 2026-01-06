@@ -368,6 +368,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				BulgeParams.FixedPointScale = 0.001f;  // uint → float 변환 스케일 (1/1000)
 				BulgeParams.BulgeAxisDirection = DispatchData.BulgeAxisDirection;  // 방향 필터링
 				BulgeParams.RingIndex = RingIdx;      // Ring별 VolumeAccumBuffer 슬롯 지정
+				BulgeParams.BulgeRadialRatio = DispatchData.BulgeRadialRatio;  // Radial vs Axial 비율
 
 				// 이 Ring의 SDF 파라미터
 				BulgeParams.SDFBoundsMin = DispatchData.SDFBoundsMin;

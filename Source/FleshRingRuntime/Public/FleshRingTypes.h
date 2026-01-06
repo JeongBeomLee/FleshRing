@@ -313,6 +313,10 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "0.0", ClampMax = "2.0"))
 	float LowerBulgeStrength = 1.0f;
 
+	/** Bulge 방향 비율: Radial(바깥) vs Axial(위아래) (0.0 = 순수 Axial, 1.0 = 순수 Radial, 0.7 = 기본) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "0.0", ClampMax = "1.0"))
+	float BulgeRadialRatio = 0.7f;
+
 	/** 반경 균일화 스무딩 활성화 (같은 높이의 버텍스들이 동일한 반경을 갖도록) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
 	bool bEnableRadialSmoothing = true;

@@ -61,6 +61,7 @@ struct FFleshRingWorkItem
 		TArray<float> BulgeInfluences;
 		float BulgeStrength = 1.0f;
 		float MaxBulgeDistance = 10.0f;
+		float BulgeRadialRatio = 0.7f;	// Radial vs Axial 방향 비율 (0.0~1.0)
 
 		// ===== Asymmetric Bulge (스타킹/타이즈 효과용) =====
 		float UpperBulgeStrength = 1.0f;	// 상단(축 양수) Bulge 강도 배수

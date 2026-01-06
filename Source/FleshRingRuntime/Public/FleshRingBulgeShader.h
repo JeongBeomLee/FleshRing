@@ -43,6 +43,7 @@ public:
 		SHADER_PARAMETER(float, FixedPointScale)
 		SHADER_PARAMETER(int32, BulgeAxisDirection)
 		SHADER_PARAMETER(uint32, RingIndex)           // Ring 인덱스 (VolumeAccumBuffer 슬롯 지정)
+		SHADER_PARAMETER(float, BulgeRadialRatio)     // Radial vs Axial 방향 비율 (0.0~1.0, 기본 0.7)
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
@@ -66,6 +67,7 @@ struct FBulgeDispatchParams
 	float FixedPointScale = 0.001f;	// TightnessCS와 동일해야 함.
 	int32 BulgeAxisDirection = 0;	// Bulge 방향 (-1: 음의 축, +1: 양의 축, 0: 양방향)
 	uint32 RingIndex = 0;			// Ring 인덱스 (VolumeAccumBuffer 슬롯 지정)
+	float BulgeRadialRatio = 0.7f;	// Radial vs Axial 방향 비율 (0.0~1.0)
 
 	FVector3f SDFBoundsMin = FVector3f::ZeroVector;			// in Ring Local Space
 	FVector3f SDFBoundsMax = FVector3f::ZeroVector;			// in Ring Local Space

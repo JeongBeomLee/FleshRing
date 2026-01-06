@@ -26,6 +26,7 @@ float MaxBulgeDistance;
 float FixedPointScale;
 int BulgeAxisDirection;  // -1: 음의 축, +1: 양의 축, 0: 양방향
 uint RingIndex;          // Ring 인덱스 (VolumeAccumBuffer 슬롯 지정용)
+float BulgeRadialRatio;  // Radial vs Axial 방향 비율 (0.0~1.0, 기본 0.7)
 
 #ifndef THREADGROUP_SIZE
 #define THREADGROUP_SIZE 64
@@ -138,7 +139,7 @@ float3 ComputeSDFGradient(float3 LocalPos)
     return (len > 0.0001) ? (grad / len) : float3(0, 0, 1);
 }
 
-// 살이 링을 덮는 방향 계산 (Radial 70% + Axial 30%)
+// 살이 링을 덮는 방향 계산 (Radial + Axial, 비율은 BulgeRadialRatio로 조절)
 // 리서치: 링 윗부분은 위로, 아랫부분은 아래로 밀려나는 느낌
 float3 ComputeFleshCoveringDirection(float3 LocalPos, FRingGeometry Ring)
 {
@@ -151,8 +152,8 @@ float3 ComputeFleshCoveringDirection(float3 LocalPos, FRingGeometry Ring)
     // 축 방향 (위/아래): 버텍스가 링 위면 위로, 아래면 아래로
     float3 AxialDir = Ring.Axis * sign(axialComponent);
 
-    // 70% Radial + 30% Axial
-    float3 CombinedDir = RadialDir * 0.7 + AxialDir * 0.3;
+    // BulgeRadialRatio만큼 Radial, 나머지(1-ratio)만큼 Axial
+    float3 CombinedDir = RadialDir * BulgeRadialRatio + AxialDir * (1.0 - BulgeRadialRatio);
 
     float len = length(CombinedDir);
     return (len > 0.0001) ? (CombinedDir / len) : RadialDir;

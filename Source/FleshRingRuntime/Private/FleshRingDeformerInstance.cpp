@@ -561,6 +561,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		float RingMaxBulgeDistance = 10.0f;
 		float RingBulgeAxialRange = 3.0f;
 		float RingBulgeRadialRange = 1.5f;
+		float RingBulgeRadialRatio = 0.7f;
 		EFleshRingFalloffType RingBulgeFalloff = EFleshRingFalloffType::WendlandC2;
 		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIdx))
 		{
@@ -568,6 +569,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			RingBulgeStrength = (*RingSettingsPtr)[RingIdx].BulgeIntensity;
 			RingBulgeAxialRange = (*RingSettingsPtr)[RingIdx].BulgeAxialRange;
 			RingBulgeRadialRange = (*RingSettingsPtr)[RingIdx].BulgeRadialRange;
+			RingBulgeRadialRatio = (*RingSettingsPtr)[RingIdx].BulgeRadialRatio;
 			RingBulgeFalloff = (*RingSettingsPtr)[RingIdx].BulgeFalloff;
 		}
 
@@ -605,6 +607,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			DispatchData.BulgeInfluences = MoveTemp(BulgeInfluences);
 			DispatchData.BulgeStrength = RingBulgeStrength;
 			DispatchData.MaxBulgeDistance = RingMaxBulgeDistance;
+			DispatchData.BulgeRadialRatio = RingBulgeRadialRatio;
 			bAnyRingHasBulge = true;
 
 			// ===== Bulge 방향 데이터 설정 =====
