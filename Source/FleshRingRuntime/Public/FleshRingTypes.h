@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "FleshRingFalloff.h"
 #include "FleshRingTypes.generated.h"
 
 class UStaticMesh;
@@ -288,6 +289,10 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge"))
 	EBulgeDirectionMode BulgeDirection = EBulgeDirectionMode::Auto;
 
+	/** Bulge Falloff 커브 타입 (거리에 따른 영향도 감쇠 방식) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge"))
+	EFleshRingFalloffType BulgeFalloff = EFleshRingFalloffType::WendlandC2;
+
 	/** 볼록 효과 강도 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "0.0"))
 	float BulgeIntensity = 1.0f;
@@ -472,6 +477,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		, RingThickness(1.0f)
 		, RingWidth(2.0f)
 		, bEnableBulge(true)
+		, BulgeFalloff(EFleshRingFalloffType::WendlandC2)
 		, BulgeIntensity(1.0f)
 		, BulgeAxialRange(5.0f)
 		, BulgeRadialRange(1.0f)

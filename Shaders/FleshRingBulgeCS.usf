@@ -1,6 +1,6 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 // FleshRingBulgeCS.usf - Bulge Pass Compute Shader
-// Ricker Wavelet 기반 부피 보존 변형
+// Wendland C2 Kernel 기반 부피 보존 변형 (CPU에서 Falloff 계산)
 
 #include "/Engine/Public/Platform.ush"
 
@@ -158,14 +158,6 @@ float3 ComputeFleshCoveringDirection(float3 LocalPos, FRingGeometry Ring)
     return (len > 0.0001) ? (CombinedDir / len) : RadialDir;
 }
 
-// 융기 커브: 급상승 후 점진적 감소
-// f(t) = t * exp(-t * k), k=3.0
-float ApplyBulgeCurve(float t)
-{
-    float k = 3.0;
-    return t * exp(-t * k);
-}
-
 // Debug
 #define DEBUG_FORCE_BULGE 0
 #define DEBUG_IGNORE_VOLUME 0
@@ -232,9 +224,12 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         }
     }
 
-    // Mexican Hat 필터링은 CPU에서 완료됨
+
     // CPUInfluence에 BulgeMask가 이미 포함되어 있음
     // GPU는 방사 방향 계산 + Bulge 적용만 수행
+    // NOTE: Falloff 계산은 CPU에서 수행 (FFleshRingFalloff::Evaluate)
+    // GPU는 미리 계산된 BulgeInfluences 버퍼를 읽기만 함
+    // 이점: 버텍스당 1회 계산 + 캐싱, GPU 분기 제거, 런타임 타입 변경 가능
 
     // Bulge 방향: Radial 70% + Axial 30% (살이 링을 덮는 방향)
     float3 BulgeDirLocal = ComputeFleshCoveringDirection(LocalPos, Ring);

@@ -10,6 +10,7 @@
 #include "FleshRingProceduralBandSDF.h"
 #include "FleshRingDeformerInstance.h"
 #include "FleshRingBulgeTypes.h"
+#include "FleshRingFalloff.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/VolumeTexture.h"
 #include "GameFramework/Actor.h"
@@ -2006,15 +2007,14 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 				}
 			}
 
-			// 4. 축 방향 거리 기반 Smoothstep 감쇠
+			// 4. 축 방향 거리 기반 Falloff 감쇠
 			// Ring 경계에서 1.0, AxialLimit에서 0으로 부드럽게 감쇠
 			const float AxialFalloffRange = AxialLimit - BulgeStartDist;
 			float NormalizedDist = (AxialDist - BulgeStartDist) / FMath::Max(AxialFalloffRange, 0.001f);
 			float ClampedDist = FMath::Clamp(NormalizedDist, 0.0f, 1.0f);
 
-			// Smoothstep: 1 → 0 (가까울수록 강함)
-			float t = 1.0f - ClampedDist;
-			float BulgeInfluence = t * t * (3.0f - 2.0f * t);  // Hermite smoothstep
+			// 실제 계산과 시각화가 동일 함수 사용
+			float BulgeInfluence = FFleshRingFalloff::Evaluate(ClampedDist, RingSettings.BulgeFalloff);
 
 			if (BulgeInfluence > KINDA_SMALL_NUMBER)
 			{

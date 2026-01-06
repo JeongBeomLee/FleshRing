@@ -108,15 +108,14 @@ void FSDFBulgeProvider::CalculateBulgeRegion(
 		}
 		RadialPassCount++;
 
-		// 3. 축 방향 거리 기반 Smoothstep 감쇠
+		// 3. 축 방향 거리 기반 Falloff 감쇠
 		// Ring 경계에서 1.0, AxialLimit에서 0으로 부드럽게 감쇠
 		const float AxialFalloffRange = AxialLimit - BulgeStartDist;
 		const float NormalizedAxialDist = (AxialDist - BulgeStartDist) / FMath::Max(AxialFalloffRange, 0.001f);
 		const float ClampedAxialDist = FMath::Clamp(NormalizedAxialDist, 0.0f, 1.0f);
 
-		// Smoothstep: 1 → 0 (가까울수록 강함)
-		const float t = 1.0f - ClampedAxialDist;
-		const float BulgeInfluence = t * t * (3.0f - 2.0f * t);  // Hermite smoothstep
+		// 에디터에서 선택한 FalloffType에 따라 다른 커브 적용
+		const float BulgeInfluence = FFleshRingFalloff::Evaluate(ClampedAxialDist, FalloffType);
 
 		if (BulgeInfluence > KINDA_SMALL_NUMBER)
 		{
