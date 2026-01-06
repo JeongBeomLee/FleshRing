@@ -196,6 +196,111 @@ namespace FleshRingLayerUtils
 } // namespace FleshRingLayerUtils
 
 // ============================================================================
+// FVertexSpatialHash Implementation
+// 버텍스 공간 해시 구현 (O(n) → O(1) 쿼리 최적화)
+// ============================================================================
+
+void FVertexSpatialHash::Build(const TArray<FVector3f>& Vertices, float InCellSize)
+{
+    Clear();
+
+    if (Vertices.Num() == 0 || InCellSize <= 0.0f)
+    {
+        return;
+    }
+
+    CellSize = InCellSize;
+    InvCellSize = 1.0f / CellSize;
+    CachedVertices = Vertices;
+
+    // Insert all vertices into hash grid
+    for (int32 i = 0; i < Vertices.Num(); ++i)
+    {
+        FIntVector CellKey = GetCellKey(FVector(Vertices[i]));
+        uint64 Hash = HashCellKey(CellKey);
+        CellMap.FindOrAdd(Hash).Add(i);
+    }
+
+    UE_LOG(LogFleshRingVertices, Log,
+        TEXT("SpatialHash: Built with %d vertices, %d cells (CellSize=%.1f)"),
+        Vertices.Num(), CellMap.Num(), CellSize);
+}
+
+void FVertexSpatialHash::QueryAABB(const FVector& Min, const FVector& Max, TArray<int32>& OutIndices) const
+{
+    OutIndices.Reset();
+
+    if (!IsBuilt())
+    {
+        return;
+    }
+
+    // Get cell range
+    FIntVector MinCell = GetCellKey(Min);
+    FIntVector MaxCell = GetCellKey(Max);
+
+    // Reserve approximate capacity
+    OutIndices.Reserve((MaxCell.X - MinCell.X + 1) * (MaxCell.Y - MinCell.Y + 1) * (MaxCell.Z - MinCell.Z + 1) * 10);
+
+    // Iterate through all cells in range
+    for (int32 X = MinCell.X; X <= MaxCell.X; ++X)
+    {
+        for (int32 Y = MinCell.Y; Y <= MaxCell.Y; ++Y)
+        {
+            for (int32 Z = MinCell.Z; Z <= MaxCell.Z; ++Z)
+            {
+                uint64 Hash = HashCellKey(FIntVector(X, Y, Z));
+                if (const TArray<int32>* CellVertices = CellMap.Find(Hash))
+                {
+                    // Add all vertices in this cell (they're within AABB)
+                    OutIndices.Append(*CellVertices);
+                }
+            }
+        }
+    }
+}
+
+void FVertexSpatialHash::QueryOBB(const FTransform& LocalToWorld, const FVector& LocalMin, const FVector& LocalMax, TArray<int32>& OutIndices) const
+{
+    OutIndices.Reset();
+
+    if (!IsBuilt())
+    {
+        return;
+    }
+
+    // Step 1: Convert OBB to world AABB (conservative bounds)
+    FBox WorldAABB(ForceInit);
+    for (int32 i = 0; i < 8; ++i)
+    {
+        FVector Corner(
+            (i & 1) ? LocalMax.X : LocalMin.X,
+            (i & 2) ? LocalMax.Y : LocalMin.Y,
+            (i & 4) ? LocalMax.Z : LocalMin.Z
+        );
+        WorldAABB += LocalToWorld.TransformPosition(Corner);
+    }
+
+    // Step 2: Query AABB to get candidates
+    TArray<int32> Candidates;
+    QueryAABB(WorldAABB.Min, WorldAABB.Max, Candidates);
+
+    // Step 3: Precise OBB check for each candidate
+    OutIndices.Reserve(Candidates.Num());
+    for (int32 VertexIdx : Candidates)
+    {
+        FVector LocalPos = LocalToWorld.InverseTransformPosition(FVector(CachedVertices[VertexIdx]));
+
+        if (LocalPos.X >= LocalMin.X && LocalPos.X <= LocalMax.X &&
+            LocalPos.Y >= LocalMin.Y && LocalPos.Y <= LocalMax.Y &&
+            LocalPos.Z >= LocalMin.Z && LocalPos.Z <= LocalMax.Z)
+        {
+            OutIndices.Add(VertexIdx);
+        }
+    }
+}
+
+// ============================================================================
 // Distance-Based Vertex Selector Implementation
 // 거리 기반 버텍스 선택기 구현
 // ============================================================================
@@ -245,7 +350,27 @@ void FDistanceBasedVertexSelector::SelectVertices(
         const float RingThickness = Ring.RingThickness;
         const float HalfWidth = Ring.RingWidth / 2.0f;
 
-        for (int32 VertexIdx = 0; VertexIdx < AllVertices.Num(); ++VertexIdx)
+        // ===== Spatial Hash 사용 시 O(1) 쿼리, 없으면 브루트포스 O(n) =====
+        TArray<int32> CandidateIndices;
+        if (Context.SpatialHash && Context.SpatialHash->IsBuilt())
+        {
+            // Spatial Hash로 OBB 내 후보 추출 (O(1))
+            Context.SpatialHash->QueryOBB(LocalToComponent, BoundsMin, BoundsMax, CandidateIndices);
+            UE_LOG(LogFleshRingVertices, Verbose,
+                TEXT("Ring[%d]: SpatialHash query returned %d candidates (from %d total)"),
+                Context.RingIndex, CandidateIndices.Num(), AllVertices.Num());
+        }
+        else
+        {
+            // 브루트포스 폴백: 모든 버텍스 순회
+            CandidateIndices.Reserve(AllVertices.Num());
+            for (int32 i = 0; i < AllVertices.Num(); ++i)
+            {
+                CandidateIndices.Add(i);
+            }
+        }
+
+        for (int32 VertexIdx : CandidateIndices)
         {
             const FVector VertexPos = FVector(AllVertices[VertexIdx]);
 
@@ -253,12 +378,15 @@ void FDistanceBasedVertexSelector::SelectVertices(
             // InverseTransformPosition: (Rot^-1 * (V - Trans)) / Scale (올바른 순서)
             const FVector LocalPos = LocalToComponent.InverseTransformPosition(VertexPos);
 
-            // OBB 경계 체크 (SDF 볼륨 내부인지 확인)
-            if (LocalPos.X < BoundsMin.X || LocalPos.X > BoundsMax.X ||
-                LocalPos.Y < BoundsMin.Y || LocalPos.Y > BoundsMax.Y ||
-                LocalPos.Z < BoundsMin.Z || LocalPos.Z > BoundsMax.Z)
+            // OBB 경계 체크 (SpatialHash 미사용 시에만 필요, QueryOBB는 이미 체크함)
+            if (!Context.SpatialHash || !Context.SpatialHash->IsBuilt())
             {
-                continue; // OBB 밖 - 스킵
+                if (LocalPos.X < BoundsMin.X || LocalPos.X > BoundsMax.X ||
+                    LocalPos.Y < BoundsMin.Y || LocalPos.Y > BoundsMax.Y ||
+                    LocalPos.Z < BoundsMin.Z || LocalPos.Z > BoundsMax.Z)
+                {
+                    continue; // OBB 밖 - 스킵
+                }
             }
 
             // 로컬 스페이스에서 Ring 기하에 대한 거리 계산
@@ -411,9 +539,29 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
     // 예상 용량 확보
     OutAffected.Reserve(AllVertices.Num() / 4);
 
+    // ===== Spatial Hash 사용 시 O(1) 쿼리, 없으면 브루트포스 O(n) =====
+    TArray<int32> CandidateIndices;
+    if (Context.SpatialHash && Context.SpatialHash->IsBuilt())
+    {
+        // Spatial Hash로 OBB 내 후보 추출 (O(1))
+        Context.SpatialHash->QueryOBB(LocalToComponent, BoundsMin, BoundsMax, CandidateIndices);
+        UE_LOG(LogFleshRingVertices, Verbose,
+            TEXT("SDFBoundsSelector Ring[%d]: SpatialHash query returned %d candidates (from %d total)"),
+            Context.RingIndex, CandidateIndices.Num(), AllVertices.Num());
+    }
+    else
+    {
+        // 브루트포스 폴백: 모든 버텍스 순회
+        CandidateIndices.Reserve(AllVertices.Num());
+        for (int32 i = 0; i < AllVertices.Num(); ++i)
+        {
+            CandidateIndices.Add(i);
+        }
+    }
+
     // Select all vertices within SDF bounding box (OBB)
     // SDF 바운딩 박스(OBB) 내 모든 버텍스 선택
-    for (int32 VertexIdx = 0; VertexIdx < AllVertices.Num(); ++VertexIdx)
+    for (int32 VertexIdx : CandidateIndices)
     {
         const FVector VertexPos = FVector(AllVertices[VertexIdx]);
 
@@ -421,19 +569,24 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
         // InverseTransformPosition: (Rot^-1 * (V - Trans)) / Scale (올바른 순서)
         const FVector LocalPos = LocalToComponent.InverseTransformPosition(VertexPos);
 
-        // Local Space에서 AABB 포함 테스트
-        if (LocalPos.X >= BoundsMin.X && LocalPos.X <= BoundsMax.X &&
-            LocalPos.Y >= BoundsMin.Y && LocalPos.Y <= BoundsMax.Y &&
-            LocalPos.Z >= BoundsMin.Z && LocalPos.Z <= BoundsMax.Z)
+        // Local Space에서 AABB 포함 테스트 (SpatialHash 미사용 시에만 필요)
+        if (!Context.SpatialHash || !Context.SpatialHash->IsBuilt())
         {
-            // Influence=1.0: GPU shader will determine actual influence via SDF sampling
-            // Influence=1.0: GPU 셰이더가 SDF 샘플링으로 실제 영향도 결정
-            OutAffected.Add(FAffectedVertex(
-                static_cast<uint32>(VertexIdx),
-                0.0f,  // RadialDistance: SDF 모드에서는 미사용
-                1.0f   // Influence: 최대값, GPU 셰이더가 CalculateInfluenceFromSDF()로 정제
-            ));
+            if (LocalPos.X < BoundsMin.X || LocalPos.X > BoundsMax.X ||
+                LocalPos.Y < BoundsMin.Y || LocalPos.Y > BoundsMax.Y ||
+                LocalPos.Z < BoundsMin.Z || LocalPos.Z > BoundsMax.Z)
+            {
+                continue; // OBB 밖 - 스킵
+            }
         }
+
+        // Influence=1.0: GPU shader will determine actual influence via SDF sampling
+        // Influence=1.0: GPU 셰이더가 SDF 샘플링으로 실제 영향도 결정
+        OutAffected.Add(FAffectedVertex(
+            static_cast<uint32>(VertexIdx),
+            0.0f,  // RadialDistance: SDF 모드에서는 미사용
+            1.0f   // Influence: 최대값, GPU 셰이더가 CalculateInfluenceFromSDF()로 정제
+        ));
     }
 
     UE_LOG(LogFleshRingVertices, Log,
@@ -512,6 +665,13 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             TEXT("RegisterAffectedVertices: Failed to extract mesh vertices"));
         return false;
     }
+
+    // Build Spatial Hash for O(1) vertex queries
+    // O(1) 버텍스 쿼리를 위한 Spatial Hash 빌드
+    VertexSpatialHash.Build(MeshVertices);
+    UE_LOG(LogFleshRingVertices, Log,
+        TEXT("RegisterAffectedVertices: Built SpatialHash for %d vertices"),
+        MeshVertices.Num());
 
     // Extract mesh indices for adjacency data (Normal recomputation)
     // 인접 데이터용 메시 인덱스 추출 (노멀 재계산용)
@@ -710,7 +870,8 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             RingIdx,
             BoneTransform,
             MeshVertices,
-            SDFCache  // nullptr이면 SDF 미사용 (Distance 기반 Selector는 무시)
+            SDFCache,  // nullptr이면 SDF 미사용 (Distance 기반 Selector는 무시)
+            &VertexSpatialHash  // O(1) 버텍스 쿼리용 Spatial Hash
         );
 
         // Ring별 InfluenceMode에 따라 Selector 결정

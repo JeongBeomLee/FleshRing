@@ -20,6 +20,17 @@
 #include "UnrealWidget.h"
 #include "Editor.h"
 #include "Settings/LevelEditorViewportSettings.h"
+#include "Stats/Stats.h"
+
+// Stat 그룹 및 카운터 선언
+DECLARE_STATS_GROUP(TEXT("FleshRingEditor"), STATGROUP_FleshRingEditor, STATCAT_Advanced);
+DECLARE_CYCLE_STAT(TEXT("Tick"), STAT_FleshRingEditor_Tick, STATGROUP_FleshRingEditor);
+DECLARE_CYCLE_STAT(TEXT("Draw"), STAT_FleshRingEditor_Draw, STATGROUP_FleshRingEditor);
+DECLARE_CYCLE_STAT(TEXT("DrawRingGizmos"), STAT_FleshRingEditor_DrawRingGizmos, STATGROUP_FleshRingEditor);
+DECLARE_CYCLE_STAT(TEXT("InputWidgetDelta"), STAT_FleshRingEditor_InputWidgetDelta, STATGROUP_FleshRingEditor);
+DECLARE_CYCLE_STAT(TEXT("UpdateRingTransforms"), STAT_FleshRingEditor_UpdateRingTransforms, STATGROUP_FleshRingEditor);
+DECLARE_CYCLE_STAT(TEXT("MarkPackageDirty"), STAT_FleshRingEditor_MarkPackageDirty, STATGROUP_FleshRingEditor);
+DECLARE_CYCLE_STAT(TEXT("Invalidate"), STAT_FleshRingEditor_Invalidate, STATGROUP_FleshRingEditor);
 
 IMPLEMENT_HIT_PROXY(HFleshRingGizmoHitProxy, HHitProxy);
 IMPLEMENT_HIT_PROXY(HFleshRingAxisHitProxy, HHitProxy);
@@ -115,6 +126,7 @@ void FFleshRingEditorViewportClient::SetLocalCoordSystem(bool bLocal)
 
 void FFleshRingEditorViewportClient::Tick(float DeltaSeconds)
 {
+	SCOPE_CYCLE_COUNTER(STAT_FleshRingEditor_Tick);
 	FEditorViewportClient::Tick(DeltaSeconds);
 
 	// 첫 Tick에서 저장된 설정 로드 (생성자에서는 뷰포트가 아직 준비되지 않음)
@@ -157,6 +169,7 @@ void FFleshRingEditorViewportClient::Tick(float DeltaSeconds)
 
 void FFleshRingEditorViewportClient::Draw(const FSceneView* View, FPrimitiveDrawInterface* PDI)
 {
+	SCOPE_CYCLE_COUNTER(STAT_FleshRingEditor_Draw);
 	// 본 그리기 배열 업데이트 (Persona 스타일 - 매 Draw마다 호출)
 	UpdateBonesToDraw();
 
@@ -847,6 +860,7 @@ void FFleshRingEditorViewportClient::DrawMeshBones(FPrimitiveDrawInterface* PDI)
 
 void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI)
 {
+	SCOPE_CYCLE_COUNTER(STAT_FleshRingEditor_DrawRingGizmos);
 	if (!PreviewScene || !EditingAsset.IsValid())
 	{
 		return;
@@ -1226,6 +1240,7 @@ UE::Widget::EWidgetMode FFleshRingEditorViewportClient::GetWidgetMode() const
 
 bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAxisList::Type CurrentAxis, FVector& Drag, FRotator& Rot, FVector& Scale)
 {
+	SCOPE_CYCLE_COUNTER(STAT_FleshRingEditor_InputWidgetDelta);
 	// Widget 축이 선택되지 않았으면 처리 안 함
 	if (CurrentAxis == EAxisList::None)
 	{
@@ -1504,7 +1519,10 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 	}
 
 	// Asset 변경 알림
-	EditingAsset->MarkPackageDirty();
+	{
+		SCOPE_CYCLE_COUNTER(STAT_FleshRingEditor_MarkPackageDirty);
+		EditingAsset->MarkPackageDirty();
+	}
 
 	// 트랜스폼만 업데이트 (Deformer 유지, 깜빡임 방지)
 	if (PreviewScene)
@@ -1512,12 +1530,16 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		UFleshRingComponent* FleshRingComp = PreviewScene->GetFleshRingComponent();
 		if (FleshRingComp)
 		{
+			SCOPE_CYCLE_COUNTER(STAT_FleshRingEditor_UpdateRingTransforms);
 			FleshRingComp->UpdateRingTransforms();
 		}
 	}
 
 	// 뷰포트 갱신
-	Invalidate();
+	{
+		SCOPE_CYCLE_COUNTER(STAT_FleshRingEditor_Invalidate);
+		Invalidate();
+	}
 
 	return true;
 }

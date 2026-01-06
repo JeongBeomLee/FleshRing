@@ -723,27 +723,14 @@ EMeshDeformerOutputBuffer UFleshRingDeformerInstance::GetOutputBuffers() const
 
 void UFleshRingDeformerInstance::InvalidateTightnessCache()
 {
-    // 1. AffectedVertices 재등록 (Ring 트랜스폼 변경 시 영향받는 정점이 달라질 수 있음)
-    if (FleshRingComponent.IsValid())
-    {
-        USkeletalMeshComponent* SkelMesh = Cast<USkeletalMeshComponent>(MeshComponent.Get());
-        if (SkelMesh)
-        {
-            for (int32 LODIndex = 0; LODIndex < NumLODs; ++LODIndex)
-            {
-                LODData[LODIndex].bAffectedVerticesRegistered =
-                    LODData[LODIndex].AffectedVerticesManager.RegisterAffectedVertices(
-                        FleshRingComponent.Get(), SkelMesh, LODIndex);
-            }
-        }
-    }
+    // 트랜스폼만 변경될 때는 AffectedVertices 재등록 불필요
+    // (영향 버텍스는 Ring 설정 변경 시에만 달라짐 - InfluenceRadius, InfluenceMode 등)
+    // RegisterAffectedVertices는 ApplyAsset/InitializeForEditorPreview에서만 호출됨
 
-    // 2. 모든 LOD의 TightenedBindPose 캐시 무효화
+    // 모든 LOD의 TightenedBindPose 캐시 무효화
     // 다음 프레임에서 TightnessCS가 새 트랜스폼으로 재계산됨
     for (FLODDeformationData& Data : LODData)
     {
         Data.bTightenedBindPoseCached = false;
     }
-
-    UE_LOG(LogFleshRing, Log, TEXT("AffectedVertices re-registered and TightnessCache invalidated for all LODs"));
 }
