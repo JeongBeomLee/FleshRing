@@ -10,6 +10,12 @@
 #include "FleshRingTightnessShader.h"
 #include "FleshRingBulgeShader.h"
 #include "FleshRingNormalRecomputeShader.h"
+#include "FleshRingLaplacianShader.h"
+#include "FleshRingBoneRatioShader.h"
+#include "FleshRingCollisionShader.h"
+#include "FleshRingLayerPenetrationShader.h"
+#include "FleshRingPBDEdgeShader.h"
+#include "FleshRingSkinSDFShader.h"
 
 class FSkeletalMeshObject;
 class UFleshRingDeformerInstance;
@@ -56,6 +62,10 @@ struct FFleshRingWorkItem
 		float BulgeStrength = 1.0f;
 		float MaxBulgeDistance = 10.0f;
 
+		// ===== Asymmetric Bulge (스타킹/타이즈 효과용) =====
+		float UpperBulgeStrength = 1.0f;	// 상단(축 양수) Bulge 강도 배수
+		float LowerBulgeStrength = 1.0f;	// 하단(축 음수) Bulge 강도 배수
+
 		// ===== Bulge 방향 데이터 =====
 		/**
 		 * Bulge 방향 (-1, 0, +1)
@@ -75,6 +85,92 @@ struct FFleshRingWorkItem
 		TArray<uint32> AdjacencyOffsets;
 		// 인접 삼각형 인덱스의 평탄화된 리스트
 		TArray<uint32> AdjacencyTriangles;
+
+		// ===== Laplacian Smoothing용 인접 데이터 =====
+		// Packed format: [NeighborCount, N0, N1, ..., N11] per affected vertex (13 uints each)
+		// 패킹 포맷: 영향받는 버텍스당 [이웃수, N0, N1, ..., N11] (각 13 uint)
+		TArray<uint32> LaplacianAdjacencyData;
+
+		// ===== Laplacian Smoothing용 DeformAmounts =====
+		// Per-vertex deform amount: negative=tightness(inward), positive=bulge(outward)
+		// Used to reduce smoothing on bulge areas to preserve bulge effect
+		TArray<float> DeformAmounts;
+
+		// ===== Laplacian/Taubin Smoothing 파라미터 =====
+		bool bEnableLaplacianSmoothing = true;
+		bool bUseTaubinSmoothing = true;      // Taubin: 수축 없는 스무딩
+		float SmoothingLambda = 0.5f;         // λ (수축 강도)
+		float TaubinMu = -0.53f;              // μ (팽창 강도, 음수)
+		int32 SmoothingIterations = 2;
+		float LaplacianVolumePreservation = 0.3f;  // 일반 Laplacian 전용
+
+		// ===== 홉 기반 스무딩 파라미터 (토폴로지 기반) =====
+		bool bUseHopBasedSmoothing = false;   // true면 확장 영역 사용
+		TArray<float> HopBasedInfluences;     // (legacy) 홉 거리 기반 influence
+
+		// ===== 확장된 스무딩 영역 (홉 기반) =====
+		// Seeds(Affected) + N-hop 도달 버텍스로 구성
+		// bUseHopBasedSmoothing=true일 때 LaplacianCS가 이 영역 사용
+		TArray<uint32> ExtendedSmoothingIndices;     // 확장 영역 버텍스 인덱스
+		TArray<float> ExtendedInfluences;            // 확장 영역 influence (홉 falloff)
+		TArray<uint32> ExtendedLaplacianAdjacency;   // 확장 영역 인접 데이터
+
+		// ===== Bone Ratio Preserve용 슬라이스 데이터 =====
+		// 반경 균일화 스무딩 활성화 여부
+		bool bEnableRadialSmoothing = true;
+		// 원본 본 거리 (바인드 포즈)
+		TArray<float> OriginalBoneDistances;
+		// 축 높이 (가우시안 가중치용)
+		TArray<float> AxisHeights;
+		// Packed format: [SliceCount, V0, V1, ..., V31] per affected vertex (33 uints each)
+		// 패킹 포맷: 영향받는 버텍스당 [슬라이스버텍스수, V0, V1, ..., V31] (각 33 uint)
+		TArray<uint32> SlicePackedData;
+
+		// ===== Self-Collision Detection용 삼각형 데이터 =====
+		// SDF 영역 내의 삼각형 인덱스 (3 uints per triangle)
+		// 스타킹-살 관통 방지용
+		TArray<uint32> CollisionTriangleIndices;
+
+		// ===== Layer Penetration Resolution용 레이어 타입 =====
+		// Per-affected-vertex layer types (0=Skin, 1=Stocking, etc.)
+		// 머티리얼 이름에서 자동 감지됨
+		TArray<uint32> LayerTypes;
+
+		// ===== Z 확장 후처리 버텍스 데이터 =====
+		// [설계]
+		// - Indices/Influences = 원본 SDF AABB → Tightness 변형 대상
+		// - PostProcessing* = 원본 AABB + BoundsZTop/Bottom → 스무딩/침투해결 등
+		// 경계에서 날카로운 크랙 방지를 위해 후처리 패스는 확장된 범위에서 수행
+		TArray<uint32> PostProcessingIndices;
+		TArray<float> PostProcessingInfluences;
+		TArray<uint32> PostProcessingLayerTypes;
+
+		// ===== Skin SDF 기반 레이어 분리용 데이터 =====
+		// 스킨 버텍스 인덱스 (PostProcessing 범위 내, LayerType=Skin)
+		TArray<uint32> SkinVertexIndices;
+		// 스킨 버텍스 노멀 (방사 방향으로 계산)
+		TArray<float> SkinVertexNormals;
+		// 스타킹 버텍스 인덱스 (PostProcessing 범위 내, LayerType=Stocking)
+		TArray<uint32> StockingVertexIndices;
+
+		// ===== PBD Edge Constraint용 데이터 (변형 전파) =====
+		bool bEnablePBDEdgeConstraint = false;
+		float PBDStiffness = 0.8f;
+		int32 PBDIterations = 5;
+		bool bPBDUseDeformAmountWeight = true;
+
+		// PBD용 인접 데이터 (rest length 포함)
+		// Packed format: [NeighborCount, Neighbor0, RestLen0(as uint), Neighbor1, RestLen1, ...] per affected vertex
+		// RestLength는 float를 uint로 bit-cast하여 저장
+		TArray<uint32> PBDAdjacencyWithRestLengths;
+
+		// 전체 버텍스에 대한 Influence 맵 (이웃 가중치 조회용)
+		// 인덱스: 전체 버텍스 인덱스, 값: influence
+		TArray<float> FullInfluenceMap;
+
+		// 전체 버텍스에 대한 DeformAmount 맵 (이웃 가중치 조회용)
+		// 인덱스: 전체 버텍스 인덱스, 값: deform amount
+		TArray<float> FullDeformAmountMap;
 	};
 	TSharedPtr<TArray<FRingDispatchData>> RingDispatchDataPtr;
 
@@ -82,6 +178,10 @@ struct FFleshRingWorkItem
 	// 하나 이상의 Ring에서 Bulge가 활성화되어 있는지 여부
 	// (VolumeAccumBuffer 생성 여부 결정용)
 	bool bAnyRingHasBulge = false;
+
+	// ===== Layer Penetration Resolution 플래그 =====
+	// 레이어 침투 해결 활성화 여부 (FleshRingAsset에서 설정)
+	bool bEnableLayerPenetrationResolution = true;
 
 	// ===== Normal Recomputation용 메시 인덱스 버퍼 =====
 	// 모든 Ring이 공유하는 메시 인덱스 버퍼 (3 indices per triangle)

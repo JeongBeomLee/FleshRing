@@ -619,6 +619,18 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		return static_cast<EFleshRingInfluenceMode>(ModeValue) != EFleshRingInfluenceMode::Manual;
 	});
 
+	// ProceduralBand 모드 동적 체크용 TAttribute
+	TAttribute<bool> IsProceduralBandModeAttr = TAttribute<bool>::Create([InfluenceModeHandle]() -> bool
+	{
+		if (!InfluenceModeHandle.IsValid())
+		{
+			return false;
+		}
+		uint8 ModeValue = 0;
+		InfluenceModeHandle->GetValue(ModeValue);
+		return static_cast<EFleshRingInfluenceMode>(ModeValue) == EFleshRingInfluenceMode::ProceduralBand;
+	});
+
 	// Ring Transform 그룹에 넣을 프로퍼티들 수집
 	TSharedPtr<IPropertyHandle> RingRadiusHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingRadius));
 	TSharedPtr<IPropertyHandle> RingThicknessHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingThickness));
@@ -862,6 +874,14 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 						})
 					)
 				);
+			continue;
+		}
+
+		// ProceduralBand - InfluenceMode가 ProceduralBand일 때만 활성화
+		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, ProceduralBand))
+		{
+			ChildBuilder.AddProperty(ChildHandle)
+				.IsEnabled(IsProceduralBandModeAttr);
 			continue;
 		}
 

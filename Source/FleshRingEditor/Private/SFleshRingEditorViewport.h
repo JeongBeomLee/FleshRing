@@ -35,6 +35,9 @@ public:
 	/** Ring 트랜스폼만 업데이트 (깜빡임 없이 - 슬라이더 드래그 중) */
 	void UpdateRingTransformsOnly();
 
+	/** SDF만 재생성 (ProceduralBand 드래그 중 - 컴포넌트 재생성 없이) */
+	void RefreshSDFOnly();
+
 	/** 프리뷰 씬 반환 */
 	TSharedPtr<FFleshRingPreviewScene> GetPreviewScene() const { return PreviewScene; }
 

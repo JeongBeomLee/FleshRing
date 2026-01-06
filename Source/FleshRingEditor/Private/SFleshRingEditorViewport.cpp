@@ -8,6 +8,7 @@
 #include "FleshRingAsset.h"
 #include "FleshRingComponent.h"
 #include "Engine/SkeletalMesh.h"
+#include "RenderingThread.h"  // FlushRenderingCommands용
 #include "Slate/SceneViewport.h"
 #include "EditorModeRegistry.h"
 
@@ -98,6 +99,28 @@ void SFleshRingEditorViewport::UpdateRingTransformsOnly()
 		UFleshRingComponent* FleshRingComp = PreviewScene->GetFleshRingComponent();
 		if (FleshRingComp)
 		{
+			FleshRingComp->UpdateRingTransforms();
+		}
+	}
+
+	if (ViewportClient.IsValid())
+	{
+		ViewportClient->Invalidate();
+	}
+}
+
+void SFleshRingEditorViewport::RefreshSDFOnly()
+{
+	if (PreviewScene.IsValid())
+	{
+		UFleshRingComponent* FleshRingComp = PreviewScene->GetFleshRingComponent();
+		if (FleshRingComp)
+		{
+			// 1. SDF 재생성 (ProceduralBand 파라미터 기반)
+			FleshRingComp->RefreshSDF();
+			FlushRenderingCommands();  // GPU 작업 완료 대기
+
+			// 2. 트랜스폼 업데이트 + 캐시 무효화 (변형 재계산 트리거)
 			FleshRingComp->UpdateRingTransforms();
 		}
 	}
