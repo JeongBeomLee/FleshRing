@@ -841,12 +841,44 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 				.CustomWidget()
 				.NameContent()
 				[
-					ChildHandle->CreatePropertyNameWidget()
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.VAlign(VAlign_Center)
+					[
+						ChildHandle->CreatePropertyNameWidget()
+					]
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.VAlign(VAlign_Center)
+					.Padding(4, 0, 0, 0)
+					[
+						SNew(SButton)
+						.ButtonStyle(FAppStyle::Get(), "NoBorder")
+						.OnClicked(this, &FFleshRingSettingsCustomization::OnMeshScaleLockClicked)
+						.ToolTipText_Lambda([this]()
+						{
+							return bMeshScaleLocked
+								? LOCTEXT("UnlockScale", "Unlock Scale (비율 유지 해제)")
+								: LOCTEXT("LockScale", "Lock Scale (비율 유지)");
+						})
+						.ContentPadding(FMargin(2.0f))
+						[
+							SNew(SImage)
+							.Image_Lambda([this]()
+							{
+								return bMeshScaleLocked
+									? FAppStyle::GetBrush("Icons.Lock")
+									: FAppStyle::GetBrush("Icons.Unlock");
+							})
+							.ColorAndOpacity(FSlateColor::UseForeground())
+						]
+					]
 				]
 				.ValueContent()
 				.MinDesiredWidth(300.0f)
 				[
-					CreateLinearVectorWidget(ChildHandle, 0.0025f)
+					CreateMeshScaleWidget(ChildHandle, 0.0025f)
 				]
 				.OverrideResetToDefault(
 					FResetToDefaultOverride::Create(
@@ -2278,6 +2310,8 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidget(
 				SNew(SSpinBox<double>)
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
+				.MinFractionalDigits(1)
+				.MaxFractionalDigits(6)
 				.Value_Lambda([GetVector]() -> double { return GetVector().X; })
 				.OnBeginSliderMovement_Lambda([BeginTransaction]()
 				{
@@ -2331,6 +2365,8 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidget(
 				SNew(SSpinBox<double>)
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
+				.MinFractionalDigits(1)
+				.MaxFractionalDigits(6)
 				.Value_Lambda([GetVector]() -> double { return GetVector().Y; })
 				.OnBeginSliderMovement_Lambda([BeginTransaction]()
 				{
@@ -2383,6 +2419,8 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidget(
 				SNew(SSpinBox<double>)
 				.Delta(Delta)
 				.LinearDeltaSensitivity(1)
+				.MinFractionalDigits(1)
+				.MaxFractionalDigits(6)
 				.Value_Lambda([GetVector]() -> double { return GetVector().Z; })
 				.OnBeginSliderMovement_Lambda([BeginTransaction]()
 				{
@@ -2648,6 +2686,345 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidget(
 				.Font(IDetailLayoutBuilder::GetDetailFont())
 			]
 		];
+}
+
+TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateMeshScaleWidget(
+	TSharedRef<IPropertyHandle> VectorHandle,
+	float Delta)
+{
+	// MeshScaleHandle 캐싱 (비율 계산용)
+	MeshScaleHandle = VectorHandle.ToSharedPtr();
+	TSharedPtr<IPropertyHandle> VecHandlePtr = MeshScaleHandle;
+
+	// 드래그 트랜잭션 관리용
+	TSharedPtr<TUniquePtr<FScopedTransaction>> TransactionHolder = MakeShared<TUniquePtr<FScopedTransaction>>();
+
+	// EnumerateRawData로 실시간 메모리 값 읽기
+	auto GetVector = [VecHandlePtr]() -> FVector
+	{
+		FVector Result = FVector::ZeroVector;
+		if (VecHandlePtr.IsValid())
+		{
+			VecHandlePtr->EnumerateRawData([&Result](void* RawData, const int32 DataIndex, const int32 NumDatas)
+			{
+				if (RawData)
+				{
+					Result = *static_cast<FVector*>(RawData);
+					return false;
+				}
+				return true;
+			});
+		}
+		return Result;
+	};
+
+	// 드래그 중 빠른 업데이트용
+	auto SetVectorInteractive = [VecHandlePtr](const FVector& NewValue)
+	{
+		if (VecHandlePtr.IsValid())
+		{
+			VecHandlePtr->EnumerateRawData([&NewValue](void* RawData, const int32 DataIndex, const int32 NumDatas)
+			{
+				if (RawData)
+				{
+					*static_cast<FVector*>(RawData) = NewValue;
+				}
+				return true;
+			});
+			VecHandlePtr->NotifyPostChange(EPropertyChangeType::Interactive);
+		}
+	};
+
+	// 드래그 시작: 트랜잭션 시작 + Modify 호출
+	auto BeginTransaction = [VecHandlePtr, TransactionHolder]()
+	{
+		if (VecHandlePtr.IsValid())
+		{
+			*TransactionHolder = MakeUnique<FScopedTransaction>(LOCTEXT("DragMeshScale", "Drag Mesh Scale"));
+
+			TArray<UObject*> OuterObjects;
+			VecHandlePtr->GetOuterObjects(OuterObjects);
+			for (UObject* Obj : OuterObjects)
+			{
+				if (Obj)
+				{
+					Obj->Modify();
+				}
+			}
+		}
+	};
+
+	// 드래그 종료: 트랜잭션 커밋
+	auto EndTransaction = [TransactionHolder]()
+	{
+		TransactionHolder->Reset();
+	};
+
+	// 비율 유지 스케일링 (X 축 변경 시)
+	auto ApplyScaleLockX = [this, GetVector, SetVectorInteractive](double NewValue)
+	{
+		FVector OldVec = GetVector();
+		if (bMeshScaleLocked && !FMath::IsNearlyZero(OldVec.X))
+		{
+			double Ratio = NewValue / OldVec.X;
+			FVector NewVec(NewValue, OldVec.Y * Ratio, OldVec.Z * Ratio);
+			SetVectorInteractive(NewVec);
+		}
+		else
+		{
+			FVector NewVec = OldVec;
+			NewVec.X = NewValue;
+			SetVectorInteractive(NewVec);
+		}
+	};
+
+	// 비율 유지 스케일링 (Y 축 변경 시)
+	auto ApplyScaleLockY = [this, GetVector, SetVectorInteractive](double NewValue)
+	{
+		FVector OldVec = GetVector();
+		if (bMeshScaleLocked && !FMath::IsNearlyZero(OldVec.Y))
+		{
+			double Ratio = NewValue / OldVec.Y;
+			FVector NewVec(OldVec.X * Ratio, NewValue, OldVec.Z * Ratio);
+			SetVectorInteractive(NewVec);
+		}
+		else
+		{
+			FVector NewVec = OldVec;
+			NewVec.Y = NewValue;
+			SetVectorInteractive(NewVec);
+		}
+	};
+
+	// 비율 유지 스케일링 (Z 축 변경 시)
+	auto ApplyScaleLockZ = [this, GetVector, SetVectorInteractive](double NewValue)
+	{
+		FVector OldVec = GetVector();
+		if (bMeshScaleLocked && !FMath::IsNearlyZero(OldVec.Z))
+		{
+			double Ratio = NewValue / OldVec.Z;
+			FVector NewVec(OldVec.X * Ratio, OldVec.Y * Ratio, NewValue);
+			SetVectorInteractive(NewVec);
+		}
+		else
+		{
+			FVector NewVec = OldVec;
+			NewVec.Z = NewValue;
+			SetVectorInteractive(NewVec);
+		}
+	};
+
+	// 커밋 시 비율 유지 (X)
+	auto CommitWithLockX = [this, VecHandlePtr, GetVector](double NewValue)
+	{
+		if (VecHandlePtr.IsValid())
+		{
+			FVector OldVec = GetVector();
+			if (bMeshScaleLocked && !FMath::IsNearlyZero(OldVec.X))
+			{
+				double Ratio = NewValue / OldVec.X;
+				FVector NewVec(NewValue, OldVec.Y * Ratio, OldVec.Z * Ratio);
+				VecHandlePtr->SetValue(NewVec);
+			}
+			else
+			{
+				FVector NewVec = OldVec;
+				NewVec.X = NewValue;
+				VecHandlePtr->SetValue(NewVec);
+			}
+		}
+	};
+
+	// 커밋 시 비율 유지 (Y)
+	auto CommitWithLockY = [this, VecHandlePtr, GetVector](double NewValue)
+	{
+		if (VecHandlePtr.IsValid())
+		{
+			FVector OldVec = GetVector();
+			if (bMeshScaleLocked && !FMath::IsNearlyZero(OldVec.Y))
+			{
+				double Ratio = NewValue / OldVec.Y;
+				FVector NewVec(OldVec.X * Ratio, NewValue, OldVec.Z * Ratio);
+				VecHandlePtr->SetValue(NewVec);
+			}
+			else
+			{
+				FVector NewVec = OldVec;
+				NewVec.Y = NewValue;
+				VecHandlePtr->SetValue(NewVec);
+			}
+		}
+	};
+
+	// 커밋 시 비율 유지 (Z)
+	auto CommitWithLockZ = [this, VecHandlePtr, GetVector](double NewValue)
+	{
+		if (VecHandlePtr.IsValid())
+		{
+			FVector OldVec = GetVector();
+			if (bMeshScaleLocked && !FMath::IsNearlyZero(OldVec.Z))
+			{
+				double Ratio = NewValue / OldVec.Z;
+				FVector NewVec(OldVec.X * Ratio, OldVec.Y * Ratio, NewValue);
+				VecHandlePtr->SetValue(NewVec);
+			}
+			else
+			{
+				FVector NewVec = OldVec;
+				NewVec.Z = NewValue;
+				VecHandlePtr->SetValue(NewVec);
+			}
+		}
+	};
+
+	return SNew(SHorizontalBox)
+		// X
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(0, 0, 2, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.594f, 0.0197f, 0.0f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.MinFractionalDigits(1)
+				.MaxFractionalDigits(6)
+				.Value_Lambda([GetVector]() -> double { return GetVector().X; })
+				.OnBeginSliderMovement_Lambda([BeginTransaction]()
+				{
+					BeginTransaction();
+				})
+				.OnValueChanged_Lambda([ApplyScaleLockX](double NewValue)
+				{
+					ApplyScaleLockX(NewValue);
+				})
+				.OnEndSliderMovement_Lambda([VecHandlePtr, EndTransaction](double FinalValue)
+				{
+					if (VecHandlePtr.IsValid())
+					{
+						VecHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+					}
+					EndTransaction();
+				})
+				.OnValueCommitted_Lambda([CommitWithLockX](double NewValue, ETextCommit::Type)
+				{
+					CommitWithLockX(NewValue);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		]
+		// Y
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(2, 0, 2, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.1144f, 0.4456f, 0.0f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.MinFractionalDigits(1)
+				.MaxFractionalDigits(6)
+				.Value_Lambda([GetVector]() -> double { return GetVector().Y; })
+				.OnBeginSliderMovement_Lambda([BeginTransaction]()
+				{
+					BeginTransaction();
+				})
+				.OnValueChanged_Lambda([ApplyScaleLockY](double NewValue)
+				{
+					ApplyScaleLockY(NewValue);
+				})
+				.OnEndSliderMovement_Lambda([VecHandlePtr, EndTransaction](double FinalValue)
+				{
+					if (VecHandlePtr.IsValid())
+					{
+						VecHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+					}
+					EndTransaction();
+				})
+				.OnValueCommitted_Lambda([CommitWithLockY](double NewValue, ETextCommit::Type)
+				{
+					CommitWithLockY(NewValue);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		]
+		// Z
+		+ SHorizontalBox::Slot()
+		.FillWidth(1.0f)
+		.Padding(2, 0, 0, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Fill)
+			.Padding(0, 1, -4, 1)
+			[
+				SNew(SColorBlock)
+				.Color(FLinearColor(0.0251f, 0.207f, 0.85f))
+				.Size(FVector2D(4.0f, 0.0f))
+			]
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SSpinBox<double>)
+				.Delta(Delta)
+				.LinearDeltaSensitivity(1)
+				.MinFractionalDigits(1)
+				.MaxFractionalDigits(6)
+				.Value_Lambda([GetVector]() -> double { return GetVector().Z; })
+				.OnBeginSliderMovement_Lambda([BeginTransaction]()
+				{
+					BeginTransaction();
+				})
+				.OnValueChanged_Lambda([ApplyScaleLockZ](double NewValue)
+				{
+					ApplyScaleLockZ(NewValue);
+				})
+				.OnEndSliderMovement_Lambda([VecHandlePtr, EndTransaction](double FinalValue)
+				{
+					if (VecHandlePtr.IsValid())
+					{
+						VecHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
+					}
+					EndTransaction();
+				})
+				.OnValueCommitted_Lambda([CommitWithLockZ](double NewValue, ETextCommit::Type)
+				{
+					CommitWithLockZ(NewValue);
+				})
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+			]
+		];
+}
+
+FReply FFleshRingSettingsCustomization::OnMeshScaleLockClicked()
+{
+	bMeshScaleLocked = !bMeshScaleLocked;
+	return FReply::Handled();
 }
 
 void FFleshRingSettingsCustomization::AddLinearVectorRowWithReset(

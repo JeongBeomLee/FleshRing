@@ -241,4 +241,18 @@ private:
 
 	/** Ring 이름 인라인 편집 위젯 참조 */
 	TSharedPtr<class SRingNameWidget> RingNameWidget;
+
+	// === MeshScale 비율 잠금 기능 ===
+
+	/** MeshScale 비율 잠금 위젯 생성 (잠금 버튼 + 벡터 위젯) */
+	TSharedRef<SWidget> CreateMeshScaleWidget(TSharedRef<IPropertyHandle> VectorHandle, float Delta);
+
+	/** MeshScale 잠금 버튼 클릭 핸들러 */
+	FReply OnMeshScaleLockClicked();
+
+	/** MeshScale 비율 잠금 상태 (true: 비율 유지) */
+	bool bMeshScaleLocked = false;
+
+	/** MeshScale 프로퍼티 핸들 캐싱 (비율 계산용) */
+	TSharedPtr<IPropertyHandle> MeshScaleHandle;
 };
