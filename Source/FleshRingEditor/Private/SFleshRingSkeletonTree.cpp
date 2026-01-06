@@ -27,6 +27,9 @@
 /** Ring 이름 변경 델리게이트 */
 DECLARE_DELEGATE_TwoParams(FOnRingRenamed, int32 /*RingIndex*/, const FString& /*NewName*/);
 
+/** Ring 이동 델리게이트 */
+DECLARE_DELEGATE_TwoParams(FOnRingMoved, int32 /*RingIndex*/, FName /*NewBoneName*/);
+
 /**
  * FleshRing 트리 행 위젯 (SExpanderArrow + Wires 지원)
  */
@@ -39,6 +42,7 @@ public:
 		SLATE_ARGUMENT(int32, RowIndex)
 		SLATE_ARGUMENT(UFleshRingAsset*, Asset)
 		SLATE_EVENT(FOnRingRenamed, OnRingRenamed)
+		SLATE_EVENT(FOnRingMoved, OnRingMoved)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& InOwnerTable)
@@ -48,6 +52,7 @@ public:
 		RowIndex = InArgs._RowIndex;
 		Asset = InArgs._Asset;
 		OnRingRenamed = InArgs._OnRingRenamed;
+		OnRingMoved = InArgs._OnRingMoved;
 
 		// 원본 이름 저장 (검증 실패 시 복원용)
 		if (Item.IsValid())
@@ -177,6 +182,92 @@ public:
 		return STableRow<TSharedPtr<FFleshRingTreeItem>>::OnPreviewKeyDown(MyGeometry, InKeyEvent);
 	}
 
+	// === 드래그 앤 드롭 ===
+
+	virtual FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
+	{
+		// 부모 클래스 먼저 호출 (선택 처리)
+		FReply Reply = STableRow<TSharedPtr<FFleshRingTreeItem>>::OnMouseButtonDown(MyGeometry, MouseEvent);
+
+		// Ring 아이템에서 왼쪽 버튼 클릭 시 드래그 감지 준비 (선택 후)
+		if (Item.IsValid() && Item->ItemType == EFleshRingTreeItemType::Ring && MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+		{
+			Reply = Reply.DetectDrag(SharedThis(this), EKeys::LeftMouseButton);
+		}
+		return Reply;
+	}
+
+	virtual FReply OnDragDetected(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
+	{
+		// Ring 아이템 드래그 시작
+		if (Item.IsValid() && Item->ItemType == EFleshRingTreeItemType::Ring)
+		{
+			FString RingName = Item->GetDisplayName().ToString();
+			TSharedRef<FFleshRingDragDropOp> DragOp = FFleshRingDragDropOp::New(
+				Item->RingIndex,
+				RingName,
+				Item->BoneName,
+				Item->EditingAsset.Get()
+			);
+			return FReply::Handled().BeginDragDrop(DragOp);
+		}
+		return FReply::Unhandled();
+	}
+
+	virtual void OnDragEnter(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override
+	{
+		TSharedPtr<FFleshRingDragDropOp> DragOp = DragDropEvent.GetOperationAs<FFleshRingDragDropOp>();
+		if (DragOp.IsValid() && Item.IsValid() && Item->ItemType == EFleshRingTreeItemType::Bone)
+		{
+			// 드롭 가능 조건:
+			// 1. bIsMeshBone = 자신 또는 자손 중 웨이팅된 본이 있음
+			// 2. 현재 부착된 본과 다른 본이어야 함
+			bool bCanDrop = Item->bIsMeshBone && (Item->BoneName != DragOp->SourceBoneName);
+			DragOp->bCanDrop = bCanDrop;
+			DragOp->SetIcon(FAppStyle::GetBrush(bCanDrop
+				? TEXT("Graph.ConnectorFeedback.OK")
+				: TEXT("Graph.ConnectorFeedback.Error")));
+		}
+	}
+
+	virtual void OnDragLeave(const FDragDropEvent& DragDropEvent) override
+	{
+		TSharedPtr<FFleshRingDragDropOp> DragOp = DragDropEvent.GetOperationAs<FFleshRingDragDropOp>();
+		if (DragOp.IsValid())
+		{
+			DragOp->bCanDrop = false;
+			DragOp->SetIcon(FAppStyle::GetBrush(TEXT("Graph.ConnectorFeedback.Error")));
+		}
+	}
+
+	virtual FReply OnDragOver(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override
+	{
+		TSharedPtr<FFleshRingDragDropOp> DragOp = DragDropEvent.GetOperationAs<FFleshRingDragDropOp>();
+		if (DragOp.IsValid() && Item.IsValid() && Item->ItemType == EFleshRingTreeItemType::Bone)
+		{
+			if (DragOp->bCanDrop)
+			{
+				return FReply::Handled();
+			}
+		}
+		return FReply::Unhandled();
+	}
+
+	virtual FReply OnDrop(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override
+	{
+		TSharedPtr<FFleshRingDragDropOp> DragOp = DragDropEvent.GetOperationAs<FFleshRingDragDropOp>();
+		if (DragOp.IsValid() && DragOp->bCanDrop && Item.IsValid() && Item->ItemType == EFleshRingTreeItemType::Bone)
+		{
+			// Ring을 이 본으로 이동
+			if (OnRingMoved.IsBound())
+			{
+				OnRingMoved.Execute(DragOp->RingIndex, Item->BoneName);
+			}
+			return FReply::Handled();
+		}
+		return FReply::Unhandled();
+	}
+
 private:
 	/** Ring 이름 위젯 생성 (인라인 편집 가능, 검증 포함) */
 	TSharedRef<SWidget> CreateRingNameWidget(FSlateColor TextColor, FText TooltipText)
@@ -286,6 +377,7 @@ private:
 	int32 RowIndex = 0;
 	UFleshRingAsset* Asset = nullptr;
 	FOnRingRenamed OnRingRenamed;
+	FOnRingMoved OnRingMoved;
 	TSharedPtr<SInlineEditableTextBlock> InlineTextBlock;
 	TSharedPtr<SBorder> ValidationBorder;
 	FString OriginalName;
@@ -333,6 +425,45 @@ TSharedPtr<FFleshRingTreeItem> FFleshRingTreeItem::CreateRing(FName InBoneName, 
 	Item->RingIndex = InRingIndex;
 	Item->EditingAsset = InAsset;
 	return Item;
+}
+
+//////////////////////////////////////////////////////////////////////////
+// FFleshRingDragDropOp
+
+TSharedRef<FFleshRingDragDropOp> FFleshRingDragDropOp::New(int32 InRingIndex, const FString& InRingName, FName InBoneName, UFleshRingAsset* InAsset)
+{
+	TSharedRef<FFleshRingDragDropOp> Operation = MakeShareable(new FFleshRingDragDropOp());
+	Operation->RingIndex = InRingIndex;
+	Operation->RingName = InRingName;
+	Operation->SourceBoneName = InBoneName;
+	Operation->Asset = InAsset;
+	Operation->bCanDrop = false;
+	// 기본 아이콘: 빨간색 (드롭 불가)
+	Operation->SetIcon(FAppStyle::GetBrush(TEXT("Graph.ConnectorFeedback.Error")));
+	Operation->Construct();
+	return Operation;
+}
+
+TSharedPtr<SWidget> FFleshRingDragDropOp::GetDefaultDecorator() const
+{
+	return SNew(SBorder)
+		.BorderImage(FAppStyle::GetBrush("Graph.ConnectorFeedback.Border"))
+		.Content()
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			[
+				SNew(SImage)
+				.Image(this, &FFleshRingDragDropOp::GetIcon)
+			]
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			[
+				SNew(STextBlock)
+				.Text(FText::Format(LOCTEXT("DragRingLabel", "FleshRing {0}"), FText::FromString(RingName)))
+			]
+		];
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -1101,7 +1232,8 @@ TSharedRef<ITableRow> SFleshRingSkeletonTree::GenerateTreeRow(TSharedPtr<FFleshR
 		.HighlightText(FText::FromString(SearchText))
 		.RowIndex(RowIndexCounter++)
 		.Asset(EditingAsset.Get())
-		.OnRingRenamed(this, &SFleshRingSkeletonTree::HandleRingRenamed);
+		.OnRingRenamed(this, &SFleshRingSkeletonTree::HandleRingRenamed)
+		.OnRingMoved(this, &SFleshRingSkeletonTree::MoveRingToBone);
 }
 
 void SFleshRingSkeletonTree::GetChildrenForTree(TSharedPtr<FFleshRingTreeItem> Item, TArray<TSharedPtr<FFleshRingTreeItem>>& OutChildren)
@@ -1337,6 +1469,37 @@ FReply SFleshRingSkeletonTree::OnKeyDown(const FGeometry& MyGeometry, const FKey
 	}
 
 	return SCompoundWidget::OnKeyDown(MyGeometry, InKeyEvent);
+}
+
+void SFleshRingSkeletonTree::MoveRingToBone(int32 RingIndex, FName NewBoneName)
+{
+	UFleshRingAsset* Asset = EditingAsset.Get();
+	if (!Asset || !Asset->Rings.IsValidIndex(RingIndex))
+	{
+		return;
+	}
+
+	// 같은 본이면 무시
+	if (Asset->Rings[RingIndex].BoneName == NewBoneName)
+	{
+		return;
+	}
+
+	// Undo/Redo 지원
+	FScopedTransaction Transaction(LOCTEXT("MoveRingToBone", "Move Ring to Bone"));
+	Asset->Modify();
+
+	// BoneName만 변경 (위치/회전 값은 그대로 유지 - 로컬 좌표)
+	Asset->Rings[RingIndex].BoneName = NewBoneName;
+
+	// 에셋 변경 알림
+	Asset->OnAssetChanged.Broadcast(Asset);
+
+	// 트리 갱신
+	RefreshTree();
+
+	// 이동한 Ring 선택
+	SelectRingByIndex(RingIndex);
 }
 
 #undef LOCTEXT_NAMESPACE

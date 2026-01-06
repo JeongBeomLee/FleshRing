@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Widgets/SCompoundWidget.h"
 #include "Widgets/Views/STreeView.h"
+#include "Input/DragAndDrop.h"
 
 class UFleshRingAsset;
 class USkeletalMesh;
@@ -67,6 +68,46 @@ struct FFleshRingTreeItem : public TSharedFromThis<FFleshRingTreeItem>
 
 	/** Ring 생성자 */
 	static TSharedPtr<FFleshRingTreeItem> CreateRing(FName InBoneName, int32 InRingIndex, UFleshRingAsset* InAsset);
+};
+
+/**
+ * Ring 드래그 앤 드롭 Operation
+ */
+class FFleshRingDragDropOp : public FDragDropOperation
+{
+public:
+	DRAG_DROP_OPERATOR_TYPE(FFleshRingDragDropOp, FDragDropOperation)
+
+	/** 드래그 중인 Ring 인덱스 */
+	int32 RingIndex = INDEX_NONE;
+
+	/** Ring 이름 (드래그 비주얼용) */
+	FString RingName;
+
+	/** 원래 부착된 본 */
+	FName SourceBoneName;
+
+	/** 편집 중인 에셋 */
+	TWeakObjectPtr<UFleshRingAsset> Asset;
+
+	/** 드롭 가능 여부 */
+	bool bCanDrop = false;
+
+	/** 팩토리 함수 */
+	static TSharedRef<FFleshRingDragDropOp> New(int32 InRingIndex, const FString& InRingName, FName InBoneName, UFleshRingAsset* InAsset);
+
+	/** 드래그 비주얼 */
+	virtual TSharedPtr<SWidget> GetDefaultDecorator() const override;
+
+	/** 아이콘 getter (Slate 바인딩용) */
+	const FSlateBrush* GetIcon() const { return CurrentIconBrush; }
+
+	/** 아이콘 setter (드롭 가능 여부에 따라 변경) */
+	void SetIcon(const FSlateBrush* InIcon) { CurrentIconBrush = InIcon; }
+
+private:
+	/** 현재 표시 중인 아이콘 */
+	const FSlateBrush* CurrentIconBrush = nullptr;
 };
 
 /** 본 선택 델리게이트 */
@@ -211,6 +252,11 @@ private:
 
 	/** 본 이름 복사 */
 	void OnContextMenuCopyBoneName();
+
+	// === 드래그 앤 드롭 ===
+
+	/** Ring을 다른 본으로 이동 */
+	void MoveRingToBone(int32 RingIndex, FName NewBoneName);
 
 private:
 	/** 편집 중인 Asset */
