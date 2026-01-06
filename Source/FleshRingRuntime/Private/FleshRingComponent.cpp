@@ -1705,7 +1705,8 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 		// ===== GPU 셰이더와 동일한 로직으로 Bulge 버텍스 선택 =====
 
 		// Ring 로컬 스페이스 변환
-		FTransform ComponentToLocal = SDFCache->LocalToComponent.Inverse();
+		// 비균등 스케일 + 회전 조합에서 InverseTransformPosition 사용 필수!
+		const FTransform& LocalToComponent = SDFCache->LocalToComponent;
 		FVector3f BoundsMin = SDFCache->BoundsMin;
 		FVector3f BoundsMax = SDFCache->BoundsMax;
 		FVector3f BoundsSize = BoundsMax - BoundsMin;
@@ -1757,8 +1758,9 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 		for (int32 VertIdx = 0; VertIdx < DebugBindPoseVertices.Num(); ++VertIdx)
 		{
 			// Component Space → Ring Local Space
+			// InverseTransformPosition: (V - Trans) * Rot^-1 / Scale (올바른 순서)
 			FVector CompSpacePos = FVector(DebugBindPoseVertices[VertIdx]);
-			FVector LocalSpacePos = ComponentToLocal.TransformPosition(CompSpacePos);
+			FVector LocalSpacePos = LocalToComponent.InverseTransformPosition(CompSpacePos);
 			FVector3f LocalPos = FVector3f(LocalSpacePos);
 
 			// Ring 중심으로부터의 벡터

@@ -56,7 +56,8 @@ void FSDFBulgeProvider::CalculateBulgeRegion(
 	//const float AxialLimit = RingWidth * 0.5f * AxialRange;   // 위아래 최대 범위
 	//const float RadialLimit = RingRadius * RadialRange;       // 옆 최대 범위
 
-	const FTransform ComponentToLocal = LocalToComponent.Inverse();
+	// 비균등 스케일 + 회전 조합에서 InverseTransformPosition 사용 필수!
+	// Inverse().TransformPosition()은 스케일과 회전 순서가 잘못됨
 	const int32 NumVertices = AllVertexPositions.Num();
 	OutBulgeVertexIndices.Reserve(NumVertices / 5);
 	OutBulgeInfluences.Reserve(NumVertices / 5);
@@ -67,7 +68,9 @@ void FSDFBulgeProvider::CalculateBulgeRegion(
 	for (int32 i = 0; i < NumVertices; ++i)
 	{
 		const FVector3f& VertexPosComponent = AllVertexPositions[i];
-		const FVector VertexPosLocalD = ComponentToLocal.TransformPosition(FVector(VertexPosComponent));
+		// Component Space → Local Space 변환
+		// InverseTransformPosition: (V - Trans) * Rot^-1 / Scale (올바른 순서)
+		const FVector VertexPosLocalD = LocalToComponent.InverseTransformPosition(FVector(VertexPosComponent));
 		const FVector3f VertexPosLocal = FVector3f(VertexPosLocalD);
 
 		// Ring 중심으로부터의 벡터
