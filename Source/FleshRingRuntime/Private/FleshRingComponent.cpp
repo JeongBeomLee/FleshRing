@@ -1185,22 +1185,48 @@ void UFleshRingComponent::DrawSdfVolume(int32 RingIndex)
 		bLoggedOBBDebug = true;
 	}
 
-	// OBB 와이어프레임 박스 (회전 포함)
-	FColor BoxColor = FColor(0, 200, 255, 255);  // 밝은 시안
-	DrawDebugBox(World, WorldCenter, ScaledExtent, WorldRotation, BoxColor, false, -1.0f, 0, 0.3f);
+	FColor BracketColor = FColor(130, 200, 255, 160);
+	float LineThickness = 0.20f;
+	float BracketRatio = 0.25f;
 
-	// Min/Max 코너 강조 표시 (월드 공간)
-	FVector WorldMin = LocalToWorld.TransformPosition(LocalBoundsMin);
-	FVector WorldMax = LocalToWorld.TransformPosition(LocalBoundsMax);
-	DrawDebugSphere(World, WorldMin, 1.0f, 8, FColor::Blue, false, -1.0f, 0, 0.5f);
-	DrawDebugSphere(World, WorldMax, 1.0f, 8, FColor::Red, false, -1.0f, 0, 0.5f);
+	// OBB의 로컬 축 방향 (월드 공간)
+	FVector AxisX = WorldRotation.RotateVector(FVector::ForwardVector);  // X축
+	FVector AxisY = WorldRotation.RotateVector(FVector::RightVector);    // Y축
+	FVector AxisZ = WorldRotation.RotateVector(FVector::UpVector);       // Z축
 
-	// 해상도 텍스트 표시
-	if (GEngine)
+	// 각 축별 브라켓 길이
+	float BracketLenX = ScaledExtent.X * 2.0f * BracketRatio;
+	float BracketLenY = ScaledExtent.Y * 2.0f * BracketRatio;
+	float BracketLenZ = ScaledExtent.Z * 2.0f * BracketRatio;
+
+	// 8개 코너 계산 및 브라켓 그리기
+	// 코너 = Center + (±ExtentX * AxisX) + (±ExtentY * AxisY) + (±ExtentZ * AxisZ)
+	for (int32 i = 0; i < 8; ++i)
 	{
-		FIntVector Res = SDFCache->Resolution;
-		GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::Yellow,
-			FString::Printf(TEXT("Ring[%d] SDF: %dx%dx%d"), RingIndex, Res.X, Res.Y, Res.Z));
+		// 비트마스크로 코너 위치 결정 (0=Min, 1=Max)
+		float SignX = (i & 1) ? 1.0f : -1.0f;
+		float SignY = (i & 2) ? 1.0f : -1.0f;
+		float SignZ = (i & 4) ? 1.0f : -1.0f;
+
+		// 코너 위치 (월드 공간)
+		FVector Corner = WorldCenter
+			+ AxisX * ScaledExtent.X * SignX
+			+ AxisY * ScaledExtent.Y * SignY
+			+ AxisZ * ScaledExtent.Z * SignZ;
+
+		// 각 축 방향으로 브라켓 라인 그리기 (코너에서 안쪽으로)
+		// SDPG_Foreground로 그려서 히트맵 위에 표시
+		// X축 브라켓
+		FVector EndX = Corner - AxisX * BracketLenX * SignX;
+		DrawDebugLine(World, Corner, EndX, BracketColor, false, -1.0f, SDPG_Foreground, LineThickness);
+
+		// Y축 브라켓
+		FVector EndY = Corner - AxisY * BracketLenY * SignY;
+		DrawDebugLine(World, Corner, EndY, BracketColor, false, -1.0f, SDPG_Foreground, LineThickness);
+
+		// Z축 브라켓
+		FVector EndZ = Corner - AxisZ * BracketLenZ * SignZ;
+		DrawDebugLine(World, Corner, EndZ, BracketColor, false, -1.0f, SDPG_Foreground, LineThickness);
 	}
 }
 
@@ -1900,8 +1926,7 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 		// ===== GPU 셰이더와 동일한 로직으로 Bulge 버텍스 선택 =====
 
 		// Ring 로컬 스페이스 변환
-		// 비균등 스케일 + 회전 조합에서 InverseTransformPosition 사용 필수!
-		const FTransform& LocalToComponent = SDFCache->LocalToComponent;
+		FTransform ComponentToLocal = SDFCache->LocalToComponent.Inverse();
 		FVector3f BoundsMin = SDFCache->BoundsMin;
 		FVector3f BoundsMax = SDFCache->BoundsMax;
 		FVector3f BoundsSize = BoundsMax - BoundsMin;
@@ -1953,9 +1978,8 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 		for (int32 VertIdx = 0; VertIdx < DebugBindPoseVertices.Num(); ++VertIdx)
 		{
 			// Component Space → Ring Local Space
-			// InverseTransformPosition: (V - Trans) * Rot^-1 / Scale (올바른 순서)
 			FVector CompSpacePos = FVector(DebugBindPoseVertices[VertIdx]);
-			FVector LocalSpacePos = LocalToComponent.InverseTransformPosition(CompSpacePos);
+			FVector LocalSpacePos = ComponentToLocal.TransformPosition(CompSpacePos);
 			FVector3f LocalPos = FVector3f(LocalSpacePos);
 
 			// Ring 중심으로부터의 벡터
