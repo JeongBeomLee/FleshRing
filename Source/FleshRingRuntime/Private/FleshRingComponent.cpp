@@ -6,6 +6,8 @@
 #include "FleshRingMeshComponent.h"
 #include "FleshRingMeshExtractor.h"
 #include "FleshRingSDF.h"
+#include "FleshRingProceduralMesh.h"
+#include "FleshRingProceduralBandSDF.h"
 #include "FleshRingDeformerInstance.h"
 #include "FleshRingBulgeTypes.h"
 #include "Engine/StaticMesh.h"
@@ -213,6 +215,20 @@ void UFleshRingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 	// NOTE: MarkRenderDynamicDataDirty/MarkRenderTransformDirty는 TickComponent에서 호출하지 않음
 	// Optimus 방식: 엔진의 SendRenderDynamicData_Concurrent()가 자동으로 deformer의 EnqueueWork를 호출
 	// 초기화 시점(SetupDeformer)에서만 MarkRenderStateDirty/MarkRenderDynamicDataDirty 호출
+
+	// SDF 업데이트 (각 Ring의 UpdateMode에 따라 GenerateSDF에서 처리)
+	if (FleshRingAsset)
+	{
+		// OnTick 모드인 Ring이 있으면 SDF 갱신
+		for (const FFleshRingSettings& Ring : FleshRingAsset->Rings)
+		{
+			if (Ring.SdfSettings.UpdateMode == EFleshRingSdfUpdateMode::OnTick)
+			{
+				GenerateSDF();
+				break;
+			}
+		}
+	}
 
 #if WITH_EDITOR
 	// 디버그 시각화
@@ -451,10 +467,94 @@ void UFleshRingComponent::GenerateSDF()
 	// Ring 개수만큼 캐시 배열 미리 할당 (렌더 스레드에서 인덱스로 접근)
 	RingSDFCaches.SetNum(FleshRingAsset->Rings.Num());
 
-	// 각 Ring의 RingMesh에서 SDF 생성
+	// 각 Ring의 RingMesh 또는 ProceduralBand에서 SDF 생성
 	for (int32 RingIndex = 0; RingIndex < FleshRingAsset->Rings.Num(); ++RingIndex)
 	{
 		const FFleshRingSettings& Ring = FleshRingAsset->Rings[RingIndex];
+
+		// ===== ProceduralBand 모드: 수학적 SDF 생성 =====
+		if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+		{
+			// 1. ProceduralBand 파라미터에서 메시 생성
+			FFleshRingMeshData MeshData;
+			FleshRingProceduralMesh::GenerateBandMesh(
+				Ring.ProceduralBand,
+				MeshData.Vertices,
+				MeshData.Indices);
+			MeshData.Bounds = FleshRingProceduralMesh::CalculateBandBounds(Ring.ProceduralBand);
+
+			if (!MeshData.IsValid())
+			{
+				UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: Ring[%d] failed to generate procedural band mesh"), RingIndex);
+				continue;
+			}
+
+			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] generated procedural band: %d vertices, %d triangles"),
+				RingIndex, MeshData.GetVertexCount(), MeshData.GetTriangleCount());
+
+			// 2. OBB Transform 계산
+			FTransform LocalToComponentTransform;
+			{
+				FTransform MeshTransform;
+				MeshTransform.SetLocation(Ring.MeshOffset);
+				MeshTransform.SetRotation(FQuat(Ring.MeshRotation));
+				MeshTransform.SetScale3D(Ring.MeshScale);
+				FTransform BoneTransform = GetBoneBindPoseTransform(ResolvedTargetMesh.Get(), Ring.BoneName);
+				LocalToComponentTransform = MeshTransform * BoneTransform;
+			}
+
+			// 3. SDF 해상도 결정
+			const int32 Resolution = Ring.SdfSettings.Resolution;
+			const FIntVector SDFResolution(Resolution, Resolution, Resolution);
+
+			// 4. Bounds 계산
+			const float BoundsPadding = 0.0f;
+			FVector3f BoundsMin = MeshData.Bounds.Min - FVector3f(BoundsPadding);
+			FVector3f BoundsMax = MeshData.Bounds.Max + FVector3f(BoundsPadding);
+
+			// 5. 캐시 메타데이터 설정
+			FRingSDFCache* CachePtr = &RingSDFCaches[RingIndex];
+			CachePtr->BoundsMin = BoundsMin;
+			CachePtr->BoundsMax = BoundsMax;
+			CachePtr->Resolution = SDFResolution;
+			CachePtr->LocalToComponent = LocalToComponentTransform;
+
+			// 6. 수학적 SDF 생성 (렌더 스레드)
+			FProceduralBandSettings CapturedBandSettings = Ring.ProceduralBand;
+			FIntVector CapturedResolution = SDFResolution;
+			FVector3f CapturedBoundsMin = BoundsMin;
+			FVector3f CapturedBoundsMax = BoundsMax;
+
+			ENQUEUE_RENDER_COMMAND(GenerateFleshRingProceduralBandSDF)(
+				[CapturedBandSettings,
+				 CapturedResolution,
+				 CapturedBoundsMin,
+				 CapturedBoundsMax,
+				 RingIndex,
+				 CachePtr](FRHICommandListImmediate& RHICmdList)
+				{
+					FRDGBuilder GraphBuilder(RHICmdList);
+
+					FProceduralBandSDFDispatchParams Params;
+					Params.BandSettings = CapturedBandSettings;
+					Params.SDFBounds = FBox3f(CapturedBoundsMin, CapturedBoundsMax);
+					Params.Resolution = CapturedResolution;
+
+					FRDGTextureRef SDFTexture = CreateAndDispatchProceduralBandSDF(GraphBuilder, Params);
+
+					CachePtr->PooledTexture = GraphBuilder.ConvertToExternalTexture(SDFTexture);
+					CachePtr->bCached = true;
+
+					GraphBuilder.Execute();
+
+					UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Mathematical SDF cached for Ring[%d] (ProceduralBand), Resolution=%d"),
+						RingIndex, CapturedResolution.X);
+				});
+
+			continue;  // ProceduralBand 처리 완료, 다음 Ring으로
+		}
+
+		// ===== Auto/Manual 모드: StaticMesh에서 SDF 생성 (기존 depot 코드) =====
 		UStaticMesh* RingMesh = Ring.RingMesh.LoadSynchronous();
 		if (!RingMesh)
 		{
@@ -785,6 +885,14 @@ void UFleshRingComponent::SetupRingMeshes()
 	{
 		const FFleshRingSettings& Ring = FleshRingAsset->Rings[RingIndex];
 
+		// ProceduralBand 모드: 기즈모로 피킹 (Manual 모드와 동일 방식)
+		// SDF 생성은 GenerateSDF()에서 직접 처리하므로 여기서는 메시 컴포넌트 생성 안 함
+		if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+		{
+			RingMeshComponents.Add(nullptr);
+			continue;
+		}
+
 		// RingMesh가 없으면 스킵
 		UStaticMesh* RingMesh = Ring.RingMesh.LoadSynchronous();
 		if (!RingMesh)
@@ -974,6 +1082,11 @@ void UFleshRingComponent::DrawDebugVisualization()
 		if (bShowSDFSlice)
 		{
 			DrawSDFSlice(RingIndex);
+		}
+
+		if (bShowProceduralBandWireframe)
+		{
+			DrawProceduralBandWireframe(RingIndex);
 		}
 
 		if (bShowBulgeHeatmap)
@@ -1547,9 +1660,11 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 		RingData.RingCenter = BoneTransform.GetLocation();
 
 		// Ring별 InfluenceMode에 따라 Selector 결정 (RegisterAffectedVertices와 동일 로직)
+		// Auto 또는 ProceduralBand 모드 + SDF 유효 → SDFBoundsBasedSelector
 		TSharedPtr<IVertexSelector> RingSelector;
 		const bool bUseSDFForThisRing =
-			(RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto) &&
+			(RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto ||
+			 RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand) &&
 			(SDFCache && SDFCache->IsValid());
 
 		if (bUseSDFForThisRing)
@@ -1562,9 +1677,20 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 		}
 		RingSelector->SelectVertices(Context, RingData.Vertices);
 
+		// InfluenceMode 이름 결정
+		const TCHAR* InfluenceModeStr = TEXT("Manual");
+		if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto)
+		{
+			InfluenceModeStr = TEXT("Auto");
+		}
+		else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+		{
+			InfluenceModeStr = TEXT("ProceduralBand");
+		}
+
 		UE_LOG(LogFleshRingComponent, Log, TEXT("CacheAffectedVerticesForDebug: Ring[%d] '%s' - %d affected vertices, Mode=%s, Selector=%s"),
 			RingIdx, *RingSettings.BoneName.ToString(), RingData.Vertices.Num(),
-			RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto ? TEXT("Auto") : TEXT("Manual"),
+			InfluenceModeStr,
 			bUseSDFForThisRing ? TEXT("SDFBounds") : TEXT("Distance"));
 	}
 
@@ -1572,6 +1698,75 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 
 	UE_LOG(LogFleshRingComponent, Log, TEXT("CacheAffectedVerticesForDebug: Cached %d rings, %d total vertices"),
 		DebugAffectedData.Num(), DebugBindPoseVertices.Num());
+}
+
+void UFleshRingComponent::DrawProceduralBandWireframe(int32 RingIndex)
+{
+	UWorld* World = GetWorld();
+	if (!World || !FleshRingAsset)
+	{
+		return;
+	}
+
+	// Ring 유효성 검사
+	if (!FleshRingAsset->Rings.IsValidIndex(RingIndex))
+	{
+		return;
+	}
+
+	const FFleshRingSettings& Ring = FleshRingAsset->Rings[RingIndex];
+
+	// ProceduralBand 모드가 아니면 스킵
+	if (Ring.InfluenceMode != EFleshRingInfluenceMode::ProceduralBand)
+	{
+		return;
+	}
+
+	// 와이어프레임 라인 생성
+	TArray<TPair<FVector, FVector>> WireframeLines;
+	FleshRingProceduralMesh::GenerateWireframeLines(Ring.ProceduralBand, WireframeLines, 32);
+
+	if (WireframeLines.Num() == 0)
+	{
+		return;
+	}
+
+	// 트랜스폼 계산: Local → Component → World
+	FTransform MeshTransform;
+	MeshTransform.SetLocation(Ring.MeshOffset);
+	MeshTransform.SetRotation(Ring.MeshRotation);
+	MeshTransform.SetScale3D(Ring.MeshScale);
+
+	FTransform BoneTransform = GetBoneBindPoseTransform(ResolvedTargetMesh.Get(), Ring.BoneName);
+	FTransform LocalToComponent = MeshTransform * BoneTransform;
+
+	USkeletalMeshComponent* SkelMesh = ResolvedTargetMesh.Get();
+	FTransform LocalToWorld = LocalToComponent;
+	if (SkelMesh)
+	{
+		LocalToWorld = LocalToComponent * SkelMesh->GetComponentTransform();
+	}
+
+	// 와이어프레임 색상 (마젠타 - 프로시저럴 밴드 전용)
+	FColor WireColor = FColor::Magenta;
+	float LineThickness = 0.0f;  // 가장 얇은 선
+
+	// 각 라인 그리기
+	for (const TPair<FVector, FVector>& Line : WireframeLines)
+	{
+		FVector WorldStart = LocalToWorld.TransformPosition(Line.Key);
+		FVector WorldEnd = LocalToWorld.TransformPosition(Line.Value);
+
+		DrawDebugLine(World, WorldStart, WorldEnd, WireColor, false, -1.0f, 0, LineThickness);
+	}
+
+	// 화면에 정보 표시
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::Magenta,
+			FString::Printf(TEXT("Ring[%d] ProceduralBand: R=%.1f H=%.1f"),
+				RingIndex, Ring.ProceduralBand.BandRadius, Ring.ProceduralBand.BandHeight));
+	}
 }
 
 void UFleshRingComponent::DrawBulgeHeatmap(int32 RingIndex)

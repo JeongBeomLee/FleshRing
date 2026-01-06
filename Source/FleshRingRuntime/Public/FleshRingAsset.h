@@ -42,6 +42,25 @@ public:
 	TArray<FFleshRingSettings> Rings;
 
 	// =====================================
+	// Material Layer Settings (침투 해결용)
+	// =====================================
+
+	/**
+	 * 머티리얼-레이어 매핑 배열
+	 * 각 머티리얼 슬롯이 어느 레이어(Skin, Stocking 등)에 속하는지 정의
+	 * 스타킹 레이어가 항상 스킨 레이어 바깥에 위치하도록 보장
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Material Layer Settings")
+	TArray<FMaterialLayerMapping> MaterialLayerMappings;
+
+	/**
+	 * 레이어 침투 해결 활성화
+	 * 비활성화하면 레이어 순서 보정 없이 순수 변형만 적용
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Material Layer Settings")
+	bool bEnableLayerPenetrationResolution = true;
+
+	// =====================================
 	// Subdivision Settings
 	// =====================================
 
@@ -129,6 +148,32 @@ public:
 	/** 유효성 검사 */
 	UFUNCTION(BlueprintPure, Category = "FleshRing")
 	bool IsValid() const;
+
+	// =====================================
+	// Material Layer Utilities
+	// =====================================
+
+	/**
+	 * 타겟 메시의 머티리얼 슬롯에서 레이어 매핑 자동 생성
+	 * 머티리얼 이름 키워드 기반으로 초기 레이어 타입 추측
+	 * 기존 매핑은 유지하고 새 슬롯만 추가
+	 */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Material Layer Settings")
+	void AutoPopulateMaterialLayers();
+
+	/**
+	 * 머티리얼 슬롯 인덱스로 레이어 타입 조회
+	 * @param MaterialSlotIndex - 조회할 머티리얼 슬롯 인덱스
+	 * @return 해당 슬롯의 레이어 타입 (매핑 없으면 Unknown)
+	 */
+	UFUNCTION(BlueprintPure, Category = "Material Layer Settings")
+	EFleshRingLayerType GetLayerTypeForMaterialSlot(int32 MaterialSlotIndex) const;
+
+	/**
+	 * 모든 머티리얼 레이어 매핑 초기화
+	 */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Material Layer Settings")
+	void ClearMaterialLayerMappings();
 
 	/** Subdivided 메시가 생성되어 있는지 */
 	UFUNCTION(BlueprintPure, Category = "FleshRing|Subdivision")

@@ -14,8 +14,186 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Rendering/SkeletalMeshRenderData.h"
 #include "Rendering/SkeletalMeshLODRenderData.h"
+#include "Materials/MaterialInterface.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogFleshRingVertices, Log, All);
+
+// ============================================================================
+// Layer Type Detection from Material Name
+// 머티리얼 이름에서 레이어 타입 감지
+// ============================================================================
+
+namespace FleshRingLayerUtils
+{
+    /**
+     * Detect layer type from material name using keyword matching
+     * 키워드 매칭으로 머티리얼 이름에서 레이어 타입 감지
+     *
+     * Supported keywords (case-insensitive):
+     * - Skin: "skin", "body", "flesh", "face", "hand", "leg", "arm"
+     * - Stocking: "stocking", "tight", "pantyhose", "hosiery", "nylon"
+     * - Underwear: "underwear", "bra", "panty", "lingerie", "bikini"
+     * - Outerwear: "cloth", "dress", "shirt", "skirt", "jacket", "coat"
+     *
+     * @param MaterialName - Material name to analyze
+     * @return Detected layer type (Unknown if no keyword matched)
+     */
+    EFleshRingLayerType DetectLayerTypeFromMaterialName(const FString& MaterialName)
+    {
+        // Convert to lowercase for case-insensitive matching
+        FString LowerName = MaterialName.ToLower();
+
+        // Skin keywords (highest priority for base layer)
+        static const TArray<FString> SkinKeywords = {
+            TEXT("skin"), TEXT("body"), TEXT("flesh"), TEXT("face"),
+            TEXT("hand"), TEXT("leg"), TEXT("arm"), TEXT("foot"), TEXT("head")
+        };
+
+        // Stocking keywords
+        static const TArray<FString> StockingKeywords = {
+            TEXT("stocking"), TEXT("tight"), TEXT("pantyhose"),
+            TEXT("hosiery"), TEXT("nylon"), TEXT("sock"), TEXT("legging")
+        };
+
+        // Underwear keywords
+        static const TArray<FString> UnderwearKeywords = {
+            TEXT("underwear"), TEXT("bra"), TEXT("panty"), TEXT("panties"),
+            TEXT("lingerie"), TEXT("bikini"), TEXT("brief"), TEXT("thong")
+        };
+
+        // Outerwear keywords
+        static const TArray<FString> OuterwearKeywords = {
+            TEXT("cloth"), TEXT("dress"), TEXT("shirt"), TEXT("skirt"),
+            TEXT("jacket"), TEXT("coat"), TEXT("pants"), TEXT("jeans"),
+            TEXT("top"), TEXT("blouse"), TEXT("suit")
+        };
+
+        // Check in order of specificity (more specific layers first)
+        // 특정성 순서로 체크 (더 구체적인 레이어 먼저)
+
+        for (const FString& Keyword : StockingKeywords)
+        {
+            if (LowerName.Contains(Keyword))
+            {
+                return EFleshRingLayerType::Stocking;
+            }
+        }
+
+        for (const FString& Keyword : UnderwearKeywords)
+        {
+            if (LowerName.Contains(Keyword))
+            {
+                return EFleshRingLayerType::Underwear;
+            }
+        }
+
+        for (const FString& Keyword : OuterwearKeywords)
+        {
+            if (LowerName.Contains(Keyword))
+            {
+                return EFleshRingLayerType::Outerwear;
+            }
+        }
+
+        for (const FString& Keyword : SkinKeywords)
+        {
+            if (LowerName.Contains(Keyword))
+            {
+                return EFleshRingLayerType::Skin;
+            }
+        }
+
+        // No keyword matched
+        return EFleshRingLayerType::Unknown;
+    }
+
+    /**
+     * Build per-vertex layer type array from skeletal mesh sections
+     * 스켈레탈 메시 섹션에서 버텍스별 레이어 타입 배열 빌드
+     *
+     * @param SkeletalMesh - Source skeletal mesh component
+     * @param LODIndex - LOD index to use
+     * @param OutVertexLayerTypes - Output array (vertex index → layer type)
+     * @return true if successful
+     */
+    bool BuildVertexLayerTypes(
+        const USkeletalMeshComponent* SkeletalMesh,
+        int32 LODIndex,
+        TArray<EFleshRingLayerType>& OutVertexLayerTypes)
+    {
+        if (!SkeletalMesh)
+        {
+            return false;
+        }
+
+        USkeletalMesh* Mesh = SkeletalMesh->GetSkeletalMeshAsset();
+        if (!Mesh)
+        {
+            return false;
+        }
+
+        const FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
+        if (!RenderData || RenderData->LODRenderData.Num() == 0)
+        {
+            return false;
+        }
+
+        if (LODIndex < 0 || LODIndex >= RenderData->LODRenderData.Num())
+        {
+            LODIndex = 0;
+        }
+
+        const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[LODIndex];
+        const int32 NumVertices = static_cast<int32>(LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices());
+
+        // Initialize all vertices as Unknown
+        OutVertexLayerTypes.Reset();
+        OutVertexLayerTypes.SetNum(NumVertices);
+        for (int32 i = 0; i < NumVertices; ++i)
+        {
+            OutVertexLayerTypes[i] = EFleshRingLayerType::Unknown;
+        }
+
+        // Get materials from the skeletal mesh component
+        const TArray<UMaterialInterface*>& Materials = SkeletalMesh->GetMaterials();
+
+        // Iterate through render sections and assign layer types
+        for (int32 SectionIdx = 0; SectionIdx < LODData.RenderSections.Num(); ++SectionIdx)
+        {
+            const FSkelMeshRenderSection& Section = LODData.RenderSections[SectionIdx];
+            const uint16 MaterialIndex = Section.MaterialIndex;
+
+            // Get material name
+            FString MaterialName = TEXT("Unknown");
+            if (Materials.IsValidIndex(MaterialIndex) && Materials[MaterialIndex])
+            {
+                MaterialName = Materials[MaterialIndex]->GetName();
+            }
+
+            // Detect layer type from material name
+            EFleshRingLayerType LayerType = DetectLayerTypeFromMaterialName(MaterialName);
+
+            // Assign layer type to all vertices in this section
+            const int32 BaseVertexIndex = static_cast<int32>(Section.BaseVertexIndex);
+            const int32 NumSectionVertices = static_cast<int32>(Section.NumVertices);
+
+            for (int32 i = 0; i < NumSectionVertices; ++i)
+            {
+                const int32 VertexIndex = BaseVertexIndex + i;
+                if (VertexIndex < NumVertices)
+                {
+                    OutVertexLayerTypes[VertexIndex] = LayerType;
+                }
+            }
+
+            UE_LOG(LogFleshRingVertices, Log,
+                TEXT("Section[%d]: Material '%s' → Layer %d (%d vertices)"),
+                SectionIdx, *MaterialName, static_cast<int32>(LayerType), NumSectionVertices);
+        }
+
+        return true;
+    }
+} // namespace FleshRingLayerUtils
 
 // ============================================================================
 // Distance-Based Vertex Selector Implementation
@@ -348,6 +526,84 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         TEXT("RegisterAffectedVertices: Processing %d vertices, %d indices for %d Rings"),
         MeshVertices.Num(), CachedMeshIndices.Num(), Rings.Num());
 
+    // Build per-vertex layer types
+    // 버텍스별 레이어 타입 빌드
+    // 우선순위: 1. 에셋 매핑 (수동 설정) → 2. 키워드 자동 감지
+    TArray<EFleshRingLayerType> VertexLayerTypes;
+    bool bUsedAssetMapping = false;
+
+    // 에셋에서 매핑 가져오기
+    if (Component && Component->FleshRingAsset && Component->FleshRingAsset->MaterialLayerMappings.Num() > 0)
+    {
+        const UFleshRingAsset* Asset = Component->FleshRingAsset;
+
+        // 섹션별로 레이어 타입 할당
+        USkeletalMesh* Mesh = SkeletalMesh->GetSkeletalMeshAsset();
+        if (Mesh)
+        {
+            const FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
+            if (RenderData && LODIndex < RenderData->LODRenderData.Num())
+            {
+                const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[LODIndex];
+                const int32 NumVertices = static_cast<int32>(LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices());
+
+                VertexLayerTypes.SetNum(NumVertices);
+                for (int32 i = 0; i < NumVertices; ++i)
+                {
+                    VertexLayerTypes[i] = EFleshRingLayerType::Unknown;
+                }
+
+                // 각 섹션의 머티리얼 슬롯에서 레이어 타입 가져오기
+                for (int32 SectionIdx = 0; SectionIdx < LODData.RenderSections.Num(); ++SectionIdx)
+                {
+                    const FSkelMeshRenderSection& Section = LODData.RenderSections[SectionIdx];
+                    const int32 MaterialSlotIndex = static_cast<int32>(Section.MaterialIndex);
+
+                    // 에셋에서 이 머티리얼 슬롯의 레이어 타입 조회
+                    EFleshRingLayerType LayerType = Asset->GetLayerTypeForMaterialSlot(MaterialSlotIndex);
+
+                    // 섹션의 모든 버텍스에 할당
+                    const int32 BaseVertexIndex = static_cast<int32>(Section.BaseVertexIndex);
+                    const int32 NumSectionVertices = static_cast<int32>(Section.NumVertices);
+
+                    for (int32 i = 0; i < NumSectionVertices; ++i)
+                    {
+                        const int32 VertexIndex = BaseVertexIndex + i;
+                        if (VertexIndex < NumVertices)
+                        {
+                            VertexLayerTypes[VertexIndex] = LayerType;
+                        }
+                    }
+                }
+
+                bUsedAssetMapping = true;
+                UE_LOG(LogFleshRingVertices, Log,
+                    TEXT("RegisterAffectedVertices: Using asset material layer mappings (%d mappings)"),
+                    Asset->MaterialLayerMappings.Num());
+            }
+        }
+    }
+
+    // 에셋 매핑이 없으면 키워드 기반 자동 감지 폴백
+    if (!bUsedAssetMapping)
+    {
+        if (!FleshRingLayerUtils::BuildVertexLayerTypes(SkeletalMesh, LODIndex, VertexLayerTypes))
+        {
+            UE_LOG(LogFleshRingVertices, Warning,
+                TEXT("RegisterAffectedVertices: Failed to build vertex layer types, using Unknown for all"));
+            VertexLayerTypes.SetNum(MeshVertices.Num());
+            for (int32 i = 0; i < MeshVertices.Num(); ++i)
+            {
+                VertexLayerTypes[i] = EFleshRingLayerType::Unknown;
+            }
+        }
+        else
+        {
+            UE_LOG(LogFleshRingVertices, Log,
+                TEXT("RegisterAffectedVertices: Using keyword-based layer detection (no asset mappings)"));
+        }
+    }
+
     // Process each Ring
     // 각 링 처리
     RingDataArray.Reserve(Rings.Num());
@@ -458,11 +714,12 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         );
 
         // Ring별 InfluenceMode에 따라 Selector 결정
-        // Auto 모드 + SDF 유효 → SDFBoundsBasedSelector
+        // Auto 또는 ProceduralBand 모드 + SDF 유효 → SDFBoundsBasedSelector
         // Manual 모드 또는 SDF 무효 → DistanceBasedSelector
         TSharedPtr<IVertexSelector> RingSelector;
         const bool bUseSDFForThisRing =
-            (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto) &&
+            (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto ||
+             RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand) &&
             (SDFCache && SDFCache->IsValid());
 
         if (bUseSDFForThisRing)
@@ -474,11 +731,22 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             RingSelector = MakeShared<FDistanceBasedVertexSelector>();
         }
 
+        // InfluenceMode 이름 결정
+        const TCHAR* InfluenceModeStr = TEXT("Manual");
+        if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto)
+        {
+            InfluenceModeStr = TEXT("Auto");
+        }
+        else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+        {
+            InfluenceModeStr = TEXT("ProceduralBand");
+        }
+
         UE_LOG(LogFleshRingVertices, Log,
             TEXT("Ring[%d] '%s': Using %s (InfluenceMode=%s, SDFValid=%s)"),
             RingIdx, *RingSettings.BoneName.ToString(),
             bUseSDFForThisRing ? TEXT("SDFBoundsBasedSelector") : TEXT("DistanceBasedSelector"),
-            RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto ? TEXT("Auto") : TEXT("Manual"),
+            InfluenceModeStr,
             (SDFCache && SDFCache->IsValid()) ? TEXT("Yes") : TEXT("No"));
 
         // Ring별 Selector로 영향받는 버텍스 선택
@@ -493,12 +761,17 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         if (CachedMeshIndices.Num() > 0)
         {
             BuildAdjacencyData(RingData, CachedMeshIndices);
+
+            // Build Laplacian adjacency data for smoothing
+            // 스무딩용 라플라시안 인접 데이터 빌드
+            // 개선: 같은 레이어의 이웃만 포함하여 레이어 경계 혼합 방지
+            BuildLaplacianAdjacencyData(RingData, CachedMeshIndices, MeshVertices, VertexLayerTypes);
         }
 
         UE_LOG(LogFleshRingVertices, Log,
-            TEXT("Ring[%d] '%s': %d affected vertices, %d adjacency triangles"),
+            TEXT("Ring[%d] '%s': %d affected vertices, %d adjacency triangles, %d laplacian adjacency uints"),
             RingIdx, *RingSettings.BoneName.ToString(),
-            RingData.Vertices.Num(), RingData.AdjacencyTriangles.Num());
+            RingData.Vertices.Num(), RingData.AdjacencyTriangles.Num(), RingData.LaplacianAdjacencyData.Num());
 
         RingDataArray.Add(MoveTemp(RingData));
     }
@@ -757,4 +1030,734 @@ void FFleshRingAffectedVerticesManager::BuildAdjacencyData(
         TEXT("BuildAdjacencyData: %d affected vertices, %d total adjacencies (avg %.1f triangles/vertex)"),
         NumAffected, TotalAdjacencies,
         NumAffected > 0 ? static_cast<float>(TotalAdjacencies) / NumAffected : 0.0f);
+}
+
+// ============================================================================
+// BuildLaplacianAdjacencyData - 라플라시안 스무딩용 이웃 데이터 빌드
+// ============================================================================
+// 개선: 같은 레이어의 이웃만 포함 (스타킹-살 경계에서 섞이지 않음)
+// 개선: UV seam 용접 - 동일 위치의 분리된 버텍스들이 같은 이웃을 공유하여 크랙 방지
+void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
+    FRingAffectedData& RingData,
+    const TArray<uint32>& MeshIndices,
+    const TArray<FVector3f>& AllVertices,
+    const TArray<EFleshRingLayerType>& VertexLayerTypes)
+{
+    // Maximum neighbors per vertex (must match shader's MAX_NEIGHBORS)
+    constexpr int32 MAX_NEIGHBORS = 12;
+    constexpr int32 PACKED_SIZE = 1 + MAX_NEIGHBORS;  // Count + 12 indices = 13
+
+    const int32 NumAffected = RingData.Vertices.Num();
+    if (NumAffected == 0 || MeshIndices.Num() == 0)
+    {
+        RingData.LaplacianAdjacencyData.Reset();
+        return;
+    }
+
+    // ================================================================
+    // Step 0: Build position-based vertex groups for UV seam welding
+    // 0단계: UV seam 용접을 위한 위치 기반 버텍스 그룹 구축
+    // 동일 위치의 버텍스들(UV seam으로 분리된)을 하나로 취급
+    // ================================================================
+    constexpr float WeldPrecision = 0.001f;  // 0.001 units tolerance
+
+    // Position key -> All vertex indices at that position
+    TMap<FIntVector, TArray<uint32>> PositionToVertices;
+    // Vertex index -> Position key
+    TMap<uint32, FIntVector> VertexToPosition;
+
+    for (int32 i = 0; i < AllVertices.Num(); ++i)
+    {
+        const FVector3f& Pos = AllVertices[i];
+        FIntVector PosKey(
+            FMath::RoundToInt(Pos.X / WeldPrecision),
+            FMath::RoundToInt(Pos.Y / WeldPrecision),
+            FMath::RoundToInt(Pos.Z / WeldPrecision)
+        );
+        PositionToVertices.FindOrAdd(PosKey).Add(static_cast<uint32>(i));
+        VertexToPosition.Add(static_cast<uint32>(i), PosKey);
+    }
+
+    int32 WeldedPositionCount = PositionToVertices.Num();
+    int32 DuplicateVertexCount = AllVertices.Num() - WeldedPositionCount;
+
+    UE_LOG(LogFleshRingVertices, Verbose,
+        TEXT("BuildLaplacianAdjacencyData: Welding %d vertices -> %d positions (%d duplicates)"),
+        AllVertices.Num(), WeldedPositionCount, DuplicateVertexCount);
+
+    // ================================================================
+    // Step 1: Build global vertex neighbor map from mesh triangles
+    // 1단계: 메시 삼각형에서 전역 버텍스 이웃 맵 구축
+    // ================================================================
+    TMap<uint32, TSet<uint32>> VertexNeighbors;
+
+    const int32 NumTriangles = MeshIndices.Num() / 3;
+    for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+    {
+        const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
+        const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
+        const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
+
+        VertexNeighbors.FindOrAdd(I0).Add(I1);
+        VertexNeighbors.FindOrAdd(I0).Add(I2);
+        VertexNeighbors.FindOrAdd(I1).Add(I0);
+        VertexNeighbors.FindOrAdd(I1).Add(I2);
+        VertexNeighbors.FindOrAdd(I2).Add(I0);
+        VertexNeighbors.FindOrAdd(I2).Add(I1);
+    }
+
+    // ================================================================
+    // Step 2: Build welded neighbor map (merge neighbors across UV duplicates)
+    // 2단계: 용접된 이웃 맵 구축 (UV 중복 버텍스들의 이웃 병합)
+    //
+    // 문제: UV seam에서 분리된 버텍스들(A, B)이 같은 위치에 있지만
+    //       서로 다른 이웃 집합을 가짐 -> 스무딩 시 다르게 이동 -> 크랙!
+    //
+    // 해결: 같은 위치의 모든 버텍스들의 이웃을 병합하여
+    //       동일한 스무딩 결과를 보장
+    // ================================================================
+    TMap<FIntVector, TSet<FIntVector>> PositionToWeldedNeighborPositions;
+
+    for (const auto& PosEntry : PositionToVertices)
+    {
+        const FIntVector& PosKey = PosEntry.Key;
+        const TArray<uint32>& VerticesAtPos = PosEntry.Value;
+
+        // Merge all neighbors from all vertices at this position
+        TSet<FIntVector> MergedNeighborPositions;
+
+        for (uint32 VertIdx : VerticesAtPos)
+        {
+            const TSet<uint32>* Neighbors = VertexNeighbors.Find(VertIdx);
+            if (Neighbors)
+            {
+                for (uint32 NeighborIdx : *Neighbors)
+                {
+                    const FIntVector* NeighborPosKey = VertexToPosition.Find(NeighborIdx);
+                    if (NeighborPosKey)
+                    {
+                        // Exclude self position (UV duplicates are conceptually the same vertex)
+                        if (*NeighborPosKey != PosKey)
+                        {
+                            MergedNeighborPositions.Add(*NeighborPosKey);
+                        }
+                    }
+                }
+            }
+        }
+
+        PositionToWeldedNeighborPositions.Add(PosKey, MoveTemp(MergedNeighborPositions));
+    }
+
+    // ================================================================
+    // Step 3: Pack adjacency data for affected vertices
+    // 3단계: 영향받는 버텍스에 대한 인접 데이터 패킹
+    //
+    // 핵심: 같은 위치의 모든 버텍스가 동일한 이웃 위치 집합을 사용
+    //       -> 동일한 Laplacian 계산 -> 동일한 이동 -> 크랙 없음!
+    // ================================================================
+    RingData.LaplacianAdjacencyData.Reset();
+    RingData.LaplacianAdjacencyData.Reserve(NumAffected * PACKED_SIZE);
+
+    int32 CrossLayerSkipped = 0;
+
+    for (int32 AffIdx = 0; AffIdx < NumAffected; ++AffIdx)
+    {
+        const uint32 VertexIndex = RingData.Vertices[AffIdx].VertexIndex;
+        const EFleshRingLayerType MyLayerType = RingData.Vertices[AffIdx].LayerType;
+
+        uint32 NeighborCount = 0;
+        uint32 NeighborIndices[MAX_NEIGHBORS] = { 0 };
+
+        // Get this vertex's position key
+        const FIntVector* MyPosKey = VertexToPosition.Find(VertexIndex);
+        if (MyPosKey)
+        {
+            // Get the welded neighbor positions for this position
+            const TSet<FIntVector>* WeldedNeighborPosSet = PositionToWeldedNeighborPositions.Find(*MyPosKey);
+
+            if (WeldedNeighborPosSet)
+            {
+                for (const FIntVector& NeighborPosKey : *WeldedNeighborPosSet)
+                {
+                    // Get a representative vertex at that position
+                    const TArray<uint32>* VerticesAtNeighborPos = PositionToVertices.Find(NeighborPosKey);
+                    if (!VerticesAtNeighborPos || VerticesAtNeighborPos->Num() == 0)
+                    {
+                        continue;
+                    }
+
+                    // Use the first vertex at that position as representative
+                    const uint32 NeighborIdx = (*VerticesAtNeighborPos)[0];
+
+                    // Layer type filtering: only include neighbors of same layer
+                    EFleshRingLayerType NeighborLayerType = EFleshRingLayerType::Unknown;
+                    if (VertexLayerTypes.IsValidIndex(static_cast<int32>(NeighborIdx)))
+                    {
+                        NeighborLayerType = VertexLayerTypes[static_cast<int32>(NeighborIdx)];
+                    }
+
+                    const bool bSameLayer = (MyLayerType == NeighborLayerType);
+                    const bool bBothUnknown = (MyLayerType == EFleshRingLayerType::Unknown &&
+                                              NeighborLayerType == EFleshRingLayerType::Unknown);
+
+                    if (bSameLayer || bBothUnknown)
+                    {
+                        if (NeighborCount < MAX_NEIGHBORS)
+                        {
+                            NeighborIndices[NeighborCount++] = NeighborIdx;
+                        }
+                    }
+                    else
+                    {
+                        CrossLayerSkipped++;
+                    }
+                }
+            }
+        }
+
+        // Pack: [NeighborCount, N0, N1, ..., N11]
+        RingData.LaplacianAdjacencyData.Add(NeighborCount);
+        for (int32 i = 0; i < MAX_NEIGHBORS; ++i)
+        {
+            RingData.LaplacianAdjacencyData.Add(NeighborIndices[i]);
+        }
+    }
+
+    UE_LOG(LogFleshRingVertices, Verbose,
+        TEXT("BuildLaplacianAdjacencyData (Welded): %d affected, %d packed uints, %d cross-layer skipped"),
+        NumAffected, RingData.LaplacianAdjacencyData.Num(), CrossLayerSkipped);
+}
+
+// ============================================================================
+// BuildSliceData - 슬라이스 기반 본 거리 비율 보존 데이터 빌드
+// ============================================================================
+
+void FFleshRingAffectedVerticesManager::BuildSliceData(
+    FRingAffectedData& RingData,
+    const TArray<FVector3f>& AllVertices,
+    float BucketSize)
+{
+    const int32 NumAffected = RingData.Vertices.Num();
+
+    if (NumAffected == 0)
+    {
+        return;
+    }
+
+    // ================================================================
+    // Step 1: Calculate axis distance (height) and bone distance for each vertex
+    // 1단계: 각 버텍스의 축 거리(높이)와 본 거리 계산
+    // ================================================================
+
+    // Ring 축과 중심 (바인드 포즈 기준)
+    const FVector3f Axis = FVector3f(RingData.RingAxis.GetSafeNormal());
+    const FVector3f Center = FVector3f(RingData.RingCenter);
+
+    // 높이 데이터 저장 (GPU 전송용)
+    RingData.AxisHeights.Reset();
+    RingData.AxisHeights.SetNum(NumAffected);
+
+    RingData.OriginalBoneDistances.Reset();
+    RingData.OriginalBoneDistances.SetNum(NumAffected);
+
+    for (int32 AffIdx = 0; AffIdx < NumAffected; ++AffIdx)
+    {
+        const uint32 VertexIndex = RingData.Vertices[AffIdx].VertexIndex;
+        const FVector3f& VertexPos = AllVertices[VertexIndex];
+
+        // 중심에서 버텍스까지의 벡터
+        const FVector3f ToVertex = VertexPos - Center;
+
+        // 축 방향 높이 (dot product)
+        const float Height = FVector3f::DotProduct(ToVertex, Axis);
+        RingData.AxisHeights[AffIdx] = Height;
+
+        // 축에 수직인 거리 (본 거리 = 반경)
+        const FVector3f AxisComponent = Axis * Height;
+        const FVector3f RadialComponent = ToVertex - AxisComponent;
+        const float BoneDistance = RadialComponent.Size();
+
+        RingData.OriginalBoneDistances[AffIdx] = BoneDistance;
+    }
+
+    // ================================================================
+    // Step 2: Group vertices by height bucket (slice)
+    // 2단계: 높이 버킷으로 버텍스 그룹핑 (슬라이스)
+    // ================================================================
+
+    // 버킷 인덱스 → 해당 버킷의 영향받는 버텍스 인덱스 리스트
+    TMap<int32, TArray<int32>> BucketToVertices;
+
+    for (int32 AffIdx = 0; AffIdx < NumAffected; ++AffIdx)
+    {
+        const int32 BucketIdx = FMath::FloorToInt(RingData.AxisHeights[AffIdx] / BucketSize);
+        BucketToVertices.FindOrAdd(BucketIdx).Add(AffIdx);
+    }
+
+    // ================================================================
+    // Step 3: Pack slice data for GPU (with adjacent buckets)
+    // 3단계: GPU용 슬라이스 데이터 패킹 (인접 버킷 포함)
+    // ================================================================
+    // Format: [SliceVertexCount, V0, V1, ..., V31] per affected vertex
+    // 개선: 현재 버킷 + 인접 버킷(±1)을 포함하여 부드러운 전환
+
+    RingData.SlicePackedData.Reset();
+    RingData.SlicePackedData.Reserve(NumAffected * FRingAffectedData::SLICE_PACKED_SIZE);
+
+    for (int32 AffIdx = 0; AffIdx < NumAffected; ++AffIdx)
+    {
+        // 이 버텍스가 속한 버킷 찾기
+        const int32 BucketIdx = FMath::FloorToInt(RingData.AxisHeights[AffIdx] / BucketSize);
+
+        // 인접 버킷(±1) 포함하여 버텍스 수집
+        TArray<int32> AdjacentVertices;
+        AdjacentVertices.Reserve(FRingAffectedData::MAX_SLICE_VERTICES);
+
+        for (int32 Delta = -1; Delta <= 1; ++Delta)
+        {
+            const int32 NeighborBucket = BucketIdx + Delta;
+            if (const TArray<int32>* NeighborVertices = BucketToVertices.Find(NeighborBucket))
+            {
+                for (int32 NeighborAffIdx : *NeighborVertices)
+                {
+                    if (AdjacentVertices.Num() < FRingAffectedData::MAX_SLICE_VERTICES)
+                    {
+                        AdjacentVertices.Add(NeighborAffIdx);
+                    }
+                }
+            }
+        }
+
+        // Pack: [Count, V0, V1, ..., V31]
+        const int32 SliceCount = AdjacentVertices.Num();
+        RingData.SlicePackedData.Add(static_cast<uint32>(SliceCount));
+
+        for (int32 i = 0; i < SliceCount; ++i)
+        {
+            RingData.SlicePackedData.Add(static_cast<uint32>(AdjacentVertices[i]));
+        }
+
+        // 나머지 슬롯은 0으로 채움
+        for (int32 i = SliceCount; i < FRingAffectedData::MAX_SLICE_VERTICES; ++i)
+        {
+            RingData.SlicePackedData.Add(0);
+        }
+    }
+
+    UE_LOG(LogFleshRingVertices, Verbose,
+        TEXT("BuildSliceData: %d affected vertices, %d buckets, bucket size %.2f (with adjacent buckets)"),
+        NumAffected, BucketToVertices.Num(), BucketSize);
+}
+
+// ============================================================================
+// BuildPBDAdjacencyData - PBD 에지 제약용 인접 데이터 빌드
+// ============================================================================
+
+void FFleshRingAffectedVerticesManager::BuildPBDAdjacencyData(
+    FRingAffectedData& RingData,
+    const TArray<uint32>& MeshIndices,
+    const TArray<FVector3f>& AllVertices,
+    int32 TotalVertexCount)
+{
+    const int32 NumAffected = RingData.Vertices.Num();
+    if (NumAffected == 0 || MeshIndices.Num() < 3)
+    {
+        return;
+    }
+
+    // Step 1: Build VertexIndex → ThreadIndex lookup
+    // 버텍스 인덱스 → 스레드 인덱스 룩업 빌드
+    TMap<uint32, int32> VertexToThreadIndex;
+    for (int32 ThreadIdx = 0; ThreadIdx < NumAffected; ++ThreadIdx)
+    {
+        VertexToThreadIndex.Add(RingData.Vertices[ThreadIdx].VertexIndex, ThreadIdx);
+    }
+
+    // Step 2: Build per-vertex neighbor set with rest lengths
+    // 버텍스별 이웃 세트 빌드 (rest length 포함)
+    // Key: neighbor vertex index, Value: rest length
+    TArray<TMap<uint32, float>> VertexNeighborsWithRestLen;
+    VertexNeighborsWithRestLen.SetNum(NumAffected);
+
+    const int32 NumTriangles = MeshIndices.Num() / 3;
+    for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+    {
+        const uint32 Idx0 = MeshIndices[TriIdx * 3 + 0];
+        const uint32 Idx1 = MeshIndices[TriIdx * 3 + 1];
+        const uint32 Idx2 = MeshIndices[TriIdx * 3 + 2];
+
+        // 삼각형의 세 에지를 처리
+        const uint32 TriIndices[3] = { Idx0, Idx1, Idx2 };
+
+        for (int32 Edge = 0; Edge < 3; ++Edge)
+        {
+            const uint32 V0 = TriIndices[Edge];
+            const uint32 V1 = TriIndices[(Edge + 1) % 3];
+
+            // V0가 영향 영역에 있으면 V1을 이웃으로 추가
+            if (int32* ThreadIdxPtr = VertexToThreadIndex.Find(V0))
+            {
+                const int32 ThreadIdx = *ThreadIdxPtr;
+
+                // V1이 유효한 인덱스인지 확인
+                if (V1 < static_cast<uint32>(AllVertices.Num()))
+                {
+                    // Rest length 계산 (바인드 포즈 거리)
+                    const FVector3f& Pos0 = AllVertices[V0];
+                    const FVector3f& Pos1 = AllVertices[V1];
+                    const float RestLength = FVector3f::Distance(Pos0, Pos1);
+
+                    // 이미 등록된 이웃이면 rest length는 동일해야 하므로 스킵
+                    if (!VertexNeighborsWithRestLen[ThreadIdx].Contains(V1))
+                    {
+                        VertexNeighborsWithRestLen[ThreadIdx].Add(V1, RestLength);
+                    }
+                }
+            }
+        }
+    }
+
+    // Step 3: Pack adjacency data with rest lengths
+    // 인접 데이터 패킹 (rest length 포함)
+    // Format: [Count, N0, RL0, N1, RL1, ...] per vertex (1 + MAX_NEIGHBORS*2 uints)
+    const int32 PackedSizePerVertex = FRingAffectedData::PBD_ADJACENCY_PACKED_SIZE;
+    RingData.PBDAdjacencyWithRestLengths.Reset(NumAffected * PackedSizePerVertex);
+    RingData.PBDAdjacencyWithRestLengths.AddZeroed(NumAffected * PackedSizePerVertex);
+
+    for (int32 ThreadIdx = 0; ThreadIdx < NumAffected; ++ThreadIdx)
+    {
+        const TMap<uint32, float>& NeighborsMap = VertexNeighborsWithRestLen[ThreadIdx];
+        const int32 NeighborCount = FMath::Min(NeighborsMap.Num(), FRingAffectedData::PBD_MAX_NEIGHBORS);
+        const int32 BaseOffset = ThreadIdx * PackedSizePerVertex;
+
+        // Count
+        RingData.PBDAdjacencyWithRestLengths[BaseOffset] = static_cast<uint32>(NeighborCount);
+
+        // Neighbors with rest lengths
+        int32 SlotIdx = 0;
+        for (const auto& Pair : NeighborsMap)
+        {
+            if (SlotIdx >= FRingAffectedData::PBD_MAX_NEIGHBORS)
+            {
+                break;
+            }
+
+            const uint32 NeighborIdx = Pair.Key;
+            const float RestLength = Pair.Value;
+
+            // Neighbor index
+            RingData.PBDAdjacencyWithRestLengths[BaseOffset + 1 + SlotIdx * 2] = NeighborIdx;
+
+            // Rest length (bit-cast float to uint)
+            uint32 RestLengthAsUint;
+            FMemory::Memcpy(&RestLengthAsUint, &RestLength, sizeof(float));
+            RingData.PBDAdjacencyWithRestLengths[BaseOffset + 1 + SlotIdx * 2 + 1] = RestLengthAsUint;
+
+            ++SlotIdx;
+        }
+    }
+
+    // Step 4: Build full influence map (전체 버텍스에 대한 influence)
+    RingData.FullInfluenceMap.Reset(TotalVertexCount);
+    RingData.FullInfluenceMap.AddZeroed(TotalVertexCount);
+
+    for (int32 ThreadIdx = 0; ThreadIdx < NumAffected; ++ThreadIdx)
+    {
+        const FAffectedVertex& Vert = RingData.Vertices[ThreadIdx];
+        if (Vert.VertexIndex < static_cast<uint32>(TotalVertexCount))
+        {
+            RingData.FullInfluenceMap[Vert.VertexIndex] = Vert.Influence;
+        }
+    }
+
+    // Step 5: Build full deform amount map
+    // Note: DeformAmount는 FleshRingDeformerInstance에서 계산되므로
+    // 여기서는 AxisHeight 기반으로 대략적인 값 설정
+    // 실제 값은 DispatchData.DeformAmounts에서 사용
+    RingData.FullDeformAmountMap.Reset(TotalVertexCount);
+    RingData.FullDeformAmountMap.AddZeroed(TotalVertexCount);
+
+    // Ring 높이의 절반을 threshold로 사용
+    const float RingHalfWidth = RingData.RingWidth * 0.5f;
+
+    for (int32 ThreadIdx = 0; ThreadIdx < NumAffected; ++ThreadIdx)
+    {
+        const FAffectedVertex& Vert = RingData.Vertices[ThreadIdx];
+        if (Vert.VertexIndex < static_cast<uint32>(TotalVertexCount))
+        {
+            // AxisHeight 기반 DeformAmount 계산
+            const float AxisHeight = RingData.AxisHeights.IsValidIndex(ThreadIdx)
+                ? RingData.AxisHeights[ThreadIdx] : 0.0f;
+            const float EdgeRatio = FMath::Clamp(
+                FMath::Abs(AxisHeight) / FMath::Max(RingHalfWidth, 0.01f), 0.0f, 2.0f);
+
+            // EdgeRatio > 1: Bulge 영역 (양수), EdgeRatio < 1: Tightness 영역 (음수)
+            RingData.FullDeformAmountMap[Vert.VertexIndex] = (EdgeRatio - 1.0f) * Vert.Influence;
+        }
+    }
+
+    UE_LOG(LogFleshRingVertices, Verbose,
+        TEXT("BuildPBDAdjacencyData: %d affected vertices, %d packed uints, %d total vertices in map"),
+        NumAffected, RingData.PBDAdjacencyWithRestLengths.Num(), TotalVertexCount);
+}
+
+// ============================================================================
+// BuildFullMeshAdjacency - 전체 메시 인접 맵 구축
+// ============================================================================
+
+void FFleshRingAffectedVerticesManager::BuildFullMeshAdjacency(
+    const TArray<uint32>& MeshIndices,
+    int32 NumVertices,
+    TMap<uint32, TArray<uint32>>& OutAdjacencyMap)
+{
+    OutAdjacencyMap.Reset();
+    OutAdjacencyMap.Reserve(NumVertices);
+
+    const int32 NumTriangles = MeshIndices.Num() / 3;
+
+    for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+    {
+        const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
+        const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
+        const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
+
+        // 각 에지에 대해 양방향 인접 추가
+        auto AddEdge = [&OutAdjacencyMap](uint32 A, uint32 B)
+        {
+            TArray<uint32>& NeighborsA = OutAdjacencyMap.FindOrAdd(A);
+            if (!NeighborsA.Contains(B))
+            {
+                NeighborsA.Add(B);
+            }
+
+            TArray<uint32>& NeighborsB = OutAdjacencyMap.FindOrAdd(B);
+            if (!NeighborsB.Contains(A))
+            {
+                NeighborsB.Add(A);
+            }
+        };
+
+        AddEdge(I0, I1);
+        AddEdge(I1, I2);
+        AddEdge(I2, I0);
+    }
+}
+
+// ============================================================================
+// BuildExtendedLaplacianAdjacency - 확장된 스무딩 영역용 인접 데이터 구축
+// ============================================================================
+
+void FFleshRingAffectedVerticesManager::BuildExtendedLaplacianAdjacency(
+    FRingAffectedData& RingData,
+    const TMap<uint32, TArray<uint32>>& FullAdjacencyMap)
+{
+    constexpr int32 MAX_NEIGHBORS = 12;
+    constexpr int32 PACKED_SIZE = 1 + MAX_NEIGHBORS;
+
+    const int32 NumExtended = RingData.ExtendedSmoothingIndices.Num();
+    if (NumExtended == 0)
+    {
+        RingData.ExtendedLaplacianAdjacency.Reset();
+        return;
+    }
+
+    // ExtendedSmoothingIndices의 버텍스 인덱스 → 확장 영역 내 ThreadIndex 매핑
+    TMap<uint32, int32> VertexToExtendedIdx;
+    VertexToExtendedIdx.Reserve(NumExtended);
+    for (int32 ExtIdx = 0; ExtIdx < NumExtended; ++ExtIdx)
+    {
+        VertexToExtendedIdx.Add(RingData.ExtendedSmoothingIndices[ExtIdx], ExtIdx);
+    }
+
+    // 패킹된 인접 데이터 구축
+    RingData.ExtendedLaplacianAdjacency.Reset(NumExtended * PACKED_SIZE);
+    RingData.ExtendedLaplacianAdjacency.AddZeroed(NumExtended * PACKED_SIZE);
+
+    for (int32 ExtIdx = 0; ExtIdx < NumExtended; ++ExtIdx)
+    {
+        const uint32 VertexIdx = RingData.ExtendedSmoothingIndices[ExtIdx];
+        const int32 BaseOffset = ExtIdx * PACKED_SIZE;
+
+        const TArray<uint32>* NeighborsPtr = FullAdjacencyMap.Find(VertexIdx);
+        if (!NeighborsPtr)
+        {
+            RingData.ExtendedLaplacianAdjacency[BaseOffset] = 0;
+            continue;
+        }
+
+        // 확장 영역 내의 이웃만 포함
+        // 중요: 셰이더가 ReadPosition(InputPositions, NeighborIndex)로 사용하므로
+        //       raw VertexIndex를 저장해야 함 (ThreadIndex가 아님!)
+        int32 ValidNeighborCount = 0;
+        for (uint32 NeighborVertIdx : *NeighborsPtr)
+        {
+            if (ValidNeighborCount >= MAX_NEIGHBORS) break;
+
+            // 확장 영역에 속하는지만 확인 (존재 여부 체크용)
+            if (VertexToExtendedIdx.Contains(NeighborVertIdx))
+            {
+                // raw VertexIndex를 저장 (셰이더가 InputPositions에서 읽을 때 사용)
+                RingData.ExtendedLaplacianAdjacency[BaseOffset + 1 + ValidNeighborCount] = NeighborVertIdx;
+                ++ValidNeighborCount;
+            }
+        }
+
+        RingData.ExtendedLaplacianAdjacency[BaseOffset] = static_cast<uint32>(ValidNeighborCount);
+    }
+}
+
+// ============================================================================
+// BuildHopDistanceData - 홉 기반 스무딩용 확장 영역 구축 (전체 메시 BFS)
+// ============================================================================
+
+void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
+    FRingAffectedData& RingData,
+    const TArray<uint32>& MeshIndices,
+    const TArray<FVector3f>& AllVertices,
+    int32 MaxHops,
+    EFalloffType FalloffType)
+{
+    const int32 NumAffected = RingData.Vertices.Num();
+    const int32 NumTotalVertices = AllVertices.Num();
+
+    if (NumAffected == 0 || MeshIndices.Num() == 0)
+    {
+        UE_LOG(LogFleshRingVertices, Warning,
+            TEXT("BuildHopDistanceData: No affected vertices or mesh indices"));
+        return;
+    }
+
+    // ===== Step 1: 전체 메시 인접 맵 구축 =====
+    TMap<uint32, TArray<uint32>> FullAdjacencyMap;
+    BuildFullMeshAdjacency(MeshIndices, NumTotalVertices, FullAdjacencyMap);
+
+    // ===== Step 2: Seeds = 모든 Affected Vertices =====
+    // Seeds는 전체 메시 버텍스 인덱스
+    TSet<uint32> SeedSet;
+    SeedSet.Reserve(NumAffected);
+    for (const FAffectedVertex& AffVert : RingData.Vertices)
+    {
+        SeedSet.Add(AffVert.VertexIndex);
+    }
+
+    // ===== Step 3: 전체 메시에서 BFS (N-hop 도달 버텍스 수집) =====
+    // HopDistanceMap: 전체 버텍스 인덱스 → 홉 거리
+    TMap<uint32, int32> HopDistanceMap;
+    HopDistanceMap.Reserve(NumAffected * (MaxHops + 1));
+
+    // Seeds 초기화 (Hop 0)
+    TQueue<uint32> BfsQueue;
+    for (uint32 SeedVertIdx : SeedSet)
+    {
+        HopDistanceMap.Add(SeedVertIdx, 0);
+        BfsQueue.Enqueue(SeedVertIdx);
+    }
+
+    // BFS 전파
+    while (!BfsQueue.IsEmpty())
+    {
+        uint32 CurrentVertIdx;
+        BfsQueue.Dequeue(CurrentVertIdx);
+
+        const int32 CurrentHop = HopDistanceMap[CurrentVertIdx];
+
+        // MaxHops에 도달하면 더 이상 전파 안 함
+        if (CurrentHop >= MaxHops)
+        {
+            continue;
+        }
+
+        // 이웃들 확인
+        const TArray<uint32>* NeighborsPtr = FullAdjacencyMap.Find(CurrentVertIdx);
+        if (!NeighborsPtr)
+        {
+            continue;
+        }
+
+        for (uint32 NeighborVertIdx : *NeighborsPtr)
+        {
+            // 아직 방문 안 한 이웃에게 전파
+            if (!HopDistanceMap.Contains(NeighborVertIdx))
+            {
+                HopDistanceMap.Add(NeighborVertIdx, CurrentHop + 1);
+                BfsQueue.Enqueue(NeighborVertIdx);
+            }
+        }
+    }
+
+    // ===== Step 4: ExtendedSmoothing* 배열 구축 =====
+    const int32 NumExtended = HopDistanceMap.Num();
+    RingData.ExtendedSmoothingIndices.Reset(NumExtended);
+    RingData.ExtendedHopDistances.Reset(NumExtended);
+    RingData.ExtendedInfluences.Reset(NumExtended);
+
+    const float MaxHopsFloat = static_cast<float>(MaxHops);
+
+    // Seeds 먼저 추가 (Hop 0)
+    for (const FAffectedVertex& AffVert : RingData.Vertices)
+    {
+        RingData.ExtendedSmoothingIndices.Add(AffVert.VertexIndex);
+        RingData.ExtendedHopDistances.Add(0);
+        RingData.ExtendedInfluences.Add(1.0f);  // Seeds는 influence 1.0
+    }
+
+    // Seeds가 아닌 도달 버텍스 추가 (Hop 1+)
+    for (const auto& Pair : HopDistanceMap)
+    {
+        const uint32 VertIdx = Pair.Key;
+        const int32 Hop = Pair.Value;
+
+        // Seeds는 이미 추가됨
+        if (Hop == 0)
+        {
+            continue;
+        }
+
+        RingData.ExtendedSmoothingIndices.Add(VertIdx);
+        RingData.ExtendedHopDistances.Add(Hop);
+
+        // t = 정규화된 홉 거리 (0 = seed, 1 = maxHops)
+        const float t = static_cast<float>(Hop) / MaxHopsFloat;
+
+        float Influence = 0.0f;
+        switch (FalloffType)
+        {
+            case EFalloffType::Linear:
+                Influence = 1.0f - t;
+                break;
+
+            case EFalloffType::Quadratic:
+                Influence = (1.0f - t) * (1.0f - t);
+                break;
+
+            case EFalloffType::Hermite:
+            default:
+                {
+                    const float OneMinusT = 1.0f - t;
+                    Influence = OneMinusT * OneMinusT * (1.0f + 2.0f * t);
+                }
+                break;
+        }
+
+        RingData.ExtendedInfluences.Add(FMath::Clamp(Influence, 0.0f, 1.0f));
+    }
+
+    // ===== Step 5: 확장된 영역의 Laplacian 인접 데이터 구축 =====
+    BuildExtendedLaplacianAdjacency(RingData, FullAdjacencyMap);
+
+    // ===== Step 6: 기존 HopBasedInfluences도 업데이트 (기존 Affected 영역용) =====
+    // 이건 기존 코드와의 호환성을 위해 유지
+    RingData.HopBasedInfluences.Reset(NumAffected);
+    RingData.HopBasedInfluences.AddUninitialized(NumAffected);
+    for (int32 i = 0; i < NumAffected; ++i)
+    {
+        RingData.HopBasedInfluences[i] = 1.0f;  // Seeds는 모두 1.0
+    }
+
+    // 통계 로그
+    const int32 NumNewVertices = NumExtended - NumAffected;
+    UE_LOG(LogFleshRingVertices, Log,
+        TEXT("BuildHopDistanceData: %d seeds → %d extended (%d new vertices from %d-hop BFS)"),
+        NumAffected, NumExtended, NumNewVertices, MaxHops);
 }

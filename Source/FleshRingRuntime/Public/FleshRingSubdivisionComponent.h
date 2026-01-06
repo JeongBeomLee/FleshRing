@@ -203,7 +203,9 @@ public:
 
 	/** Subdivided 와이어프레임 디버그 시각화 */
 	void DrawSubdividedWireframeDebug();
+#endif
 
+#if WITH_EDITOR
 	/** Subdivided SkeletalMesh를 에셋으로 Bake */
 	UFUNCTION(CallInEditor, Category = "Subdivision|Bake")
 	void BakeSubdividedMesh();

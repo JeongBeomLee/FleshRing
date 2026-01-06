@@ -524,7 +524,7 @@ void UFleshRingSubdivisionComponent::ExecuteGPUInterpolation()
 		});
 }
 
-#if WITH_EDITORONLY_DATA
+#if WITH_EDITOR
 
 void UFleshRingSubdivisionComponent::BakeSubdividedMesh()
 {
@@ -593,6 +593,10 @@ void UFleshRingSubdivisionComponent::BakeSubdividedMesh()
 				Result.OriginalVertexCount, Result.SubdividedVertexCount));
 	}
 }
+
+#endif // WITH_EDITOR
+
+#if WITH_EDITORONLY_DATA
 
 void UFleshRingSubdivisionComponent::DrawSubdividedVerticesDebug()
 {

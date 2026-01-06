@@ -131,6 +131,156 @@ bool UFleshRingAsset::IsValid() const
 	return true;
 }
 
+// =====================================
+// Material Layer Utilities
+// =====================================
+
+void UFleshRingAsset::AutoPopulateMaterialLayers()
+{
+	// 타겟 메시가 필요함
+	if (TargetSkeletalMesh.IsNull())
+	{
+		UE_LOG(LogFleshRingAsset, Warning, TEXT("AutoPopulateMaterialLayers: TargetSkeletalMesh is not set"));
+		return;
+	}
+
+	USkeletalMesh* Mesh = TargetSkeletalMesh.LoadSynchronous();
+	if (!Mesh)
+	{
+		UE_LOG(LogFleshRingAsset, Warning, TEXT("AutoPopulateMaterialLayers: Failed to load TargetSkeletalMesh"));
+		return;
+	}
+
+	// 기존 슬롯 인덱스 수집 (중복 방지)
+	TSet<int32> ExistingSlotIndices;
+	for (const FMaterialLayerMapping& Mapping : MaterialLayerMappings)
+	{
+		ExistingSlotIndices.Add(Mapping.MaterialSlotIndex);
+	}
+
+	// 머티리얼 슬롯 순회
+	const TArray<FSkeletalMaterial>& Materials = Mesh->GetMaterials();
+	for (int32 SlotIndex = 0; SlotIndex < Materials.Num(); ++SlotIndex)
+	{
+		// 이미 매핑된 슬롯은 스킵
+		if (ExistingSlotIndices.Contains(SlotIndex))
+		{
+			continue;
+		}
+
+		const FSkeletalMaterial& SkeletalMaterial = Materials[SlotIndex];
+		FName SlotName = SkeletalMaterial.MaterialSlotName;
+		FString MaterialName = SlotName.ToString();
+
+		// 머티리얼 인스턴스 이름도 고려
+		if (SkeletalMaterial.MaterialInterface)
+		{
+			MaterialName = SkeletalMaterial.MaterialInterface->GetName();
+		}
+
+		// 키워드 기반 레이어 타입 추측
+		EFleshRingLayerType DetectedType = EFleshRingLayerType::Unknown;
+		FString LowerName = MaterialName.ToLower();
+
+		// Stocking 키워드 (우선)
+		static const TArray<FString> StockingKeywords = {
+			TEXT("stocking"), TEXT("tight"), TEXT("pantyhose"),
+			TEXT("hosiery"), TEXT("nylon"), TEXT("sock"), TEXT("legging")
+		};
+		for (const FString& Keyword : StockingKeywords)
+		{
+			if (LowerName.Contains(Keyword))
+			{
+				DetectedType = EFleshRingLayerType::Stocking;
+				break;
+			}
+		}
+
+		// Underwear 키워드
+		if (DetectedType == EFleshRingLayerType::Unknown)
+		{
+			static const TArray<FString> UnderwearKeywords = {
+				TEXT("underwear"), TEXT("bra"), TEXT("panty"), TEXT("panties"),
+				TEXT("lingerie"), TEXT("bikini"), TEXT("brief"), TEXT("thong")
+			};
+			for (const FString& Keyword : UnderwearKeywords)
+			{
+				if (LowerName.Contains(Keyword))
+				{
+					DetectedType = EFleshRingLayerType::Underwear;
+					break;
+				}
+			}
+		}
+
+		// Outerwear 키워드
+		if (DetectedType == EFleshRingLayerType::Unknown)
+		{
+			static const TArray<FString> OuterwearKeywords = {
+				TEXT("cloth"), TEXT("dress"), TEXT("shirt"), TEXT("skirt"),
+				TEXT("jacket"), TEXT("coat"), TEXT("pants"), TEXT("jeans")
+			};
+			for (const FString& Keyword : OuterwearKeywords)
+			{
+				if (LowerName.Contains(Keyword))
+				{
+					DetectedType = EFleshRingLayerType::Outerwear;
+					break;
+				}
+			}
+		}
+
+		// Skin 키워드 (기본값으로 사용하기 좋음)
+		if (DetectedType == EFleshRingLayerType::Unknown)
+		{
+			static const TArray<FString> SkinKeywords = {
+				TEXT("skin"), TEXT("body"), TEXT("flesh"), TEXT("face"),
+				TEXT("hand"), TEXT("leg"), TEXT("arm"), TEXT("foot"), TEXT("head")
+			};
+			for (const FString& Keyword : SkinKeywords)
+			{
+				if (LowerName.Contains(Keyword))
+				{
+					DetectedType = EFleshRingLayerType::Skin;
+					break;
+				}
+			}
+		}
+
+		// 매핑 추가
+		MaterialLayerMappings.Add(FMaterialLayerMapping(SlotIndex, SlotName, DetectedType));
+
+		UE_LOG(LogFleshRingAsset, Log, TEXT("AutoPopulateMaterialLayers: Slot[%d] '%s' -> Layer %d"),
+			SlotIndex, *MaterialName, static_cast<int32>(DetectedType));
+	}
+
+#if WITH_EDITOR
+	// 에디터에서 변경 알림
+	Modify();
+#endif
+}
+
+EFleshRingLayerType UFleshRingAsset::GetLayerTypeForMaterialSlot(int32 MaterialSlotIndex) const
+{
+	for (const FMaterialLayerMapping& Mapping : MaterialLayerMappings)
+	{
+		if (Mapping.MaterialSlotIndex == MaterialSlotIndex)
+		{
+			return Mapping.LayerType;
+		}
+	}
+	return EFleshRingLayerType::Unknown;
+}
+
+void UFleshRingAsset::ClearMaterialLayerMappings()
+{
+	MaterialLayerMappings.Empty();
+
+#if WITH_EDITOR
+	Modify();
+#endif
+}
+
 bool UFleshRingAsset::NeedsSubdivisionRegeneration() const
 {
 	if (!bEnableSubdivision)
@@ -277,6 +427,39 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 			bNeedsFullRefresh = true;
 		}
 
+		// ProceduralBand 관련 프로퍼티 변경 감지
+		// MemberProperty 체인을 확인하여 ProceduralBand 하위 프로퍼티인지 검사
+		bool bIsProceduralBandProperty = false;
+
+		// 직접 프로퍼티 이름 체크
+		if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, ProceduralBand) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSettings, BandRadius) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSettings, BandHeight) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSettings, BandThickness) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSettings, Upper) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSettings, Lower) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSettings, RadialSegments) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSection, Radius) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSection, Height))
+		{
+			bIsProceduralBandProperty = true;
+		}
+
+		// MemberProperty 체인에서 ProceduralBand 찾기
+		if (!bIsProceduralBandProperty && PropertyChangedEvent.MemberProperty)
+		{
+			FName MemberName = PropertyChangedEvent.MemberProperty->GetFName();
+			if (MemberName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, ProceduralBand))
+			{
+				bIsProceduralBandProperty = true;
+			}
+		}
+
+		if (bIsProceduralBandProperty)
+		{
+			bNeedsFullRefresh = true;
+		}
+
 		// TargetSkeletalMesh 변경 시 Subdivision 메시들 클리어 (새 메시로 재생성 필요)
 		if (PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, TargetSkeletalMesh))
 		{
@@ -313,7 +496,7 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 	}
 
 	// 구조적 변경 시에만 전체 리프레시 브로드캐스트
-	// (트랜스폼 변경은 FFleshRingAssetEditor::OnObjectPropertyChanged에서 경량 업데이트 처리)
+	// ProceduralBand 프로퍼티는 드래그 끝날 때(ValueSet)만 갱신 (Interactive 제외)
 	if (bNeedsFullRefresh && PropertyChangedEvent.ChangeType != EPropertyChangeType::Interactive)
 	{
 		OnAssetChanged.Broadcast(this);

@@ -302,12 +302,128 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 
 		FFleshRingWorkItem::FRingDispatchData DispatchData;
 		DispatchData.Params = CreateTightnessParams(RingData, TotalVertexCount);
+
 		DispatchData.Indices = RingData.PackedIndices;
 		DispatchData.Influences = RingData.PackedInfluences;
+		DispatchData.LayerTypes = RingData.PackedLayerTypes;
+
+		// Z 확장 후처리 버텍스 데이터 복사
+		// 설계: Indices = Tightness용 (원본 SDF AABB)
+		//       PostProcessing* = 스무딩/침투해결용 (원본 + BoundsZTop/Bottom)
+		DispatchData.PostProcessingIndices = RingData.PostProcessingIndices;
+		DispatchData.PostProcessingInfluences = RingData.PostProcessingInfluences;
+		DispatchData.PostProcessingLayerTypes = RingData.PostProcessingLayerTypes;
+
+		// SkinSDF 레이어 분리용 데이터 복사
+		DispatchData.SkinVertexIndices = RingData.SkinVertexIndices;
+		DispatchData.SkinVertexNormals = RingData.SkinVertexNormals;
+		DispatchData.StockingVertexIndices = RingData.StockingVertexIndices;
 
 		// Normal Recomputation용 인접 데이터 복사
 		DispatchData.AdjacencyOffsets = RingData.AdjacencyOffsets;
 		DispatchData.AdjacencyTriangles = RingData.AdjacencyTriangles;
+
+		// Laplacian Smoothing용 인접 데이터 복사
+		DispatchData.LaplacianAdjacencyData = RingData.LaplacianAdjacencyData;
+
+		// Bone Ratio Preserve용 슬라이스 데이터 복사
+		DispatchData.OriginalBoneDistances = RingData.OriginalBoneDistances;
+		DispatchData.AxisHeights = RingData.AxisHeights;
+		DispatchData.SlicePackedData = RingData.SlicePackedData;
+
+		// ===== DeformAmounts 계산 (Laplacian Smoothing에서 Bulge 영역 스무딩 감소용) =====
+		// AxisHeight 기반으로 Bulge/Tightness 구분:
+		//   - Ring 중앙(AxisHeight ≈ 0): Tightness (음수) → 스무딩 적용
+		//   - Ring 가장자리(|AxisHeight| > threshold): Bulge (양수) → 스무딩 감소
+		{
+			const int32 NumAffected = DispatchData.Indices.Num();
+			DispatchData.DeformAmounts.Reset(NumAffected);
+			DispatchData.DeformAmounts.AddZeroed(NumAffected);
+
+			// Ring 높이의 절반을 threshold로 사용 (이 안쪽이 tightness zone)
+			const float RingHalfWidth = RingData.RingWidth * 0.5f;
+
+			for (int32 i = 0; i < NumAffected; ++i)
+			{
+				const float AxisHeight = RingData.AxisHeights.IsValidIndex(i) ? RingData.AxisHeights[i] : 0.0f;
+				const float Influence = DispatchData.Influences.IsValidIndex(i) ? DispatchData.Influences[i] : 0.0f;
+
+				// Ring 중앙으로부터의 거리 비율 (0 = 중앙, 1 = 가장자리)
+				const float EdgeRatio = FMath::Clamp(FMath::Abs(AxisHeight) / FMath::Max(RingHalfWidth, 0.01f), 0.0f, 2.0f);
+
+				// EdgeRatio > 1 이면 Bulge 영역 (양수)
+				// EdgeRatio < 1 이면 Tightness 영역 (음수)
+				// Influence를 곱해서 실제 영향을 받는 정도 반영
+				DispatchData.DeformAmounts[i] = (EdgeRatio - 1.0f) * Influence;
+			}
+		}
+
+		// Ring별 RadialSmoothing 설정 복사
+		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIndex))
+		{
+			DispatchData.bEnableRadialSmoothing = (*RingSettingsPtr)[RingIndex].bEnableRadialSmoothing;
+		}
+
+		// Ring별 Laplacian/Taubin Smoothing 설정 복사
+		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIndex))
+		{
+			const FFleshRingSettings& Settings = (*RingSettingsPtr)[RingIndex];
+			DispatchData.bEnableLaplacianSmoothing = Settings.bEnableLaplacianSmoothing;
+			DispatchData.bUseTaubinSmoothing = Settings.bUseTaubinSmoothing;
+			DispatchData.SmoothingLambda = Settings.SmoothingLambda;
+			DispatchData.TaubinMu = Settings.TaubinMu;
+			DispatchData.SmoothingIterations = Settings.SmoothingIterations;
+			DispatchData.LaplacianVolumePreservation = Settings.VolumePreservation;
+
+			// 홉 기반 스무딩 설정 및 데이터 복사
+			// NOTE: 데이터는 항상 복사 (런타임 토글 지원)
+			DispatchData.bUseHopBasedSmoothing = Settings.bUseHopBasedSmoothing;
+			DispatchData.HopBasedInfluences = RingData.HopBasedInfluences;
+
+			// 확장된 스무딩 영역 데이터 복사 (Seeds + N-hop 도달 버텍스)
+			DispatchData.ExtendedSmoothingIndices = RingData.ExtendedSmoothingIndices;
+			DispatchData.ExtendedInfluences = RingData.ExtendedInfluences;
+			DispatchData.ExtendedLaplacianAdjacency = RingData.ExtendedLaplacianAdjacency;
+		}
+
+		// Ring별 PBD Edge Constraint 설정 복사
+		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIndex))
+		{
+			const FFleshRingSettings& Settings = (*RingSettingsPtr)[RingIndex];
+			DispatchData.bEnablePBDEdgeConstraint = Settings.bEnablePBDEdgeConstraint;
+			DispatchData.PBDStiffness = Settings.PBDStiffness;
+			DispatchData.PBDIterations = Settings.PBDIterations;
+			DispatchData.bPBDUseDeformAmountWeight = Settings.bPBDUseDeformAmountWeight;
+		}
+
+		// PBD용 인접 데이터 및 전체 맵 복사
+		DispatchData.PBDAdjacencyWithRestLengths = RingData.PBDAdjacencyWithRestLengths;
+		DispatchData.FullInfluenceMap = RingData.FullInfluenceMap;
+		DispatchData.FullDeformAmountMap = RingData.FullDeformAmountMap;
+
+		// ===== Self-Collision Detection용 삼각형 추출 =====
+		// 스타킹-살 충돌 검사를 위해 메시의 모든 삼각형 포함
+		// (SDF 영향권 내 삼각형만으로는 스타킹만 포함되고 살은 포함 안 됨)
+		{
+			const TArray<uint32>& MeshIndices = CurrentLODData.AffectedVerticesManager.GetCachedMeshIndices();
+			const int32 NumTriangles = MeshIndices.Num() / 3;
+
+			if (NumTriangles > 0 && DispatchData.Indices.Num() > 0)
+			{
+				// 모든 메시 삼각형을 충돌 검사 대상으로 포함
+				// 성능 제한은 CollisionShader에서 MaxPairsToProcess로 처리
+				DispatchData.CollisionTriangleIndices = MeshIndices;
+
+				// [조건부 로그] 첫 프레임만
+				static TSet<int32> LoggedCollisionRings;
+				if (!LoggedCollisionRings.Contains(RingIndex) && DispatchData.CollisionTriangleIndices.Num() > 0)
+				{
+					UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] Collision triangles: %d (ALL mesh triangles for stocking-skin detection)"),
+						RingIndex, DispatchData.CollisionTriangleIndices.Num() / 3);
+					LoggedCollisionRings.Add(RingIndex);
+				}
+			}
+		}
 
 		// Ring별 InfluenceMode 확인
 		EFleshRingInfluenceMode RingInfluenceMode = EFleshRingInfluenceMode::Auto;
@@ -317,12 +433,13 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		}
 
 		// SDF 캐시 데이터 전달 (렌더 스레드로 안전하게 복사)
-		// Auto 모드 + SDF 유효할 때만 SDF 모드 사용
+		// Auto 또는 ProceduralBand 모드 + SDF 유효할 때만 SDF 모드 사용
 		if (FleshRingComponent.IsValid())
 		{
 			const FRingSDFCache* SDFCache = FleshRingComponent->GetRingSDFCache(RingIndex);
 			const bool bUseSDFForThisRing =
-				(RingInfluenceMode == EFleshRingInfluenceMode::Auto) &&
+				(RingInfluenceMode == EFleshRingInfluenceMode::Auto ||
+				 RingInfluenceMode == EFleshRingInfluenceMode::ProceduralBand) &&
 				(SDFCache && SDFCache->IsValid());
 
 			if (bUseSDFForThisRing)
@@ -365,9 +482,19 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				static bool bLoggedManualMode = false;
 				if (!bLoggedManualMode)
 				{
+					// InfluenceMode 이름 결정
+					const TCHAR* InfluenceModeStr = TEXT("Manual");
+					if (RingInfluenceMode == EFleshRingInfluenceMode::Auto)
+					{
+						InfluenceModeStr = TEXT("Auto");
+					}
+					else if (RingInfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+					{
+						InfluenceModeStr = TEXT("ProceduralBand");
+					}
+
 					UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] Manual Mode (InfluenceMode=%s, SDFValid=%s)"),
-						RingIndex,
-						RingInfluenceMode == EFleshRingInfluenceMode::Auto ? TEXT("Auto") : TEXT("Manual"),
+						RingIndex, InfluenceModeStr,
 						(SDFCache && SDFCache->IsValid()) ? TEXT("Yes") : TEXT("No"));
 					bLoggedManualMode = true;
 				}
@@ -569,6 +696,13 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 
 	// Bulge 전역 플래그 설정 (VolumeAccumBuffer 생성 여부 결정용)
 	WorkItem.bAnyRingHasBulge = bAnyRingHasBulge;
+
+	// Layer Penetration Resolution 플래그 설정
+	if (FleshRingComponent.IsValid() && FleshRingComponent->FleshRingAsset)
+	{
+		WorkItem.bEnableLayerPenetrationResolution =
+			FleshRingComponent->FleshRingAsset->bEnableLayerPenetrationResolution;
+	}
 
 	// 렌더 스레드에서 Worker에 작업 큐잉
 	// ENQUEUE_RENDER_COMMAND는 작업을 큐잉만 하고, 실제 실행은

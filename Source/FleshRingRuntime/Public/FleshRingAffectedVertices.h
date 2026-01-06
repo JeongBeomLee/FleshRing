@@ -36,17 +36,26 @@ struct FAffectedVertex
      */
     float Influence;
 
+    /**
+     * Layer type for penetration resolution
+     * 침투 해결용 레이어 타입 (Skin, Stocking 등)
+     * Material 이름에서 자동 감지되거나 기본값 사용
+     */
+    EFleshRingLayerType LayerType;
+
     FAffectedVertex()
         : VertexIndex(0)
         , RadialDistance(0.0f)
         , Influence(0.0f)
+        , LayerType(EFleshRingLayerType::Unknown)
     {
     }
 
-    FAffectedVertex(uint32 InIndex, float InRadialDist, float InInfluence)
+    FAffectedVertex(uint32 InIndex, float InRadialDist, float InInfluence, EFleshRingLayerType InLayerType = EFleshRingLayerType::Unknown)
         : VertexIndex(InIndex)
         , RadialDistance(InRadialDist)
         , Influence(InInfluence)
+        , LayerType(InLayerType)
     {
     }
 };
@@ -134,6 +143,68 @@ struct FRingAffectedData
      */
     TArray<float> PackedInfluences;
 
+    /**
+     * GPU buffer: layer types (packed for CS dispatch)
+     * GPU 버퍼: 레이어 타입 배열 (CS Dispatch용, 침투 해결에서 사용)
+     * 0=Skin, 1=Stocking, 2=Underwear, 3=Outerwear, 4=Unknown
+     */
+    TArray<uint32> PackedLayerTypes;
+
+    // =========== Z-Extended Post-Processing Vertices ===========
+    // =========== Z 확장 후처리 버텍스 ===========
+    //
+    // [설계]
+    // - Affected Vertices (Vertices/PackedIndices) = 원본 SDF AABB → Tightness 변형 대상
+    // - Post-Processing Vertices = 원본 AABB + BoundsZTop/Bottom → 스무딩/침투해결 등
+    //
+    // 경계에서 날카로운 크랙 방지를 위해 후처리 패스는 확장된 범위에서 수행
+
+    /**
+     * GPU buffer: Post-processing vertex indices (Z-extended range)
+     * Includes all vertices in (original AABB + BoundsZTop/Bottom)
+     * Used for: Laplacian smoothing, Layer penetration, PBD, etc. (NOT Tightness)
+     * GPU 버퍼: 후처리용 버텍스 인덱스 (Z 확장 범위)
+     * 원본 AABB + BoundsZTop/Bottom 범위의 모든 버텍스 포함
+     * 용도: 라플라시안 스무딩, 레이어 침투 해결, PBD 등 (Tightness 제외)
+     */
+    TArray<uint32> PostProcessingIndices;
+
+    /**
+     * GPU buffer: Post-processing vertex influences
+     * 1.0 for vertices in original AABB (core), falloff for Z-extended vertices
+     * GPU 버퍼: 후처리용 버텍스 영향도
+     * 원본 AABB 내 버텍스는 1.0 (코어), Z 확장 버텍스는 falloff 적용
+     */
+    TArray<float> PostProcessingInfluences;
+
+    /**
+     * GPU buffer: Post-processing vertex layer types
+     * GPU 버퍼: 후처리용 버텍스 레이어 타입
+     */
+    TArray<uint32> PostProcessingLayerTypes;
+
+    // =========== Skin SDF Layer Separation Data ===========
+    // =========== 스킨 SDF 레이어 분리용 데이터 ===========
+
+    /**
+     * Skin vertex indices (PostProcessing range, LayerType=Skin)
+     * 스킨 버텍스 인덱스 (후처리 범위 내)
+     */
+    TArray<uint32> SkinVertexIndices;
+
+    /**
+     * Skin vertex normals (radial direction from ring axis)
+     * 스킨 버텍스 노멀 (Ring 축 기준 방사 방향)
+     * Packed as: [N0.x, N0.y, N0.z, N1.x, N1.y, N1.z, ...]
+     */
+    TArray<float> SkinVertexNormals;
+
+    /**
+     * Stocking vertex indices (PostProcessing range, LayerType=Stocking)
+     * 스타킹 버텍스 인덱스 (후처리 범위 내)
+     */
+    TArray<uint32> StockingVertexIndices;
+
     // =========== Adjacency Data for Normal Recomputation ===========
     // =========== 노멀 재계산용 인접 데이터 ===========
 
@@ -151,6 +222,159 @@ struct FRingAffectedData
      * GPU 버퍼: 인접 삼각형 인덱스의 평탄화된 리스트
      */
     TArray<uint32> AdjacencyTriangles;
+
+    // =========== Laplacian Smoothing Adjacency Data ===========
+    // =========== 라플라시안 스무딩용 인접 데이터 ===========
+
+    /**
+     * GPU buffer: Packed adjacency data for Laplacian smoothing
+     * Format: [NeighborCount, N0, N1, ..., N11] per affected vertex (13 uints each)
+     * GPU 버퍼: 라플라시안 스무딩용 패킹된 인접 데이터
+     * 포맷: 영향받는 버텍스당 [이웃수, N0, N1, ..., N11] (각 13 uint)
+     */
+    TArray<uint32> LaplacianAdjacencyData;
+
+    // =========== Bone Ratio Preserve Data ===========
+    // =========== 본 거리 비율 보존용 데이터 ===========
+
+    /** Maximum vertices per slice (for GPU buffer sizing) */
+    static constexpr int32 MAX_SLICE_VERTICES = 32;
+    /** Packed size per vertex: [Count, V0, V1, ..., V31] = 33 uints */
+    static constexpr int32 SLICE_PACKED_SIZE = 1 + MAX_SLICE_VERTICES;
+
+    /**
+     * Original bone distance for each affected vertex (bind pose)
+     * 각 영향받는 버텍스의 원본 본-버텍스 거리 (바인드 포즈)
+     */
+    TArray<float> OriginalBoneDistances;
+
+    /**
+     * GPU buffer: Packed slice data for bone ratio preservation
+     * Format: [SliceVertexCount, V0, V1, ..., V31] per affected vertex (33 uints each)
+     * V0~V31 are ThreadIndices (not VertexIndices) of same-slice vertices
+     * GPU 버퍼: 본 거리 비율 보존용 슬라이스 데이터
+     * 포맷: 영향받는 버텍스당 [슬라이스버텍스수, V0, V1, ..., V31] (각 33 uint)
+     * V0~V31은 같은 슬라이스 버텍스들의 ThreadIndex (VertexIndex 아님)
+     */
+    TArray<uint32> SlicePackedData;
+
+    /**
+     * GPU buffer: Axis height for each affected vertex
+     * Used for Gaussian weighted averaging (smooth transitions)
+     * GPU 버퍼: 영향받는 버텍스의 축 높이
+     * 가우시안 가중치 평균 계산에 사용 (부드러운 전환)
+     */
+    TArray<float> AxisHeights;
+
+    // =========== PBD Edge Constraint Data ===========
+    // =========== PBD 에지 제약 데이터 (변형 전파용) ===========
+
+    /** Maximum neighbors per vertex for PBD (must match shader) */
+    static constexpr int32 PBD_MAX_NEIGHBORS = 12;
+    /** Packed size per vertex: [Count, (Neighbor, RestLen)*12] = 1 + 24 = 25 uints */
+    static constexpr int32 PBD_ADJACENCY_PACKED_SIZE = 1 + PBD_MAX_NEIGHBORS * 2;
+
+    /**
+     * GPU buffer: Packed adjacency data with rest lengths for PBD
+     * Format: [NeighborCount, Neighbor0, RestLen0, Neighbor1, RestLen1, ...] per affected vertex
+     * RestLength is stored as bit-cast uint (use asfloat in shader)
+     * GPU 버퍼: PBD용 rest length 포함 인접 데이터
+     * 포맷: 영향받는 버텍스당 [이웃수, 이웃0, RestLen0, 이웃1, RestLen1, ...]
+     * RestLength는 uint로 bit-cast되어 저장 (셰이더에서 asfloat 사용)
+     */
+    TArray<uint32> PBDAdjacencyWithRestLengths;
+
+    /**
+     * GPU buffer: Full mesh influence map (for neighbor weight lookup)
+     * Index: absolute vertex index, Value: influence
+     * Vertices not in affected set have 0 influence
+     * GPU 버퍼: 전체 메시 influence 맵 (이웃 가중치 조회용)
+     * 인덱스: 전체 버텍스 인덱스, 값: influence
+     * 영향 영역 외의 버텍스는 0
+     */
+    TArray<float> FullInfluenceMap;
+
+    /**
+     * GPU buffer: Full mesh deform amount map (for neighbor weight lookup)
+     * Index: absolute vertex index, Value: deform amount
+     * Used when bPBDUseDeformAmountWeight is true
+     * GPU 버퍼: 전체 메시 deform amount 맵 (이웃 가중치 조회용)
+     * 인덱스: 전체 버텍스 인덱스, 값: deform amount
+     * bPBDUseDeformAmountWeight가 true일 때 사용
+     */
+    TArray<float> FullDeformAmountMap;
+
+    // =========== Hop-Based Smoothing Data ===========
+    // =========== 홉 기반 스무딩 데이터 ===========
+
+    /**
+     * GPU buffer: Hop distance from nearest seed for each affected vertex
+     * -1 = not reached (outside smoothing range)
+     * 0 = seed vertex (inside SDF, will be deformed)
+     * 1+ = hop distance from nearest seed
+     * GPU 버퍼: 각 영향받는 버텍스의 Seed로부터 홉 거리
+     * -1 = 도달 안 함 (스무딩 범위 밖)
+     * 0 = Seed 버텍스 (SDF 내부, 변형될 버텍스)
+     * 1+ = 가장 가까운 Seed로부터의 홉 거리
+     */
+    TArray<int32> HopDistances;
+
+    /**
+     * Hop-based influence (calculated from HopDistances)
+     * Replaces PackedInfluences when bUseHopBasedSmoothing is true
+     * 홉 기반 influence (HopDistances에서 계산됨)
+     * bUseHopBasedSmoothing이 true일 때 PackedInfluences 대신 사용
+     */
+    TArray<float> HopBasedInfluences;
+
+    /**
+     * Indices of seed vertices (vertices inside SDF that will be deformed)
+     * Used as starting points for BFS hop propagation
+     * Seed 버텍스들의 ThreadIndex (SDF 내부, 변형될 버텍스)
+     * BFS 홉 전파의 시작점으로 사용
+     */
+    TArray<int32> SeedThreadIndices;
+
+    // =========== Extended Smoothing Region (Hop-Based) ===========
+    // =========== 확장된 스무딩 영역 (홉 기반) ===========
+    // Seeds(Affected Vertices)에서 N-hop 거리 내의 모든 버텍스
+    // LaplacianCS가 이 확장된 영역에 대해 스무딩 적용
+
+    /**
+     * Extended smoothing region vertex indices (absolute mesh indices)
+     * Includes: Seeds (Affected Vertices) + N-hop reachable vertices
+     * 확장된 스무딩 영역 버텍스 인덱스 (전체 메시 기준)
+     * 포함: Seeds (Affected Vertices) + N-hop 도달 가능 버텍스
+     */
+    TArray<uint32> ExtendedSmoothingIndices;
+
+    /**
+     * Hop distance for each vertex in ExtendedSmoothingIndices
+     * 0 = Seed (original affected vertex)
+     * 1+ = hop distance from nearest seed
+     * ExtendedSmoothingIndices 각 버텍스의 홉 거리
+     * 0 = Seed (원본 affected vertex)
+     * 1+ = 가장 가까운 Seed로부터의 홉 거리
+     */
+    TArray<int32> ExtendedHopDistances;
+
+    /**
+     * Influence for each vertex in ExtendedSmoothingIndices
+     * Calculated from hop distance with falloff
+     * ExtendedSmoothingIndices 각 버텍스의 influence
+     * 홉 거리에서 falloff로 계산됨
+     */
+    TArray<float> ExtendedInfluences;
+
+    /**
+     * Laplacian adjacency data for extended smoothing region
+     * Format: [NeighborCount, N0, N1, ..., N11] per vertex (13 uints each)
+     * Neighbor indices are relative to ExtendedSmoothingIndices (thread index)
+     * 확장된 스무딩 영역용 라플라시안 인접 데이터
+     * 포맷: 버텍스당 [이웃수, N0, N1, ..., N11] (각 13 uint)
+     * 이웃 인덱스는 ExtendedSmoothingIndices 기준 (thread index)
+     */
+    TArray<uint32> ExtendedLaplacianAdjacency;
 
     FRingAffectedData()
         : BoneName(NAME_None)
@@ -171,11 +395,13 @@ struct FRingAffectedData
     {
         PackedIndices.Reset(Vertices.Num());
         PackedInfluences.Reset(Vertices.Num());
+        PackedLayerTypes.Reset(Vertices.Num());
 
         for (const FAffectedVertex& Vert : Vertices)
         {
             PackedIndices.Add(Vert.VertexIndex);
             PackedInfluences.Add(Vert.Influence);
+            PackedLayerTypes.Add(static_cast<uint32>(Vert.LayerType));
         }
     }
 };
@@ -296,6 +522,26 @@ public:
     {
         return TEXT("SDFBoundsBased");
     }
+
+    /**
+     * Select post-processing vertices (Z-extended range)
+     * 후처리용 버텍스 선택 (Z 확장 범위)
+     *
+     * Selects vertices in the Z-extended range for post-processing passes.
+     * Core vertices (inside original AABB) get influence 1.0.
+     * Extended vertices get falloff-based influence.
+     * Z 확장 범위의 버텍스를 후처리 패스용으로 선택.
+     * 코어 버텍스(원본 AABB 내)는 influence 1.0.
+     * 확장 버텍스는 falloff 기반 influence.
+     *
+     * @param Context - Vertex selection context with SDF cache
+     * @param AffectedVertices - Already selected affected vertices (for quick lookup)
+     * @param OutRingData - Output: fills PostProcessingIndices, PostProcessingInfluences, PostProcessingLayerTypes
+     */
+    void SelectPostProcessingVertices(
+        const FVertexSelectionContext& Context,
+        const TArray<FAffectedVertex>& AffectedVertices,
+        FRingAffectedData& OutRingData);
 };
 
 // Affected Vertices Manager
@@ -420,4 +666,137 @@ private:
     void BuildAdjacencyData(
         FRingAffectedData& RingData,
         const TArray<uint32>& MeshIndices);
+
+    /**
+     * Build Laplacian adjacency data for smoothing with UV seam welding
+     * UV seam 용접을 포함한 스무딩용 라플라시안 인접 데이터 빌드
+     *
+     * Builds per-vertex neighbor lists from mesh indices.
+     * Uses position-based welding to ensure vertices at UV seams get consistent neighbors.
+     * This prevents cracks at UV seams during Laplacian smoothing.
+     * 메시 인덱스에서 버텍스별 이웃 리스트 빌드.
+     * 위치 기반 용접을 사용하여 UV seam의 버텍스들이 일관된 이웃을 갖도록 함.
+     * 이를 통해 라플라시안 스무딩 시 UV seam에서 크랙 방지.
+     *
+     * Output format: [NeighborCount, N0, N1, ..., N11] per affected vertex (13 uints)
+     * 출력 포맷: 영향받는 버텍스당 [이웃수, N0, N1, ..., N11] (13 uint)
+     *
+     * @param RingData - Ring data with Vertices already populated
+     * @param MeshIndices - Mesh index buffer (3 indices per triangle)
+     * @param AllVertices - All mesh vertex positions (for position-based welding)
+     * @param VertexLayerTypes - Per-vertex layer types (for same-layer filtering)
+     */
+    void BuildLaplacianAdjacencyData(
+        FRingAffectedData& RingData,
+        const TArray<uint32>& MeshIndices,
+        const TArray<FVector3f>& AllVertices,
+        const TArray<EFleshRingLayerType>& VertexLayerTypes);
+
+    /**
+     * Build slice data for bone ratio preservation
+     * 본 거리 비율 보존용 슬라이스 데이터 빌드
+     *
+     * Groups vertices by their height along the Ring axis (bucket-based).
+     * Same-height vertices should have same bone distance ratio after deformation.
+     * 링 축 방향 높이로 버텍스를 그룹핑 (버킷 기반).
+     * 같은 높이의 버텍스들은 변형 후에도 동일한 본 거리 비율을 가져야 함.
+     *
+     * Output:
+     * - RingData.OriginalBoneDistances: bind pose bone distance per affected vertex
+     * - RingData.SlicePackedData: [Count, V0, V1, ..., V31] per affected vertex
+     *
+     * @param RingData - Ring data with Vertices already populated
+     * @param AllVertices - All mesh vertices in bind pose component space
+     * @param BucketSize - Height bucket size for slice grouping (default: 1.0 cm)
+     */
+    void BuildSliceData(
+        FRingAffectedData& RingData,
+        const TArray<FVector3f>& AllVertices,
+        float BucketSize = 1.0f);
+
+    /**
+     * Build PBD adjacency data with rest lengths for edge constraint
+     * PBD 에지 제약용 rest length 포함 인접 데이터 빌드
+     *
+     * Builds per-vertex neighbor lists with rest lengths from mesh indices.
+     * Rest length = bind pose distance between vertices.
+     * Also builds full mesh influence/deform maps for neighbor weight lookup.
+     * 메시 인덱스에서 rest length 포함 버텍스별 이웃 리스트 빌드.
+     * Rest length = 버텍스 간 바인드 포즈 거리.
+     * 이웃 가중치 조회용 전체 메시 influence/deform 맵도 빌드.
+     *
+     * Output:
+     * - RingData.PBDAdjacencyWithRestLengths: [Count, N0, RL0, N1, RL1, ...] per vertex
+     * - RingData.FullInfluenceMap: influence for all mesh vertices
+     * - RingData.FullDeformAmountMap: deform amount for all mesh vertices
+     *
+     * @param RingData - Ring data with Vertices already populated
+     * @param MeshIndices - Mesh index buffer (3 indices per triangle)
+     * @param AllVertices - All mesh vertices in bind pose component space
+     * @param TotalVertexCount - Total number of vertices in mesh
+     */
+    void BuildPBDAdjacencyData(
+        FRingAffectedData& RingData,
+        const TArray<uint32>& MeshIndices,
+        const TArray<FVector3f>& AllVertices,
+        int32 TotalVertexCount);
+
+    /**
+     * Build hop distance data for topology-based smoothing
+     * 토폴로지 기반 스무딩용 홉 거리 데이터 빌드
+     *
+     * Algorithm:
+     * 1. Seeds = All affected vertices (SDF sampled)
+     * 2. BFS on full mesh from seeds
+     * 3. Collect all vertices within MaxHops
+     * 4. Build extended smoothing region with influence falloff
+     *
+     * 알고리즘:
+     * 1. Seeds = 모든 affected vertices (SDF 샘플링됨)
+     * 2. 전체 메시에서 Seeds로부터 BFS
+     * 3. MaxHops 내의 모든 버텍스 수집
+     * 4. Influence falloff를 적용한 확장된 스무딩 영역 구축
+     *
+     * Output:
+     * - RingData.ExtendedSmoothingIndices: all vertices in smoothing region
+     * - RingData.ExtendedHopDistances: hop distance (0=seed, 1+=hop)
+     * - RingData.ExtendedInfluences: influence based on hop distance
+     * - RingData.ExtendedLaplacianAdjacency: adjacency for smoothing region
+     *
+     * @param RingData - Ring data with Vertices already populated
+     * @param MeshIndices - Full mesh index buffer (3 indices per triangle)
+     * @param AllVertices - All mesh vertices in bind pose component space
+     * @param MaxHops - Maximum hop distance from seeds
+     * @param FalloffType - Type of falloff curve for influence calculation
+     */
+    void BuildHopDistanceData(
+        FRingAffectedData& RingData,
+        const TArray<uint32>& MeshIndices,
+        const TArray<FVector3f>& AllVertices,
+        int32 MaxHops,
+        EFalloffType FalloffType);
+
+    /**
+     * Build full mesh adjacency map (vertex -> neighbors)
+     * 전체 메시 인접 맵 구축 (버텍스 -> 이웃들)
+     *
+     * @param MeshIndices - Full mesh index buffer
+     * @param NumVertices - Total vertex count
+     * @param OutAdjacencyMap - Output: vertex index -> neighbor vertex indices
+     */
+    void BuildFullMeshAdjacency(
+        const TArray<uint32>& MeshIndices,
+        int32 NumVertices,
+        TMap<uint32, TArray<uint32>>& OutAdjacencyMap);
+
+    /**
+     * Build Laplacian adjacency for extended smoothing region
+     * 확장된 스무딩 영역용 라플라시안 인접 데이터 구축
+     *
+     * @param RingData - Ring data with ExtendedSmoothingIndices populated
+     * @param FullAdjacencyMap - Full mesh adjacency map
+     */
+    void BuildExtendedLaplacianAdjacency(
+        FRingAffectedData& RingData,
+        const TMap<uint32, TArray<uint32>>& FullAdjacencyMap);
 };
