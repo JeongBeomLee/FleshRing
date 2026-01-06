@@ -292,6 +292,76 @@ bool FFleshRingEditorViewportClient::InputKey(const FInputKeyEventArgs& EventArg
 					return true;
 				}
 			}
+
+			// Shift+숫자키로 Show 토글 (Skeletal Mesh, Ring Gizmos, Ring Meshes)
+			bool bShift = EventArgs.Viewport->KeyState(EKeys::LeftShift) || EventArgs.Viewport->KeyState(EKeys::RightShift);
+			bool bCtrl = EventArgs.Viewport->KeyState(EKeys::LeftControl) || EventArgs.Viewport->KeyState(EKeys::RightControl);
+
+			if (bShift && !bCtrl)
+			{
+				if (EventArgs.Key == EKeys::One)
+				{
+					ToggleShowSkeletalMesh();
+					Invalidate();
+					return true;
+				}
+				if (EventArgs.Key == EKeys::Two)
+				{
+					ToggleShowRingGizmos();
+					Invalidate();
+					return true;
+				}
+				if (EventArgs.Key == EKeys::Three)
+				{
+					ToggleShowRingMeshes();
+					Invalidate();
+					return true;
+				}
+			}
+			// Ctrl+숫자키로 Debug 옵션 토글 (SDF Slice, Bulge Direction)
+			else if (bCtrl && !bShift)
+			{
+				if (EventArgs.Key == EKeys::Two)
+				{
+					ToggleShowSDFSlice();
+					Invalidate();
+					return true;
+				}
+				if (EventArgs.Key == EKeys::Four)
+				{
+					ToggleShowBulgeArrows();
+					Invalidate();
+					return true;
+				}
+			}
+			// 숫자키만으로 Debug Visualization 토글
+			else if (!bShift && !bCtrl)
+			{
+				if (EventArgs.Key == EKeys::One)
+				{
+					ToggleShowDebugVisualization();
+					Invalidate();
+					return true;
+				}
+				if (EventArgs.Key == EKeys::Two)
+				{
+					ToggleShowSdfVolume();
+					Invalidate();
+					return true;
+				}
+				if (EventArgs.Key == EKeys::Three)
+				{
+					ToggleShowAffectedVertices();
+					Invalidate();
+					return true;
+				}
+				if (EventArgs.Key == EKeys::Four)
+				{
+					ToggleShowBulgeHeatmap();
+					Invalidate();
+					return true;
+				}
+			}
 		}
 	}
 
