@@ -641,9 +641,9 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         return false;
     }
 
-    // Clear previous data
-    // 이전 데이터 초기화
-    ClearAll();
+    // RingDataArray만 초기화 (캐시된 메시 데이터는 유지)
+    // Only clear RingDataArray (preserve cached mesh data)
+    RingDataArray.Reset();
 
     // FleshRingAsset null check
     // FleshRingAsset null 체크
@@ -656,113 +656,109 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
 
     const TArray<FFleshRingSettings>& Rings = Component->FleshRingAsset->Rings;
 
-    // Extract mesh vertices from skeletal mesh at specified LOD
-    // 스켈레탈 메시의 지정된 LOD에서 버텍스 추출 (바인드 포즈 컴포넌트 스페이스)
-    TArray<FVector3f> MeshVertices;
-    if (!ExtractMeshVertices(SkeletalMesh, MeshVertices, LODIndex))
+    // ================================================================
+    // 메시 데이터 캐싱: 바인드 포즈는 불변이므로 한 번만 추출
+    // Mesh data caching: bind pose is immutable, extract only once
+    // ================================================================
+    if (!bMeshDataCached)
     {
-        UE_LOG(LogFleshRingVertices, Error,
-            TEXT("RegisterAffectedVertices: Failed to extract mesh vertices"));
-        return false;
-    }
-
-    // Build Spatial Hash for O(1) vertex queries
-    // O(1) 버텍스 쿼리를 위한 Spatial Hash 빌드
-    VertexSpatialHash.Build(MeshVertices);
-    UE_LOG(LogFleshRingVertices, Log,
-        TEXT("RegisterAffectedVertices: Built SpatialHash for %d vertices"),
-        MeshVertices.Num());
-
-    // Extract mesh indices for adjacency data (Normal recomputation)
-    // 인접 데이터용 메시 인덱스 추출 (노멀 재계산용)
-    CachedMeshIndices.Reset();
-    if (!ExtractMeshIndices(SkeletalMesh, CachedMeshIndices, LODIndex))
-    {
-        UE_LOG(LogFleshRingVertices, Warning,
-            TEXT("RegisterAffectedVertices: Failed to extract mesh indices, Normal recomputation will be disabled"));
-    }
-
-    UE_LOG(LogFleshRingVertices, Log,
-        TEXT("RegisterAffectedVertices: Processing %d vertices, %d indices for %d Rings"),
-        MeshVertices.Num(), CachedMeshIndices.Num(), Rings.Num());
-
-    // Build per-vertex layer types
-    // 버텍스별 레이어 타입 빌드
-    // 우선순위: 1. 에셋 매핑 (수동 설정) → 2. 키워드 자동 감지
-    TArray<EFleshRingLayerType> VertexLayerTypes;
-    bool bUsedAssetMapping = false;
-
-    // 에셋에서 매핑 가져오기
-    if (Component && Component->FleshRingAsset && Component->FleshRingAsset->MaterialLayerMappings.Num() > 0)
-    {
-        const UFleshRingAsset* Asset = Component->FleshRingAsset;
-
-        // 섹션별로 레이어 타입 할당
-        USkeletalMesh* Mesh = SkeletalMesh->GetSkeletalMeshAsset();
-        if (Mesh)
+        // Extract mesh vertices from skeletal mesh at specified LOD
+        // 스켈레탈 메시의 지정된 LOD에서 버텍스 추출 (바인드 포즈 컴포넌트 스페이스)
+        if (!ExtractMeshVertices(SkeletalMesh, CachedMeshVertices, LODIndex))
         {
-            const FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
-            if (RenderData && LODIndex < RenderData->LODRenderData.Num())
-            {
-                const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[LODIndex];
-                const int32 NumVertices = static_cast<int32>(LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices());
-
-                VertexLayerTypes.SetNum(NumVertices);
-                for (int32 i = 0; i < NumVertices; ++i)
-                {
-                    VertexLayerTypes[i] = EFleshRingLayerType::Unknown;
-                }
-
-                // 각 섹션의 머티리얼 슬롯에서 레이어 타입 가져오기
-                for (int32 SectionIdx = 0; SectionIdx < LODData.RenderSections.Num(); ++SectionIdx)
-                {
-                    const FSkelMeshRenderSection& Section = LODData.RenderSections[SectionIdx];
-                    const int32 MaterialSlotIndex = static_cast<int32>(Section.MaterialIndex);
-
-                    // 에셋에서 이 머티리얼 슬롯의 레이어 타입 조회
-                    EFleshRingLayerType LayerType = Asset->GetLayerTypeForMaterialSlot(MaterialSlotIndex);
-
-                    // 섹션의 모든 버텍스에 할당
-                    const int32 BaseVertexIndex = static_cast<int32>(Section.BaseVertexIndex);
-                    const int32 NumSectionVertices = static_cast<int32>(Section.NumVertices);
-
-                    for (int32 i = 0; i < NumSectionVertices; ++i)
-                    {
-                        const int32 VertexIndex = BaseVertexIndex + i;
-                        if (VertexIndex < NumVertices)
-                        {
-                            VertexLayerTypes[VertexIndex] = LayerType;
-                        }
-                    }
-                }
-
-                bUsedAssetMapping = true;
-                UE_LOG(LogFleshRingVertices, Log,
-                    TEXT("RegisterAffectedVertices: Using asset material layer mappings (%d mappings)"),
-                    Asset->MaterialLayerMappings.Num());
-            }
+            UE_LOG(LogFleshRingVertices, Error,
+                TEXT("RegisterAffectedVertices: Failed to extract mesh vertices"));
+            return false;
         }
-    }
 
-    // 에셋 매핑이 없으면 키워드 기반 자동 감지 폴백
-    if (!bUsedAssetMapping)
-    {
-        if (!FleshRingLayerUtils::BuildVertexLayerTypes(SkeletalMesh, LODIndex, VertexLayerTypes))
+        // Build Spatial Hash for O(1) vertex queries
+        // O(1) 버텍스 쿼리를 위한 Spatial Hash 빌드
+        VertexSpatialHash.Build(CachedMeshVertices);
+
+        // Extract mesh indices for adjacency data (Normal recomputation)
+        // 인접 데이터용 메시 인덱스 추출 (노멀 재계산용)
+        CachedMeshIndices.Reset();
+        if (!ExtractMeshIndices(SkeletalMesh, CachedMeshIndices, LODIndex))
         {
             UE_LOG(LogFleshRingVertices, Warning,
-                TEXT("RegisterAffectedVertices: Failed to build vertex layer types, using Unknown for all"));
-            VertexLayerTypes.SetNum(MeshVertices.Num());
-            for (int32 i = 0; i < MeshVertices.Num(); ++i)
+                TEXT("RegisterAffectedVertices: Failed to extract mesh indices, Normal recomputation will be disabled"));
+        }
+
+        // Build per-vertex layer types
+        // 버텍스별 레이어 타입 빌드
+        bool bUsedAssetMapping = false;
+
+        // 에셋에서 매핑 가져오기
+        if (Component->FleshRingAsset->MaterialLayerMappings.Num() > 0)
+        {
+            const UFleshRingAsset* Asset = Component->FleshRingAsset;
+
+            // 섹션별로 레이어 타입 할당
+            USkeletalMesh* Mesh = SkeletalMesh->GetSkeletalMeshAsset();
+            if (Mesh)
             {
-                VertexLayerTypes[i] = EFleshRingLayerType::Unknown;
+                const FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
+                if (RenderData && LODIndex < RenderData->LODRenderData.Num())
+                {
+                    const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[LODIndex];
+                    const int32 NumVertices = static_cast<int32>(LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices());
+
+                    CachedVertexLayerTypes.SetNum(NumVertices);
+                    for (int32 i = 0; i < NumVertices; ++i)
+                    {
+                        CachedVertexLayerTypes[i] = EFleshRingLayerType::Unknown;
+                    }
+
+                    // 각 섹션의 머티리얼 슬롯에서 레이어 타입 가져오기
+                    for (int32 SectionIdx = 0; SectionIdx < LODData.RenderSections.Num(); ++SectionIdx)
+                    {
+                        const FSkelMeshRenderSection& Section = LODData.RenderSections[SectionIdx];
+                        const int32 MaterialSlotIndex = static_cast<int32>(Section.MaterialIndex);
+
+                        // 에셋에서 이 머티리얼 슬롯의 레이어 타입 조회
+                        EFleshRingLayerType LayerType = Asset->GetLayerTypeForMaterialSlot(MaterialSlotIndex);
+
+                        // 섹션의 모든 버텍스에 할당
+                        const int32 BaseVertexIndex = static_cast<int32>(Section.BaseVertexIndex);
+                        const int32 NumSectionVertices = static_cast<int32>(Section.NumVertices);
+
+                        for (int32 i = 0; i < NumSectionVertices; ++i)
+                        {
+                            const int32 VertexIndex = BaseVertexIndex + i;
+                            if (VertexIndex < NumVertices)
+                            {
+                                CachedVertexLayerTypes[VertexIndex] = LayerType;
+                            }
+                        }
+                    }
+
+                    bUsedAssetMapping = true;
+                }
             }
         }
-        else
+
+        // 에셋 매핑이 없으면 키워드 기반 자동 감지 폴백
+        if (!bUsedAssetMapping)
         {
-            UE_LOG(LogFleshRingVertices, Log,
-                TEXT("RegisterAffectedVertices: Using keyword-based layer detection (no asset mappings)"));
+            if (!FleshRingLayerUtils::BuildVertexLayerTypes(SkeletalMesh, LODIndex, CachedVertexLayerTypes))
+            {
+                CachedVertexLayerTypes.SetNum(CachedMeshVertices.Num());
+                for (int32 i = 0; i < CachedMeshVertices.Num(); ++i)
+                {
+                    CachedVertexLayerTypes[i] = EFleshRingLayerType::Unknown;
+                }
+            }
         }
+
+        bMeshDataCached = true;
+        UE_LOG(LogFleshRingVertices, Log,
+            TEXT("RegisterAffectedVertices: Cached mesh data (%d vertices, %d indices, SpatialHash built)"),
+            CachedMeshVertices.Num(), CachedMeshIndices.Num());
     }
+
+    // 로컬 참조용 (이후 코드와 호환)
+    const TArray<FVector3f>& MeshVertices = CachedMeshVertices;
+    const TArray<EFleshRingLayerType>& VertexLayerTypes = CachedVertexLayerTypes;
 
     // Process each Ring
     // 각 링 처리
@@ -923,10 +919,13 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         {
             BuildAdjacencyData(RingData, CachedMeshIndices);
 
-            // Build Laplacian adjacency data for smoothing
+            // Build Laplacian adjacency data for smoothing (조건부: 스무딩 활성화 시에만)
             // 스무딩용 라플라시안 인접 데이터 빌드
             // 개선: 같은 레이어의 이웃만 포함하여 레이어 경계 혼합 방지
-            BuildLaplacianAdjacencyData(RingData, CachedMeshIndices, MeshVertices, VertexLayerTypes);
+            if (RingSettings.bEnableLaplacianSmoothing)
+            {
+                BuildLaplacianAdjacencyData(RingData, CachedMeshIndices, MeshVertices, VertexLayerTypes);
+            }
         }
 
         UE_LOG(LogFleshRingVertices, Log,

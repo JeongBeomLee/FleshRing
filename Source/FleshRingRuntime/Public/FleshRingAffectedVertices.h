@@ -713,6 +713,24 @@ private:
     TArray<uint32> CachedMeshIndices;
 
     /**
+     * Cached mesh vertices (bind pose, immutable)
+     * 캐시된 메시 버텍스 (바인드 포즈, 불변)
+     */
+    TArray<FVector3f> CachedMeshVertices;
+
+    /**
+     * Cached vertex layer types (material-based, immutable)
+     * 캐시된 버텍스 레이어 타입 (머티리얼 기반, 불변)
+     */
+    TArray<EFleshRingLayerType> CachedVertexLayerTypes;
+
+    /**
+     * Flag indicating mesh data is cached (skip re-extraction on update)
+     * 메시 데이터 캐시 여부 (업데이트 시 재추출 스킵)
+     */
+    bool bMeshDataCached = false;
+
+    /**
      * Spatial hash for O(1) vertex query
      * O(1) 버텍스 쿼리를 위한 공간 해시 (브루트포스 O(n) 대체)
      */
