@@ -36,8 +36,11 @@ public:
 	virtual EMeshDeformerOutputBuffer GetOutputBuffers() const override;
 	virtual UMeshDeformerInstance* GetInstanceForSourceDeformer() override { return this; }
 
-	/** TightenedBindPose 캐시 무효화 (트랜스폼 변경 시 재계산 트리거) */
-	void InvalidateTightnessCache();
+	/**
+	 * TightenedBindPose 캐시 무효화 (트랜스폼 변경 시 재계산 트리거)
+	 * @param DirtyRingIndex - 특정 Ring만 무효화 (INDEX_NONE이면 전체 무효화)
+	 */
+	void InvalidateTightnessCache(int32 DirtyRingIndex = INDEX_NONE);
 
 #if WITH_EDITORONLY_DATA
 	virtual bool RequestReadbackDeformerGeometry(TUniquePtr<FMeshDeformerGeometryReadbackRequest> InRequest) override { return false; }

@@ -721,7 +721,7 @@ EMeshDeformerOutputBuffer UFleshRingDeformerInstance::GetOutputBuffers() const
 	return EMeshDeformerOutputBuffer::SkinnedMeshPosition | EMeshDeformerOutputBuffer::SkinnedMeshTangents;
 }
 
-void UFleshRingDeformerInstance::InvalidateTightnessCache()
+void UFleshRingDeformerInstance::InvalidateTightnessCache(int32 DirtyRingIndex)
 {
     // 1. AffectedVertices 재등록 (Ring 트랜스폼 변경 시 영향받는 정점이 달라질 수 있음)
     if (FleshRingComponent.IsValid())
@@ -731,6 +731,19 @@ void UFleshRingDeformerInstance::InvalidateTightnessCache()
         {
             for (int32 LODIndex = 0; LODIndex < NumLODs; ++LODIndex)
             {
+                // Dirty Flag 설정: 특정 Ring만 또는 전체
+                if (DirtyRingIndex == INDEX_NONE)
+                {
+                    // 전체 무효화
+                    LODData[LODIndex].AffectedVerticesManager.MarkAllRingsDirty();
+                }
+                else
+                {
+                    // 특정 Ring만 무효화
+                    LODData[LODIndex].AffectedVerticesManager.MarkRingDirty(DirtyRingIndex);
+                }
+
+                // RegisterAffectedVertices는 dirty한 Ring만 처리함
                 LODData[LODIndex].bAffectedVerticesRegistered =
                     LODData[LODIndex].AffectedVerticesManager.RegisterAffectedVertices(
                         FleshRingComponent.Get(), SkelMesh, LODIndex);
@@ -745,5 +758,12 @@ void UFleshRingDeformerInstance::InvalidateTightnessCache()
         Data.bTightenedBindPoseCached = false;
     }
 
-    UE_LOG(LogFleshRing, Log, TEXT("AffectedVertices re-registered and TightnessCache invalidated for all LODs"));
+    if (DirtyRingIndex == INDEX_NONE)
+    {
+        UE_LOG(LogFleshRing, Log, TEXT("TightnessCache invalidated for ALL rings"));
+    }
+    else
+    {
+        UE_LOG(LogFleshRing, Log, TEXT("TightnessCache invalidated for Ring[%d] only"), DirtyRingIndex);
+    }
 }

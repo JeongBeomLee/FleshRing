@@ -760,13 +760,32 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
     const TArray<FVector3f>& MeshVertices = CachedMeshVertices;
     const TArray<EFleshRingLayerType>& VertexLayerTypes = CachedVertexLayerTypes;
 
+    // ================================================================
+    // Dirty Flag 시스템 초기화
+    // Initialize dirty flag system
+    // ================================================================
+    const int32 NumRings = Rings.Num();
+
+    // 링 개수가 변경되었거나 첫 빌드인 경우 배열 재초기화
+    if (RingDataArray.Num() != NumRings || RingDirtyFlags.Num() != NumRings)
+    {
+        RingDataArray.SetNum(NumRings);
+        RingDirtyFlags.Init(true, NumRings);  // 모든 링 dirty로 초기화
+        UE_LOG(LogFleshRingVertices, Log, TEXT("RegisterAffectedVertices: Initialized %d rings (all dirty)"), NumRings);
+    }
+
     // Process each Ring
     // 각 링 처리
-    RingDataArray.Reserve(Rings.Num());
-
-    for (int32 RingIdx = 0; RingIdx < Rings.Num(); ++RingIdx)
+    for (int32 RingIdx = 0; RingIdx < NumRings; ++RingIdx)
     {
         const FFleshRingSettings& RingSettings = Rings[RingIdx];
+
+        // ===== Dirty Flag 체크: Clean한 링은 스킵 =====
+        if (!RingDirtyFlags[RingIdx])
+        {
+            // 이미 유효한 데이터가 있고 변경되지 않음 - 스킵
+            continue;
+        }
 
         // Skip Rings without valid bone
         // 유효한 본이 없는 링은 건너뜀
@@ -774,6 +793,7 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         {
             UE_LOG(LogFleshRingVertices, Warning,
                 TEXT("Ring[%d]: Skipping - no bone assigned"), RingIdx);
+            RingDirtyFlags[RingIdx] = false;  // 처리 완료로 표시
             continue;
         }
 
@@ -784,6 +804,7 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         {
             UE_LOG(LogFleshRingVertices, Warning,
                 TEXT("Ring[%d]: Bone '%s' not found"), RingIdx, *RingSettings.BoneName.ToString());
+            RingDirtyFlags[RingIdx] = false;  // 에러지만 처리 완료로 표시
             continue;
         }
 
@@ -794,6 +815,7 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         {
             UE_LOG(LogFleshRingVertices, Warning,
                 TEXT("Ring[%d]: SkeletalMesh asset is null"), RingIdx);
+            RingDirtyFlags[RingIdx] = false;  // 에러지만 처리 완료로 표시
             continue;
         }
 
@@ -933,12 +955,24 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             RingIdx, *RingSettings.BoneName.ToString(),
             RingData.Vertices.Num(), RingData.AdjacencyTriangles.Num(), RingData.LaplacianAdjacencyData.Num());
 
-        RingDataArray.Add(MoveTemp(RingData));
+        // 인덱스 기반 할당 (Add 대신) + dirty flag 클리어
+        RingDataArray[RingIdx] = MoveTemp(RingData);
+        RingDirtyFlags[RingIdx] = false;
+    }
+
+    // 실제 처리된 ring 수 계산
+    int32 ProcessedCount = 0;
+    for (int32 i = 0; i < NumRings; ++i)
+    {
+        if (!RingDirtyFlags[i])
+        {
+            ProcessedCount++;
+        }
     }
 
     UE_LOG(LogFleshRingVertices, Log,
-        TEXT("RegisterAffectedVertices: Complete. Total affected: %d"),
-        GetTotalAffectedCount());
+        TEXT("RegisterAffectedVertices: Complete. Total affected: %d, Processed rings: %d/%d"),
+        GetTotalAffectedCount(), ProcessedCount, NumRings);
 
     return true;
 }
@@ -965,6 +999,36 @@ int32 FFleshRingAffectedVerticesManager::GetTotalAffectedCount() const
         Total += RingData.Vertices.Num();
     }
     return Total;
+}
+
+// ============================================================================
+// Per-Ring Dirty Flag System - Ring별 재빌드 필요 여부 관리
+// ============================================================================
+
+void FFleshRingAffectedVerticesManager::MarkRingDirty(int32 RingIndex)
+{
+    if (RingDirtyFlags.IsValidIndex(RingIndex))
+    {
+        RingDirtyFlags[RingIndex] = true;
+    }
+}
+
+void FFleshRingAffectedVerticesManager::MarkAllRingsDirty()
+{
+    for (int32 i = 0; i < RingDirtyFlags.Num(); ++i)
+    {
+        RingDirtyFlags[i] = true;
+    }
+}
+
+bool FFleshRingAffectedVerticesManager::IsRingDirty(int32 RingIndex) const
+{
+    if (RingDirtyFlags.IsValidIndex(RingIndex))
+    {
+        return RingDirtyFlags[RingIndex];
+    }
+    // 플래그가 없으면 dirty로 간주 (첫 빌드)
+    return true;
 }
 
 // ============================================================================

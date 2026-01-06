@@ -687,6 +687,27 @@ public:
      */
     int32 GetTotalAffectedCount() const;
 
+    // ===== Per-Ring Dirty Flag System =====
+    // Ring별 Dirty 플래그 시스템 (불필요한 재빌드 방지)
+
+    /**
+     * Mark a specific ring as dirty (needs rebuild)
+     * 특정 링을 dirty로 표시 (재빌드 필요)
+     */
+    void MarkRingDirty(int32 RingIndex);
+
+    /**
+     * Mark all rings as dirty
+     * 모든 링을 dirty로 표시
+     */
+    void MarkAllRingsDirty();
+
+    /**
+     * Check if a ring is dirty
+     * 링이 dirty인지 확인
+     */
+    bool IsRingDirty(int32 RingIndex) const;
+
     /**
      * Get cached mesh indices for Normal recomputation
      * 노멀 재계산용 캐시된 메시 인덱스 반환
@@ -735,6 +756,12 @@ private:
      * O(1) 버텍스 쿼리를 위한 공간 해시 (브루트포스 O(n) 대체)
      */
     FVertexSpatialHash VertexSpatialHash;
+
+    /**
+     * Per-Ring dirty flags (true = needs rebuild)
+     * Ring별 dirty 플래그 (true = 재빌드 필요)
+     */
+    TArray<bool> RingDirtyFlags;
 
     /**
      * Extract vertices from skeletal mesh at specific LOD
