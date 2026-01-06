@@ -234,11 +234,6 @@ void UFleshRingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 	// 디버그 시각화
 	DrawDebugVisualization();
 #endif
-
-#if WITH_EDITOR
-	// 디버그 시각화
-	DrawDebugVisualization();
-#endif
 }
 
 void UFleshRingComponent::ResolveTargetMesh()
