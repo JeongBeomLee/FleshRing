@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "FleshRingSettingsCustomization.h"
 #include "DetailLayoutBuilder.h"
@@ -395,27 +395,25 @@ void FFleshRingSettingsCustomization::CustomizeHeader(
 
 	HeaderRow.WholeRowContent()
 	[
-		SNew(SHorizontalBox)
-		// 클릭 가능한 메인 영역
-		+ SHorizontalBox::Slot()
-		.FillWidth(1.0f)
+		SNew(SClickableRowButton)
+		.OnClicked(FSimpleDelegate::CreateRaw(this, &FFleshRingSettingsCustomization::OnHeaderClickedVoid))
+		.OnDoubleClicked(FSimpleDelegate::CreateLambda([this]() {
+			if (RingNameWidget.IsValid())
+			{
+				RingNameWidget->EnterEditingMode();
+			}
+		}))
+		.ToolTipText(TooltipText)
 		[
-			SNew(SClickableRowButton)
-			.OnClicked(FSimpleDelegate::CreateRaw(this, &FFleshRingSettingsCustomization::OnHeaderClickedVoid))
-			.OnDoubleClicked(FSimpleDelegate::CreateLambda([this]() {
-				if (RingNameWidget.IsValid())
-				{
-					RingNameWidget->EnterEditingMode();
-				}
-			}))
-			.ToolTipText(TooltipText)
+			SNew(SHorizontalBox)
+			// 좌측 열: Ring 이름 (35%, 클리핑 적용)
+			+ SHorizontalBox::Slot()
+			.FillWidth(0.35f)
+			.VAlign(VAlign_Center)
+			.Padding(0, 0, 16, 0)  // Ring 이름과 Bone 이름 사이 간격
 			[
-				SNew(SHorizontalBox)
-				// Ring 이름 (인라인 편집 가능)
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.VAlign(VAlign_Center)
-				.Padding(FMargin(0, 0, 8, 0))
+				SNew(SBox)
+				.Clipping(EWidgetClipping::ClipToBounds)
 				[
 					SAssignNew(RingNameWidget, SRingNameWidget)
 					.InitialText(GetDisplayRingName(CachedArrayIndex))
@@ -425,7 +423,14 @@ void FFleshRingSettingsCustomization::CustomizeHeader(
 					.OnClicked(FSimpleDelegate::CreateRaw(this, &FFleshRingSettingsCustomization::OnHeaderClickedVoid))
 					.OnTextCommitted(this, &FFleshRingSettingsCustomization::OnRingNameCommitted)
 				]
-				// Bone 이름 (서브 정보)
+			]
+			// 우측 열: Bone 이름 + 버튼 (65%)
+			+ SHorizontalBox::Slot()
+			.FillWidth(0.65f)
+			.VAlign(VAlign_Center)
+			[
+				SNew(SHorizontalBox)
+				// Bone 이름
 				+ SHorizontalBox::Slot()
 				.FillWidth(1.0f)
 				.VAlign(VAlign_Center)
@@ -435,78 +440,78 @@ void FFleshRingSettingsCustomization::CustomizeHeader(
 					.Font(IDetailLayoutBuilder::GetDetailFont())
 					.ColorAndOpacity(FSlateColor::UseSubduedForeground())
 				]
-			]
-		]
-		// 삽입 버튼
-		+ SHorizontalBox::Slot()
-		.AutoWidth()
-		.VAlign(VAlign_Center)
-		.Padding(2, 0)
-		[
-			SNew(SButton)
-			.ButtonStyle(FAppStyle::Get(), "SimpleButton")
-			.OnClicked_Lambda([PropHandleRef]() -> FReply {
-				if (TSharedPtr<IPropertyHandleArray> ArrayHandle = PropHandleRef->GetParentHandle()->AsArray())
-				{
-					int32 Index = PropHandleRef->GetIndexInArray();
-					ArrayHandle->Insert(Index);
-				}
-				return FReply::Handled();
-			})
-			.ToolTipText(LOCTEXT("InsertTooltip", "Insert"))
-			.ContentPadding(2)
-			[
-				SNew(SImage)
-				.Image(FAppStyle::GetBrush("Icons.PlusCircle"))
-				.ColorAndOpacity(FSlateColor::UseForeground())
-			]
-		]
-		// 복제 버튼
-		+ SHorizontalBox::Slot()
-		.AutoWidth()
-		.VAlign(VAlign_Center)
-		.Padding(2, 0)
-		[
-			SNew(SButton)
-			.ButtonStyle(FAppStyle::Get(), "SimpleButton")
-			.OnClicked_Lambda([PropHandleRef]() -> FReply {
-				if (TSharedPtr<IPropertyHandleArray> ArrayHandle = PropHandleRef->GetParentHandle()->AsArray())
-				{
-					int32 Index = PropHandleRef->GetIndexInArray();
-					ArrayHandle->DuplicateItem(Index);
-				}
-				return FReply::Handled();
-			})
-			.ToolTipText(LOCTEXT("DuplicateTooltip", "Duplicate"))
-			.ContentPadding(2)
-			[
-				SNew(SImage)
-				.Image(FAppStyle::GetBrush("Icons.Duplicate"))
-				.ColorAndOpacity(FSlateColor::UseForeground())
-			]
-		]
-		// 삭제 버튼
-		+ SHorizontalBox::Slot()
-		.AutoWidth()
-		.VAlign(VAlign_Center)
-		.Padding(2, 0)
-		[
-			SNew(SButton)
-			.ButtonStyle(FAppStyle::Get(), "SimpleButton")
-			.OnClicked_Lambda([PropHandleRef]() -> FReply {
-				if (TSharedPtr<IPropertyHandleArray> ArrayHandle = PropHandleRef->GetParentHandle()->AsArray())
-				{
-					int32 Index = PropHandleRef->GetIndexInArray();
-					ArrayHandle->DeleteItem(Index);
-				}
-				return FReply::Handled();
-			})
-			.ToolTipText(LOCTEXT("DeleteTooltip", "Delete"))
-			.ContentPadding(2)
-			[
-				SNew(SImage)
-				.Image(FAppStyle::GetBrush("Icons.Delete"))
-				.ColorAndOpacity(FSlateColor::UseForeground())
+				// 삽입 버튼
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				.Padding(2, 0)
+				[
+					SNew(SButton)
+					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+					.OnClicked_Lambda([PropHandleRef]() -> FReply {
+						if (TSharedPtr<IPropertyHandleArray> ArrayHandle = PropHandleRef->GetParentHandle()->AsArray())
+						{
+							int32 Index = PropHandleRef->GetIndexInArray();
+							ArrayHandle->Insert(Index);
+						}
+						return FReply::Handled();
+					})
+					.ToolTipText(LOCTEXT("InsertTooltip", "Insert"))
+					.ContentPadding(2)
+					[
+						SNew(SImage)
+						.Image(FAppStyle::GetBrush("Icons.PlusCircle"))
+						.ColorAndOpacity(FSlateColor::UseForeground())
+					]
+				]
+				// 복제 버튼
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				.Padding(2, 0)
+				[
+					SNew(SButton)
+					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+					.OnClicked_Lambda([PropHandleRef]() -> FReply {
+						if (TSharedPtr<IPropertyHandleArray> ArrayHandle = PropHandleRef->GetParentHandle()->AsArray())
+						{
+							int32 Index = PropHandleRef->GetIndexInArray();
+							ArrayHandle->DuplicateItem(Index);
+						}
+						return FReply::Handled();
+					})
+					.ToolTipText(LOCTEXT("DuplicateTooltip", "Duplicate"))
+					.ContentPadding(2)
+					[
+						SNew(SImage)
+						.Image(FAppStyle::GetBrush("Icons.Duplicate"))
+						.ColorAndOpacity(FSlateColor::UseForeground())
+					]
+				]
+				// 삭제 버튼
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				.Padding(2, 0)
+				[
+					SNew(SButton)
+					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+					.OnClicked_Lambda([PropHandleRef]() -> FReply {
+						if (TSharedPtr<IPropertyHandleArray> ArrayHandle = PropHandleRef->GetParentHandle()->AsArray())
+						{
+							int32 Index = PropHandleRef->GetIndexInArray();
+							ArrayHandle->DeleteItem(Index);
+						}
+						return FReply::Handled();
+					})
+					.ToolTipText(LOCTEXT("DeleteTooltip", "Delete"))
+					.ContentPadding(2)
+					[
+						SNew(SImage)
+						.Image(FAppStyle::GetBrush("Icons.Delete"))
+						.ColorAndOpacity(FSlateColor::UseForeground())
+					]
+				]
 			]
 		]
 	];

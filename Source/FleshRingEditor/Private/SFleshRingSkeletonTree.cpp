@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "SFleshRingSkeletonTree.h"
 #include "FleshRingAsset.h"
@@ -141,7 +141,7 @@ public:
 					]
 					// 이름
 					+ SHorizontalBox::Slot()
-					.FillWidth(1.0f)
+					.AutoWidth()
 					.VAlign(VAlign_Center)
 					[
 						NameWidget
