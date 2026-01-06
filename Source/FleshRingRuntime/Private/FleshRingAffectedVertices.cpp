@@ -42,10 +42,25 @@ void FDistanceBasedVertexSelector::SelectVertices(
     if (bUseOBB)
     {
         // ===== OBB 기반 버텍스 선택 (GPU SDF와 정확히 일치) =====
+        // 비균등 스케일 + 회전 조합에서 InverseTransformPosition 사용 필수!
+        // Inverse().TransformPosition()은 스케일과 회전 순서가 잘못됨
         const FTransform& LocalToComponent = Context.SDFCache->LocalToComponent;
-        const FTransform ComponentToLocal = LocalToComponent.Inverse();
         const FVector BoundsMin = FVector(Context.SDFCache->BoundsMin);
         const FVector BoundsMax = FVector(Context.SDFCache->BoundsMax);
+
+        // [디버그] OBB 변환 정보 로그 (스케일 확인용)
+        UE_LOG(LogFleshRingVertices, Log,
+            TEXT("OBB SelectVertices: Ring[%d] LocalToComponent Scale=%s, Rot=%s, Trans=%s"),
+            Context.RingIndex,
+            *LocalToComponent.GetScale3D().ToString(),
+            *LocalToComponent.GetRotation().Rotator().ToString(),
+            *LocalToComponent.GetLocation().ToString());
+        UE_LOG(LogFleshRingVertices, Log,
+            TEXT("OBB SelectVertices: Ring[%d] LocalBounds Min=%s, Max=%s, Size=%s"),
+            Context.RingIndex,
+            *BoundsMin.ToString(),
+            *BoundsMax.ToString(),
+            *(BoundsMax - BoundsMin).ToString());
 
         // Influence 계산용 파라미터 (로컬 스페이스 기준, 스케일 미적용)
         const float RingRadius = Ring.RingRadius;
@@ -56,8 +71,9 @@ void FDistanceBasedVertexSelector::SelectVertices(
         {
             const FVector VertexPos = FVector(AllVertices[VertexIdx]);
 
-            // 컴포넌트 스페이스 → 링 로컬 스페이스로 변환
-            const FVector LocalPos = ComponentToLocal.TransformPosition(VertexPos);
+            // Component Space → Local Space 변환
+            // InverseTransformPosition: (Rot^-1 * (V - Trans)) / Scale (올바른 순서)
+            const FVector LocalPos = LocalToComponent.InverseTransformPosition(VertexPos);
 
             // OBB 경계 체크 (SDF 볼륨 내부인지 확인)
             if (LocalPos.X < BoundsMin.X || LocalPos.X > BoundsMax.X ||
@@ -92,8 +108,11 @@ void FDistanceBasedVertexSelector::SelectVertices(
     else
     {
         // ===== Fallback: 원통형 모델 (SDFCache 없을 때) =====
-        const FVector RingCenter = BoneTransform.GetLocation();
-        const FQuat WorldMeshRotation = BoneTransform.GetRotation() * FQuat(Ring.MeshRotation);
+        // MeshOffset을 본 회전에 맞게 변환 후 적용
+        const FQuat BoneRotation = BoneTransform.GetRotation();
+        const FVector WorldMeshOffset = BoneRotation.RotateVector(Ring.MeshOffset);
+        const FVector RingCenter = BoneTransform.GetLocation() + WorldMeshOffset;
+        const FQuat WorldMeshRotation = BoneRotation * FQuat(Ring.MeshRotation);
         const FVector RingAxis = WorldMeshRotation.RotateVector(FVector::ZAxisVector);
 
         const float RadialScale = (Ring.MeshScale.X + Ring.MeshScale.Y) * 0.5f;
@@ -194,13 +213,21 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
     }
 
     // OBB 변환: Component Space → Local Space
-    // LocalToComponent의 역변환으로 버텍스를 로컬 스페이스로 변환 후 비교
+    // 비균등 스케일 + 회전 조합에서 InverseTransformPosition 사용 필수!
+    // Inverse().TransformPosition()은 스케일과 회전 순서가 잘못됨
     const FTransform& LocalToComponent = Context.SDFCache->LocalToComponent;
-    const FTransform ComponentToLocal = LocalToComponent.Inverse();
 
     const FVector BoundsMin = FVector(Context.SDFCache->BoundsMin);
     const FVector BoundsMax = FVector(Context.SDFCache->BoundsMax);
     const TArray<FVector3f>& AllVertices = Context.AllVertices;
+
+    // [디버그] LocalToComponent 변환 정보 로그 (스케일 확인용)
+    UE_LOG(LogFleshRingVertices, Log,
+        TEXT("SDFBoundsSelector: Ring[%d] LocalToComponent Scale=%s, Rot=%s, Trans=%s"),
+        Context.RingIndex,
+        *LocalToComponent.GetScale3D().ToString(),
+        *LocalToComponent.GetRotation().Rotator().ToString(),
+        *LocalToComponent.GetLocation().ToString());
 
     // Reserve estimated capacity
     // 예상 용량 확보
@@ -213,7 +240,8 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
         const FVector VertexPos = FVector(AllVertices[VertexIdx]);
 
         // Component Space → Local Space 변환
-        const FVector LocalPos = ComponentToLocal.TransformPosition(VertexPos);
+        // InverseTransformPosition: (Rot^-1 * (V - Trans)) / Scale (올바른 순서)
+        const FVector LocalPos = LocalToComponent.InverseTransformPosition(VertexPos);
 
         // Local Space에서 AABB 포함 테스트
         if (LocalPos.X >= BoundsMin.X && LocalPos.X <= BoundsMax.X &&

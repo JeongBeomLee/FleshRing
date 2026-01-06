@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "FleshRingComponent.h"
 #include "FleshRingAsset.h"
@@ -1168,7 +1168,7 @@ void UFleshRingComponent::DrawAffectedVertices(int32 RingIndex)
 
 		// 점 그리기 (크기 = Influence에 비례)
 		float PointSize = 2.0f + Influence * 6.0f; // 2~8 범위
-		DrawDebugPoint(World, WorldPos, PointSize, PointColor, false, -1.0f, 0);
+		DrawDebugPoint(World, WorldPos, PointSize, PointColor, false, -1.0f, SDPG_Foreground);
 	}
 
 	// 화면에 정보 표시
