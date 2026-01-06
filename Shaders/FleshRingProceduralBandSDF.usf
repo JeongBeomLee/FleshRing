@@ -1,0 +1,233 @@
+// ============================================================================
+// FleshRingProceduralBandSDF.usf - Mathematical SDF for ProceduralBand
+// ============================================================================
+// Purpose: Generate exact SDF using mathematical formulas instead of ray casting
+//          Ray casting 대신 수학 공식으로 정확한 SDF 생성
+//
+// Advantages over Ray Casting:
+//   1. Exact: No numerical issues from ray-triangle intersection
+//   2. Fast: O(1) per voxel instead of O(triangles)
+//   3. Consistent: No issues with asymmetric geometry or multiple intersections
+//   4. No flood fill needed: Hole interior is directly computed as negative
+//
+// SDF Semantics (matches flood-fill post-processed output):
+//   - SDF < 0 (blue): Inside hole - flesh is safe here, no deformation
+//   - SDF = 0 (black): On tube surface - boundary
+//   - SDF > 0 (red): Outside tube - flesh should be pushed into hole
+//
+// ============================================================================
+
+#include "/Engine/Public/Platform.ush"
+
+// ============================================================================
+// Output
+// ============================================================================
+
+RWTexture3D<float> OutputSDF;
+
+// ============================================================================
+// SDF Volume Parameters
+// ============================================================================
+
+float3 SDFBoundsMin;
+float3 SDFBoundsMax;
+int3 SDFResolution;
+
+// ============================================================================
+// ProceduralBand Parameters
+// ============================================================================
+
+// Band section (middle)
+float BandRadius;
+float BandThickness;
+float BandHeight;
+
+// Lower section (bottom, larger radius typically)
+float LowerRadius;
+float LowerHeight;
+
+// Upper section (top)
+float UpperRadius;
+float UpperHeight;
+
+// ============================================================================
+// Helper: Get Inner/Outer Radii at Given Z Height
+// ============================================================================
+// ProceduralBand structure (Z increases upward):
+//
+//   Z = TotalHeight  ─┬─ Upper end (UpperRadius)
+//                     │  Upper section (linear interpolation)
+//   Z = LowerH+BandH ─┼─ Band-Upper boundary (BandRadius)
+//                     │  Band section (constant BandRadius)
+//   Z = LowerHeight  ─┼─ Lower-Band boundary (BandRadius)
+//                     │  Lower section (linear interpolation)
+//   Z = 0            ─┴─ Lower end (LowerRadius)
+//
+// ============================================================================
+
+void GetRadiiAtHeight(float Z, out float OuterRadius, out float InnerRadius)
+{
+    float TotalHeight = LowerHeight + BandHeight + UpperHeight;
+
+    // Height가 0이면 해당 섹션 비활성화 (BandRadius 사용)
+    // LowerHeight=0 → Lower 섹션 없음, Z=0에서 BandRadius 사용
+    // UpperHeight=0 → Upper 섹션 없음, Z=TotalHeight에서 BandRadius 사용
+    const float HeightEpsilon = 0.0001f;
+    const bool bHasLowerSection = (LowerHeight > HeightEpsilon);
+    const bool bHasUpperSection = (UpperHeight > HeightEpsilon);
+
+    if (Z <= 0.0f)
+    {
+        // At or below bottom
+        // LowerHeight가 0이면 Lower 섹션이 없음 → BandRadius 사용
+        OuterRadius = bHasLowerSection ? LowerRadius : BandRadius;
+    }
+    else if (bHasLowerSection && Z < LowerHeight)
+    {
+        // Lower section: interpolate from LowerRadius to BandRadius
+        float t = Z / LowerHeight;
+        OuterRadius = lerp(LowerRadius, BandRadius, t);
+    }
+    else if (Z < LowerHeight + BandHeight)
+    {
+        // Band section: constant BandRadius
+        OuterRadius = BandRadius;
+    }
+    else if (bHasUpperSection && Z < TotalHeight)
+    {
+        // Upper section: interpolate from BandRadius to UpperRadius
+        float t = (Z - LowerHeight - BandHeight) / UpperHeight;
+        OuterRadius = lerp(BandRadius, UpperRadius, t);
+    }
+    else
+    {
+        // At or above top
+        // UpperHeight가 0이면 Upper 섹션이 없음 → BandRadius 사용
+        OuterRadius = bHasUpperSection ? UpperRadius : BandRadius;
+    }
+
+    // Inner radius is always Outer - Thickness
+    InnerRadius = OuterRadius - BandThickness;
+}
+
+// ============================================================================
+// Compute SDF for a Point in Local Space
+// ============================================================================
+// Returns:
+//   Negative: Inside the hole (safe zone for flesh)
+//   Zero: On tube surface (boundary)
+//   Positive: Outside the tube (needs to be pushed in)
+// ============================================================================
+
+float ComputeProceduralBandSDF(float3 LocalPos)
+{
+    float radialDist = length(LocalPos.xy);
+    float z = LocalPos.z;
+    float TotalHeight = LowerHeight + BandHeight + UpperHeight;
+
+    // Get radii at this Z (clamped to valid range for radius calculation)
+    float clampedZ = clamp(z, 0.0f, TotalHeight);
+    float outerRadius, innerRadius;
+    GetRadiiAtHeight(clampedZ, outerRadius, innerRadius);
+
+    // ========================================
+    // Region Classification
+    // ========================================
+
+    bool withinZBounds = (z >= 0.0f && z <= TotalHeight);
+    bool insideHoleRadially = (radialDist < innerRadius);
+    bool insideTubeWall = (radialDist >= innerRadius && radialDist <= outerRadius);
+    bool outsideRadially = (radialDist > outerRadius);
+
+    // ========================================
+    // Case 1: Inside the Hole
+    // ========================================
+    // Condition: radialDist < innerRadius AND within Z bounds
+    // Result: Negative SDF (safe zone for flesh)
+
+    if (insideHoleRadially && withinZBounds)
+    {
+        // Distance to inner wall (how far inside the hole)
+        float distToInnerWall = innerRadius - radialDist;
+        return -distToInnerWall;  // NEGATIVE
+    }
+
+    // ========================================
+    // Case 2: Inside the Tube Wall
+    // ========================================
+    // Condition: innerRadius <= radialDist <= outerRadius AND within Z bounds
+    // Result: Zero (on the ring surface/boundary)
+
+    if (insideTubeWall && withinZBounds)
+    {
+        // We could compute distance to nearest surface (inner or outer)
+        // but for simplicity, treat tube wall as boundary = 0
+        return 0.0f;
+    }
+
+    // ========================================
+    // Case 3: Outside - Compute Positive Distance
+    // ========================================
+
+    // Distance outside the outer cylinder (radially)
+    float radialOutside = 0.0f;
+    if (outsideRadially)
+    {
+        radialOutside = radialDist - outerRadius;
+    }
+
+    // Distance outside Z bounds
+    float zOutside = 0.0f;
+    if (z < 0.0f)
+    {
+        zOutside = -z;  // Below bottom
+    }
+    else if (z > TotalHeight)
+    {
+        zOutside = z - TotalHeight;  // Above top
+    }
+
+    // ========================================
+    // Case 3a: Above/Below Hole Opening
+    // ========================================
+    // Inside hole radially but outside Z bounds
+    // Need to enter through the open ends
+
+    if (insideHoleRadially && !withinZBounds)
+    {
+        return zOutside;  // POSITIVE - distance to enter hole
+    }
+
+    // ========================================
+    // Case 3b: Outside Tube (Radially and/or Z)
+    // ========================================
+
+    // Combine radial and Z distances using Euclidean distance
+    if (radialOutside > 0.0f && zOutside > 0.0f)
+    {
+        // Corner case: outside both radially and in Z
+        return sqrt(radialOutside * radialOutside + zOutside * zOutside);
+    }
+
+    // Edge case: outside in one dimension only
+    return max(radialOutside, zOutside);  // POSITIVE
+}
+
+// ============================================================================
+// Main Compute Shader
+// ============================================================================
+
+[numthreads(8, 8, 8)]
+void MainCS(uint3 ThreadId : SV_DispatchThreadID)
+{
+    // Bounds check
+    if (any(ThreadId >= (uint3)SDFResolution))
+        return;
+
+    // Compute voxel center position in local space
+    float3 VoxelUVW = (float3(ThreadId) + 0.5f) / float3(SDFResolution);
+    float3 LocalPos = SDFBoundsMin + VoxelUVW * (SDFBoundsMax - SDFBoundsMin);
+
+    // Compute and store SDF
+    OutputSDF[ThreadId] = ComputeProceduralBandSDF(LocalPos);
+}

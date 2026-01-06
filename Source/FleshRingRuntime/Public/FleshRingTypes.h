@@ -28,7 +28,24 @@ enum class EFleshRingInfluenceMode : uint8
 	Auto	UMETA(DisplayName = "Auto (SDF-based)"),
 
 	/** 수동 Radius 지정 */
-	Manual	UMETA(DisplayName = "Manual")
+	Manual	UMETA(DisplayName = "Manual"),
+
+	/** 프로시저럴 밴드 (스타킹/타이즈용 가상 틀) */
+	ProceduralBand	UMETA(DisplayName = "Procedural Band")
+};
+
+/** SDF 업데이트 모드 */
+UENUM(BlueprintType)
+enum class EFleshRingSdfUpdateMode : uint8
+{
+	/** 매 틱마다 업데이트 */
+	OnTick		UMETA(DisplayName = "On Tick"),
+
+	/** 값 변경 시에만 업데이트 */
+	OnChange	UMETA(DisplayName = "On Change"),
+
+	/** 수동 업데이트 */
+	Manual		UMETA(DisplayName = "Manual")
 };
 
 /** 감쇠 곡선 타입 */
@@ -62,9 +79,235 @@ enum class EBulgeDirectionMode : uint8
 	Negative	UMETA(DisplayName = "Negative (-Z)")
 };
 
+/**
+ * 메시 레이어 타입 (의류 계층 구조)
+ * Material 이름에서 자동 감지되거나 수동 지정 가능
+ * GPU에서 레이어 침투 해결 시 사용
+ */
+UENUM(BlueprintType)
+enum class EFleshRingLayerType : uint8
+{
+	/** 피부/살 레이어 (가장 안쪽, 다른 레이어가 침투하면 밀어냄) */
+	Skin		UMETA(DisplayName = "Skin (Base Layer)"),
+
+	/** 스타킹/타이즈 레이어 (살 바로 위, 항상 살 바깥에 위치) */
+	Stocking	UMETA(DisplayName = "Stocking"),
+
+	/** 속옷 레이어 (스타킹 위) */
+	Underwear	UMETA(DisplayName = "Underwear"),
+
+	/** 외투/겉옷 레이어 (가장 바깥쪽) */
+	Outerwear	UMETA(DisplayName = "Outerwear"),
+
+	/** 알 수 없음 (기본값, 침투 해결에서 제외) */
+	Unknown		UMETA(DisplayName = "Unknown")
+};
+
 // =====================================
 // 구조체 정의
 // =====================================
+
+/**
+ * 머티리얼-레이어 매핑 (침투 해결용)
+ * 각 머티리얼이 어느 레이어에 속하는지 정의
+ * 스타킹이 항상 살 위에 렌더링되도록 보장
+ */
+USTRUCT(BlueprintType)
+struct FLESHRINGRUNTIME_API FMaterialLayerMapping
+{
+	GENERATED_BODY()
+
+	/** 대상 머티리얼 (슬롯 인덱스로 참조) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layer")
+	int32 MaterialSlotIndex = 0;
+
+	/** 머티리얼 슬롯 이름 (표시용, 자동 설정됨) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Layer")
+	FName MaterialSlotName;
+
+	/** 레이어 타입 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layer")
+	EFleshRingLayerType LayerType = EFleshRingLayerType::Unknown;
+
+	FMaterialLayerMapping()
+		: MaterialSlotIndex(0)
+		, MaterialSlotName(NAME_None)
+		, LayerType(EFleshRingLayerType::Unknown)
+	{
+	}
+
+	FMaterialLayerMapping(int32 InSlotIndex, FName InSlotName, EFleshRingLayerType InLayerType)
+		: MaterialSlotIndex(InSlotIndex)
+		, MaterialSlotName(InSlotName)
+		, LayerType(InLayerType)
+	{
+	}
+};
+
+/** SDF 관련 설정 (Ring별) */
+USTRUCT(BlueprintType)
+struct FLESHRINGRUNTIME_API FFleshRingSdfSettings
+{
+	GENERATED_BODY()
+
+	/** SDF 볼륨 해상도 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "16", ClampMax = "128"))
+	int32 Resolution = 64;
+
+	/** JFA 반복 횟수 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "1", ClampMax = "16"))
+	int32 JfaIterations = 8;
+
+	/** 업데이트 모드 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF")
+	EFleshRingSdfUpdateMode UpdateMode = EFleshRingSdfUpdateMode::OnChange;
+
+	/**
+	 * Z축 상단 확장 거리 (절대값, cm)
+	 * 링 위쪽으로 얼마나 확장할지 설정
+	 * 0 = 확장 없음, 5 = 5cm 확장
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "0.0", ClampMax = "50.0", DisplayName = "Z Expand Top (cm)"))
+	float BoundsZTop = 5.0f;
+
+	/**
+	 * Z축 하단 확장 거리 (절대값, cm)
+	 * 링 아래쪽으로 얼마나 확장할지 설정
+	 * 0 = 확장 없음, 5 = 5cm 확장
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "0.0", ClampMax = "50.0", DisplayName = "Z Expand Bottom (cm)"))
+	float BoundsZBottom = 0.0f;
+
+	/**
+	 * [Deprecated] 볼륨 배율 (Z 방향만 확장) - BoundsZTop/Bottom으로 대체됨
+	 * 하위 호환성을 위해 유지. GetMaxBoundsScale()에서 사용.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "1.0", ClampMax = "100.0", DisplayName = "Volume Scale (Legacy)"))
+	float BoundsScale = 1.5f;
+
+	/** 볼륨 배율 반환 (버텍스 선택용) - 새 값들 기반으로 계산 */
+	float GetMaxBoundsScale() const
+	{
+		// BoundsZTop/Bottom이 설정되어 있으면 그 값 기반으로 계산
+		// 그렇지 않으면 레거시 BoundsScale 사용
+		float MaxExpand = FMath::Max(BoundsZTop, BoundsZBottom);
+		if (MaxExpand > 0.01f)
+		{
+			// 대략적인 배율 계산 (정확한 값은 런타임에 BoundsSize.Z 필요)
+			// 여기서는 보수적으로 큰 값 반환
+			return FMath::Max(BoundsScale, 1.0f + MaxExpand / 10.0f);
+		}
+		return BoundsScale;
+	}
+};
+
+// =====================================
+// 프로시저럴 밴드 설정 (스타킹/타이즈용)
+// =====================================
+
+/** 프로시저럴 밴드의 상단/하단 섹션 설정 */
+USTRUCT(BlueprintType)
+struct FLESHRINGRUNTIME_API FProceduralBandSection
+{
+	GENERATED_BODY()
+
+	/** 해당 섹션의 끝단 반경 (BandRadius와의 차이로 경사 결정) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.1"))
+	float Radius = 10.0f;
+
+	/** 해당 섹션의 높이 (경사 구간 길이) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0"))
+	float Height = 2.0f;
+
+	FProceduralBandSection()
+		: Radius(10.0f)
+		, Height(2.0f)
+	{
+	}
+
+	FProceduralBandSection(float InRadius, float InHeight)
+		: Radius(InRadius)
+		, Height(InHeight)
+	{
+	}
+};
+
+/**
+ * 프로시저럴 밴드 전체 설정 (스타킹/타이즈용 비대칭 원통)
+ *
+ * 단면도 (사다리꼴 2개가 좁은 면에서 만남):
+ *
+ *       ══════════════      ← Upper.Radius (가장 큼, 살 불룩)
+ *        ╲          ╱       ← Upper Section (경사)
+ *         ╔══════╗          ← BandRadius (가장 작음, 조임)
+ *         ╚══════╝
+ *        ╱          ╲       ← Lower Section (경사)
+ *       ══════════════      ← Lower.Radius (스타킹 영역)
+ */
+USTRUCT(BlueprintType)
+struct FLESHRINGRUNTIME_API FProceduralBandSettings
+{
+	GENERATED_BODY()
+
+	// ===== 밴드 본체 (조임 지점) =====
+
+	/** 밴드 본체 반경 (가장 작은 반경, 살이 눌리는 부분) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Band", meta = (ClampMin = "0.1"))
+	float BandRadius = 8.0f;
+
+	/** 밴드 본체 높이 (조이는 영역) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Band", meta = (ClampMin = "0.1"))
+	float BandHeight = 2.0f;
+
+	/** 밴드 두께 (벽 두께, SDF 생성용) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Band", meta = (ClampMin = "0.1"))
+	float BandThickness = 1.0f;
+
+	// ===== 상단 섹션 (살이 불룩해지는 영역) =====
+
+	/** Upper.Radius > BandRadius → 위로 벌어지며 살이 불룩해짐 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Upper Section")
+	FProceduralBandSection Upper;
+
+	// ===== 하단 섹션 (스타킹이 덮는 영역) =====
+
+	/** Lower.Radius ≥ BandRadius → 아래로 벌어지며 스타킹이 덮음 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lower Section")
+	FProceduralBandSection Lower;
+
+	// ===== 메시 생성 품질 =====
+
+	/** 원형 단면 세그먼트 수 (높을수록 부드러움) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quality", meta = (ClampMin = "8", ClampMax = "64"))
+	int32 RadialSegments = 32;
+
+	/** 높이당 세그먼트 수 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quality", meta = (ClampMin = "1", ClampMax = "16"))
+	int32 HeightSegments = 4;
+
+	FProceduralBandSettings()
+		: BandRadius(8.0f)            // 조임 지점 (가장 작은 반경)
+		, BandHeight(2.0f)
+		, BandThickness(1.0f)
+		, Upper(11.0f, 2.0f)          // 상단: 불룩한 살 (가장 큰 반경)
+		, Lower(9.0f, 1.0f)           // 하단: 스타킹 영역
+		, RadialSegments(32)
+		, HeightSegments(4)
+	{
+	}
+
+	/** 전체 높이 계산 (하단 + 밴드 + 상단) */
+	float GetTotalHeight() const
+	{
+		return Lower.Height + BandHeight + Upper.Height;
+	}
+
+	/** 최대 반경 계산 (바운딩용) */
+	float GetMaxRadius() const
+	{
+		return FMath::Max3(BandRadius, Upper.Radius, Lower.Radius);
+	}
+};
 
 /** 개별 Ring 설정 */
 USTRUCT(BlueprintType)
@@ -128,6 +371,123 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "1.0", ClampMax = "3.0"))
 	float BulgeRadialRange = 1.0f;
 
+	/** 상단 Bulge 강도 배수 (1.0 = 기본, 0.0 = 비활성) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "0.0", ClampMax = "2.0"))
+	float UpperBulgeStrength = 1.0f;
+
+	/** 하단 Bulge 강도 배수 (1.0 = 기본, 0.0 = 비활성, 스타킹 효과용) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "0.0", ClampMax = "2.0"))
+	float LowerBulgeStrength = 1.0f;
+
+	/** 반경 균일화 스무딩 활성화 (같은 높이의 버텍스들이 동일한 반경을 갖도록) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
+	bool bEnableRadialSmoothing = true;
+
+	// ===== Laplacian/Taubin Smoothing 설정 =====
+
+	/** Laplacian 스무딩 활성화 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing")
+	bool bEnableLaplacianSmoothing = true;
+
+	/**
+	 * Taubin 스무딩 사용 (수축 방지)
+	 * - true: Taubin λ-μ 스무딩 (수축 없이 부드럽게, 권장)
+	 * - false: 일반 Laplacian 스무딩 (반복 시 수축 발생)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing"))
+	bool bUseTaubinSmoothing = true;
+
+	/**
+	 * 스무딩 강도 λ (Taubin: 수축 단계 강도)
+	 * 권장: 0.3~0.7, 기본값 0.5
+	 * 경고: 0.8 초과 시 수치 불안정 (비늘 현상)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing", ClampMin = "0.1", ClampMax = "0.8", UIMin = "0.1", UIMax = "0.8"))
+	float SmoothingLambda = 0.5f;
+
+	/**
+	 * Taubin 팽창 강도 μ (음수값)
+	 * 조건: |μ| > λ, 0이면 자동 계산
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseTaubinSmoothing", ClampMin = "-1.0", ClampMax = "0.0"))
+	float TaubinMu = -0.53f;
+
+	/** 스무딩 반복 횟수 (Taubin: 각 반복 = λ+μ 2패스) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing", ClampMin = "1", ClampMax = "10"))
+	int32 SmoothingIterations = 2;
+
+	/** 볼륨 보존 (일반 Laplacian 전용, Taubin 시 무시) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && !bUseTaubinSmoothing", ClampMin = "0.0", ClampMax = "1.0"))
+	float VolumePreservation = 0.3f;
+
+	// ===== 홉 기반 스무딩 (토폴로지 기반 전파) =====
+
+	/**
+	 * 홉 기반 스무딩 사용 (토폴로지 기반)
+	 * - false (레거시): SDF 볼륨 내 모든 버텍스를 스무딩 대상으로 선택
+	 * - true (권장): 변형된 버텍스(Seed)에서 메시 토폴로지를 따라 N홉까지만 전파
+	 *
+	 * 홉 기반의 장점:
+	 * - 분리된 메시는 자동 제외 (연결된 버텍스만 영향)
+	 * - 접힌 메시에서 잘못된 스무딩 방지
+	 * - 메시 표면 거리 기반으로 자연스러운 falloff
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing"))
+	bool bUseHopBasedSmoothing = false;
+
+	/**
+	 * 최대 전파 홉 수
+	 * - Seed(변형된 버텍스)에서 몇 홉까지 스무딩을 적용할지
+	 * - 높을수록 더 넓은 영역에 스무딩 적용
+	 * - 권장: 저해상도 메시 5~10, 고해상도 메시 3~5
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing", ClampMin = "1", ClampMax = "20"))
+	int32 MaxSmoothingHops = 5;
+
+	/**
+	 * 홉 기반 Falloff 타입
+	 * - Linear: 선형 감소 (기본)
+	 * - Quadratic: 2차 감소 (경계 더 선명)
+	 * - Hermite: S-커브 (부드러운 전환)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing"))
+	EFalloffType HopFalloffType = EFalloffType::Hermite;
+
+	// ===== PBD Edge Constraint 설정 (변형 전파) =====
+
+	/**
+	 * PBD Edge Constraint 활성화 (변형 전파)
+	 * - 조이기로 인한 변형이 스무딩 볼륨 전체로 퍼지도록 함
+	 * - "역 PBD": 변형량이 큰 버텍스는 고정, 작은 버텍스는 자유롭게 이동
+	 * - 에지 길이 보존으로 자연스러운 변형 전파
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint")
+	bool bEnablePBDEdgeConstraint = false;
+
+	/**
+	 * PBD 제약 강도 (0.0 ~ 1.0)
+	 * - 높을수록 에지 길이를 강하게 유지
+	 * - 권장: 0.5 ~ 0.9
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePBDEdgeConstraint", ClampMin = "0.0", ClampMax = "1.0"))
+	float PBDStiffness = 0.8f;
+
+	/**
+	 * PBD 반복 횟수
+	 * - 높을수록 더 멀리 전파됨 (수렴도 향상)
+	 * - 권장: 3 ~ 10
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePBDEdgeConstraint", ClampMin = "1", ClampMax = "20"))
+	int32 PBDIterations = 5;
+
+	/**
+	 * 변형량 기반 가중치 사용
+	 * - true (권장): 실제 변형량(DeformAmount) 기반 - 많이 변형된 곳이 앵커
+	 * - false: Influence 기반 - SDF 거리 기반 앵커
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePBDEdgeConstraint"))
+	bool bPBDUseDeformAmountWeight = true;
+
 	/** 조이기 강도 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "3.0"))
 	float TightnessStrength = 1.0f;
@@ -135,6 +495,14 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	/** 감쇠 곡선 타입 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
 	EFalloffType FalloffType = EFalloffType::Linear;
+
+	/** 이 Ring의 SDF 설정 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF")
+	FFleshRingSdfSettings SdfSettings;
+
+	/** 프로시저럴 밴드 설정 (ProceduralBand 모드에서만 사용) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Band", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::ProceduralBand"))
+	FProceduralBandSettings ProceduralBand;
 
 	/** Ring 회전 (실제 적용되는 쿼터니언, 런타임에서 사용) */
 	UPROPERTY()
@@ -166,6 +534,9 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		, BulgeIntensity(1.0f)
 		, BulgeAxialRange(5.0f)
 		, BulgeRadialRange(1.0f)
+		, UpperBulgeStrength(1.0f)
+		, LowerBulgeStrength(1.0f)
+		, bEnableRadialSmoothing(true)
 		, TightnessStrength(1.0f)
 		, FalloffType(EFalloffType::Linear)
 	{
