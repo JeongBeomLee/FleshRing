@@ -48,8 +48,16 @@ public:
 		// Affected vertex indices (smoothing region)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, AffectedIndices)
 
+		// UV Seam Welding: Representative vertex indices
+		// 대표 버텍스 인덱스 (UV seam 용접용)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, RepresentativeIndices)
+
 		// Per-vertex influences (for weight calculation)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float>, Influences)
+
+		// Per-vertex deform amounts from TightnessCS (0~1)
+		// 많이 변형된 버텍스 = 높은 값 = 고정점, 적게 변형된 버텍스 = 낮은 값 = 자유롭게 이동
+		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float>, DeformAmounts)
 
 		// Adjacency data with rest lengths
 		// Format per vertex: [Count, Neighbor0, RestLen0, Neighbor1, RestLen1, ...]
@@ -59,12 +67,23 @@ public:
 		// Indexed by absolute vertex index, not thread index
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float>, FullInfluenceMap)
 
+		// Full mesh deform amount map (for neighbor weight lookup when bUseDeformAmountWeight=1)
+		// 전체 메시의 변형량 맵 (절대 버텍스 인덱스로 인덱싱)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float>, FullDeformAmountMap)
+
 		// Counts
 		SHADER_PARAMETER(uint32, NumAffectedVertices)
 		SHADER_PARAMETER(uint32, NumTotalVertices)
 
 		// PBD parameters
 		SHADER_PARAMETER(float, Stiffness)
+
+		// Bounds scale for Z-direction falloff (reserved for future use)
+		SHADER_PARAMETER(float, BoundsScale)
+
+		// Flag to use DeformAmounts instead of Influences for weight calculation
+		// 0 = Influences 사용, 1 = DeformAmounts 사용
+		SHADER_PARAMETER(uint32, bUseDeformAmountWeight)
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
@@ -98,11 +117,19 @@ struct FPBDEdgeDispatchParams
 	/** Number of solver iterations */
 	int32 NumIterations;
 
+	/** Bounds scale for Z-direction falloff (reserved for future use) */
+	float BoundsScale;
+
+	/** Use DeformAmounts instead of Influences for weight calculation */
+	bool bUseDeformAmountWeight;
+
 	FPBDEdgeDispatchParams()
 		: NumAffectedVertices(0)
 		, NumTotalVertices(0)
 		, Stiffness(0.8f)
 		, NumIterations(3)
+		, BoundsScale(1.5f)
+		, bUseDeformAmountWeight(false)
 	{
 	}
 };
@@ -119,9 +146,12 @@ struct FPBDEdgeDispatchParams
  * @param InputPositionsBuffer - Source positions (read)
  * @param OutputPositionsBuffer - Destination positions (write)
  * @param AffectedIndicesBuffer - Affected vertex indices
+ * @param RepresentativeIndicesBuffer - Representative vertex indices for UV seam welding (nullptr = use AffectedIndices)
  * @param InfluencesBuffer - Per-vertex influence weights
+ * @param DeformAmountsBuffer - Per-vertex deform amounts (nullptr if not using)
  * @param AdjacencyWithRestLengthsBuffer - Packed adjacency with rest lengths
  * @param FullInfluenceMapBuffer - Full mesh influence map for neighbor lookup
+ * @param FullDeformAmountMapBuffer - Full mesh deform amount map (nullptr if not using)
  */
 void DispatchFleshRingPBDEdgeCS(
 	FRDGBuilder& GraphBuilder,
@@ -129,9 +159,12 @@ void DispatchFleshRingPBDEdgeCS(
 	FRDGBufferRef InputPositionsBuffer,
 	FRDGBufferRef OutputPositionsBuffer,
 	FRDGBufferRef AffectedIndicesBuffer,
+	FRDGBufferRef RepresentativeIndicesBuffer,
 	FRDGBufferRef InfluencesBuffer,
+	FRDGBufferRef DeformAmountsBuffer,
 	FRDGBufferRef AdjacencyWithRestLengthsBuffer,
-	FRDGBufferRef FullInfluenceMapBuffer);
+	FRDGBufferRef FullInfluenceMapBuffer,
+	FRDGBufferRef FullDeformAmountMapBuffer);
 
 /**
  * Dispatch multiple iterations of PBD edge constraints
@@ -141,15 +174,21 @@ void DispatchFleshRingPBDEdgeCS(
  * @param Params - Dispatch parameters (NumIterations used)
  * @param PositionsBuffer - Position buffer (in-place, uses ping-pong internally)
  * @param AffectedIndicesBuffer - Affected vertex indices
+ * @param RepresentativeIndicesBuffer - Representative vertex indices for UV seam welding (nullptr = use AffectedIndices)
  * @param InfluencesBuffer - Per-vertex influence weights
+ * @param DeformAmountsBuffer - Per-vertex deform amounts (nullptr if not using)
  * @param AdjacencyWithRestLengthsBuffer - Packed adjacency with rest lengths
  * @param FullInfluenceMapBuffer - Full mesh influence map for neighbor lookup
+ * @param FullDeformAmountMapBuffer - Full mesh deform amount map (nullptr if not using)
  */
 void DispatchFleshRingPBDEdgeCS_MultiPass(
 	FRDGBuilder& GraphBuilder,
 	const FPBDEdgeDispatchParams& Params,
 	FRDGBufferRef PositionsBuffer,
 	FRDGBufferRef AffectedIndicesBuffer,
+	FRDGBufferRef RepresentativeIndicesBuffer,
 	FRDGBufferRef InfluencesBuffer,
+	FRDGBufferRef DeformAmountsBuffer,
 	FRDGBufferRef AdjacencyWithRestLengthsBuffer,
-	FRDGBufferRef FullInfluenceMapBuffer);
+	FRDGBufferRef FullInfluenceMapBuffer,
+	FRDGBufferRef FullDeformAmountMapBuffer);

@@ -28,9 +28,12 @@ void DispatchFleshRingPBDEdgeCS(
 	FRDGBufferRef InputPositionsBuffer,
 	FRDGBufferRef OutputPositionsBuffer,
 	FRDGBufferRef AffectedIndicesBuffer,
+	FRDGBufferRef RepresentativeIndicesBuffer,
 	FRDGBufferRef InfluencesBuffer,
+	FRDGBufferRef DeformAmountsBuffer,
 	FRDGBufferRef AdjacencyWithRestLengthsBuffer,
-	FRDGBufferRef FullInfluenceMapBuffer)
+	FRDGBufferRef FullInfluenceMapBuffer,
+	FRDGBufferRef FullDeformAmountMapBuffer)
 {
 	// Early out if no vertices to process
 	if (Params.NumAffectedVertices == 0)
@@ -46,14 +49,71 @@ void DispatchFleshRingPBDEdgeCS(
 	PassParameters->InputPositions = GraphBuilder.CreateSRV(InputPositionsBuffer, PF_R32_FLOAT);
 	PassParameters->OutputPositions = GraphBuilder.CreateUAV(OutputPositionsBuffer, PF_R32_FLOAT);
 	PassParameters->AffectedIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
+
+	// UV Seam Welding: RepresentativeIndices 바인딩
+	// nullptr이면 AffectedIndices를 fallback으로 사용
+	if (RepresentativeIndicesBuffer)
+	{
+		PassParameters->RepresentativeIndices = GraphBuilder.CreateSRV(RepresentativeIndicesBuffer);
+	}
+	else
+	{
+		PassParameters->RepresentativeIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
+	}
+
 	PassParameters->Influences = GraphBuilder.CreateSRV(InfluencesBuffer);
 	PassParameters->AdjacencyWithRestLengths = GraphBuilder.CreateSRV(AdjacencyWithRestLengthsBuffer);
 	PassParameters->FullInfluenceMap = GraphBuilder.CreateSRV(FullInfluenceMapBuffer);
+
+	// ===== DeformAmount 가중치 모드 활성화 조건 =====
+	// 버퍼가 실제로 있어야만 DeformAmount 가중치 모드 사용 가능
+	// 버퍼 없이 bUseDeformAmountWeight=true이면 버퍼 오버플로우 발생!
+	const bool bCanUseDeformAmountWeight =
+		Params.bUseDeformAmountWeight &&
+		DeformAmountsBuffer != nullptr &&
+		FullDeformAmountMapBuffer != nullptr;
+
+	// DeformAmounts 바인딩
+	if (bCanUseDeformAmountWeight)
+	{
+		PassParameters->DeformAmounts = GraphBuilder.CreateSRV(DeformAmountsBuffer);
+	}
+	else
+	{
+		// Dummy buffer (셰이더 파라미터 바인딩 필수)
+		FRDGBufferRef DummyBuffer = GraphBuilder.CreateBuffer(
+			FRDGBufferDesc::CreateStructuredDesc(sizeof(float), 1),
+			TEXT("FleshRingPBD_DummyDeformAmounts")
+		);
+		float DummyData = 0.0f;
+		GraphBuilder.QueueBufferUpload(DummyBuffer, &DummyData, sizeof(DummyData), ERDGInitialDataFlags::None);
+		PassParameters->DeformAmounts = GraphBuilder.CreateSRV(DummyBuffer);
+	}
+
+	// FullDeformAmountMap 바인딩
+	if (bCanUseDeformAmountWeight)
+	{
+		PassParameters->FullDeformAmountMap = GraphBuilder.CreateSRV(FullDeformAmountMapBuffer);
+	}
+	else
+	{
+		// Dummy buffer
+		FRDGBufferRef DummyBuffer = GraphBuilder.CreateBuffer(
+			FRDGBufferDesc::CreateStructuredDesc(sizeof(float), 1),
+			TEXT("FleshRingPBD_DummyFullDeformMap")
+		);
+		float DummyData = 0.0f;
+		GraphBuilder.QueueBufferUpload(DummyBuffer, &DummyData, sizeof(DummyData), ERDGInitialDataFlags::None);
+		PassParameters->FullDeformAmountMap = GraphBuilder.CreateSRV(DummyBuffer);
+	}
 
 	// Set parameters
 	PassParameters->NumAffectedVertices = Params.NumAffectedVertices;
 	PassParameters->NumTotalVertices = Params.NumTotalVertices;
 	PassParameters->Stiffness = Params.Stiffness;
+	PassParameters->BoundsScale = Params.BoundsScale;
+	// 버퍼가 없으면 DeformAmount 모드 강제 비활성화 (버퍼 오버플로우 방지)
+	PassParameters->bUseDeformAmountWeight = bCanUseDeformAmountWeight ? 1 : 0;
 
 	// Get shader
 	TShaderMapRef<FFleshRingPBDEdgeCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
@@ -81,9 +141,12 @@ void DispatchFleshRingPBDEdgeCS_MultiPass(
 	const FPBDEdgeDispatchParams& Params,
 	FRDGBufferRef PositionsBuffer,
 	FRDGBufferRef AffectedIndicesBuffer,
+	FRDGBufferRef RepresentativeIndicesBuffer,
 	FRDGBufferRef InfluencesBuffer,
+	FRDGBufferRef DeformAmountsBuffer,
 	FRDGBufferRef AdjacencyWithRestLengthsBuffer,
-	FRDGBufferRef FullInfluenceMapBuffer)
+	FRDGBufferRef FullInfluenceMapBuffer,
+	FRDGBufferRef FullDeformAmountMapBuffer)
 {
 	if (Params.NumAffectedVertices == 0 || Params.NumIterations <= 0)
 	{
@@ -109,9 +172,12 @@ void DispatchFleshRingPBDEdgeCS_MultiPass(
 			TempBuffer,
 			PositionsBuffer,
 			AffectedIndicesBuffer,
+			RepresentativeIndicesBuffer,
 			InfluencesBuffer,
+			DeformAmountsBuffer,
 			AdjacencyWithRestLengthsBuffer,
-			FullInfluenceMapBuffer
+			FullInfluenceMapBuffer,
+			FullDeformAmountMapBuffer
 		);
 		return;
 	}
@@ -145,9 +211,12 @@ void DispatchFleshRingPBDEdgeCS_MultiPass(
 			ReadBuffer,
 			WriteBuffer,
 			AffectedIndicesBuffer,
+			RepresentativeIndicesBuffer,
 			InfluencesBuffer,
+			DeformAmountsBuffer,
 			AdjacencyWithRestLengthsBuffer,
-			FullInfluenceMapBuffer
+			FullInfluenceMapBuffer,
+			FullDeformAmountMapBuffer
 		);
 	}
 

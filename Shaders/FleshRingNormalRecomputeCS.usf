@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // FleshRing Normal Recompute Compute Shader
 // FleshRing 노멀 재계산 컴퓨트 셰이더
 // ============================================================================
@@ -107,15 +107,26 @@ void WriteNormal(uint VertexIndex, float3 Normal)
     OutputNormals[BaseIndex + 2] = Normal.z;
 }
 
-// Compute face normal for a triangle (CCW winding assumed)
-// 삼각형의 Face Normal 계산 (CCW 와인딩 가정)
+// Compute face normal for a triangle (CCW winding = front face in UE)
+// 삼각형의 Face Normal 계산 (UE에서 CCW 와인딩 = front face)
 // Returns unnormalized normal (length = 2 * triangle area) for area-weighted average
 // 면적 가중 평균을 위해 정규화되지 않은 노멀 반환 (길이 = 2 * 삼각형 면적)
+//
+// IMPORTANT: UE uses LEFT-HANDED coordinate system!
+// 중요: UE는 왼손 좌표계를 사용합니다!
+// In left-handed system with CCW winding:
+// - cross(Edge1, Edge2) points INWARD (wrong direction)
+// - cross(Edge2, Edge1) points OUTWARD (correct direction)
+// 왼손 좌표계 + CCW 와인딩:
+// - cross(Edge1, Edge2) = 내부 방향 (틀림)
+// - cross(Edge2, Edge1) = 외부 방향 (맞음)
 float3 ComputeFaceNormal(float3 P0, float3 P1, float3 P2)
 {
     float3 Edge1 = P1 - P0;
     float3 Edge2 = P2 - P0;
-    return cross(Edge1, Edge2);
+    // Use cross(Edge2, Edge1) for outward normal in UE's left-handed system
+    // UE 왼손 좌표계에서 외부 방향 노멀을 위해 cross(Edge2, Edge1) 사용
+    return cross(Edge2, Edge1);
 }
 
 // Safe normalize with fallback

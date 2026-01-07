@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // FleshRingPBDEdgeCS.usf - PBD Edge Constraint Compute Shader
 // ============================================================================
 // Purpose: Maintain edge lengths after deformation (prevent stretching/shrinking)
@@ -53,8 +53,17 @@ RWBuffer<float> OutputPositions;
 // Affected vertex indices (smoothing region)
 StructuredBuffer<uint> AffectedIndices;
 
+// UV Seam Welding: Representative vertex indices
+// UV seam의 모든 duplicate vertex는 같은 representative를 공유
+// 이를 통해 같은 위치의 모든 vertex가 동일하게 움직임
+StructuredBuffer<uint> RepresentativeIndices;
+
 // Per-vertex influence (for affected vertices, indexed by ThreadIndex)
 StructuredBuffer<float> Influences;
+
+// Per-vertex deform amount from TightnessCS (0~1, indexed by ThreadIndex)
+// 많이 변형된 버텍스 = 높은 값 = 고정점(앵커), 적게 변형된 버텍스 = 낮은 값 = 자유롭게 이동
+StructuredBuffer<float> DeformAmounts;
 
 // Adjacency with rest lengths
 // Format per vertex: [Count, Neighbor0, RestLen0_asUint, Neighbor1, RestLen1_asUint, ...]
@@ -65,6 +74,11 @@ StructuredBuffer<uint> AdjacencyWithRestLengths;
 // For neighbor influence lookup (neighbors might not be in AffectedIndices)
 StructuredBuffer<float> FullInfluenceMap;
 
+// Full mesh deform amount map (indexed by absolute vertex index)
+// For neighbor deform amount lookup when bUseDeformAmountWeight=1
+// 전체 메시의 변형량 맵 (절대 버텍스 인덱스로 인덱싱)
+StructuredBuffer<float> FullDeformAmountMap;
+
 // ============================================================================
 // Parameters
 // ============================================================================
@@ -72,6 +86,13 @@ StructuredBuffer<float> FullInfluenceMap;
 uint NumAffectedVertices;
 uint NumTotalVertices;
 float Stiffness;
+
+// Bounds scale for Z-direction falloff (reserved for future use)
+float BoundsScale;
+
+// Flag to use DeformAmounts instead of Influences for weight calculation
+// DeformAmounts 사용 여부 플래그 (0 = Influences 사용, 1 = DeformAmounts 사용)
+uint bUseDeformAmountWeight;
 
 // ============================================================================
 // Helper Functions
@@ -134,9 +155,10 @@ float GetRestLength(uint AdjacencyOffset, uint NeighborSlot)
 // Returns accumulated correction
 float3 SolveEdgeConstraints(
     uint ThreadIndex,
-    uint VertexIndex,
+    uint ReadIndex,
     float3 CurrentPos,
-    float MyInfluence)
+    float MyInfluence,
+    float MyDeformAmount)
 {
     uint AdjacencyOffset = GetAdjacencyOffset(ThreadIndex);
     uint NeighborCount = GetNeighborCount(AdjacencyOffset);
@@ -148,9 +170,27 @@ float3 SolveEdgeConstraints(
     }
 
     // My weight (how much I can move)
-    // High influence = low weight = fixed (anchor)
-    // Low influence = high weight = free to move
-    float MyWeight = 1.0f - MyInfluence;
+    // ============================================================================
+    // 가중치 계산 방식 선택:
+    // - bUseDeformAmountWeight = 0: 기존 방식 (Influence 기반)
+    //   High influence = low weight = fixed (anchor)
+    // - bUseDeformAmountWeight = 1: 새 방식 (DeformAmount 기반)
+    //   High deform = low weight = fixed (많이 눌린 버텍스는 고정)
+    //   Low deform = high weight = free (적게 눌린 버텍스는 자유롭게 이동)
+    // ============================================================================
+    float MyWeight;
+    if (bUseDeformAmountWeight != 0)
+    {
+        // 새 방식: 변형량 기반 가중치
+        // 많이 변형된 버텍스(deformAmount=1)는 weight=0.2 (거의 고정)
+        // 적게 변형된 버텍스(deformAmount=0)는 weight=1.0 (자유롭게 이동)
+        MyWeight = lerp(1.0f, 0.2f, MyDeformAmount);
+    }
+    else
+    {
+        // 기존 방식: Influence 기반 가중치
+        MyWeight = 1.0f - MyInfluence;
+    }
 
     // If I'm completely fixed, no movement
     if (MyWeight < EPSILON)
@@ -198,9 +238,21 @@ float3 SolveEdgeConstraints(
         // Length error (positive = stretched, negative = compressed)
         float Error = CurrentLength - RestLength;
 
-        // Neighbor's weight (from full influence map)
-        float NeighborInfluence = FullInfluenceMap[NeighborVertexIndex];
-        float NeighborWeight = 1.0f - NeighborInfluence;
+        // Neighbor's weight calculation
+        // 이웃의 가중치 계산 (현재 버텍스와 동일한 방식 사용)
+        float NeighborWeight;
+        if (bUseDeformAmountWeight != 0)
+        {
+            // 새 방식: 변형량 기반
+            float NeighborDeformAmount = FullDeformAmountMap[NeighborVertexIndex];
+            NeighborWeight = lerp(1.0f, 0.2f, NeighborDeformAmount);
+        }
+        else
+        {
+            // 기존 방식: Influence 기반
+            float NeighborInfluence = FullInfluenceMap[NeighborVertexIndex];
+            NeighborWeight = 1.0f - NeighborInfluence;
+        }
 
         // Total weight for this edge
         float EdgeTotalWeight = MyWeight + NeighborWeight;
@@ -247,27 +299,38 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
-    // Get actual vertex index
-    uint VertexIndex = AffectedIndices[ThreadIndex];
+    // =========================================================================
+    // UV Seam Welding: 대표 버텍스 기반 읽기/쓰기 분리
+    // =========================================================================
+    // WriteIndex: 실제로 출력할 버텍스 인덱스 (AffectedIndices에서)
+    // ReadIndex: 위치를 읽어올 대표 버텍스 인덱스 (RepresentativeIndices에서)
+    //
+    // 같은 Position의 모든 UV duplicate들은:
+    //   - 같은 ReadIndex를 공유 (같은 위치에서 읽음)
+    //   - 각자의 WriteIndex에 출력 (자기 버텍스에 씀)
+    // => 결과적으로 모든 duplicate가 동일한 위치로 이동 -> UV seam crack 방지
+    uint WriteIndex = AffectedIndices[ThreadIndex];
+    uint ReadIndex = RepresentativeIndices[ThreadIndex];
 
     // Safety check
-    if (VertexIndex >= NumTotalVertices)
+    if (WriteIndex >= NumTotalVertices || ReadIndex >= NumTotalVertices)
     {
         return;
     }
 
-    // Read current position
-    float3 CurrentPos = ReadPosition(InputPositions, VertexIndex);
+    // Read current position from REPRESENTATIVE vertex
+    float3 CurrentPos = ReadPosition(InputPositions, ReadIndex);
 
-    // Get my influence
+    // Get my influence and deform amount
     float MyInfluence = Influences[ThreadIndex];
+    float MyDeformAmount = (bUseDeformAmountWeight != 0) ? DeformAmounts[ThreadIndex] : 0.0f;
 
     // Solve edge constraints
-    float3 Correction = SolveEdgeConstraints(ThreadIndex, VertexIndex, CurrentPos, MyInfluence);
+    float3 Correction = SolveEdgeConstraints(ThreadIndex, ReadIndex, CurrentPos, MyInfluence, MyDeformAmount);
 
     // Apply correction with stiffness
     float3 NewPos = CurrentPos + Correction * Stiffness;
 
-    // Write output
-    WritePosition(VertexIndex, NewPos);
+    // Write output to ACTUAL vertex (WriteIndex)
+    WritePosition(WriteIndex, NewPos);
 }

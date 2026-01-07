@@ -61,6 +61,27 @@ public:
 	bool bEnableLayerPenetrationResolution = true;
 
 	// =====================================
+	// Normal/Tangent Recompute Settings
+	// =====================================
+
+	/**
+	 * 노멀 재계산 활성화
+	 * 변형된 메시의 Face Normal 평균으로 버텍스 노멀 재계산
+	 * 비활성화하면 원본 노멀 사용 (라이팅 부정확할 수 있음)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normal/Tangent Recompute", meta = (DisplayName = "Enable Normal Recompute"))
+	bool bEnableNormalRecompute = true;
+
+	/**
+	 * 탄젠트 재계산 활성화 (Gram-Schmidt 정규직교화)
+	 * 재계산된 노멀에 맞춰 탄젠트를 정규직교화하여 TBN 매트릭스 일관성 유지
+	 * 비활성화하면 원본 탄젠트 사용 (노멀맵 렌더링 부정확할 수 있음)
+	 * Note: 노멀 재계산이 꺼져있으면 탄젠트 재계산도 무시됨
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normal/Tangent Recompute", meta = (DisplayName = "Enable Tangent Recompute", EditCondition = "bEnableNormalRecompute"))
+	bool bEnableTangentRecompute = true;
+
+	// =====================================
 	// Subdivision Settings
 	// =====================================
 

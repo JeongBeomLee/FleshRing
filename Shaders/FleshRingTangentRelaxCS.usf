@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // FleshRingTangentRelaxCS.usf - Tangent Space Relaxation Compute Shader
 // ============================================================================
 // Purpose: Redistribute vertices along tangent directions while preserving
@@ -156,7 +156,10 @@ float3 ComputeVertexNormal(uint ThreadIndex, uint VertexIndex, float3 CurrentPos
         float3 Edge1 = P1 - CurrentPos;
 
         // Cross product gives face normal weighted by area
-        float3 FaceNormal = cross(Edge0, Edge1);
+        // IMPORTANT: UE uses LEFT-HANDED coordinate system!
+        // Use swapped cross product for outward normals
+        // 중요: UE 왼손 좌표계 - 외부 방향 노멀을 위해 cross 순서 교환
+        float3 FaceNormal = cross(Edge1, Edge0);
         NormalSum += FaceNormal;
     }
 

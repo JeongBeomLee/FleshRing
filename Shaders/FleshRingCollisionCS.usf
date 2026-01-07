@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // FleshRingCollisionCS.usf - Self-Collision Detection & Resolution
 // ============================================================================
 // Detects and resolves triangle-triangle intersections within SDF region
@@ -130,8 +130,11 @@ bool TrianglesIntersect(
     float3 EdgeB2 = B0 - B2;
 
     // Compute face normals
-    float3 NormalA = cross(EdgeA0, EdgeA1);
-    float3 NormalB = cross(EdgeB0, EdgeB1);
+    // IMPORTANT: UE uses LEFT-HANDED coordinate system!
+    // Use swapped cross product for outward normals
+    // 중요: UE 왼손 좌표계 - 외부 방향 노멀을 위해 cross 순서 교환
+    float3 NormalA = cross(EdgeA1, EdgeA0);
+    float3 NormalB = cross(EdgeB1, EdgeB0);
 
     float LenA = length(NormalA);
     float LenB = length(NormalB);
