@@ -10,6 +10,7 @@
 #include "FleshRingTightnessShader.h"
 #include "FleshRingBulgeShader.h"
 #include "FleshRingNormalRecomputeShader.h"
+#include "FleshRingTangentRecomputeShader.h"
 #include "FleshRingLaplacianShader.h"
 #include "FleshRingBoneRatioShader.h"
 #include "FleshRingCollisionShader.h"
@@ -41,6 +42,12 @@ struct FFleshRingWorkItem
 		FTightnessDispatchParams Params;
 		TArray<uint32> Indices;
 		TArray<float> Influences;
+
+		// ===== UV Seam Welding용 대표 버텍스 인덱스 =====
+		// UV seam에서 분리된 버텍스들(같은 위치, 다른 인덱스)이 동일하게 움직이도록 보장
+		// 셰이더에서: RepresentativeIndices[ThreadIndex]의 위치를 읽어서 변형 계산
+		// 같은 Position Group의 버텍스들은 동일한 Representative를 공유
+		TArray<uint32> RepresentativeIndices;
 
 		// SDF 캐시 데이터 (렌더 스레드로 안전하게 전달)
 		TRefCountPtr<IPooledRenderTarget> SDFPooledTexture;
@@ -145,6 +152,7 @@ struct FFleshRingWorkItem
 		TArray<uint32> PostProcessingIndices;
 		TArray<float> PostProcessingInfluences;
 		TArray<uint32> PostProcessingLayerTypes;
+		TArray<uint32> PostProcessingRepresentativeIndices;  // 후처리 버텍스용 UV seam 대표 인덱스
 		TArray<uint32> PostProcessingLaplacianAdjacencyData;  // 후처리 버텍스용 라플라시안 인접 데이터
 		TArray<uint32> PostProcessingPBDAdjacencyWithRestLengths;  // 후처리 버텍스용 PBD 인접 데이터
 		TArray<uint32> PostProcessingAdjacencyOffsets;    // 후처리 버텍스용 노멀 인접 오프셋
@@ -188,6 +196,12 @@ struct FFleshRingWorkItem
 	// 레이어 침투 해결 활성화 여부 (FleshRingAsset에서 설정)
 	bool bEnableLayerPenetrationResolution = true;
 
+	// ===== Normal/Tangent Recompute 플래그 =====
+	// 노멀 재계산 활성화 여부 (FleshRingAsset에서 설정)
+	bool bEnableNormalRecompute = true;
+	// 탄젠트 재계산 활성화 여부 (FleshRingAsset에서 설정, 노멀 재계산이 켜져있어야 동작)
+	bool bEnableTangentRecompute = true;
+
 	// ===== Normal Recomputation용 메시 인덱스 버퍼 =====
 	// 모든 Ring이 공유하는 메시 인덱스 버퍼 (3 indices per triangle)
 	TSharedPtr<TArray<uint32>> MeshIndicesPtr;
@@ -203,6 +217,10 @@ struct FFleshRingWorkItem
 	// 재계산된 노멀 캐시 버퍼 (TightenedBindPose와 함께 캐싱)
 	// NormalRecomputeCS 결과를 캐싱하여 캐싱된 프레임에서도 올바른 노멀 사용
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedNormalsBufferSharedPtr;
+
+	// 재계산된 탄젠트 캐시 버퍼 (TightenedBindPose와 함께 캐싱)
+	// TangentRecomputeCS 결과를 캐싱하여 캐싱된 프레임에서도 올바른 탄젠트 사용
+	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedTangentsBufferSharedPtr;
 
 	// Fallback 델리게이트
 	FSimpleDelegate FallbackDelegate;

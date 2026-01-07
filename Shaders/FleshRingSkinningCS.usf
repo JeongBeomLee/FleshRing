@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // FleshRing Skinning Compute Shader
 // FleshRing 스키닝 컴퓨트 셰이더
 // ============================================================================
@@ -38,6 +38,12 @@ Buffer<float4> SourceTangents;
 // Format: 3 floats per vertex (x, y, z)
 // (0,0,0) = 재계산되지 않음 → SourceTangents 사용
 Buffer<float> RecomputedNormals;
+
+// Input: Recomputed tangents from TangentRecomputeCS (optional, Gram-Schmidt orthonormalized)
+// 입력: TangentRecomputeCS에서 재계산된 탄젠트 (선택적, Gram-Schmidt 정규직교화)
+// Format: 8 floats per vertex (TangentX.xyzw + TangentZ.xyzw)
+// (0,0,0,0,0,0,0,0) = 재계산되지 않음 → SourceTangents 사용
+Buffer<float> RecomputedTangents;
 
 // Output: Skinned vertex positions (current frame)
 // 출력: 스키닝된 버텍스 위치 (현재 프레임)
@@ -86,6 +92,7 @@ uint NumVertices;           // Section's vertex count / Section 버텍스 수
 uint bProcessTangents;      // 탄젠트 처리 여부 (0 = Position만, 1 = Position + Tangent)
 uint bProcessPreviousPosition; // Previous Position 처리 여부 (0 = 현재만, 1 = 현재 + Previous)
 uint bUseRecomputedNormals; // 재계산된 노멀 사용 여부 (0 = SourceTangents만, 1 = RecomputedNormals 우선)
+uint bUseRecomputedTangents; // 재계산된 탄젠트 사용 여부 (0 = SourceTangents만, 1 = RecomputedTangents 우선)
 
 // Thread Group Size
 #ifndef THREADGROUP_SIZE
@@ -388,6 +395,40 @@ bool IsRecomputedNormalValid(float3 Normal)
     return dot(Normal, Normal) > 1e-8f;
 }
 
+// Read recomputed tangents from TangentRecomputeCS output buffer
+// TangentRecomputeCS 출력 버퍼에서 재계산된 탄젠트 읽기
+// Format: 8 floats per vertex (TangentX.xyzw + TangentZ.xyzw)
+void ReadRecomputedTangents(uint VertexIndex, out float3 OutNormal, out float4 OutTangent)
+{
+    uint BaseIndex = VertexIndex * 8;
+    // TangentX = Normal (W=0)
+    float4 TangentX = float4(
+        RecomputedTangents[BaseIndex + 0],
+        RecomputedTangents[BaseIndex + 1],
+        RecomputedTangents[BaseIndex + 2],
+        RecomputedTangents[BaseIndex + 3]
+    );
+    // TangentZ = Tangent (W=binormal sign)
+    float4 TangentZ = float4(
+        RecomputedTangents[BaseIndex + 4],
+        RecomputedTangents[BaseIndex + 5],
+        RecomputedTangents[BaseIndex + 6],
+        RecomputedTangents[BaseIndex + 7]
+    );
+
+    OutNormal = TangentX.xyz;
+    OutTangent = TangentZ;
+}
+
+// Check if recomputed tangent is valid (not zero vector)
+// 재계산된 탄젠트가 유효한지 확인 (0 벡터가 아닌지)
+bool IsRecomputedTangentValid(float3 Normal, float3 Tangent)
+{
+    // If both normal and tangent are valid (non-zero), the tangent is recomputed
+    // 노멀과 탄젠트 둘 다 유효하면(0이 아니면), 재계산된 탄젠트임
+    return (dot(Normal, Normal) > 1e-8f) && (dot(Tangent, Tangent) > 1e-8f);
+}
+
 // Read TangentX (Normal) and TangentZ (Tangent) from buffer
 // 버퍼에서 TangentX (노멀)와 TangentZ (탄젠트) 읽기
 // Optimus 방식: TangentBias_SkinCache() 사용
@@ -402,16 +443,37 @@ void ReadTangents(uint VertexIndex, out float3 OutNormal, out float4 OutTangent)
     OutTangent = TangentZ; // W contains binormal sign
 }
 
-// Read tangents with optional recomputed normal override
-// 선택적으로 재계산된 노멀로 대체하여 탄젠트 읽기
-void ReadTangentsWithRecomputedNormal(uint VertexIndex, out float3 OutNormal, out float4 OutTangent)
+// Read tangents with optional recomputed normal/tangent override
+// 선택적으로 재계산된 노멀/탄젠트로 대체하여 읽기
+void ReadTangentsWithRecomputedNormalAndTangent(uint VertexIndex, out float3 OutNormal, out float4 OutTangent)
 {
-    // First read original tangents
-    // 먼저 원본 탄젠트 읽기
+    // First read original tangents as base
+    // 먼저 원본 탄젠트를 기본값으로 읽기
     ReadTangents(VertexIndex, OutNormal, OutTangent);
 
-    // If using recomputed normals, check and override
-    // 재계산된 노멀 사용 시, 확인 후 대체
+    // Priority: RecomputedTangents > RecomputedNormals > SourceTangents
+    // 우선순위: 재계산된 탄젠트 > 재계산된 노멀 > 원본 탄젠트
+
+    // If using recomputed tangents (includes both normal and tangent from TangentRecomputeCS)
+    // 재계산된 탄젠트 사용 시 (NormalRecomputeCS + TangentRecomputeCS 결과 포함)
+    if (bUseRecomputedTangents != 0)
+    {
+        float3 RecomputedN;
+        float4 RecomputedT;
+        ReadRecomputedTangents(VertexIndex, RecomputedN, RecomputedT);
+
+        if (IsRecomputedTangentValid(RecomputedN, RecomputedT.xyz))
+        {
+            // Use both recomputed normal and tangent (Gram-Schmidt orthonormalized)
+            // 재계산된 노멀과 탄젠트 둘 다 사용 (Gram-Schmidt 정규직교화됨)
+            OutNormal = RecomputedN;
+            OutTangent = RecomputedT;
+            return;
+        }
+    }
+
+    // Fallback: If using recomputed normals only
+    // 폴백: 재계산된 노멀만 사용하는 경우
     if (bUseRecomputedNormals != 0)
     {
         float3 RecomputedNormal = ReadRecomputedNormal(VertexIndex);
@@ -420,6 +482,13 @@ void ReadTangentsWithRecomputedNormal(uint VertexIndex, out float3 OutNormal, ou
             OutNormal = RecomputedNormal;
         }
     }
+}
+
+// Legacy function for compatibility (deprecated)
+// 호환성을 위한 레거시 함수 (deprecated)
+void ReadTangentsWithRecomputedNormal(uint VertexIndex, out float3 OutNormal, out float4 OutTangent)
+{
+    ReadTangentsWithRecomputedNormalAndTangent(VertexIndex, OutNormal, OutTangent);
 }
 
 // Safe normalize: returns default if input is zero/near-zero

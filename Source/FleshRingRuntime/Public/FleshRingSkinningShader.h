@@ -55,6 +55,11 @@ public:
         // Format: 3 floats per vertex, (0,0,0) = use SourceTangents
         SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float>, RecomputedNormals)
 
+        // Input: Recomputed tangents from TangentRecomputeCS (optional, Gram-Schmidt orthonormalized)
+        // 입력: TangentRecomputeCS에서 재계산된 탄젠트 (선택적, Gram-Schmidt 정규직교화)
+        // Format: 8 floats per vertex (TangentX.xyzw + TangentZ.xyzw), (0,0,0,...) = use SourceTangents
+        SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float>, RecomputedTangents)
+
         // ===== Output Buffers (UAV - Read/Write) =====
         // ===== 출력 버퍼 (UAV - 읽기/쓰기) =====
 
@@ -111,6 +116,7 @@ public:
         SHADER_PARAMETER(uint32, bProcessTangents)     // 탄젠트 처리 여부 (0 = Position만, 1 = Position + Tangent)
         SHADER_PARAMETER(uint32, bProcessPreviousPosition) // Previous Position 처리 여부 (0 = 현재만, 1 = 현재 + Previous)
         SHADER_PARAMETER(uint32, bUseRecomputedNormals) // 재계산된 노멀 사용 여부 (0 = SourceTangents만, 1 = RecomputedNormals 우선)
+        SHADER_PARAMETER(uint32, bUseRecomputedTangents) // 재계산된 탄젠트 사용 여부 (0 = SourceTangents만, 1 = RecomputedTangents 우선)
     END_SHADER_PARAMETER_STRUCT()
 
     // Shader Compilation Settings
@@ -215,6 +221,8 @@ struct FSkinningDispatchParams
  *                               패킹된 본 인덱스 + 웨이트 SRV (RHI)
  * @param RecomputedNormalsBuffer - Recomputed normals from NormalRecomputeCS (RDG, optional, can be nullptr)
  *                                  NormalRecomputeCS에서 재계산된 노멀 (RDG, 선택적, nullptr 가능)
+ * @param RecomputedTangentsBuffer - Recomputed tangents from TangentRecomputeCS (RDG, optional, can be nullptr)
+ *                                   TangentRecomputeCS에서 재계산된 탄젠트 (RDG, 선택적, nullptr 가능)
  */
 void DispatchFleshRingSkinningCS(
     FRDGBuilder& GraphBuilder,
@@ -227,4 +235,5 @@ void DispatchFleshRingSkinningCS(
     FRHIShaderResourceView* BoneMatricesSRV,
     FRHIShaderResourceView* PreviousBoneMatricesSRV,
     FRHIShaderResourceView* InputWeightStreamSRV,
-    FRDGBufferRef RecomputedNormalsBuffer = nullptr);
+    FRDGBufferRef RecomputedNormalsBuffer = nullptr,
+    FRDGBufferRef RecomputedTangentsBuffer = nullptr);

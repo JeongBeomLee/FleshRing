@@ -119,6 +119,18 @@ void UFleshRingDeformerInstance::ReleaseResources()
 		Data.bTightenedBindPoseCached = false;
 		Data.CachedTightnessVertexCount = 0;
 
+		// 재계산된 노멀 버퍼 해제
+		if (Data.CachedNormalsShared.IsValid())
+		{
+			Data.CachedNormalsShared->SafeRelease();
+		}
+
+		// 재계산된 탄젠트 버퍼 해제
+		if (Data.CachedTangentsShared.IsValid())
+		{
+			Data.CachedTangentsShared->SafeRelease();
+		}
+
 		// 소스 위치 해제
 		Data.CachedSourcePositions.Empty();
 		Data.bSourcePositionsCached = false;
@@ -314,6 +326,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		DispatchData.Indices = RingData.PackedIndices;
 		DispatchData.Influences = RingData.PackedInfluences;
 		DispatchData.LayerTypes = RingData.PackedLayerTypes;
+		DispatchData.RepresentativeIndices = RingData.RepresentativeIndices;  // UV seam welding용
 
 		// Z 확장 후처리 버텍스 데이터 복사
 		// 설계: Indices = Tightness용 (원본 SDF AABB)
@@ -321,6 +334,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		DispatchData.PostProcessingIndices = RingData.PostProcessingIndices;
 		DispatchData.PostProcessingInfluences = RingData.PostProcessingInfluences;
 		DispatchData.PostProcessingLayerTypes = RingData.PostProcessingLayerTypes;
+		DispatchData.PostProcessingRepresentativeIndices = RingData.PostProcessingRepresentativeIndices;  // UV seam welding용
 		DispatchData.PostProcessingLaplacianAdjacencyData = RingData.PostProcessingLaplacianAdjacencyData;
 		DispatchData.PostProcessingPBDAdjacencyWithRestLengths = RingData.PostProcessingPBDAdjacencyWithRestLengths;
 		DispatchData.PostProcessingAdjacencyOffsets = RingData.PostProcessingAdjacencyOffsets;
@@ -689,6 +703,18 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		{
 			CurrentLODData.CachedTightenedBindPoseShared = MakeShared<TRefCountPtr<FRDGPooledBuffer>>();
 		}
+
+		// 노멀 버퍼 TSharedPtr 생성 (첫 캐싱 시)
+		if (!CurrentLODData.CachedNormalsShared.IsValid())
+		{
+			CurrentLODData.CachedNormalsShared = MakeShared<TRefCountPtr<FRDGPooledBuffer>>();
+		}
+
+		// 탄젠트 버퍼 TSharedPtr 생성 (첫 캐싱 시)
+		if (!CurrentLODData.CachedTangentsShared.IsValid())
+		{
+			CurrentLODData.CachedTangentsShared = MakeShared<TRefCountPtr<FRDGPooledBuffer>>();
+		}
 	}
 
 	// 작업 아이템 생성
@@ -710,6 +736,8 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	WorkItem.bNeedTightnessCaching = bNeedTightnessCaching;
 	WorkItem.bInvalidatePreviousPosition = bInvalidatePreviousPosition;
 	WorkItem.CachedBufferSharedPtr = CurrentLODData.CachedTightenedBindPoseShared;  // TSharedPtr 복사 (ref count 증가)
+	WorkItem.CachedNormalsBufferSharedPtr = CurrentLODData.CachedNormalsShared;  // 노멀 캐시 버퍼 (ref count 증가)
+	WorkItem.CachedTangentsBufferSharedPtr = CurrentLODData.CachedTangentsShared;  // 탄젠트 캐시 버퍼 (ref count 증가)
 	WorkItem.FallbackDelegate = InDesc.FallbackDelegate;
 
 	// Bulge 전역 플래그 설정 (VolumeAccumBuffer 생성 여부 결정용)
@@ -720,6 +748,12 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	{
 		WorkItem.bEnableLayerPenetrationResolution =
 			FleshRingComponent->FleshRingAsset->bEnableLayerPenetrationResolution;
+
+		// Normal/Tangent Recompute 플래그 설정
+		WorkItem.bEnableNormalRecompute =
+			FleshRingComponent->FleshRingAsset->bEnableNormalRecompute;
+		WorkItem.bEnableTangentRecompute =
+			FleshRingComponent->FleshRingAsset->bEnableTangentRecompute;
 	}
 
 	// 렌더 스레드에서 Worker에 작업 큐잉

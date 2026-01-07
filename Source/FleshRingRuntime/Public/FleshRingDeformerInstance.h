@@ -88,6 +88,14 @@ private:
 		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedTightenedBindPoseShared;
 		bool bTightenedBindPoseCached = false;
 		uint32 CachedTightnessVertexCount = 0;
+
+		// 재계산된 노멀 캐싱 (NormalRecomputeCS 결과)
+		// TightenedBindPose와 함께 캐싱되어 캐싱된 프레임에서도 올바른 노멀 사용
+		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedNormalsShared;
+
+		// 재계산된 탄젠트 캐싱 (TangentRecomputeCS 결과)
+		// Gram-Schmidt 정규직교화된 탄젠트를 캐싱
+		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedTangentsShared;
 	};
 
 	// LOD별 데이터 배열 (인덱스 = LOD 번호)

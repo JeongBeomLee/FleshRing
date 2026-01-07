@@ -17,6 +17,7 @@
 #include "DrawDebugHelpers.h"
 #include "Rendering/SkeletalMeshRenderData.h"
 #include "Rendering/SkeletalMeshLODRenderData.h"
+#include "Rendering/SkinWeightVertexBuffer.h"
 
 #if WITH_EDITOR
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -444,84 +445,277 @@ void UFleshRingSubdivisionComponent::ExecuteGPUInterpolation()
 		return;
 	}
 
+	// SkeletalMesh LOD 데이터 접근
+	if (!TargetMeshComp.IsValid())
+	{
+		UE_LOG(LogFleshRingSubdivision, Warning, TEXT("ExecuteGPUInterpolation: TargetMeshComp is invalid"));
+		return;
+	}
+
+	USkeletalMesh* SkelMesh = TargetMeshComp->GetSkeletalMeshAsset();
+	if (!SkelMesh)
+	{
+		UE_LOG(LogFleshRingSubdivision, Warning, TEXT("ExecuteGPUInterpolation: No SkeletalMesh asset"));
+		return;
+	}
+
+	FSkeletalMeshRenderData* RenderData = SkelMesh->GetResourceForRendering();
+	if (!RenderData || RenderData->LODRenderData.Num() == 0)
+	{
+		UE_LOG(LogFleshRingSubdivision, Warning, TEXT("ExecuteGPUInterpolation: No render data available"));
+		return;
+	}
+
+	const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[0]; // LOD 0 사용
+	const uint32 SourceVertexCount = LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
+
 	// 소스 메시 데이터를 복사 (렌더 스레드에서 Processor 접근 불가)
 	TArray<FVector> SourcePositions = Processor->GetSourcePositions();
 	TArray<FVector2D> SourceUVs = Processor->GetSourceUVs();
 
-	// 노멀은 SkeletalMesh에서 별도 추출 필요 - 현재는 기본값 사용
-	TArray<FVector> SourceNormals;
-	SourceNormals.SetNum(SourcePositions.Num());
-	for (int32 i = 0; i < SourceNormals.Num(); ++i)
+	// Position 수와 SkeletalMesh 버텍스 수가 일치하는지 확인
+	if (SourcePositions.Num() != static_cast<int32>(SourceVertexCount))
 	{
-		SourceNormals[i] = FVector::UpVector;
+		UE_LOG(LogFleshRingSubdivision, Warning,
+			TEXT("ExecuteGPUInterpolation: Vertex count mismatch (Processor=%d, Mesh=%d) - using defaults"),
+			SourcePositions.Num(), SourceVertexCount);
+		// 일치하지 않으면 기본값 사용으로 폴백
+		goto FallbackToDefaults;
 	}
 
-	// Bone Weight/Index는 현재 기본값 사용 (TODO: SkeletalMesh에서 추출)
-	const uint32 NumBoneInfluences = 4;
-	TArray<float> SourceBoneWeights;
-	TArray<uint32> SourceBoneIndices;
-	SourceBoneWeights.SetNumZeroed(SourcePositions.Num() * NumBoneInfluences);
-	SourceBoneIndices.SetNumZeroed(SourcePositions.Num() * NumBoneInfluences);
-	for (int32 i = 0; i < SourcePositions.Num(); ++i)
 	{
-		SourceBoneWeights[i * NumBoneInfluences] = 1.0f; // 첫 번째 본에 100% 가중치
-	}
-
-	// 결과 캐시 포인터 (렌더 스레드에서 접근용)
-	FSubdivisionResultCache* ResultCachePtr = &ResultCache;
-	const uint32 NumVertices = TopologyResult.SubdividedVertexCount;
-	const uint32 NumIndices = TopologyResult.Indices.Num();
-
-	// Render Thread에서 GPU 작업 실행 및 결과 캐싱
-	ENQUEUE_RENDER_COMMAND(FleshRingSubdivisionGPU)(
-		[TopologyResult, SourcePositions, SourceNormals, SourceUVs, SourceBoneWeights, SourceBoneIndices,
-		 NumBoneInfluences, ResultCachePtr, NumVertices, NumIndices]
-		(FRHICommandListImmediate& RHICmdList)
+		// ===== Normal 추출 (TangentZ) =====
+		TArray<FVector> SourceNormals;
+		SourceNormals.SetNum(SourcePositions.Num());
+		for (int32 i = 0; i < SourceNormals.Num(); ++i)
 		{
-			FRDGBuilder GraphBuilder(RHICmdList);
+			FVector4f TangentZ = LODData.StaticVertexBuffers.StaticMeshVertexBuffer.VertexTangentZ(i);
+			SourceNormals[i] = FVector(TangentZ.X, TangentZ.Y, TangentZ.Z);
+		}
 
-			FSubdivisionInterpolationParams Params;
-			Params.NumBoneInfluences = NumBoneInfluences;
+		// ===== Tangent 추출 (TangentX, w = binormal sign) =====
+		TArray<FVector4> SourceTangents;
+		SourceTangents.SetNum(SourcePositions.Num());
+		for (int32 i = 0; i < SourceTangents.Num(); ++i)
+		{
+			FVector4f TangentX = LODData.StaticVertexBuffers.StaticMeshVertexBuffer.VertexTangentX(i);
+			SourceTangents[i] = FVector4(TangentX.X, TangentX.Y, TangentX.Z, TangentX.W);
+		}
 
-			FSubdivisionGPUBuffers Buffers;
+		// ===== Bone Weight/Index 추출 =====
+		const uint32 NumBoneInfluences = 4;
+		TArray<float> SourceBoneWeights;
+		TArray<uint32> SourceBoneIndices;
+		SourceBoneWeights.SetNumZeroed(SourcePositions.Num() * NumBoneInfluences);
+		SourceBoneIndices.SetNumZeroed(SourcePositions.Num() * NumBoneInfluences);
 
-			// 소스 메시 데이터 업로드
-			UploadSourceMeshToGPU(
-				GraphBuilder,
-				SourcePositions,
-				SourceNormals,
-				SourceUVs,
-				SourceBoneWeights,
-				SourceBoneIndices,
-				NumBoneInfluences,
-				Buffers);
+		const FSkinWeightVertexBuffer* SkinWeightBuffer = LODData.GetSkinWeightVertexBuffer();
+		if (SkinWeightBuffer && SkinWeightBuffer->GetNumVertices() > 0)
+		{
+			// 버텍스별 섹션 인덱스 매핑 (BoneMap 변환용)
+			TArray<int32> VertexToSectionIndex;
+			VertexToSectionIndex.SetNumZeroed(SourcePositions.Num());
+			for (int32 SectionIdx = 0; SectionIdx < LODData.RenderSections.Num(); ++SectionIdx)
+			{
+				const FSkelMeshRenderSection& Section = LODData.RenderSections[SectionIdx];
+				for (uint32 VertexIdx = Section.BaseVertexIndex;
+					 VertexIdx < Section.BaseVertexIndex + Section.NumVertices && VertexIdx < static_cast<uint32>(SourcePositions.Num());
+					 ++VertexIdx)
+				{
+					VertexToSectionIndex[VertexIdx] = SectionIdx;
+				}
+			}
 
-			// 토폴로지 결과에서 GPU 버퍼 생성
-			CreateSubdivisionGPUBuffersFromTopology(GraphBuilder, TopologyResult, Params, Buffers);
+			for (int32 i = 0; i < SourcePositions.Num(); ++i)
+			{
+				// 해당 버텍스의 섹션 BoneMap 가져오기
+				const TArray<FBoneIndexType>* BoneMap = nullptr;
+				int32 SectionIdx = VertexToSectionIndex[i];
+				if (SectionIdx >= 0 && SectionIdx < LODData.RenderSections.Num())
+				{
+					BoneMap = &LODData.RenderSections[SectionIdx].BoneMap;
+				}
 
-			// GPU 보간 Dispatch
-			DispatchFleshRingBarycentricInterpolationCS(GraphBuilder, Params, Buffers);
+				for (uint32 j = 0; j < NumBoneInfluences; ++j)
+				{
+					uint16 LocalBoneIdx = SkinWeightBuffer->GetBoneIndex(i, j);
+					uint8 Weight = SkinWeightBuffer->GetBoneWeight(i, j);
 
-			// 결과를 Pooled 버퍼로 변환하여 캐싱
-			// RDG 버퍼를 외부 버퍼로 추출 (GraphBuilder.Execute() 후에도 유지됨)
-			GraphBuilder.QueueBufferExtraction(Buffers.OutputPositions, &ResultCachePtr->PositionsBuffer);
-			GraphBuilder.QueueBufferExtraction(Buffers.OutputNormals, &ResultCachePtr->NormalsBuffer);
-			GraphBuilder.QueueBufferExtraction(Buffers.OutputUVs, &ResultCachePtr->UVsBuffer);
-			GraphBuilder.QueueBufferExtraction(Buffers.OutputIndices, &ResultCachePtr->IndicesBuffer);
-			GraphBuilder.QueueBufferExtraction(Buffers.OutputBoneWeights, &ResultCachePtr->BoneWeightsBuffer);
-			GraphBuilder.QueueBufferExtraction(Buffers.OutputBoneIndices, &ResultCachePtr->BoneIndicesBuffer);
+					// BoneMap을 사용하여 Local -> Global 본 인덱스 변환
+					uint16 GlobalBoneIdx = LocalBoneIdx;
+					if (BoneMap && LocalBoneIdx < BoneMap->Num())
+					{
+						GlobalBoneIdx = (*BoneMap)[LocalBoneIdx];
+					}
 
-			GraphBuilder.Execute();
+					// Weight는 0-255를 0.0-1.0으로 변환
+					SourceBoneWeights[i * NumBoneInfluences + j] = static_cast<float>(Weight) / 255.0f;
+					SourceBoneIndices[i * NumBoneInfluences + j] = static_cast<uint32>(GlobalBoneIdx);
+				}
+			}
+		}
+		else
+		{
+			UE_LOG(LogFleshRingSubdivision, Warning,
+				TEXT("ExecuteGPUInterpolation: No SkinWeightBuffer - using default bone weights"));
+			for (int32 i = 0; i < SourcePositions.Num(); ++i)
+			{
+				SourceBoneWeights[i * NumBoneInfluences] = 1.0f; // 첫 번째 본에 100% 가중치
+			}
+		}
 
-			// 캐시 메타데이터 업데이트
-			ResultCachePtr->NumVertices = NumVertices;
-			ResultCachePtr->NumIndices = NumIndices;
-			ResultCachePtr->bCached = true;
+		UE_LOG(LogFleshRingSubdivision, Log,
+			TEXT("ExecuteGPUInterpolation: Extracted real mesh data - %d vertices (normals, tangents, bone weights)"),
+			SourcePositions.Num());
 
-			UE_LOG(LogFleshRingSubdivision, Log,
-				TEXT("GPU interpolation complete and cached: %d vertices, %d indices"),
-				NumVertices, NumIndices);
-		});
+		// 결과 캐시 포인터 (렌더 스레드에서 접근용)
+		FSubdivisionResultCache* ResultCachePtr = &ResultCache;
+		const uint32 NumVertices = TopologyResult.SubdividedVertexCount;
+		const uint32 NumIndices = TopologyResult.Indices.Num();
+
+		// Render Thread에서 GPU 작업 실행 및 결과 캐싱
+		ENQUEUE_RENDER_COMMAND(FleshRingSubdivisionGPU)(
+			[TopologyResult, SourcePositions, SourceNormals, SourceTangents, SourceUVs, SourceBoneWeights, SourceBoneIndices,
+			 NumBoneInfluences, ResultCachePtr, NumVertices, NumIndices]
+			(FRHICommandListImmediate& RHICmdList)
+			{
+				FRDGBuilder GraphBuilder(RHICmdList);
+
+				FSubdivisionInterpolationParams Params;
+				Params.NumBoneInfluences = NumBoneInfluences;
+
+				FSubdivisionGPUBuffers Buffers;
+
+				// 소스 메시 데이터 업로드
+				UploadSourceMeshToGPU(
+					GraphBuilder,
+					SourcePositions,
+					SourceNormals,
+					SourceTangents,
+					SourceUVs,
+					SourceBoneWeights,
+					SourceBoneIndices,
+					NumBoneInfluences,
+					Buffers);
+
+				// 토폴로지 결과에서 GPU 버퍼 생성
+				CreateSubdivisionGPUBuffersFromTopology(GraphBuilder, TopologyResult, Params, Buffers);
+
+				// GPU 보간 Dispatch
+				DispatchFleshRingBarycentricInterpolationCS(GraphBuilder, Params, Buffers);
+
+				// 결과를 Pooled 버퍼로 변환하여 캐싱
+				// RDG 버퍼를 외부 버퍼로 추출 (GraphBuilder.Execute() 후에도 유지됨)
+				GraphBuilder.QueueBufferExtraction(Buffers.OutputPositions, &ResultCachePtr->PositionsBuffer);
+				GraphBuilder.QueueBufferExtraction(Buffers.OutputNormals, &ResultCachePtr->NormalsBuffer);
+				GraphBuilder.QueueBufferExtraction(Buffers.OutputTangents, &ResultCachePtr->TangentsBuffer);
+				GraphBuilder.QueueBufferExtraction(Buffers.OutputUVs, &ResultCachePtr->UVsBuffer);
+				GraphBuilder.QueueBufferExtraction(Buffers.OutputIndices, &ResultCachePtr->IndicesBuffer);
+				GraphBuilder.QueueBufferExtraction(Buffers.OutputBoneWeights, &ResultCachePtr->BoneWeightsBuffer);
+				GraphBuilder.QueueBufferExtraction(Buffers.OutputBoneIndices, &ResultCachePtr->BoneIndicesBuffer);
+
+				GraphBuilder.Execute();
+
+				// 캐시 메타데이터 업데이트
+				ResultCachePtr->NumVertices = NumVertices;
+				ResultCachePtr->NumIndices = NumIndices;
+				ResultCachePtr->bCached = true;
+
+				UE_LOG(LogFleshRingSubdivision, Log,
+					TEXT("GPU interpolation complete and cached: %d vertices, %d indices"),
+					NumVertices, NumIndices);
+			});
+
+		return; // 성공적으로 처리됨
+	}
+
+FallbackToDefaults:
+	// 폴백: 기본값 사용 (기존 동작)
+	{
+		UE_LOG(LogFleshRingSubdivision, Warning,
+			TEXT("ExecuteGPUInterpolation: Using fallback default values for normals/tangents/bone weights"));
+
+		TArray<FVector> SourceNormals;
+		SourceNormals.SetNum(SourcePositions.Num());
+		for (int32 i = 0; i < SourceNormals.Num(); ++i)
+		{
+			SourceNormals[i] = FVector::UpVector;
+		}
+
+		TArray<FVector4> SourceTangents;
+		SourceTangents.SetNum(SourcePositions.Num());
+		for (int32 i = 0; i < SourceTangents.Num(); ++i)
+		{
+			SourceTangents[i] = FVector4(1.0f, 0.0f, 0.0f, 1.0f);
+		}
+
+		const uint32 NumBoneInfluences = 4;
+		TArray<float> SourceBoneWeights;
+		TArray<uint32> SourceBoneIndices;
+		SourceBoneWeights.SetNumZeroed(SourcePositions.Num() * NumBoneInfluences);
+		SourceBoneIndices.SetNumZeroed(SourcePositions.Num() * NumBoneInfluences);
+		for (int32 i = 0; i < SourcePositions.Num(); ++i)
+		{
+			SourceBoneWeights[i * NumBoneInfluences] = 1.0f;
+		}
+
+		// 결과 캐시 포인터 (렌더 스레드에서 접근용)
+		FSubdivisionResultCache* ResultCachePtr = &ResultCache;
+		const uint32 NumVertices = TopologyResult.SubdividedVertexCount;
+		const uint32 NumIndices = TopologyResult.Indices.Num();
+
+		// Render Thread에서 GPU 작업 실행 및 결과 캐싱
+		ENQUEUE_RENDER_COMMAND(FleshRingSubdivisionGPUFallback)(
+			[TopologyResult, SourcePositions, SourceNormals, SourceTangents, SourceUVs, SourceBoneWeights, SourceBoneIndices,
+			 NumBoneInfluences, ResultCachePtr, NumVertices, NumIndices]
+			(FRHICommandListImmediate& RHICmdList)
+			{
+				FRDGBuilder GraphBuilder(RHICmdList);
+
+				FSubdivisionInterpolationParams Params;
+				Params.NumBoneInfluences = NumBoneInfluences;
+
+				FSubdivisionGPUBuffers Buffers;
+
+				// 소스 메시 데이터 업로드
+				UploadSourceMeshToGPU(
+					GraphBuilder,
+					SourcePositions,
+					SourceNormals,
+					SourceTangents,
+					SourceUVs,
+					SourceBoneWeights,
+					SourceBoneIndices,
+					NumBoneInfluences,
+					Buffers);
+
+				// 토폴로지 결과에서 GPU 버퍼 생성
+				CreateSubdivisionGPUBuffersFromTopology(GraphBuilder, TopologyResult, Params, Buffers);
+
+				// GPU 보간 Dispatch
+				DispatchFleshRingBarycentricInterpolationCS(GraphBuilder, Params, Buffers);
+
+				// 결과를 Pooled 버퍼로 변환하여 캐싱
+				GraphBuilder.QueueBufferExtraction(Buffers.OutputPositions, &ResultCachePtr->PositionsBuffer);
+				GraphBuilder.QueueBufferExtraction(Buffers.OutputNormals, &ResultCachePtr->NormalsBuffer);
+				GraphBuilder.QueueBufferExtraction(Buffers.OutputTangents, &ResultCachePtr->TangentsBuffer);
+				GraphBuilder.QueueBufferExtraction(Buffers.OutputUVs, &ResultCachePtr->UVsBuffer);
+				GraphBuilder.QueueBufferExtraction(Buffers.OutputIndices, &ResultCachePtr->IndicesBuffer);
+				GraphBuilder.QueueBufferExtraction(Buffers.OutputBoneWeights, &ResultCachePtr->BoneWeightsBuffer);
+				GraphBuilder.QueueBufferExtraction(Buffers.OutputBoneIndices, &ResultCachePtr->BoneIndicesBuffer);
+
+				GraphBuilder.Execute();
+
+				// 캐시 메타데이터 업데이트
+				ResultCachePtr->NumVertices = NumVertices;
+				ResultCachePtr->NumIndices = NumIndices;
+				ResultCachePtr->bCached = true;
+
+				UE_LOG(LogFleshRingSubdivision, Log,
+					TEXT("GPU interpolation (fallback) complete and cached: %d vertices, %d indices"),
+					NumVertices, NumIndices);
+			});
+	}
 }
 
 #if WITH_EDITOR

@@ -26,6 +26,7 @@ public:
 		// ===== Source Mesh Data (SRV) =====
 		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float>, SourcePositions)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float>, SourceNormals)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float>, SourceTangents)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float>, SourceUVs)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float>, SourceBoneWeights)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<uint>, SourceBoneIndices)
@@ -37,6 +38,7 @@ public:
 		// ===== Output Buffers (UAV) =====
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float>, OutputPositions)
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float>, OutputNormals)
+		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float>, OutputTangents)
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float>, OutputUVs)
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float>, OutputBoneWeights)
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<uint>, OutputBoneIndices)
@@ -76,6 +78,7 @@ struct FSubdivisionGPUBuffers
 	// Source mesh data (from SkeletalMesh)
 	FRDGBufferRef SourcePositions = nullptr;
 	FRDGBufferRef SourceNormals = nullptr;
+	FRDGBufferRef SourceTangents = nullptr;
 	FRDGBufferRef SourceUVs = nullptr;
 	FRDGBufferRef SourceBoneWeights = nullptr;
 	FRDGBufferRef SourceBoneIndices = nullptr;
@@ -87,6 +90,7 @@ struct FSubdivisionGPUBuffers
 	// Output subdivided mesh
 	FRDGBufferRef OutputPositions = nullptr;
 	FRDGBufferRef OutputNormals = nullptr;
+	FRDGBufferRef OutputTangents = nullptr;
 	FRDGBufferRef OutputUVs = nullptr;
 	FRDGBufferRef OutputBoneWeights = nullptr;
 	FRDGBufferRef OutputBoneIndices = nullptr;
@@ -131,6 +135,7 @@ void CreateSubdivisionGPUBuffersFromTopology(
  * @param GraphBuilder - RDG builder
  * @param SourcePositions - CPU position array
  * @param SourceNormals - CPU normal array
+ * @param SourceTangents - CPU tangent array (float4: xyz = direction, w = binormal sign)
  * @param SourceUVs - CPU UV array
  * @param SourceBoneWeights - CPU bone weight array
  * @param SourceBoneIndices - CPU bone index array
@@ -141,6 +146,7 @@ void UploadSourceMeshToGPU(
 	FRDGBuilder& GraphBuilder,
 	const TArray<FVector>& SourcePositions,
 	const TArray<FVector>& SourceNormals,
+	const TArray<FVector4>& SourceTangents,
 	const TArray<FVector2D>& SourceUVs,
 	const TArray<float>& SourceBoneWeights,
 	const TArray<uint32>& SourceBoneIndices,
@@ -156,6 +162,7 @@ void UploadSourceMeshToGPU(
  * @param GraphBuilder - RDG builder
  * @param Processor - CPU subdivision processor (must have valid cached result)
  * @param SourceNormals - Source mesh normals
+ * @param SourceTangents - Source mesh tangents (float4: xyz = direction, w = binormal sign)
  * @param SourceBoneWeights - Source bone weights (flat array)
  * @param SourceBoneIndices - Source bone indices (flat array)
  * @param NumBoneInfluences - Bone influences per vertex
@@ -166,6 +173,7 @@ bool ExecuteSubdivisionInterpolation(
 	FRDGBuilder& GraphBuilder,
 	const FFleshRingSubdivisionProcessor& Processor,
 	const TArray<FVector>& SourceNormals,
+	const TArray<FVector4>& SourceTangents,
 	const TArray<float>& SourceBoneWeights,
 	const TArray<uint32>& SourceBoneIndices,
 	uint32 NumBoneInfluences,

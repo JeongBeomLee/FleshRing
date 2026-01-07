@@ -43,6 +43,7 @@ void DispatchFleshRingBarycentricInterpolationCS(
 	// Source mesh data
 	PassParameters->SourcePositions = GraphBuilder.CreateSRV(Buffers.SourcePositions, PF_R32_FLOAT);
 	PassParameters->SourceNormals = GraphBuilder.CreateSRV(Buffers.SourceNormals, PF_R32_FLOAT);
+	PassParameters->SourceTangents = GraphBuilder.CreateSRV(Buffers.SourceTangents, PF_R32_FLOAT);
 	PassParameters->SourceUVs = GraphBuilder.CreateSRV(Buffers.SourceUVs, PF_R32_FLOAT);
 	PassParameters->SourceBoneWeights = GraphBuilder.CreateSRV(Buffers.SourceBoneWeights, PF_R32_FLOAT);
 	PassParameters->SourceBoneIndices = GraphBuilder.CreateSRV(Buffers.SourceBoneIndices, PF_R32_UINT);
@@ -54,6 +55,7 @@ void DispatchFleshRingBarycentricInterpolationCS(
 	// Output buffers
 	PassParameters->OutputPositions = GraphBuilder.CreateUAV(Buffers.OutputPositions, PF_R32_FLOAT);
 	PassParameters->OutputNormals = GraphBuilder.CreateUAV(Buffers.OutputNormals, PF_R32_FLOAT);
+	PassParameters->OutputTangents = GraphBuilder.CreateUAV(Buffers.OutputTangents, PF_R32_FLOAT);
 	PassParameters->OutputUVs = GraphBuilder.CreateUAV(Buffers.OutputUVs, PF_R32_FLOAT);
 	PassParameters->OutputBoneWeights = GraphBuilder.CreateUAV(Buffers.OutputBoneWeights, PF_R32_FLOAT);
 	PassParameters->OutputBoneIndices = GraphBuilder.CreateUAV(Buffers.OutputBoneIndices, PF_R32_UINT);
@@ -164,6 +166,10 @@ void CreateSubdivisionGPUBuffersFromTopology(
 		FRDGBufferDesc::CreateBufferDesc(sizeof(float), NumVertices * 3),
 		TEXT("FleshRing_SubdividedNormals"));
 
+	OutBuffers.OutputTangents = GraphBuilder.CreateBuffer(
+		FRDGBufferDesc::CreateBufferDesc(sizeof(float), NumVertices * 4),
+		TEXT("FleshRing_SubdividedTangents"));
+
 	OutBuffers.OutputUVs = GraphBuilder.CreateBuffer(
 		FRDGBufferDesc::CreateBufferDesc(sizeof(float), NumVertices * 2),
 		TEXT("FleshRing_SubdividedUVs"));
@@ -185,6 +191,7 @@ void UploadSourceMeshToGPU(
 	FRDGBuilder& GraphBuilder,
 	const TArray<FVector>& SourcePositions,
 	const TArray<FVector>& SourceNormals,
+	const TArray<FVector4>& SourceTangents,
 	const TArray<FVector2D>& SourceUVs,
 	const TArray<float>& SourceBoneWeights,
 	const TArray<uint32>& SourceBoneIndices,
@@ -254,6 +261,44 @@ void UploadSourceMeshToGPU(
 			OutBuffers.SourceNormals,
 			NormalData.GetData(),
 			NormalData.Num() * sizeof(float),
+			ERDGInitialDataFlags::None);
+	}
+
+	// Tangents
+	{
+		TArray<float> TangentData;
+		TangentData.SetNum(NumVertices * 4);
+
+		if (SourceTangents.Num() == NumVertices)
+		{
+			for (int32 i = 0; i < NumVertices; ++i)
+			{
+				TangentData[i * 4 + 0] = static_cast<float>(SourceTangents[i].X);
+				TangentData[i * 4 + 1] = static_cast<float>(SourceTangents[i].Y);
+				TangentData[i * 4 + 2] = static_cast<float>(SourceTangents[i].Z);
+				TangentData[i * 4 + 3] = static_cast<float>(SourceTangents[i].W);
+			}
+		}
+		else
+		{
+			// Default to X-axis tangent with positive binormal sign
+			for (int32 i = 0; i < NumVertices; ++i)
+			{
+				TangentData[i * 4 + 0] = 1.0f;
+				TangentData[i * 4 + 1] = 0.0f;
+				TangentData[i * 4 + 2] = 0.0f;
+				TangentData[i * 4 + 3] = 1.0f;
+			}
+		}
+
+		OutBuffers.SourceTangents = GraphBuilder.CreateBuffer(
+			FRDGBufferDesc::CreateBufferDesc(sizeof(float), NumVertices * 4),
+			TEXT("FleshRing_SourceTangents"));
+
+		GraphBuilder.QueueBufferUpload(
+			OutBuffers.SourceTangents,
+			TangentData.GetData(),
+			TangentData.Num() * sizeof(float),
 			ERDGInitialDataFlags::None);
 	}
 
@@ -353,6 +398,7 @@ bool ExecuteSubdivisionInterpolation(
 	FRDGBuilder& GraphBuilder,
 	const FFleshRingSubdivisionProcessor& Processor,
 	const TArray<FVector>& SourceNormals,
+	const TArray<FVector4>& SourceTangents,
 	const TArray<float>& SourceBoneWeights,
 	const TArray<uint32>& SourceBoneIndices,
 	uint32 NumBoneInfluences,

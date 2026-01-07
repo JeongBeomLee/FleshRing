@@ -45,6 +45,7 @@ struct FSubdivisionResultCache
 	// GPU 버퍼 (Pooled)
 	TRefCountPtr<FRDGPooledBuffer> PositionsBuffer;
 	TRefCountPtr<FRDGPooledBuffer> NormalsBuffer;
+	TRefCountPtr<FRDGPooledBuffer> TangentsBuffer;
 	TRefCountPtr<FRDGPooledBuffer> UVsBuffer;
 	TRefCountPtr<FRDGPooledBuffer> IndicesBuffer;
 	TRefCountPtr<FRDGPooledBuffer> BoneWeightsBuffer;
@@ -58,6 +59,7 @@ struct FSubdivisionResultCache
 	{
 		PositionsBuffer.SafeRelease();
 		NormalsBuffer.SafeRelease();
+		TangentsBuffer.SafeRelease();
 		UVsBuffer.SafeRelease();
 		IndicesBuffer.SafeRelease();
 		BoneWeightsBuffer.SafeRelease();

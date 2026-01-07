@@ -175,6 +175,9 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 	// NormalRecomputeCS 출력 버퍼 (SkinningCS에서 사용)
 	FRDGBufferRef RecomputedNormalsBuffer = nullptr;
 
+	// TangentRecomputeCS 출력 버퍼 (SkinningCS에서 사용)
+	FRDGBufferRef RecomputedTangentsBuffer = nullptr;
+
 	if (WorkItem.bNeedTightnessCaching)
 	{
 		// 소스 버퍼 생성
@@ -248,6 +251,23 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					ERDGInitialDataFlags::None
 				);
 
+				// ===== UV Seam Welding: RepresentativeIndices 버퍼 생성 =====
+				// 같은 위치의 UV 중복 버텍스들이 동일하게 변형되도록 보장
+				FRDGBufferRef RepresentativeIndicesBuffer = nullptr;
+				if (DispatchData.RepresentativeIndices.Num() > 0)
+				{
+					RepresentativeIndicesBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), DispatchData.RepresentativeIndices.Num()),
+						TEXT("FleshRing_RepresentativeIndices")
+					);
+					GraphBuilder.QueueBufferUpload(
+						RepresentativeIndicesBuffer,
+						DispatchData.RepresentativeIndices.GetData(),
+						DispatchData.RepresentativeIndices.Num() * sizeof(uint32),
+						ERDGInitialDataFlags::None
+					);
+				}
+
 				// SDF 텍스처 등록 (Pooled → RDG)
 				FRDGTextureRef SDFTextureRDG = nullptr;
 				if (DispatchData.bHasValidSDF && DispatchData.SDFPooledTexture.IsValid())
@@ -294,6 +314,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					SourceBuffer,
 					IndicesBuffer,
 					InfluencesBuffer,
+					RepresentativeIndicesBuffer,  // UV seam welding용 대표 버텍스 인덱스
 					TightenedBindPoseBuffer,
 					SDFTextureRDG,
 					VolumeAccumBuffer
@@ -693,6 +714,36 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					);
 				}
 
+				// ===== DeformAmounts 버퍼 생성 (Taubin BulgeSmoothingFactor용) =====
+				// Per-vertex deform amounts: negative=tightness, positive=bulge
+				// 현재는 0으로 초기화 (neutral - 모든 버텍스에 동일한 스무딩 적용)
+				FRDGBufferRef LaplacianDeformAmountsBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(float), NumSmoothingVertices),
+					*FString::Printf(TEXT("FleshRing_LaplacianDeformAmounts_Ring%d"), RingIdx)
+				);
+				AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(LaplacianDeformAmountsBuffer), 0);
+
+				// ===== UV Seam Welding: RepresentativeIndices 버퍼 생성 (LaplacianCS용) =====
+				// 영역에 따라 적절한 RepresentativeIndices 선택
+				const TArray<uint32>& RepresentativeSource = bUsePostProcessingRegion
+					? DispatchData.PostProcessingRepresentativeIndices
+					: DispatchData.RepresentativeIndices;
+
+				FRDGBufferRef LaplacianRepresentativeIndicesBuffer = nullptr;
+				if (RepresentativeSource.Num() > 0 && RepresentativeSource.Num() == static_cast<int32>(NumSmoothingVertices))
+				{
+					LaplacianRepresentativeIndicesBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumSmoothingVertices),
+						*FString::Printf(TEXT("FleshRing_LaplacianRepIndices_Ring%d"), RingIdx)
+					);
+					GraphBuilder.QueueBufferUpload(
+						LaplacianRepresentativeIndicesBuffer,
+						RepresentativeSource.GetData(),
+						NumSmoothingVertices * sizeof(uint32),
+						ERDGInitialDataFlags::None
+					);
+				}
+
 				// Laplacian MultiPass 디스패치 (in-place smoothing)
 				DispatchFleshRingLaplacianCS_MultiPass(
 					GraphBuilder,
@@ -700,6 +751,8 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					TightenedBindPoseBuffer,
 					LaplacianIndicesBuffer,
 					LaplacianInfluencesBuffer,
+					LaplacianDeformAmountsBuffer,  // Taubin BulgeSmoothingFactor용
+					LaplacianRepresentativeIndicesBuffer,  // UV seam welding용 대표 버텍스 인덱스
 					LaplacianAdjacencyBuffer,
 					LaplacianLayerTypesBuffer  // 스타킹 스무딩 제외용
 				);
@@ -811,12 +864,41 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					ERDGInitialDataFlags::None
 				);
 
+				// ===== UV Seam Welding: RepresentativeIndices 버퍼 생성 (PBD용) =====
+				// 영역에 따라 적절한 RepresentativeIndices 선택
+				const TArray<uint32>& PBDRepresentativeSource = bUsePostProcessingRegion
+					? DispatchData.PostProcessingRepresentativeIndices
+					: DispatchData.RepresentativeIndices;
+
+				FRDGBufferRef PBDRepresentativeIndicesBuffer = nullptr;
+				if (PBDRepresentativeSource.Num() > 0 && PBDRepresentativeSource.Num() == static_cast<int32>(NumAffected))
+				{
+					PBDRepresentativeIndicesBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumAffected),
+						*FString::Printf(TEXT("FleshRing_PBDRepIndices_Ring%d"), RingIdx)
+					);
+					GraphBuilder.QueueBufferUpload(
+						PBDRepresentativeIndicesBuffer,
+						PBDRepresentativeSource.GetData(),
+						NumAffected * sizeof(uint32),
+						ERDGInitialDataFlags::None
+					);
+				}
+
+				// ===== FullDeformAmountMap 버퍼 (bUseDeformAmountWeight용) =====
+				// 현재는 nullptr로 전달 (기존 Influence 방식 사용)
+				// TODO: DispatchData.FullDeformAmountMap 추가 후 활성화
+				FRDGBufferRef FullDeformAmountMapBuffer = nullptr;
+				FRDGBufferRef PBDDeformAmountsBuffer = nullptr;
+
 				// PBD 디스패치 파라미터
 				FPBDEdgeDispatchParams PBDParams;
 				PBDParams.NumAffectedVertices = NumAffected;
 				PBDParams.NumTotalVertices = ActualNumVertices;
 				PBDParams.Stiffness = DispatchData.PBDStiffness;
 				PBDParams.NumIterations = DispatchData.PBDIterations;
+				// BoundsScale은 기본값(1.5f) 사용
+				PBDParams.bUseDeformAmountWeight = DispatchData.bPBDUseDeformAmountWeight;
 
 				// PBD Edge Constraint 디스패치 (in-place, ping-pong 내부 처리)
 				DispatchFleshRingPBDEdgeCS_MultiPass(
@@ -824,9 +906,12 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					PBDParams,
 					TightenedBindPoseBuffer,
 					PBDIndicesBuffer,
+					PBDRepresentativeIndicesBuffer,  // UV seam welding용 대표 버텍스 인덱스
 					PBDInfluencesBuffer,
+					PBDDeformAmountsBuffer,  // 현재 nullptr (기존 Influence 방식)
 					PBDAdjacencyBuffer,
-					FullInfluenceMapBuffer
+					FullInfluenceMapBuffer,
+					FullDeformAmountMapBuffer  // 현재 nullptr
 				);
 
 				// [조건부 로그] 첫 프레임만
@@ -1190,7 +1275,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 
 		// ===== NormalRecomputeCS Dispatch (BulgeCS 이후) =====
 		// 변형된 위치에 대해 Face Normal 평균으로 노멀 재계산
-		if (WorkItem.RingDispatchDataPtr.IsValid() && WorkItem.MeshIndicesPtr.IsValid())
+		if (WorkItem.bEnableNormalRecompute && WorkItem.RingDispatchDataPtr.IsValid() && WorkItem.MeshIndicesPtr.IsValid())
 		{
 			// 메시 인덱스 버퍼 생성
 			const TArray<uint32>& MeshIndices = *WorkItem.MeshIndicesPtr;
@@ -1233,9 +1318,10 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				{
 					const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
 
-					// ===== Normal 영역 선택 (LaplacianCS와 동일한 범위 사용) =====
+					// ===== Normal 영역 선택 (스무딩 활성화 시에만 확장 영역 사용) =====
 					// Note: Hop 기반 확장은 Normal 인접 데이터가 없으므로, PostProcessing만 지원
 					const bool bUsePostProcessingRegion =
+						DispatchData.bEnableLaplacianSmoothing &&
 						DispatchData.PostProcessingIndices.Num() > 0 &&
 						DispatchData.PostProcessingAdjacencyOffsets.Num() > 0 &&
 						DispatchData.PostProcessingAdjacencyTriangles.Num() > 0;
@@ -1332,10 +1418,102 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 			}
 		}
 
+		// ===== TangentRecomputeCS Dispatch (NormalRecomputeCS 이후) =====
+		// Gram-Schmidt 정규직교화로 탄젠트 재계산
+		// Note: bEnableNormalRecompute가 false면 RecomputedNormalsBuffer가 null이므로 자동 스킵
+		if (WorkItem.bEnableTangentRecompute && RecomputedNormalsBuffer && WorkItem.RingDispatchDataPtr.IsValid())
+		{
+			// SourceTangents SRV 가져오기
+			FRHIShaderResourceView* SourceTangentsSRV = LODData.StaticVertexBuffers.StaticMeshVertexBuffer.GetTangentsSRV();
+
+			if (SourceTangentsSRV)
+			{
+				UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] TangentRecomputeCS: SourceTangentsSRV is valid, proceeding"));
+
+				// 탄젠트 출력 버퍼 생성 (버텍스당 8 float: TangentX.xyzw + TangentZ.xyzw)
+				const uint32 TangentBufferSize = ActualNumVertices * 8;
+				RecomputedTangentsBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateBufferDesc(sizeof(float), TangentBufferSize),
+					TEXT("FleshRing_RecomputedTangents")
+				);
+				// 0으로 초기화 - 영향받지 않는 버텍스는 SkinningCS에서 원본 사용
+				AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(RecomputedTangentsBuffer, PF_R32_FLOAT), 0);
+
+				// 각 Ring별로 TangentRecomputeCS 디스패치
+				for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
+				{
+					const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
+
+					// Normal과 동일한 영역 사용 (스무딩 활성화 시에만 확장 영역)
+					const bool bUsePostProcessingRegion =
+						DispatchData.bEnableLaplacianSmoothing &&
+						DispatchData.PostProcessingIndices.Num() > 0 &&
+						DispatchData.PostProcessingAdjacencyOffsets.Num() > 0 &&
+						DispatchData.PostProcessingAdjacencyTriangles.Num() > 0;
+
+					const TArray<uint32>& IndicesSource = bUsePostProcessingRegion
+						? DispatchData.PostProcessingIndices : DispatchData.Indices;
+
+					if (IndicesSource.Num() == 0) continue;
+
+					const uint32 NumAffected = IndicesSource.Num();
+
+					// 영향받는 버텍스 인덱스 버퍼
+					FRDGBufferRef TangentAffectedIndicesBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumAffected),
+						*FString::Printf(TEXT("FleshRing_TangentAffectedIndices_Ring%d"), RingIdx)
+					);
+					GraphBuilder.QueueBufferUpload(
+						TangentAffectedIndicesBuffer,
+						IndicesSource.GetData(),
+						NumAffected * sizeof(uint32),
+						ERDGInitialDataFlags::None
+					);
+
+					// TangentRecomputeCS 디스패치
+					FTangentRecomputeDispatchParams TangentParams(NumAffected, ActualNumVertices);
+
+					DispatchFleshRingTangentRecomputeCS(
+						GraphBuilder,
+						TangentParams,
+						RecomputedNormalsBuffer,
+						SourceTangentsSRV,
+						TangentAffectedIndicesBuffer,
+						RecomputedTangentsBuffer
+					);
+
+					// [조건부 로그] 첫 프레임만
+					static TSet<int32> LoggedTangentRings;
+					if (!LoggedTangentRings.Contains(RingIdx))
+					{
+						UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] TangentRecomputeCS Ring[%d]: %d vertices"),
+							RingIdx, NumAffected);
+						LoggedTangentRings.Add(RingIdx);
+					}
+				}
+			}
+			else
+			{
+				UE_LOG(LogFleshRingWorker, Warning, TEXT("[DEBUG] TangentRecomputeCS: SourceTangentsSRV is NULL! Tangent recomputation skipped."));
+			}
+		}
+
 		// 영구 버퍼로 변환하여 캐싱
 		if (WorkItem.CachedBufferSharedPtr.IsValid())
 		{
 			*WorkItem.CachedBufferSharedPtr = GraphBuilder.ConvertToExternalBuffer(TightenedBindPoseBuffer);
+		}
+
+		// 재계산된 노멀 버퍼도 캐싱 (SkinningCS에서 사용)
+		if (WorkItem.CachedNormalsBufferSharedPtr.IsValid() && RecomputedNormalsBuffer)
+		{
+			*WorkItem.CachedNormalsBufferSharedPtr = GraphBuilder.ConvertToExternalBuffer(RecomputedNormalsBuffer);
+		}
+
+		// 재계산된 탄젠트 버퍼도 캐싱 (Gram-Schmidt 정규직교화 결과)
+		if (WorkItem.CachedTangentsBufferSharedPtr.IsValid() && RecomputedTangentsBuffer)
+		{
+			*WorkItem.CachedTangentsBufferSharedPtr = GraphBuilder.ConvertToExternalBuffer(RecomputedTangentsBuffer);
 		}
 	}
 	else
@@ -1351,6 +1529,18 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 			ExternalAccessQueue.Submit(GraphBuilder);
 			WorkItem.FallbackDelegate.ExecuteIfBound();
 			return;
+		}
+
+		// 캐싱된 노멀 버퍼 복구
+		if (WorkItem.CachedNormalsBufferSharedPtr.IsValid() && WorkItem.CachedNormalsBufferSharedPtr->IsValid())
+		{
+			RecomputedNormalsBuffer = GraphBuilder.RegisterExternalBuffer(*WorkItem.CachedNormalsBufferSharedPtr);
+		}
+
+		// 캐싱된 탄젠트 버퍼 복구
+		if (WorkItem.CachedTangentsBufferSharedPtr.IsValid() && WorkItem.CachedTangentsBufferSharedPtr->IsValid())
+		{
+			RecomputedTangentsBuffer = GraphBuilder.RegisterExternalBuffer(*WorkItem.CachedTangentsBufferSharedPtr);
 		}
 	}
 
@@ -1390,10 +1580,20 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				(WeightBuffer->GetBoneWeightByteSize() << 8);
 			SkinParams.NumBoneInfluences = WeightBuffer->GetMaxBoneInfluences();
 
+			// 디버그 로그: RecomputedTangentsBuffer 상태 확인
+			static bool bLoggedSkinningFlags = false;
+			if (!bLoggedSkinningFlags)
+			{
+				UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] SkinningCS: RecomputedNormalsBuffer=%s, RecomputedTangentsBuffer=%s"),
+					RecomputedNormalsBuffer ? TEXT("VALID") : TEXT("NULL"),
+					RecomputedTangentsBuffer ? TEXT("VALID") : TEXT("NULL"));
+				bLoggedSkinningFlags = true;
+			}
+
 			DispatchFleshRingSkinningCS(GraphBuilder, SkinParams, TightenedBindPoseBuffer,
 				SourceTangentsSRV, OutputPositionBuffer, nullptr,
 				OutputTangentBuffer, BoneMatricesSRV, nullptr, InputWeightStreamSRV,
-				RecomputedNormalsBuffer);
+				RecomputedNormalsBuffer, RecomputedTangentsBuffer);
 		}
 	}
 

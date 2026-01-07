@@ -40,7 +40,8 @@ void DispatchFleshRingSkinningCS(
     FRHIShaderResourceView* BoneMatricesSRV,
     FRHIShaderResourceView* PreviousBoneMatricesSRV,
     FRHIShaderResourceView* InputWeightStreamSRV,
-    FRDGBufferRef RecomputedNormalsBuffer)
+    FRDGBufferRef RecomputedNormalsBuffer,
+    FRDGBufferRef RecomputedTangentsBuffer)
 {
     // Early out if no vertices to process
     // 처리할 버텍스가 없으면 조기 반환
@@ -68,6 +69,10 @@ void DispatchFleshRingSkinningCS(
     // Recomputed normals processing - use NormalRecomputeCS output for deformed vertices
     // 재계산된 노멀 처리 - 변형된 버텍스에 NormalRecomputeCS 출력 사용
     const bool bUseRecomputedNormals = (RecomputedNormalsBuffer != nullptr);
+
+    // Recomputed tangents processing - use TangentRecomputeCS output (Gram-Schmidt orthonormalized)
+    // 재계산된 탄젠트 처리 - TangentRecomputeCS 출력 사용 (Gram-Schmidt 정규직교화)
+    const bool bUseRecomputedTangents = (RecomputedTangentsBuffer != nullptr);
 
     // Allocate shader parameters
     // 셰이더 파라미터 할당
@@ -111,6 +116,19 @@ void DispatchFleshRingSkinningCS(
         // Dummy buffer - use Position buffer as placeholder (won't be read if bUseRecomputedNormals=0)
         // 더미 버퍼 - Position 버퍼를 플레이스홀더로 사용 (bUseRecomputedNormals=0이면 읽지 않음)
         PassParameters->RecomputedNormals = GraphBuilder.CreateSRV(SourcePositionsBuffer, PF_R32_FLOAT);
+    }
+
+    // Recomputed tangents buffer (optional, from TangentRecomputeCS)
+    // 재계산된 탄젠트 버퍼 (선택적, TangentRecomputeCS에서)
+    if (bUseRecomputedTangents)
+    {
+        PassParameters->RecomputedTangents = GraphBuilder.CreateSRV(RecomputedTangentsBuffer, PF_R32_FLOAT);
+    }
+    else
+    {
+        // Dummy buffer - use Position buffer as placeholder (won't be read if bUseRecomputedTangents=0)
+        // 더미 버퍼 - Position 버퍼를 플레이스홀더로 사용 (bUseRecomputedTangents=0이면 읽지 않음)
+        PassParameters->RecomputedTangents = GraphBuilder.CreateSRV(SourcePositionsBuffer, PF_R32_FLOAT);
     }
 
     if (bProcessTangents)
@@ -167,6 +185,7 @@ void DispatchFleshRingSkinningCS(
     PassParameters->bProcessTangents = bProcessTangents ? 1 : 0;
     PassParameters->bProcessPreviousPosition = bProcessPreviousPosition ? 1 : 0;
     PassParameters->bUseRecomputedNormals = bUseRecomputedNormals ? 1 : 0;
+    PassParameters->bUseRecomputedTangents = bUseRecomputedTangents ? 1 : 0;
 
     // Get shader reference
     // 셰이더 참조 가져오기

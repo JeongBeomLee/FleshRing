@@ -16,6 +16,7 @@
 
 Buffer<float> SourcePositions;      // x,y,z per vertex
 Buffer<float> SourceNormals;        // x,y,z per vertex
+Buffer<float> SourceTangents;       // x,y,z,w per vertex (w = binormal sign)
 Buffer<float2> SourceUVs;           // u,v per vertex
 Buffer<float> SourceBoneWeights;    // NumBoneInfluences floats per vertex
 Buffer<uint> SourceBoneIndices;     // NumBoneInfluences uints per vertex
@@ -38,6 +39,7 @@ Buffer<float> VertexBarycentrics;   // 3 floats per output vertex
 
 RWBuffer<float> OutputPositions;
 RWBuffer<float> OutputNormals;
+RWBuffer<float> OutputTangents;     // x,y,z,w per vertex (w = binormal sign)
 RWBuffer<float2> OutputUVs;
 RWBuffer<float> OutputBoneWeights;
 RWBuffer<uint> OutputBoneIndices;
@@ -71,6 +73,16 @@ float3 ReadSourceNormal(uint VertexIndex)
     );
 }
 
+float4 ReadSourceTangent(uint VertexIndex)
+{
+    return float4(
+        SourceTangents[VertexIndex * 4 + 0],
+        SourceTangents[VertexIndex * 4 + 1],
+        SourceTangents[VertexIndex * 4 + 2],
+        SourceTangents[VertexIndex * 4 + 3]
+    );
+}
+
 void WriteOutputPosition(uint VertexIndex, float3 Position)
 {
     OutputPositions[VertexIndex * 3 + 0] = Position.x;
@@ -83,6 +95,14 @@ void WriteOutputNormal(uint VertexIndex, float3 Normal)
     OutputNormals[VertexIndex * 3 + 0] = Normal.x;
     OutputNormals[VertexIndex * 3 + 1] = Normal.y;
     OutputNormals[VertexIndex * 3 + 2] = Normal.z;
+}
+
+void WriteOutputTangent(uint VertexIndex, float4 Tangent)
+{
+    OutputTangents[VertexIndex * 4 + 0] = Tangent.x;
+    OutputTangents[VertexIndex * 4 + 1] = Tangent.y;
+    OutputTangents[VertexIndex * 4 + 2] = Tangent.z;
+    OutputTangents[VertexIndex * 4 + 3] = Tangent.w;
 }
 
 // ============================================================================
@@ -130,6 +150,21 @@ void BarycentricInterpolationCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
     float2 InterpolatedUV = UV0 * u + UV1 * v + UV2 * w;
     OutputUVs[OutputVertexIndex] = InterpolatedUV;
+
+    // ===== Tangent Interpolation =====
+    float4 T0 = ReadSourceTangent(ParentV0);
+    float4 T1 = ReadSourceTangent(ParentV1);
+    float4 T2 = ReadSourceTangent(ParentV2);
+
+    // Tangent direction 보간 (xyz), binormal sign (w)는 dominant parent에서 가져옴
+    float3 InterpolatedTangentDir = normalize(T0.xyz * u + T1.xyz * v + T2.xyz * w);
+
+    // Binormal sign은 가중치가 가장 높은 부모에서 가져옴
+    float BinormalSign = T0.w;
+    if (v > u && v > w) BinormalSign = T1.w;
+    else if (w > u && w > v) BinormalSign = T2.w;
+
+    WriteOutputTangent(OutputVertexIndex, float4(InterpolatedTangentDir, BinormalSign));
 
     // ===== Bone Weight Interpolation =====
     for (uint i = 0; i < NumBoneInfluences; ++i)
@@ -185,6 +220,12 @@ void EdgeMidpointInterpolationCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     float2 UV0 = SourceUVs[ParentV0];
     float2 UV1 = SourceUVs[ParentV1];
     OutputUVs[OutputVertexIndex] = (UV0 + UV1) * 0.5;
+
+    // Tangent 평균 (binormal sign은 V0에서)
+    float4 T0 = ReadSourceTangent(ParentV0);
+    float4 T1 = ReadSourceTangent(ParentV1);
+    float3 InterpolatedTangentDir = normalize(T0.xyz + T1.xyz);
+    WriteOutputTangent(OutputVertexIndex, float4(InterpolatedTangentDir, T0.w));
 
     // Bone weights 평균
     for (uint i = 0; i < NumBoneInfluences; ++i)
