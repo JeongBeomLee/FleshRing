@@ -1115,12 +1115,30 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
                     BuildPostProcessingPBDAdjacencyData(RingData, CachedMeshIndices, MeshVertices, MeshVertices.Num());
                 }
             }
+
+            // Build slice data for bone ratio preservation (Radial Smoothing용)
+            // 본 거리 비율 보존용 슬라이스 데이터 빌드
+            // GPU 디스패치에서 bEnableRadialSmoothing 체크하므로 여기선 무조건 빌드
+            BuildSliceData(RingData, MeshVertices, 1.0f);
+
+            // Build hop distance data for topology-based smoothing
+            // 홉 기반 스무딩용 확장 영역 데이터 빌드
+            if (RingSettings.bEnableLaplacianSmoothing)
+            {
+                BuildHopDistanceData(
+                    RingData,
+                    CachedMeshIndices,
+                    MeshVertices,
+                    RingSettings.MaxSmoothingHops,
+                    RingSettings.HopFalloffType
+                );
+            }
         }
 
         UE_LOG(LogFleshRingVertices, Log,
-            TEXT("Ring[%d] '%s': %d affected vertices, %d adjacency triangles, %d laplacian adjacency uints"),
+            TEXT("Ring[%d] '%s': %d affected, %d slices, %d extended smoothing"),
             RingIdx, *RingSettings.BoneName.ToString(),
-            RingData.Vertices.Num(), RingData.AdjacencyTriangles.Num(), RingData.LaplacianAdjacencyData.Num());
+            RingData.Vertices.Num(), RingData.SlicePackedData.Num() / 33, RingData.ExtendedSmoothingIndices.Num());
 
         // 인덱스 기반 할당 (Add 대신) + dirty flag 클리어
         RingDataArray[RingIdx] = MoveTemp(RingData);
