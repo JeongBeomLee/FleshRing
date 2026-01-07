@@ -313,6 +313,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		}
 
 		FFleshRingWorkItem::FRingDispatchData DispatchData;
+		DispatchData.OriginalRingIndex = RingIndex;  // 원본 인덱스 저장 (설정 조회용)
 		DispatchData.Params = CreateTightnessParams(RingData, TotalVertexCount);
 
 		// SmoothingBoundsZTop/Bottom 설정 (스무딩 영역 Z 확장)
@@ -581,7 +582,8 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			continue;
 		}
 
-		// Ring별 Bulge 설정 가져오기
+		// Ring별 Bulge 설정 가져오기 (OriginalRingIndex 사용)
+		const int32 OriginalIdx = DispatchData.OriginalRingIndex;
 		bool bBulgeEnabledInSettings = true;
 		float RingBulgeStrength = 1.0f;
 		float RingMaxBulgeDistance = 10.0f;
@@ -589,14 +591,14 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		float RingBulgeRadialRange = 1.5f;
 		float RingBulgeRadialRatio = 0.7f;
 		EFleshRingFalloffType RingBulgeFalloff = EFleshRingFalloffType::WendlandC2;
-		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIdx))
+		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(OriginalIdx))
 		{
-			bBulgeEnabledInSettings = (*RingSettingsPtr)[RingIdx].bEnableBulge;
-			RingBulgeStrength = (*RingSettingsPtr)[RingIdx].BulgeIntensity;
-			RingBulgeAxialRange = (*RingSettingsPtr)[RingIdx].BulgeAxialRange;
-			RingBulgeRadialRange = (*RingSettingsPtr)[RingIdx].BulgeRadialRange;
-			RingBulgeRadialRatio = (*RingSettingsPtr)[RingIdx].BulgeRadialRatio;
-			RingBulgeFalloff = (*RingSettingsPtr)[RingIdx].BulgeFalloff;
+			bBulgeEnabledInSettings = (*RingSettingsPtr)[OriginalIdx].bEnableBulge;
+			RingBulgeStrength = (*RingSettingsPtr)[OriginalIdx].BulgeIntensity;
+			RingBulgeAxialRange = (*RingSettingsPtr)[OriginalIdx].BulgeAxialRange;
+			RingBulgeRadialRange = (*RingSettingsPtr)[OriginalIdx].BulgeRadialRange;
+			RingBulgeRadialRatio = (*RingSettingsPtr)[OriginalIdx].BulgeRadialRatio;
+			RingBulgeFalloff = (*RingSettingsPtr)[OriginalIdx].BulgeFalloff;
 		}
 
 		// bEnableBulge가 true이고 BulgeIntensity > 0이면 Bulge 활성화
@@ -641,18 +643,18 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			bAnyRingHasBulge = true;
 
 			// ===== Bulge 방향 데이터 설정 =====
-			// SDF 캐시에서 감지된 방향 가져오기
+			// SDF 캐시에서 감지된 방향 가져오기 (OriginalRingIndex 사용)
 			if (FleshRingComponent.IsValid())
 			{
-				const FRingSDFCache* SDFCache = FleshRingComponent->GetRingSDFCache(RingIdx);
+				const FRingSDFCache* SDFCache = FleshRingComponent->GetRingSDFCache(OriginalIdx);
 				int32 DetectedDirection = SDFCache ? SDFCache->DetectedBulgeDirection : 0;
 				DispatchData.DetectedBulgeDirection = DetectedDirection;
 
 				// Ring 설정에서 BulgeDirection 모드 가져오기
 				EBulgeDirectionMode BulgeDirectionMode = EBulgeDirectionMode::Auto;
-				if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIdx))
+				if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(OriginalIdx))
 				{
-					BulgeDirectionMode = (*RingSettingsPtr)[RingIdx].BulgeDirection;
+					BulgeDirectionMode = (*RingSettingsPtr)[OriginalIdx].BulgeDirection;
 				}
 
 				// 최종 방향 계산 (Auto 모드면 감지된 방향, 아니면 수동 지정)
@@ -674,14 +676,14 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				}
 			}
 
-			// [조건부 로그] 첫 프레임만 출력
+			// [조건부 로그] 첫 프레임만 출력 (OriginalIdx 사용)
 			static TSet<int32> LoggedRings;
-			if (!LoggedRings.Contains(RingIdx))
+			if (!LoggedRings.Contains(OriginalIdx))
 			{
 				UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] Bulge 데이터 준비 완료: %d vertices, Strength=%.2f, Direction=%d (Detected=%d)"),
-					RingIdx, DispatchData.BulgeIndices.Num(), RingBulgeStrength,
+					OriginalIdx, DispatchData.BulgeIndices.Num(), RingBulgeStrength,
 					DispatchData.BulgeAxisDirection, DispatchData.DetectedBulgeDirection);
-				LoggedRings.Add(RingIdx);
+				LoggedRings.Add(OriginalIdx);
 			}
 		}
 	}

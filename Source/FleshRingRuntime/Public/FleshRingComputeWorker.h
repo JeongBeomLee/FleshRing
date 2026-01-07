@@ -39,6 +39,10 @@ struct FFleshRingWorkItem
 	// Ring 데이터 (Tightness + Bulge용)
 	struct FRingDispatchData
 	{
+		// 원본 Ring 인덱스 (FleshRingAsset->Rings 배열의 인덱스)
+		// 버텍스가 없는 Ring이 스킵되어도 설정 조회 시 올바른 인덱스 사용
+		int32 OriginalRingIndex = INDEX_NONE;
+
 		FTightnessDispatchParams Params;
 		TArray<uint32> Indices;
 		TArray<float> Influences;
