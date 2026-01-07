@@ -45,6 +45,7 @@ void DispatchFleshRingTightnessCS(
     FRDGBufferRef SourcePositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
+    FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRDGTextureRef SDFTexture,
     FRDGBufferRef VolumeAccumBuffer)
@@ -66,6 +67,19 @@ void DispatchFleshRingTightnessCS(
     PassParameters->SourcePositions = GraphBuilder.CreateSRV(SourcePositionsBuffer, PF_R32_FLOAT);
     PassParameters->AffectedIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
     PassParameters->Influences = GraphBuilder.CreateSRV(InfluencesBuffer);
+
+    // ===== UV Seam Welding: RepresentativeIndices 바인딩 =====
+    // RepresentativeIndices가 nullptr이면 AffectedIndices를 대신 사용 (fallback)
+    // 셰이더에서: 대표 위치 읽기 → 변형 계산 → 자기 인덱스에 기록
+    if (RepresentativeIndicesBuffer)
+    {
+        PassParameters->RepresentativeIndices = GraphBuilder.CreateSRV(RepresentativeIndicesBuffer);
+    }
+    else
+    {
+        // Fallback: AffectedIndices 사용 (각 버텍스가 자기 자신이 대표)
+        PassParameters->RepresentativeIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
+    }
 
     // ===== Bind output buffer (UAV) =====
     // ===== 출력 버퍼 바인딩 (UAV) =====
@@ -336,6 +350,7 @@ void DispatchFleshRingTightnessCS_WithReadback(
     FRDGBufferRef SourcePositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
+    FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRHIGPUBufferReadback* Readback,
     FRDGTextureRef SDFTexture,
@@ -349,6 +364,7 @@ void DispatchFleshRingTightnessCS_WithReadback(
         SourcePositionsBuffer,
         AffectedIndicesBuffer,
         InfluencesBuffer,
+        RepresentativeIndicesBuffer,
         OutputPositionsBuffer,
         SDFTexture,
         VolumeAccumBuffer
@@ -671,6 +687,7 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
                         SourceBuffer,
                         IndicesBuffer,
                         InfluencesBuffer,
+                        nullptr,  // RepresentativeIndicesBuffer - 테스트에서는 사용하지 않음
                         OutputBuffer,
                         Readback.Get()
                     );

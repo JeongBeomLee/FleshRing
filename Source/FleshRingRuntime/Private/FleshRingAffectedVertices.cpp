@@ -535,9 +535,27 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
         *LocalToComponent.GetRotation().Rotator().ToString(),
         *LocalToComponent.GetLocation().ToString());
 
-    // Reserve estimated capacity
-    // 예상 용량 확보
-    OutAffected.Reserve(AllVertices.Num() / 4);
+    // ================================================================
+    // UV Seam Welding: Position Group 기반 선택
+    // ================================================================
+    // 목적: UV seam에서 분리된 버텍스들이 모두 함께 선택되도록 보장
+    // 방법: 위치 기반으로 버텍스 그룹화 → 그룹 내 하나라도 선택되면 전체 선택
+    // ================================================================
+
+    constexpr float WeldPrecision = 0.001f;  // 위치 양자화 정밀도
+
+    // Step 1: 모든 버텍스를 위치 기반으로 그룹화
+    TMap<FIntVector, TArray<uint32>> PositionToVertices;
+    for (int32 i = 0; i < AllVertices.Num(); ++i)
+    {
+        const FVector3f& Pos = AllVertices[i];
+        FIntVector PosKey(
+            FMath::RoundToInt(Pos.X / WeldPrecision),
+            FMath::RoundToInt(Pos.Y / WeldPrecision),
+            FMath::RoundToInt(Pos.Z / WeldPrecision)
+        );
+        PositionToVertices.FindOrAdd(PosKey).Add(static_cast<uint32>(i));
+    }
 
     // ===== Spatial Hash 사용 시 O(1) 쿼리, 없으면 브루트포스 O(n) =====
     TArray<int32> CandidateIndices;
@@ -559,14 +577,15 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
         }
     }
 
-    // Select all vertices within SDF bounding box (OBB)
-    // SDF 바운딩 박스(OBB) 내 모든 버텍스 선택
+    // Step 2: 선택된 위치들 수집 (Position Group 단위)
+    // 어느 버텍스라도 선택되면 해당 위치의 모든 버텍스가 선택됨
+    TSet<FIntVector> SelectedPositions;
+
     for (int32 VertexIdx : CandidateIndices)
     {
         const FVector VertexPos = FVector(AllVertices[VertexIdx]);
 
         // Component Space → Local Space 변환
-        // InverseTransformPosition: (Rot^-1 * (V - Trans)) / Scale (올바른 순서)
         const FVector LocalPos = LocalToComponent.InverseTransformPosition(VertexPos);
 
         // Local Space에서 AABB 포함 테스트 (SpatialHash 미사용 시에만 필요)
@@ -580,20 +599,44 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
             }
         }
 
-        // Influence=1.0: GPU shader will determine actual influence via SDF sampling
-        // Influence=1.0: GPU 셰이더가 SDF 샘플링으로 실제 영향도 결정
-        OutAffected.Add(FAffectedVertex(
-            static_cast<uint32>(VertexIdx),
-            0.0f,  // RadialDistance: SDF 모드에서는 미사용
-            1.0f   // Influence: 최대값, GPU 셰이더가 CalculateInfluenceFromSDF()로 정제
-        ));
+        // 이 버텍스의 위치 키 추가 (그룹 전체가 선택됨)
+        const FVector3f& Pos = AllVertices[VertexIdx];
+        FIntVector PosKey(
+            FMath::RoundToInt(Pos.X / WeldPrecision),
+            FMath::RoundToInt(Pos.Y / WeldPrecision),
+            FMath::RoundToInt(Pos.Z / WeldPrecision)
+        );
+        SelectedPositions.Add(PosKey);
+    }
+
+    // Step 3: 선택된 위치의 모든 버텍스 추가 (UV 중복 포함)
+    OutAffected.Reserve(SelectedPositions.Num() * 2);  // 평균 2개의 UV 중복 가정
+
+    int32 UVDuplicatesAdded = 0;
+    for (const FIntVector& PosKey : SelectedPositions)
+    {
+        const TArray<uint32>* VerticesAtPos = PositionToVertices.Find(PosKey);
+        if (VerticesAtPos)
+        {
+            for (uint32 VertIdx : *VerticesAtPos)
+            {
+                OutAffected.Add(FAffectedVertex(
+                    VertIdx,
+                    0.0f,  // RadialDistance: SDF 모드에서는 미사용
+                    1.0f   // Influence: 최대값, GPU 셰이더가 CalculateInfluenceFromSDF()로 정제
+                ));
+            }
+            if (VerticesAtPos->Num() > 1)
+            {
+                UVDuplicatesAdded += VerticesAtPos->Num() - 1;
+            }
+        }
     }
 
     UE_LOG(LogFleshRingVertices, Log,
-        TEXT("SDFBoundsBasedSelector: Selected %d vertices for Ring[%d] '%s' (LocalBounds: [%.1f,%.1f,%.1f] - [%.1f,%.1f,%.1f])"),
-        OutAffected.Num(), Context.RingIndex, *Context.RingSettings.BoneName.ToString(),
-        BoundsMin.X, BoundsMin.Y, BoundsMin.Z,
-        BoundsMax.X, BoundsMax.Y, BoundsMax.Z);
+        TEXT("SDFBoundsBasedSelector: Selected %d vertices (%d positions, %d UV duplicates) for Ring[%d] '%s'"),
+        OutAffected.Num(), SelectedPositions.Num(), UVDuplicatesAdded,
+        Context.RingIndex, *Context.RingSettings.BoneName.ToString());
 }
 
 void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
@@ -1076,6 +1119,11 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         // Pack for GPU (convert to flat arrays)
         // GPU용 패킹 (평면 배열로 변환)
         RingData.PackForGPU();
+
+        // Build representative indices for UV seam welding
+        // UV seam 용접을 위한 대표 버텍스 인덱스 빌드
+        // 이 데이터는 모든 변형 패스에서 사용되어 UV 중복이 동일하게 움직이도록 보장
+        BuildRepresentativeIndices(RingData, MeshVertices);
 
         // Build adjacency data for Normal recomputation
         // 노멀 재계산용 인접 데이터 빌드
@@ -2417,6 +2465,149 @@ void FFleshRingAffectedVerticesManager::BuildExtendedLaplacianAdjacency(
         }
 
         RingData.ExtendedLaplacianAdjacency[BaseOffset] = static_cast<uint32>(ValidNeighborCount);
+    }
+}
+
+// ============================================================================
+// BuildRepresentativeIndices - UV seam 용접을 위한 대표 버텍스 인덱스 빌드
+// ============================================================================
+// [설계]
+// UV seam에서 분리된 버텍스들(같은 위치, 다른 인덱스)이 동일한 변형을 받도록 보장.
+// 모든 변형 패스(TightnessCS, BulgeCS, LaplacianCS 등)에서:
+//   1. 대표 버텍스 위치 읽기
+//   2. 변형 계산
+//   3. 자기 인덱스에 기록
+// 이로써 UV 중복이 항상 동일하게 움직여 크랙 방지.
+
+void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
+    FRingAffectedData& RingData,
+    const TArray<FVector3f>& AllVertices)
+{
+    constexpr float WeldPrecision = 0.001f;  // SelectVertices와 동일한 정밀도
+
+    // ================================================================
+    // Step 1: 위치 기반 그룹화 및 대표 선택
+    // ================================================================
+    // Position → (대표 버텍스 인덱스, 그룹 내 버텍스들)
+    // 대표는 그룹 내 가장 작은 인덱스 (일관성)
+    TMap<FIntVector, uint32> PositionToRepresentative;
+
+    // Affected Vertices의 대표 결정
+    for (const FAffectedVertex& Vert : RingData.Vertices)
+    {
+        const uint32 VertIdx = Vert.VertexIndex;
+        const FVector3f& Pos = AllVertices[VertIdx];
+
+        FIntVector PosKey(
+            FMath::RoundToInt(Pos.X / WeldPrecision),
+            FMath::RoundToInt(Pos.Y / WeldPrecision),
+            FMath::RoundToInt(Pos.Z / WeldPrecision)
+        );
+
+        uint32* ExistingRep = PositionToRepresentative.Find(PosKey);
+        if (ExistingRep)
+        {
+            // 더 작은 인덱스를 대표로 선택 (일관성)
+            *ExistingRep = FMath::Min(*ExistingRep, VertIdx);
+        }
+        else
+        {
+            PositionToRepresentative.Add(PosKey, VertIdx);
+        }
+    }
+
+    // ================================================================
+    // Step 2: Affected Vertices용 RepresentativeIndices 빌드
+    // ================================================================
+    const int32 NumAffected = RingData.Vertices.Num();
+    RingData.RepresentativeIndices.Reset(NumAffected);
+    RingData.RepresentativeIndices.AddUninitialized(NumAffected);
+
+    int32 NumWelded = 0;
+    for (int32 i = 0; i < NumAffected; ++i)
+    {
+        const FAffectedVertex& Vert = RingData.Vertices[i];
+        const FVector3f& Pos = AllVertices[Vert.VertexIndex];
+
+        FIntVector PosKey(
+            FMath::RoundToInt(Pos.X / WeldPrecision),
+            FMath::RoundToInt(Pos.Y / WeldPrecision),
+            FMath::RoundToInt(Pos.Z / WeldPrecision)
+        );
+
+        const uint32 Representative = PositionToRepresentative[PosKey];
+        RingData.RepresentativeIndices[i] = Representative;
+
+        // 자기 자신이 대표가 아니면 welded로 카운트
+        if (Representative != Vert.VertexIndex)
+        {
+            NumWelded++;
+        }
+    }
+
+    // ================================================================
+    // Step 3: PostProcessing Vertices용 RepresentativeIndices 빌드
+    // ================================================================
+    const int32 NumPostProcessing = RingData.PostProcessingIndices.Num();
+    if (NumPostProcessing > 0)
+    {
+        // PostProcessing 전용 대표 맵 구축 (Affected와 별개)
+        TMap<FIntVector, uint32> PPPositionToRepresentative;
+
+        for (uint32 VertIdx : RingData.PostProcessingIndices)
+        {
+            const FVector3f& Pos = AllVertices[VertIdx];
+
+            FIntVector PosKey(
+                FMath::RoundToInt(Pos.X / WeldPrecision),
+                FMath::RoundToInt(Pos.Y / WeldPrecision),
+                FMath::RoundToInt(Pos.Z / WeldPrecision)
+            );
+
+            uint32* ExistingRep = PPPositionToRepresentative.Find(PosKey);
+            if (ExistingRep)
+            {
+                *ExistingRep = FMath::Min(*ExistingRep, VertIdx);
+            }
+            else
+            {
+                PPPositionToRepresentative.Add(PosKey, VertIdx);
+            }
+        }
+
+        RingData.PostProcessingRepresentativeIndices.Reset(NumPostProcessing);
+        RingData.PostProcessingRepresentativeIndices.AddUninitialized(NumPostProcessing);
+
+        int32 PPNumWelded = 0;
+        for (int32 i = 0; i < NumPostProcessing; ++i)
+        {
+            const uint32 VertIdx = RingData.PostProcessingIndices[i];
+            const FVector3f& Pos = AllVertices[VertIdx];
+
+            FIntVector PosKey(
+                FMath::RoundToInt(Pos.X / WeldPrecision),
+                FMath::RoundToInt(Pos.Y / WeldPrecision),
+                FMath::RoundToInt(Pos.Z / WeldPrecision)
+            );
+
+            const uint32 Representative = PPPositionToRepresentative[PosKey];
+            RingData.PostProcessingRepresentativeIndices[i] = Representative;
+
+            if (Representative != VertIdx)
+            {
+                PPNumWelded++;
+            }
+        }
+
+        UE_LOG(LogFleshRingVertices, Log,
+            TEXT("BuildRepresentativeIndices: Affected=%d (welded=%d), PostProcessing=%d (welded=%d)"),
+            NumAffected, NumWelded, NumPostProcessing, PPNumWelded);
+    }
+    else
+    {
+        UE_LOG(LogFleshRingVertices, Log,
+            TEXT("BuildRepresentativeIndices: Affected=%d (welded=%d), PostProcessing=0"),
+            NumAffected, NumWelded);
     }
 }
 

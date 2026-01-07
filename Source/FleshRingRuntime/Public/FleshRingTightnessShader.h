@@ -53,6 +53,12 @@ public:
         // 입력: 버텍스별 영향도 (0~1)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float>, Influences)
 
+        // Input: Representative vertex indices for UV seam welding
+        // 입력: UV seam 용접을 위한 대표 버텍스 인덱스
+        // RepresentativeIndices[ThreadIndex] = 해당 위치 그룹의 대표 버텍스 인덱스
+        // 셰이더에서: 대표 위치 읽기 → 변형 계산 → 자기 인덱스에 기록
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, RepresentativeIndices)
+
         // ===== Output Buffer (UAV - Read/Write) =====
         // ===== 출력 버퍼 (UAV - 읽기/쓰기) =====
 
@@ -478,6 +484,8 @@ inline FTightnessDispatchParams CreateTightnessParamsWithSkinning_Deprecated(
  *                                처리할 버텍스 인덱스 버퍼
  * @param InfluencesBuffer - Buffer containing per-vertex influence weights
  *                           버텍스별 영향도 버퍼
+ * @param RepresentativeIndicesBuffer - Buffer containing representative vertex indices for UV seam welding
+ *                                      UV seam 용접용 대표 버텍스 인덱스 버퍼 (nullptr이면 AffectedIndices 사용)
  * @param OutputPositionsBuffer - UAV buffer for deformed positions
  *                                변형된 위치 출력 버퍼 (UAV)
  * @param SDFTexture - (Optional) SDF 3D texture for Auto influence mode
@@ -493,6 +501,7 @@ void DispatchFleshRingTightnessCS(
     FRDGBufferRef SourcePositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
+    FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRDGTextureRef SDFTexture = nullptr,
     FRDGBufferRef VolumeAccumBuffer = nullptr);
@@ -549,6 +558,8 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
  *                                처리할 버텍스 인덱스 버퍼
  * @param InfluencesBuffer - Buffer containing per-vertex influence weights
  *                           버텍스별 영향도 버퍼
+ * @param RepresentativeIndicesBuffer - Buffer containing representative vertex indices for UV seam welding
+ *                                      UV seam 용접용 대표 버텍스 인덱스 버퍼 (nullptr이면 AffectedIndices 사용)
  * @param OutputPositionsBuffer - UAV buffer for deformed positions
  *                                변형된 위치 출력 버퍼 (UAV)
  * @param Readback - Readback object for GPU->CPU transfer
@@ -564,6 +575,7 @@ void DispatchFleshRingTightnessCS_WithReadback(
     FRDGBufferRef SourcePositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
+    FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRHIGPUBufferReadback* Readback,
     FRDGTextureRef SDFTexture = nullptr,

@@ -86,6 +86,13 @@ public:
         // Per-vertex influences
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float>, Influences)
 
+        // Per-vertex deform amounts (negative=tightness, positive=bulge)
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float>, DeformAmounts)
+
+        // Representative vertex indices for UV seam welding
+        // 대표 버텍스 인덱스 (UV seam 용접용)
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, RepresentativeIndices)
+
         // Adjacency data (packed)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, AdjacencyData)
 
@@ -195,9 +202,43 @@ struct FLaplacianDispatchParams
         , BulgeSmoothingFactor(0.0f)  // Default: no smoothing on bulge areas
         , BoundsScale(1.5f)
         , bExcludeStockingFromSmoothing(true)  // Default: exclude stocking from smoothing
-        , bUseTaubinSmoothing(true)  // Default: use Taubin for no-shrinkage smoothing
-        , TaubinMu(-0.53f)  // Typical value
+        , bUseTaubinSmoothing(true)   // Default: use Taubin for shrinkage-free smoothing
+        , TaubinMu(-0.53f)            // Typical value for λ=0.5
     {
+    }
+
+    /**
+     * Get effective (safe) Lambda value
+     * Clamps to [0.1, 0.8] to prevent numerical instability
+     */
+    float GetEffectiveLambda() const
+    {
+        return FMath::Clamp(SmoothingLambda, MinSafeLambda, MaxSafeLambda);
+    }
+
+    /**
+     * Calculate effective Mu value (auto-calculate if not valid)
+     * Uses clamped Lambda for calculation
+     */
+    float GetEffectiveTaubinMu() const
+    {
+        const float EffectiveLambda = GetEffectiveLambda();
+
+        // Check if current Mu is valid (μ < -λ)
+        if (TaubinMu >= 0.0f || TaubinMu > -EffectiveLambda)
+        {
+            // Auto-calculate: μ = -(λ + small margin)
+            // Smaller margin = more stability, less smoothing power
+            const float Margin = EffectiveLambda * 0.06f;  // ~3% margin
+            return -(EffectiveLambda + Margin);
+        }
+        return TaubinMu;
+    }
+
+    /** Check if Lambda needs clamping (for warning) */
+    bool NeedsLambdaClamping() const
+    {
+        return SmoothingLambda > MaxSafeLambda || SmoothingLambda < MinSafeLambda;
     }
 };
 
@@ -214,8 +255,9 @@ struct FLaplacianDispatchParams
  * @param OutputPositionsBuffer - Destination positions
  * @param AffectedIndicesBuffer - Affected vertex indices
  * @param InfluencesBuffer - Per-vertex influence weights
+ * @param DeformAmountsBuffer - Per-vertex deform amounts (negative=tightness, positive=bulge)
+ * @param RepresentativeIndicesBuffer - Representative vertex indices for UV seam welding (nullptr = use AffectedIndices)
  * @param AdjacencyDataBuffer - Packed adjacency data
- * @param VertexLayerTypesBuffer - Per-vertex layer types (optional)
  */
 void DispatchFleshRingLaplacianCS(
     FRDGBuilder& GraphBuilder,
@@ -224,6 +266,8 @@ void DispatchFleshRingLaplacianCS(
     FRDGBufferRef OutputPositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
+    FRDGBufferRef DeformAmountsBuffer,
+    FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef AdjacencyDataBuffer,
     FRDGBufferRef VertexLayerTypesBuffer);  // Optional: nullptr if not excluding stocking
 
@@ -236,6 +280,8 @@ void DispatchFleshRingLaplacianCS(
  * @param PositionsBuffer - Position buffer (in-place smoothing)
  * @param AffectedIndicesBuffer - Affected vertex indices
  * @param InfluencesBuffer - Per-vertex influence weights
+ * @param DeformAmountsBuffer - Per-vertex deform amounts (negative=tightness, positive=bulge)
+ * @param RepresentativeIndicesBuffer - Representative vertex indices for UV seam welding (nullptr = use AffectedIndices)
  * @param AdjacencyDataBuffer - Packed adjacency data
  * @param VertexLayerTypesBuffer - Per-vertex layer types (optional)
  */
@@ -245,5 +291,7 @@ void DispatchFleshRingLaplacianCS_MultiPass(
     FRDGBufferRef PositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
+    FRDGBufferRef DeformAmountsBuffer,
+    FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef AdjacencyDataBuffer,
     FRDGBufferRef VertexLayerTypesBuffer);  // Optional: nullptr if not excluding stocking

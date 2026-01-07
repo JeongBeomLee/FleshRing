@@ -150,6 +150,34 @@ struct FRingAffectedData
      */
     TArray<uint32> PackedLayerTypes;
 
+    // =========== UV Seam Welding Data ===========
+    // =========== UV Seam 용접 데이터 ===========
+    //
+    // [설계]
+    // UV seam에서 분리된 버텍스들(같은 위치, 다른 인덱스)이 동일하게 변형되도록 보장
+    // 모든 변형 패스(Tightness, Bulge, BoneRatio, Laplacian)에서 사용
+    //
+    // RepresentativeIndices[ThreadIndex] = 해당 위치 그룹의 대표 버텍스 인덱스
+    // 셰이더에서: 대표 버텍스 위치 읽기 → 변형 계산 → 자기 인덱스에 기록
+
+    /**
+     * GPU buffer: Representative vertex index for each affected vertex
+     * All UV duplicate vertices at the same position share the same representative
+     * Shader reads position from representative, computes deformation, writes to own index
+     * GPU 버퍼: 각 영향받는 버텍스의 대표 버텍스 인덱스
+     * 같은 위치의 모든 UV 중복 버텍스가 동일한 대표를 공유
+     * 셰이더: 대표 위치 읽기 → 변형 계산 → 자기 인덱스에 기록
+     */
+    TArray<uint32> RepresentativeIndices;
+
+    /**
+     * GPU buffer: Representative vertex index for PostProcessing vertices
+     * Same concept as RepresentativeIndices but for Z-extended region
+     * GPU 버퍼: 후처리 버텍스의 대표 버텍스 인덱스
+     * RepresentativeIndices와 동일 개념, Z 확장 영역용
+     */
+    TArray<uint32> PostProcessingRepresentativeIndices;
+
     // =========== Z-Extended Post-Processing Vertices ===========
     // =========== Z 확장 후처리 버텍스 ===========
     //
@@ -1086,4 +1114,26 @@ private:
     void BuildExtendedLaplacianAdjacency(
         FRingAffectedData& RingData,
         const TMap<uint32, TArray<uint32>>& FullAdjacencyMap);
+
+    /**
+     * Build representative indices for UV seam welding
+     * UV seam 용접을 위한 대표 버텍스 인덱스 빌드
+     *
+     * All vertices at the same 3D position (UV duplicates) will share the same representative.
+     * Shaders read position from representative, compute deformation, write to own index.
+     * This ensures UV duplicates always move identically, preventing cracks at UV seams.
+     * 같은 3D 위치의 모든 버텍스(UV 중복)가 동일한 대표를 공유.
+     * 셰이더: 대표 위치 읽기 → 변형 계산 → 자기 인덱스에 기록.
+     * UV 중복이 항상 동일하게 움직여 UV seam 크랙 방지.
+     *
+     * Output:
+     * - RingData.RepresentativeIndices: [NumAffectedVertices] representative for each affected vertex
+     * - RingData.PostProcessingRepresentativeIndices: [NumPostProcessing] representative for each PP vertex
+     *
+     * @param RingData - Ring data with Vertices and PostProcessingIndices already populated
+     * @param AllVertices - All mesh vertex positions (for position-based grouping)
+     */
+    void BuildRepresentativeIndices(
+        FRingAffectedData& RingData,
+        const TArray<FVector3f>& AllVertices);
 };

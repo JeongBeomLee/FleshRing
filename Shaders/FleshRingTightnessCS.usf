@@ -11,8 +11,9 @@
  * Buffer Declarations
  */
 Buffer<float> SourcePositions;              // 메시의 원본 정점 위치(바인드 포즈 컴포넌트 스페이스)
-StructuredBuffer<uint> AffectedIndices;     // 영향받는 정점 인덱스
+StructuredBuffer<uint> AffectedIndices;     // 영향받는 정점 인덱스 (출력용)
 StructuredBuffer<float> Influences;         // 정점별 영향도 (0~1, 감쇠 계산에서 산출)
+StructuredBuffer<uint> RepresentativeIndices; // UV seam 용접용 대표 정점 인덱스 (입력용)
 RWBuffer<float> OutputPositions;            // 출력: 변형된 정점 위치
 RWBuffer<uint> VolumeAccumBuffer;           // 출력: Bulge 패스용 부피 누적 버퍼 (Atomic 연산)
 
@@ -292,20 +293,34 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
-    // Get the actual vertex index from AffectedIndices buffer
-    // AffectedIndices 버퍼에서 실제 버텍스 인덱스 가져오기
-    uint VertexIndex = AffectedIndices[ThreadIndex];
+    // ================================================================
+    // UV Seam Welding: 대표 버텍스 기반 읽기/쓰기 분리
+    // ================================================================
+    // - WriteIndex: 실제 버텍스 인덱스 (출력에 사용)
+    // - ReadIndex: 대표 버텍스 인덱스 (입력에 사용)
+    // 같은 위치의 UV 중복 버텍스들은 동일한 대표를 공유하므로
+    // 모두 동일한 위치를 읽어서 동일한 변형 결과를 계산함
+    // ================================================================
 
-    // Safety check: Ensure vertex index is valid
+    // Get the actual vertex index for writing output
+    // 출력 쓰기용 실제 버텍스 인덱스 가져오기
+    uint WriteIndex = AffectedIndices[ThreadIndex];
+
+    // Get the representative vertex index for reading input
+    // 입력 읽기용 대표 버텍스 인덱스 가져오기
+    uint ReadIndex = RepresentativeIndices[ThreadIndex];
+
+    // Safety check: Ensure vertex indices are valid
     // 안전 체크: 버텍스 인덱스 유효성 확인
-    if (VertexIndex >= NumTotalVertices)
+    if (WriteIndex >= NumTotalVertices || ReadIndex >= NumTotalVertices)
     {
         return;
     }
 
-    // Read bind pose position (bind pose component space)
-    // 바인드 포즈 위치 읽기 (바인드 포즈 컴포넌트 스페이스)
-    float3 BindPos = ReadPosition(VertexIndex);
+    // Read bind pose position from REPRESENTATIVE vertex
+    // 대표 버텍스에서 바인드 포즈 위치 읽기
+    // UV 중복 버텍스들은 같은 대표를 공유하므로 동일한 위치를 읽음
+    float3 BindPos = ReadPosition(ReadIndex);
 
     // ========================================
     // Step 1: Apply GPU Skinning (if enabled)
@@ -316,7 +331,9 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     {
         // Apply skinning: BindPos → SkinnedPos (animated component space)
         // 스키닝 적용: 바인드 포즈 → 스킨된 포즈 (애니메이션된 컴포넌트 스페이스)
-        float3x4 SkinMatrix = ComputeSkinnedMatrix(VertexIndex);
+        // NOTE: 스키닝은 대표 버텍스 인덱스(ReadIndex)를 사용하여
+        //       UV 중복 버텍스들이 동일한 스키닝 결과를 받도록 함
+        float3x4 SkinMatrix = ComputeSkinnedMatrix(ReadIndex);
         Pos = TransformByMatrix(SkinMatrix, BindPos);
     }
     else
@@ -343,7 +360,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         // Skip if influence is negligible
         if (Influence < 0.001)
         {
-            WritePosition(VertexIndex, Pos);
+            WritePosition(WriteIndex, Pos);
             return;
         }
         
@@ -380,8 +397,10 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     }
 
     // ========================================
-    // Step 4: Write Output
-    // 4단계: 출력 쓰기
+    // Step 4: Write Output to ACTUAL vertex index
+    // 4단계: 실제 버텍스 인덱스에 출력 쓰기
     // ========================================
-    WritePosition(VertexIndex, NewPos);
+    // UV seam welding: 대표에서 계산한 결과를 자신의 인덱스에 기록
+    // 모든 UV 중복 버텍스가 동일한 결과를 각자의 위치에 기록함
+    WritePosition(WriteIndex, NewPos);
 }

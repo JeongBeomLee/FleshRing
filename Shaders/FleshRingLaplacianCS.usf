@@ -40,9 +40,17 @@ RWBuffer<float> OutputPositions;
 // Input: Indices of affected vertices to process
 StructuredBuffer<uint> AffectedIndices;
 
+// UV Seam Welding: Representative vertex indices
+// UV seam의 모든 duplicate vertex는 같은 representative를 공유
+// 이를 통해 같은 위치의 모든 vertex가 동일하게 움직임
+StructuredBuffer<uint> RepresentativeIndices;
+
 // Input: Per-vertex influence weights (0-1)
 // Used to blend between original and smoothed position
 StructuredBuffer<float> Influences;
+
+// Per-vertex deform amounts (negative=tightness, positive=bulge)
+StructuredBuffer<float> DeformAmounts;
 
 // Input: Per-vertex layer types (optional, for excluding stocking from smoothing)
 // 0=Skin, 1=Stocking, 2=Underwear, 3=Outerwear, 4=Unknown
@@ -82,6 +90,12 @@ float SmoothingLambda;
 // Preserve volume: blend factor for volume preservation
 // 0 = pure Laplacian, 1 = volume-preserving (HC algorithm style)
 float VolumePreservation;
+
+// Bulge smoothing factor (0=no smoothing on bulge, 1=full smoothing)
+float BulgeSmoothingFactor;
+
+// Bounds scale (for potential Z falloff, reserved for future use)
+float BoundsScale;
 
 // Exclude stocking layer from smoothing (0 = smooth all, 1 = exclude stocking)
 uint bExcludeStockingFromSmoothing;
@@ -131,7 +145,7 @@ uint GetNeighborIndex(uint AdjacencyOffset, uint NeighborSlot)
 
 // Compute Laplacian operator: average of neighbors minus current position
 // This gives the "umbrella" vector pointing toward local average
-float3 ComputeLaplacian(uint ThreadIndex, uint VertexIndex, float3 CurrentPos)
+float3 ComputeLaplacian(uint ThreadIndex, uint ReadIndex, float3 CurrentPos)
 {
     // Adjacency data layout: 13 uints per affected vertex
     uint AdjacencyOffset = ThreadIndex * (1 + MAX_NEIGHBORS);
@@ -186,27 +200,37 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
-    // Get actual vertex index
-    uint VertexIndex = AffectedIndices[ThreadIndex];
+    // =========================================================================
+    // UV Seam Welding: 대표 버텍스 기반 읽기/쓰기 분리
+    // =========================================================================
+    // WriteIndex: 실제로 출력할 버텍스 인덱스 (AffectedIndices에서)
+    // ReadIndex: 위치를 읽어올 대표 버텍스 인덱스 (RepresentativeIndices에서)
+    //
+    // 같은 Position의 모든 UV duplicate들은:
+    //   - 같은 ReadIndex를 공유 (같은 위치에서 읽음)
+    //   - 각자의 WriteIndex에 출력 (자기 버텍스에 씀)
+    // => 결과적으로 모든 duplicate가 동일한 위치로 이동 -> UV seam crack 방지
+    uint WriteIndex = AffectedIndices[ThreadIndex];
+    uint ReadIndex = RepresentativeIndices[ThreadIndex];
 
     // Safety check
-    if (VertexIndex >= NumTotalVertices)
+    if (WriteIndex >= NumTotalVertices || ReadIndex >= NumTotalVertices)
     {
         return;
     }
 
-    // Read current position
-    float3 CurrentPos = ReadPosition(InputPositions, VertexIndex);
+    // Read current position from REPRESENTATIVE vertex
+    float3 CurrentPos = ReadPosition(InputPositions, ReadIndex);
 
     // ===== 레이어별 스무딩 제외 =====
     // 스타킹 레이어 제외 옵션이 켜져 있으면 스타킹은 스무딩하지 않음
     if (bExcludeStockingFromSmoothing != 0)
     {
-        uint LayerType = VertexLayerTypes[VertexIndex];
+        uint LayerType = VertexLayerTypes[ReadIndex];
         if (LayerType == LAYER_STOCKING)
         {
             // 스타킹: 원래 위치 그대로 출력
-            WritePosition(VertexIndex, CurrentPos);
+            WritePosition(WriteIndex, CurrentPos);
             return;
         }
     }
@@ -217,17 +241,28 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     // Skip if influence is negligible
     if (Influence < 0.001)
     {
-        WritePosition(VertexIndex, CurrentPos);
+        WritePosition(WriteIndex, CurrentPos);
         return;
     }
 
+    // ===== Bulge smoothing reduction =====
+    // DeformAmounts > 0 means bulge area, reduce smoothing there
+    float DeformAmount = DeformAmounts[ThreadIndex];
+    float BulgeBlend = 1.0;
+    if (DeformAmount > 0.0 && BulgeSmoothingFactor < 1.0)
+    {
+        // Linear blend: full bulge -> BulgeSmoothingFactor, zero bulge -> 1.0
+        BulgeBlend = lerp(1.0, BulgeSmoothingFactor, saturate(DeformAmount));
+    }
+
     // Compute Laplacian (direction toward neighbor average)
-    float3 Laplacian = ComputeLaplacian(ThreadIndex, VertexIndex, CurrentPos);
+    float3 Laplacian = ComputeLaplacian(ThreadIndex, ReadIndex, CurrentPos);
 
     // Apply weighted Laplacian smoothing
     // Lambda controls overall smoothing strength
     // Influence modulates per-vertex (stronger near tightness boundaries)
-    float EffectiveLambda = SmoothingLambda * Influence;
+    // BulgeBlend reduces smoothing in bulge areas
+    float EffectiveLambda = SmoothingLambda * Influence * BulgeBlend;
 
     float3 SmoothedPos = CurrentPos + Laplacian * EffectiveLambda;
 
@@ -241,6 +276,6 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         SmoothedPos = CurrentPos + Movement * (1.0 - VolumePreservation * 0.5);
     }
 
-    // Write output
-    WritePosition(VertexIndex, SmoothedPos);
+    // Write output to ACTUAL vertex (WriteIndex)
+    WritePosition(WriteIndex, SmoothedPos);
 }
