@@ -6,6 +6,7 @@
 #include "Widgets/SCompoundWidget.h"
 #include "Widgets/Views/STreeView.h"
 #include "Input/DragAndDrop.h"
+#include "FleshRingTypes.h"
 
 class UFleshRingAsset;
 class USkeletalMesh;
@@ -180,7 +181,7 @@ private:
 	void OnTreeDoubleClick(TSharedPtr<FFleshRingTreeItem> Item);
 
 	/** Ring 이름 변경 처리 */
-	void HandleRingRenamed(int32 RingIndex, const FString& NewName);
+	void HandleRingRenamed(int32 RingIndex, FName NewName);
 
 	/** Asset 변경 델리게이트 핸들러 (디테일 패널에서 이름 변경 시) */
 	void OnAssetChangedHandler(UFleshRingAsset* Asset);
@@ -253,6 +254,20 @@ private:
 	/** 본 이름 복사 */
 	void OnContextMenuCopyBoneName();
 
+	/** Ring 복사 */
+	void OnContextMenuCopyRing();
+	bool CanCopyRing() const;
+
+	/** Ring 붙여넣기 (원본 본에) */
+	void OnContextMenuPasteRing();
+	bool CanPasteRing() const;
+
+	/** Ring 붙여넣기 (선택한 본에) */
+	void OnContextMenuPasteRingToSelectedBone();
+
+	/** Ring을 특정 본에 붙여넣기 (공통 로직) */
+	void PasteRingToBone(FName TargetBoneName);
+
 	// === 드래그 앤 드롭 ===
 
 	/** Ring을 다른 본으로 이동 */
@@ -315,4 +330,10 @@ private:
 
 	/** 웨이팅된 본 인덱스 캐시 */
 	TSet<int32> WeightedBoneIndices;
+
+	/** 복사된 Ring 설정 (클립보드 역할) */
+	TOptional<FFleshRingSettings> CopiedRingSettings;
+
+	/** 복사된 Ring의 원본 본 이름 */
+	FName CopiedRingSourceBone;
 };

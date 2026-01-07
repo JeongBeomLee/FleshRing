@@ -140,10 +140,10 @@ public:
 	int32 GetNumRings() const { return Rings.Num(); }
 
 	/** Ring 이름이 고유한지 확인 (특정 인덱스 제외) */
-	bool IsRingNameUnique(const FString& Name, int32 ExcludeIndex = INDEX_NONE) const;
+	bool IsRingNameUnique(FName Name, int32 ExcludeIndex = INDEX_NONE) const;
 
 	/** 고유한 Ring 이름 생성 (중복 시 suffix 추가) */
-	FString MakeUniqueRingName(const FString& BaseName, int32 ExcludeIndex = INDEX_NONE) const;
+	FName MakeUniqueRingName(FName BaseName, int32 ExcludeIndex = INDEX_NONE) const;
 
 	/** 유효성 검사 */
 	UFUNCTION(BlueprintPure, Category = "FleshRing")

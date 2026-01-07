@@ -251,7 +251,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 
 	/** Ring 커스텀 이름 (비어있으면 "FleshRing_인덱스" 형식 사용) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
-	FString RingName;
+	FName RingName;
 
 	/** Ring 메쉬 (시각적 표현 + SDF 소스) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
@@ -514,6 +514,6 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	 */
 	FString GetDisplayName(int32 Index) const
 	{
-		return RingName.IsEmpty() ? FString::Printf(TEXT("FleshRing_%d"), Index) : RingName;
+		return RingName.IsNone() ? FString::Printf(TEXT("FleshRing_%d"), Index) : RingName.ToString();
 	}
 };

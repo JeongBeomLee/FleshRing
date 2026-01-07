@@ -274,11 +274,11 @@ private:
 			return true;
 		}
 
-		FString NewName = NewText.ToString();
+		FName NewName = FName(*NewText.ToString());
 		bool bIsValid = true;
 
 		// 빈 이름 체크
-		if (NewName.IsEmpty())
+		if (NewName.IsNone())
 		{
 			OutErrorMessage = LOCTEXT("EmptyNameError", "Name cannot be empty.");
 			bIsValid = false;
@@ -1234,7 +1234,7 @@ void FFleshRingSettingsCustomization::OnRingNameCommitted(const FText& NewText, 
 				// 위젯에서 이미 검증되었으므로 바로 적용
 				FScopedTransaction Transaction(LOCTEXT("RenameRing", "Rename Ring"));
 				Asset->Modify();
-				Asset->Rings[CachedArrayIndex].RingName = NewText.ToString();
+				Asset->Rings[CachedArrayIndex].RingName = FName(*NewText.ToString());
 				Asset->PostEditChange();
 
 				// 스켈레톤 트리 등 다른 UI 갱신

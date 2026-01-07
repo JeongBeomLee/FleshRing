@@ -25,7 +25,7 @@
 #define LOCTEXT_NAMESPACE "FleshRingSkeletonTree"
 
 /** Ring 이름 변경 델리게이트 */
-DECLARE_DELEGATE_TwoParams(FOnRingRenamed, int32 /*RingIndex*/, const FString& /*NewName*/);
+DECLARE_DELEGATE_TwoParams(FOnRingRenamed, int32 /*RingIndex*/, FName /*NewName*/);
 
 /** Ring 이동 델리게이트 */
 DECLARE_DELEGATE_TwoParams(FOnRingMoved, int32 /*RingIndex*/, FName /*NewBoneName*/);
@@ -308,11 +308,11 @@ private:
 			return true;
 		}
 
-		FString NewName = NewText.ToString();
+		FName NewName = FName(*NewText.ToString());
 		bool bIsValid = true;
 
 		// 빈 이름 체크
-		if (NewName.IsEmpty())
+		if (NewName.IsNone())
 		{
 			OutErrorMessage = LOCTEXT("EmptyNameError", "Name cannot be empty.");
 			bIsValid = false;
@@ -356,7 +356,7 @@ private:
 			// Enter로 확정: 유효한 이름만 적용
 			if (bIsNameValid && Item.IsValid() && OnRingRenamed.IsBound())
 			{
-				OnRingRenamed.Execute(Item->RingIndex, NewText.ToString());
+				OnRingRenamed.Execute(Item->RingIndex, FName(*NewText.ToString()));
 			}
 		}
 		else if (CommitType == ETextCommit::OnUserMovedFocus)
@@ -364,7 +364,7 @@ private:
 			// 포커스 이동: 유효하면 적용, 유효하지 않으면 원래 이름으로 복원
 			if (bIsNameValid && Item.IsValid() && OnRingRenamed.IsBound())
 			{
-				OnRingRenamed.Execute(Item->RingIndex, NewText.ToString());
+				OnRingRenamed.Execute(Item->RingIndex, FName(*NewText.ToString()));
 			}
 			// 유효하지 않으면 InlineTextBlock이 원래 텍스트로 자동 복원됨
 		}
@@ -654,6 +654,34 @@ TSharedPtr<SWidget> SFleshRingSkeletonTree::CreateContextMenu()
 					FExecuteAction::CreateSP(this, &SFleshRingSkeletonTree::OnContextMenuCopyBoneName)
 				)
 			);
+
+			// Ring 붙여넣기 (복사된 Ring이 있을 때만)
+			if (CanPasteRing())
+			{
+				MenuBuilder.AddSeparator();
+
+				// 링 붙여넣기 (원본 본에)
+				FMenuEntryParams PasteParams;
+				PasteParams.LabelOverride = LOCTEXT("PasteRing", "Paste Ring");
+				PasteParams.ToolTipOverride = LOCTEXT("PasteRingTooltip", "Paste ring to original bone");
+				PasteParams.IconOverride = FSlateIcon(FAppStyle::GetAppStyleSetName(), "GenericCommands.Paste");
+				PasteParams.DirectActions = FUIAction(
+					FExecuteAction::CreateSP(this, &SFleshRingSkeletonTree::OnContextMenuPasteRing)
+				);
+				PasteParams.InputBindingOverride = FText::FromString(TEXT("Ctrl+V"));
+				MenuBuilder.AddMenuEntry(PasteParams);
+
+				// 선택된 본에 링 붙여넣기
+				FMenuEntryParams PasteToSelectedParams;
+				PasteToSelectedParams.LabelOverride = LOCTEXT("PasteRingToSelectedBone", "Paste Ring to Selected Bone");
+				PasteToSelectedParams.ToolTipOverride = LOCTEXT("PasteRingToSelectedBoneTooltip", "Paste ring to currently selected bone");
+				PasteToSelectedParams.IconOverride = FSlateIcon(FAppStyle::GetAppStyleSetName(), "GenericCommands.Paste");
+				PasteToSelectedParams.DirectActions = FUIAction(
+					FExecuteAction::CreateSP(this, &SFleshRingSkeletonTree::OnContextMenuPasteRingToSelectedBone)
+				);
+				PasteToSelectedParams.InputBindingOverride = FText::FromString(TEXT("Ctrl+Shift+V"));
+				MenuBuilder.AddMenuEntry(PasteToSelectedParams);
+			}
 		}
 		MenuBuilder.EndSection();
 	}
@@ -664,6 +692,18 @@ TSharedPtr<SWidget> SFleshRingSkeletonTree::CreateContextMenu()
 
 		MenuBuilder.BeginSection("RingActions", LOCTEXT("RingActionsSection", "Ring"));
 		{
+			// Ring 복사
+			FMenuEntryParams CopyParams;
+			CopyParams.LabelOverride = LOCTEXT("CopyRing", "Copy Ring");
+			CopyParams.ToolTipOverride = LOCTEXT("CopyRingTooltip", "Copy this ring");
+			CopyParams.IconOverride = FSlateIcon(FAppStyle::GetAppStyleSetName(), "GenericCommands.Copy");
+			CopyParams.DirectActions = FUIAction(
+				FExecuteAction::CreateSP(this, &SFleshRingSkeletonTree::OnContextMenuCopyRing),
+				FCanExecuteAction::CreateSP(this, &SFleshRingSkeletonTree::CanCopyRing)
+			);
+			CopyParams.InputBindingOverride = FText::FromString(TEXT("Ctrl+C"));
+			MenuBuilder.AddMenuEntry(CopyParams);
+
 			// Rename Ring (아이콘 + 단축키 힌트)
 			FMenuEntryParams RenameParams;
 			RenameParams.LabelOverride = LOCTEXT("RenameRing", "Rename Ring");
@@ -1318,7 +1358,7 @@ void SFleshRingSkeletonTree::OnTreeDoubleClick(TSharedPtr<FFleshRingTreeItem> It
 	}
 }
 
-void SFleshRingSkeletonTree::HandleRingRenamed(int32 RingIndex, const FString& NewName)
+void SFleshRingSkeletonTree::HandleRingRenamed(int32 RingIndex, FName NewName)
 {
 	if (UFleshRingAsset* Asset = EditingAsset.Get())
 	{
@@ -1439,8 +1479,131 @@ void SFleshRingSkeletonTree::OnContextMenuCopyBoneName()
 	}
 }
 
+void SFleshRingSkeletonTree::OnContextMenuCopyRing()
+{
+	if (!CanCopyRing())
+	{
+		return;
+	}
+
+	UFleshRingAsset* Asset = EditingAsset.Get();
+	int32 RingIndex = SelectedItem->RingIndex;
+
+	if (Asset && Asset->Rings.IsValidIndex(RingIndex))
+	{
+		CopiedRingSettings = Asset->Rings[RingIndex];
+		CopiedRingSourceBone = Asset->Rings[RingIndex].BoneName;
+	}
+}
+
+bool SFleshRingSkeletonTree::CanCopyRing() const
+{
+	return SelectedItem.IsValid() && SelectedItem->ItemType == EFleshRingTreeItemType::Ring;
+}
+
+void SFleshRingSkeletonTree::OnContextMenuPasteRing()
+{
+	if (!CanPasteRing())
+	{
+		return;
+	}
+
+	PasteRingToBone(CopiedRingSourceBone);
+}
+
+void SFleshRingSkeletonTree::OnContextMenuPasteRingToSelectedBone()
+{
+	if (!CanPasteRing() || !SelectedItem.IsValid())
+	{
+		return;
+	}
+
+	PasteRingToBone(SelectedItem->BoneName);
+}
+
+bool SFleshRingSkeletonTree::CanPasteRing() const
+{
+	// 복사된 Ring이 없으면 불가
+	if (!CopiedRingSettings.IsSet())
+	{
+		return false;
+	}
+
+	// Ring이 선택되어 있으면 붙여넣기 불가 (소켓과 동일한 동작)
+	if (SelectedItem.IsValid() && SelectedItem->ItemType == EFleshRingTreeItemType::Ring)
+	{
+		return false;
+	}
+
+	return true;
+}
+
+void SFleshRingSkeletonTree::PasteRingToBone(FName TargetBoneName)
+{
+	UFleshRingAsset* Asset = EditingAsset.Get();
+	if (!Asset || !CopiedRingSettings.IsSet())
+	{
+		return;
+	}
+
+	// 현재 선택 상태 저장 (소켓과 동일하게 선택 유지)
+	FName SelectedBoneName = SelectedItem.IsValid() ? SelectedItem->BoneName : NAME_None;
+
+	FScopedTransaction Transaction(LOCTEXT("PasteRing", "Paste Ring"));
+	Asset->Modify();
+
+	FFleshRingSettings NewRing = CopiedRingSettings.GetValue();
+	NewRing.BoneName = TargetBoneName;
+	// 기존 Asset의 MakeUniqueRingName 사용
+	NewRing.RingName = Asset->MakeUniqueRingName(CopiedRingSettings->RingName);
+
+	Asset->Rings.Add(NewRing);
+
+	// 에셋 변경 알림 (선택은 변경하지 않음 - 소켓과 동일한 동작)
+	Asset->OnAssetChanged.Broadcast(Asset);
+
+	// 트리 갱신
+	RefreshTree();
+
+	// 선택 상태 복원
+	if (!SelectedBoneName.IsNone())
+	{
+		SelectBone(SelectedBoneName);
+	}
+}
+
 FReply SFleshRingSkeletonTree::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent)
 {
+	// Ctrl+C: Ring 복사
+	if (InKeyEvent.IsControlDown() && InKeyEvent.GetKey() == EKeys::C)
+	{
+		if (CanCopyRing())
+		{
+			OnContextMenuCopyRing();
+			return FReply::Handled();
+		}
+	}
+
+	// Ctrl+Shift+V: 선택한 본에 붙여넣기 (Ctrl+V보다 먼저 체크)
+	if (InKeyEvent.IsControlDown() && InKeyEvent.IsShiftDown() && InKeyEvent.GetKey() == EKeys::V)
+	{
+		if (CanPasteRing() && SelectedItem.IsValid())
+		{
+			OnContextMenuPasteRingToSelectedBone();
+			return FReply::Handled();
+		}
+	}
+
+	// Ctrl+V: 원본 본에 붙여넣기
+	if (InKeyEvent.IsControlDown() && !InKeyEvent.IsShiftDown() && InKeyEvent.GetKey() == EKeys::V)
+	{
+		if (CanPasteRing())
+		{
+			OnContextMenuPasteRing();
+			return FReply::Handled();
+		}
+	}
+
 	// F2 키: Ring 이름 변경
 	if (InKeyEvent.GetKey() == EKeys::F2)
 	{

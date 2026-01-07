@@ -1094,39 +1094,7 @@ FVector FFleshRingEditorViewportClient::GetWidgetLocation() const
 
 FMatrix FFleshRingEditorViewportClient::GetWidgetCoordSystem() const
 {
-	if (!PreviewScene || !EditingAsset.IsValid())
-	{
-		return FMatrix::Identity;
-	}
-
-	int32 SelectedIndex = PreviewScene->GetSelectedRingIndex();
-	if (SelectedIndex < 0 || SelectionType == EFleshRingSelectionType::None)
-	{
-		return FMatrix::Identity;
-	}
-
-	const TArray<FFleshRingSettings>& Rings = EditingAsset->Rings;
-	if (!Rings.IsValidIndex(SelectedIndex))
-	{
-		return FMatrix::Identity;
-	}
-
-	USkeletalMeshComponent* SkelMeshComp = PreviewScene->GetSkeletalMeshComponent();
-	if (!SkelMeshComp || !SkelMeshComp->GetSkeletalMeshAsset())
-	{
-		return FMatrix::Identity;
-	}
-
-	const FFleshRingSettings& Ring = Rings[SelectedIndex];
-	int32 BoneIndex = SkelMeshComp->GetBoneIndex(Ring.BoneName);
-	if (BoneIndex == INDEX_NONE)
-	{
-		return FMatrix::Identity;
-	}
-
-	FTransform BoneTransform = SkelMeshComp->GetBoneTransform(BoneIndex);
-
-	// AlignRotation 좌표계 반환 (GetSelectedRingAlignMatrix와 동일)
+	// AlignRotation 좌표계 반환 (내부에서 검증 수행)
 	return GetSelectedRingAlignMatrix();
 }
 
