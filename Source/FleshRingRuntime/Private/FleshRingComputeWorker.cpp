@@ -1081,13 +1081,30 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 						LoggedLayerDistribution.Add(RingIdx);
 					}
 
-					// ===== Z 확장된 후처리 버텍스 사용 =====
-					// 설계: LayerPenetration은 Z 확장 범위(PostProcessing*)에서 수행
-					// 경계에서 날카로운 크랙 방지를 위함
-					const TArray<uint32>& PPIndices = DispatchData.PostProcessingIndices.Num() > 0
-						? DispatchData.PostProcessingIndices
-						: DispatchData.Indices;
-					const TArray<uint32>& PPLayerTypes = DispatchData.PostProcessingLayerTypes.Num() > 0
+					// ===== 영역 선택 =====
+					// - ANY Smoothing ON:  PostProcessingIndices (Z 확장) 또는 ExtendedSmoothingIndices (Hop 기반)
+					// - ALL Smoothing OFF: Indices (기본 SDF 볼륨) - Tightness/Bulge만 동작
+					// Note: ExtendedSmoothingIndices 사용 시 LayerTypes 호환성 체크 필요
+					const bool bAnySmoothingEnabled =
+						DispatchData.bEnableRadialSmoothing ||
+						DispatchData.bEnableLaplacianSmoothing ||
+						DispatchData.bEnablePBDEdgeConstraint;
+
+					const bool bUseExtendedRegion =
+						bAnySmoothingEnabled &&
+						DispatchData.bUseHopBasedSmoothing &&
+						DispatchData.ExtendedSmoothingIndices.Num() > 0 &&
+						DispatchData.LayerTypes.Num() >= DispatchData.ExtendedSmoothingIndices.Num();
+					const bool bUsePostProcessingRegion =
+						bAnySmoothingEnabled &&
+						!bUseExtendedRegion &&
+						DispatchData.PostProcessingIndices.Num() > 0 &&
+						DispatchData.PostProcessingLayerTypes.Num() > 0;
+
+					const TArray<uint32>& PPIndices = bUseExtendedRegion
+						? DispatchData.ExtendedSmoothingIndices
+						: (bUsePostProcessingRegion ? DispatchData.PostProcessingIndices : DispatchData.Indices);
+					const TArray<uint32>& PPLayerTypes = bUsePostProcessingRegion
 						? DispatchData.PostProcessingLayerTypes
 						: DispatchData.LayerTypes;
 
@@ -1167,10 +1184,11 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					static TSet<int32> LoggedLayerPenetrationRings;
 					if (!LoggedLayerPenetrationRings.Contains(RingIdx))
 					{
-						const bool bUsingPPIndices = DispatchData.PostProcessingIndices.Num() > 0;
+						const TCHAR* RegionMode = bUseExtendedRegion ? TEXT("EXTENDED(Hop)")
+							: (bUsePostProcessingRegion ? TEXT("PostProcessing(Z)") : TEXT("Affected(SDF)"));
 						UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] LayerPenetrationCS Dispatch Ring[%d]: %s Verts=%d (original=%d), Triangles=%d"),
 							RingIdx,
-							bUsingPPIndices ? TEXT("PostProcessing") : TEXT("Affected"),
+							RegionMode,
 							NumAffected,
 							DispatchData.Indices.Num(),
 							NumTriangles);
@@ -1318,10 +1336,15 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				{
 					const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
 
-					// ===== Normal 영역 선택 (스무딩 활성화 시에만 확장 영역 사용) =====
+					// ===== Normal 영역 선택 (ANY 스무딩 활성화 시에만 확장 영역 사용) =====
 					// Note: Hop 기반 확장은 Normal 인접 데이터가 없으므로, PostProcessing만 지원
+					const bool bAnySmoothingEnabled =
+						DispatchData.bEnableRadialSmoothing ||
+						DispatchData.bEnableLaplacianSmoothing ||
+						DispatchData.bEnablePBDEdgeConstraint;
+
 					const bool bUsePostProcessingRegion =
-						DispatchData.bEnableLaplacianSmoothing &&
+						bAnySmoothingEnabled &&
 						DispatchData.PostProcessingIndices.Num() > 0 &&
 						DispatchData.PostProcessingAdjacencyOffsets.Num() > 0 &&
 						DispatchData.PostProcessingAdjacencyTriangles.Num() > 0;
@@ -1444,9 +1467,14 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				{
 					const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
 
-					// Normal과 동일한 영역 사용 (스무딩 활성화 시에만 확장 영역)
+					// Normal과 동일한 영역 사용 (ANY 스무딩 활성화 시에만 확장 영역)
+					const bool bAnySmoothingEnabled =
+						DispatchData.bEnableRadialSmoothing ||
+						DispatchData.bEnableLaplacianSmoothing ||
+						DispatchData.bEnablePBDEdgeConstraint;
+
 					const bool bUsePostProcessingRegion =
-						DispatchData.bEnableLaplacianSmoothing &&
+						bAnySmoothingEnabled &&
 						DispatchData.PostProcessingIndices.Num() > 0 &&
 						DispatchData.PostProcessingAdjacencyOffsets.Num() > 0 &&
 						DispatchData.PostProcessingAdjacencyTriangles.Num() > 0;

@@ -653,6 +653,33 @@ void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
         return;
     }
 
+    // ★ 모든 Smoothing이 꺼져있으면 Z 확장 없이 원본 Affected Vertices만 복사
+    // ANY Smoothing ON → Z 확장 / Hop 기반 확장 가능
+    // ALL Smoothing OFF → 확장 영역 불필요 (기본 SDF 볼륨만 사용, Tightness/Bulge만 동작)
+    const bool bAnySmoothingEnabled =
+        Context.RingSettings.bEnableRadialSmoothing ||
+        Context.RingSettings.bEnableLaplacianSmoothing ||
+        Context.RingSettings.bEnablePBDEdgeConstraint;
+
+    if (!bAnySmoothingEnabled)
+    {
+        OutRingData.PostProcessingIndices.Reserve(AffectedVertices.Num());
+        OutRingData.PostProcessingInfluences.Reserve(AffectedVertices.Num());
+        OutRingData.PostProcessingLayerTypes.Reserve(AffectedVertices.Num());
+
+        for (const FAffectedVertex& V : AffectedVertices)
+        {
+            OutRingData.PostProcessingIndices.Add(V.VertexIndex);
+            OutRingData.PostProcessingInfluences.Add(1.0f);
+            OutRingData.PostProcessingLayerTypes.Add(static_cast<uint32>(V.LayerType));
+        }
+
+        UE_LOG(LogFleshRingVertices, Log,
+            TEXT("PostProcessing: Smoothing disabled, using %d affected vertices (no Z extension)"),
+            OutRingData.PostProcessingIndices.Num());
+        return;
+    }
+
     const float BoundsZTop = Context.RingSettings.SmoothingBoundsZTop;
     const float BoundsZBottom = Context.RingSettings.SmoothingBoundsZBottom;
 
@@ -1171,7 +1198,13 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
 
             // Build hop distance data for topology-based smoothing
             // 홉 기반 스무딩용 확장 영역 데이터 빌드
-            if (RingSettings.bEnableLaplacianSmoothing)
+            // ANY smoothing이 켜져있으면 hop 데이터 빌드 (Radial, Laplacian, PBD 중 하나라도)
+            const bool bAnySmoothingEnabled =
+                RingSettings.bEnableRadialSmoothing ||
+                RingSettings.bEnableLaplacianSmoothing ||
+                RingSettings.bEnablePBDEdgeConstraint;
+
+            if (bAnySmoothingEnabled)
             {
                 BuildHopDistanceData(
                     RingData,
@@ -1694,8 +1727,22 @@ void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
     }
 
     // ================================================================
-    // Step 1: Pack adjacency data for affected vertices using cached topology
-    // 1단계: 캐시된 토폴로지를 사용하여 영향받는 버텍스의 인접 데이터 패킹
+    // Step 1: Build affected vertex lookup set
+    // 1단계: Affected 버텍스 조회용 Set 빌드
+    // ================================================================
+    // 이웃 선택 시 Affected 버텍스를 우선하기 위해 필요.
+    // Affected가 아닌 버텍스는 스무딩되지 않으므로 위치가 변하지 않음.
+    // -> 일관성을 위해 Affected 버텍스를 이웃으로 선택해야 함.
+    TSet<uint32> AffectedVertexSet;
+    AffectedVertexSet.Reserve(NumAffected);
+    for (int32 i = 0; i < NumAffected; ++i)
+    {
+        AffectedVertexSet.Add(RingData.Vertices[i].VertexIndex);
+    }
+
+    // ================================================================
+    // Step 2: Pack adjacency data for affected vertices using cached topology
+    // 2단계: 캐시된 토폴로지를 사용하여 영향받는 버텍스의 인접 데이터 패킹
     //
     // 핵심: 같은 위치의 모든 버텍스가 동일한 이웃 위치 집합을 사용
     //       -> 동일한 Laplacian 계산 -> 동일한 이동 -> 크랙 없음!
@@ -1724,15 +1771,28 @@ void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
             {
                 for (const FIntVector& NeighborPosKey : *WeldedNeighborPosSet)
                 {
-                    // Get a representative vertex at that position from cache
+                    // Get vertices at that position from cache
                     const TArray<uint32>* VerticesAtNeighborPos = CachedPositionToVertices.Find(NeighborPosKey);
                     if (!VerticesAtNeighborPos || VerticesAtNeighborPos->Num() == 0)
                     {
                         continue;
                     }
 
-                    // Use the first vertex at that position as representative
-                    const uint32 NeighborIdx = (*VerticesAtNeighborPos)[0];
+                    // ============================================================
+                    // 핵심 수정: Affected 버텍스 우선 선택
+                    // ============================================================
+                    // 해당 위치의 버텍스 중 Affected 버텍스가 있으면 그것을 선택.
+                    // Affected가 아닌 버텍스는 스무딩되지 않아 위치가 변하지 않음.
+                    // 모든 Laplacian 계산이 같은 (스무딩된) 위치를 참조해야 일관성 유지.
+                    uint32 NeighborIdx = (*VerticesAtNeighborPos)[0];  // 기본: 첫 번째
+                    for (uint32 CandidateIdx : *VerticesAtNeighborPos)
+                    {
+                        if (AffectedVertexSet.Contains(CandidateIdx))
+                        {
+                            NeighborIdx = CandidateIdx;
+                            break;  // Affected 버텍스 찾으면 사용
+                        }
+                    }
 
                     // Layer type filtering: only include neighbors of same layer
                     EFleshRingLayerType NeighborLayerType = EFleshRingLayerType::Unknown;
@@ -1806,8 +1866,19 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingLaplacianAdjacencyDat
     }
 
     // ================================================================
-    // Step 1: Build adjacency for each post-processing vertex using cached topology
-    // 1단계: 캐시된 토폴로지를 사용하여 후처리 버텍스의 인접 데이터 빌드
+    // Step 1: Build PostProcessing vertex lookup set
+    // 1단계: PostProcessing 버텍스 조회용 Set 빌드
+    // ================================================================
+    TSet<uint32> PostProcessingVertexSet;
+    PostProcessingVertexSet.Reserve(NumPostProcessing);
+    for (int32 i = 0; i < NumPostProcessing; ++i)
+    {
+        PostProcessingVertexSet.Add(RingData.PostProcessingIndices[i]);
+    }
+
+    // ================================================================
+    // Step 2: Build adjacency for each post-processing vertex using cached topology
+    // 2단계: 캐시된 토폴로지를 사용하여 후처리 버텍스의 인접 데이터 빌드
     // ================================================================
     RingData.PostProcessingLaplacianAdjacencyData.Reset(NumPostProcessing * PACKED_SIZE);
     RingData.PostProcessingLaplacianAdjacencyData.AddZeroed(NumPostProcessing * PACKED_SIZE);
@@ -1849,11 +1920,20 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingLaplacianAdjacencyDat
         {
             if (NeighborCount >= MAX_NEIGHBORS) break;
 
-            // Get representative vertex from cache
+            // Get vertices at that position from cache
             const TArray<uint32>* VerticesAtNeighborPos = CachedPositionToVertices.Find(NeighborPosKey);
             if (!VerticesAtNeighborPos || VerticesAtNeighborPos->Num() == 0) continue;
 
-            const uint32 NeighborIdx = (*VerticesAtNeighborPos)[0];
+            // Affected 버텍스 우선 선택
+            uint32 NeighborIdx = (*VerticesAtNeighborPos)[0];
+            for (uint32 CandidateIdx : *VerticesAtNeighborPos)
+            {
+                if (PostProcessingVertexSet.Contains(CandidateIdx))
+                {
+                    NeighborIdx = CandidateIdx;
+                    break;
+                }
+            }
 
             // Layer type filtering
             EFleshRingLayerType NeighborLayerType = EFleshRingLayerType::Unknown;

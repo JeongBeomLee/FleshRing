@@ -407,18 +407,52 @@ int32 FLEBSubdivision::SubdivideRegion(
 
 	int32 InitialTriCount = Triangles.Num() / 3;
 
-	// Midpoint map: edge (VA, VB) -> midpoint vertex index
-	TMap<TPair<int32, int32>, int32> MidpointMap;
+	// ============================================================================
+	// Dual Midpoint Map System - Torus Version
+	// ============================================================================
+	constexpr float MidpointWeldPrecision = 0.1f;
 
-	auto MakeEdgeKey = [](int32 A, int32 B) -> TPair<int32, int32>
+	auto PositionToKey = [MidpointWeldPrecision](const FVector& Pos) -> FIntVector
+	{
+		return FIntVector(
+			FMath::RoundToInt(Pos.X / MidpointWeldPrecision),
+			FMath::RoundToInt(Pos.Y / MidpointWeldPrecision),
+			FMath::RoundToInt(Pos.Z / MidpointWeldPrecision)
+		);
+	};
+
+	auto IntVectorLess = [](const FIntVector& A, const FIntVector& B) -> bool
+	{
+		if (A.X != B.X) return A.X < B.X;
+		if (A.Y != B.Y) return A.Y < B.Y;
+		return A.Z < B.Z;
+	};
+
+	// 1. Position-based: GREEN split 감지용
+	TSet<TPair<FIntVector, FIntVector>> PositionMidpointSet;
+
+	auto MakePositionKey = [&](int32 VA, int32 VB) -> TPair<FIntVector, FIntVector>
+	{
+		FIntVector KeyA = PositionToKey(Positions[VA]);
+		FIntVector KeyB = PositionToKey(Positions[VB]);
+		if (IntVectorLess(KeyA, KeyB))
+			return TPair<FIntVector, FIntVector>(KeyA, KeyB);
+		else
+			return TPair<FIntVector, FIntVector>(KeyB, KeyA);
+	};
+
+	// 2. Index-based: 버텍스 재사용용 (UV 보존)
+	TMap<TPair<int32, int32>, int32> IndexMidpointMap;
+
+	auto MakeIndexKey = [](int32 A, int32 B) -> TPair<int32, int32>
 	{
 		return A < B ? TPair<int32, int32>(A, B) : TPair<int32, int32>(B, A);
 	};
 
 	auto GetOrCreateMidpoint = [&](int32 VA, int32 VB) -> int32
 	{
-		TPair<int32, int32> Key = MakeEdgeKey(VA, VB);
-		if (int32* Existing = MidpointMap.Find(Key))
+		TPair<int32, int32> IndexKey = MakeIndexKey(VA, VB);
+		if (int32* Existing = IndexMidpointMap.Find(IndexKey))
 		{
 			return *Existing;
 		}
@@ -426,10 +460,16 @@ int32 FLEBSubdivision::SubdivideRegion(
 		int32 NewIdx = Positions.Num();
 		Positions.Add((Positions[VA] + Positions[VB]) * 0.5f);
 		UVs.Add((UVs[VA] + UVs[VB]) * 0.5f);
-		// ★ 부모 버텍스 정보 기록
 		ParentIndices.Add(TPair<int32, int32>(VA, VB));
-		MidpointMap.Add(Key, NewIdx);
+
+		IndexMidpointMap.Add(IndexKey, NewIdx);
+		PositionMidpointSet.Add(MakePositionKey(VA, VB));
 		return NewIdx;
+	};
+
+	auto HasMidpointAtEdge = [&](int32 VA, int32 VB) -> bool
+	{
+		return PositionMidpointSet.Contains(MakePositionKey(VA, VB));
 	};
 
 	// Torus SDF helper - returns signed distance to torus surface
@@ -578,8 +618,7 @@ int32 FLEBSubdivision::SubdivideRegion(
 			}
 		}
 
-		// Phase 3: GREEN splits - fix T-junctions
-		// Check each non-red triangle for dangling midpoints
+		// Phase 3: GREEN splits - fix T-junctions (Dual Map System)
 		TArray<int32> FinalTriangles;
 		TArray<int32> FinalMaterialIndices;
 		FinalTriangles.Reserve(NewTriangles.Num() * 2);
@@ -593,136 +632,136 @@ int32 FLEBSubdivision::SubdivideRegion(
 			int32 V2 = NewTriangles[i * 3 + 2];
 			int32 MatIdx = NewMaterialIndices.IsValidIndex(i) ? NewMaterialIndices[i] : 0;
 
-			// Check if any edge has a midpoint
-			int32* M01 = MidpointMap.Find(MakeEdgeKey(V0, V1));
-			int32* M12 = MidpointMap.Find(MakeEdgeKey(V1, V2));
-			int32* M20 = MidpointMap.Find(MakeEdgeKey(V2, V0));
+			// 위치 기반으로 중점 존재 여부 감지
+			bool bHas01 = HasMidpointAtEdge(V0, V1);
+			bool bHas12 = HasMidpointAtEdge(V1, V2);
+			bool bHas20 = HasMidpointAtEdge(V2, V0);
 
-			int32 NumMidpoints = (M01 ? 1 : 0) + (M12 ? 1 : 0) + (M20 ? 1 : 0);
+			int32 NumMidpoints = (bHas01 ? 1 : 0) + (bHas12 ? 1 : 0) + (bHas20 ? 1 : 0);
 
 			if (NumMidpoints == 0)
 			{
-				// No midpoints on edges, keep as is
 				FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
 				FinalMaterialIndices.Add(MatIdx);
 			}
 			else if (NumMidpoints == 3)
 			{
-				// All edges have midpoints - this was a RED triangle, already split
-				FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
+				// GREEN-3: 이웃들이 전부 RED split됨 → 강제 4분할
+				int32 M01 = GetOrCreateMidpoint(V0, V1);
+				int32 M12 = GetOrCreateMidpoint(V1, V2);
+				int32 M20 = GetOrCreateMidpoint(V2, V0);
+
+				FinalTriangles.Add(V0); FinalTriangles.Add(M01); FinalTriangles.Add(M20);
+				FinalMaterialIndices.Add(MatIdx);
+				FinalTriangles.Add(M01); FinalTriangles.Add(V1); FinalTriangles.Add(M12);
+				FinalMaterialIndices.Add(MatIdx);
+				FinalTriangles.Add(M20); FinalTriangles.Add(M12); FinalTriangles.Add(V2);
+				FinalMaterialIndices.Add(MatIdx);
+				FinalTriangles.Add(M01); FinalTriangles.Add(M12); FinalTriangles.Add(M20);
 				FinalMaterialIndices.Add(MatIdx);
 			}
-			else
+			else if (NumMidpoints == 1)
 			{
-				// GREEN: Some edges have midpoints, need to split
-				// Split into 2, 3, or 4 triangles depending on configuration
-
-				if (NumMidpoints == 1)
+				if (bHas01)
 				{
-					// One edge has midpoint - split into 2
-					if (M01)
+					int32 M01 = GetOrCreateMidpoint(V0, V1);
+					FinalTriangles.Add(V0); FinalTriangles.Add(M01); FinalTriangles.Add(V2);
+					FinalMaterialIndices.Add(MatIdx);
+					FinalTriangles.Add(M01); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
+					FinalMaterialIndices.Add(MatIdx);
+				}
+				else if (bHas12)
+				{
+					int32 M12 = GetOrCreateMidpoint(V1, V2);
+					FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(M12);
+					FinalMaterialIndices.Add(MatIdx);
+					FinalTriangles.Add(V0); FinalTriangles.Add(M12); FinalTriangles.Add(V2);
+					FinalMaterialIndices.Add(MatIdx);
+				}
+				else // bHas20
+				{
+					int32 M20 = GetOrCreateMidpoint(V2, V0);
+					FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(M20);
+					FinalMaterialIndices.Add(MatIdx);
+					FinalTriangles.Add(M20); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
+					FinalMaterialIndices.Add(MatIdx);
+				}
+			}
+			else // NumMidpoints == 2
+			{
+				if (bHas01 && bHas12)
+				{
+					int32 M01 = GetOrCreateMidpoint(V0, V1);
+					int32 M12 = GetOrCreateMidpoint(V1, V2);
+
+					FinalTriangles.Add(M01); FinalTriangles.Add(V1); FinalTriangles.Add(M12);
+					FinalMaterialIndices.Add(MatIdx);
+
+					float DiagA = FVector::DistSquared(Positions[M01], Positions[V2]);
+					float DiagB = FVector::DistSquared(Positions[V0], Positions[M12]);
+					if (DiagA <= DiagB)
 					{
-						FinalTriangles.Add(V0); FinalTriangles.Add(*M01); FinalTriangles.Add(V2);
+						FinalTriangles.Add(V0); FinalTriangles.Add(M01); FinalTriangles.Add(V2);
 						FinalMaterialIndices.Add(MatIdx);
-						FinalTriangles.Add(*M01); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
+						FinalTriangles.Add(M01); FinalTriangles.Add(M12); FinalTriangles.Add(V2);
 						FinalMaterialIndices.Add(MatIdx);
 					}
-					else if (M12)
+					else
 					{
-						FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(*M12);
+						FinalTriangles.Add(V0); FinalTriangles.Add(M01); FinalTriangles.Add(M12);
 						FinalMaterialIndices.Add(MatIdx);
-						FinalTriangles.Add(V0); FinalTriangles.Add(*M12); FinalTriangles.Add(V2);
-						FinalMaterialIndices.Add(MatIdx);
-					}
-					else // M20
-					{
-						FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(*M20);
-						FinalMaterialIndices.Add(MatIdx);
-						FinalTriangles.Add(*M20); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
+						FinalTriangles.Add(V0); FinalTriangles.Add(M12); FinalTriangles.Add(V2);
 						FinalMaterialIndices.Add(MatIdx);
 					}
 				}
-				else if (NumMidpoints == 2)
+				else if (bHas12 && bHas20)
 				{
-					// Two edges have midpoints - split into 3
-					// GREEN-2: Corner triangle + quadrilateral split by shorter diagonal
-					if (M01 && M12)
-					{
-						// Corner at V1: (M01, V1, M12)
-						FinalTriangles.Add(*M01); FinalTriangles.Add(V1); FinalTriangles.Add(*M12);
-						FinalMaterialIndices.Add(MatIdx);
+					int32 M12 = GetOrCreateMidpoint(V1, V2);
+					int32 M20 = GetOrCreateMidpoint(V2, V0);
 
-						// Quad V0-M01-M12-V2: compare diagonals M01-V2 vs V0-M12
-						float DiagA = FVector::DistSquared(Positions[*M01], Positions[V2]);
-						float DiagB = FVector::DistSquared(Positions[V0], Positions[*M12]);
-						if (DiagA <= DiagB)
-						{
-							// Diagonal M01-V2
-							FinalTriangles.Add(V0); FinalTriangles.Add(*M01); FinalTriangles.Add(V2);
-							FinalMaterialIndices.Add(MatIdx);
-							FinalTriangles.Add(*M01); FinalTriangles.Add(*M12); FinalTriangles.Add(V2);
-							FinalMaterialIndices.Add(MatIdx);
-						}
-						else
-						{
-							// Diagonal V0-M12
-							FinalTriangles.Add(V0); FinalTriangles.Add(*M01); FinalTriangles.Add(*M12);
-							FinalMaterialIndices.Add(MatIdx);
-							FinalTriangles.Add(V0); FinalTriangles.Add(*M12); FinalTriangles.Add(V2);
-							FinalMaterialIndices.Add(MatIdx);
-						}
+					FinalTriangles.Add(M20); FinalTriangles.Add(M12); FinalTriangles.Add(V2);
+					FinalMaterialIndices.Add(MatIdx);
+
+					float DiagA = FVector::DistSquared(Positions[V0], Positions[M12]);
+					float DiagB = FVector::DistSquared(Positions[V1], Positions[M20]);
+					if (DiagA <= DiagB)
+					{
+						FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(M12);
+						FinalMaterialIndices.Add(MatIdx);
+						FinalTriangles.Add(V0); FinalTriangles.Add(M12); FinalTriangles.Add(M20);
+						FinalMaterialIndices.Add(MatIdx);
 					}
-					else if (M12 && M20)
+					else
 					{
-						// Corner at V2: (M20, M12, V2)
-						FinalTriangles.Add(*M20); FinalTriangles.Add(*M12); FinalTriangles.Add(V2);
+						FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(M20);
 						FinalMaterialIndices.Add(MatIdx);
-
-						// Quad V0-V1-M12-M20: compare diagonals V0-M12 vs V1-M20
-						float DiagA = FVector::DistSquared(Positions[V0], Positions[*M12]);
-						float DiagB = FVector::DistSquared(Positions[V1], Positions[*M20]);
-						if (DiagA <= DiagB)
-						{
-							// Diagonal V0-M12
-							FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(*M12);
-							FinalMaterialIndices.Add(MatIdx);
-							FinalTriangles.Add(V0); FinalTriangles.Add(*M12); FinalTriangles.Add(*M20);
-							FinalMaterialIndices.Add(MatIdx);
-						}
-						else
-						{
-							// Diagonal V1-M20
-							FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(*M20);
-							FinalMaterialIndices.Add(MatIdx);
-							FinalTriangles.Add(V1); FinalTriangles.Add(*M12); FinalTriangles.Add(*M20);
-							FinalMaterialIndices.Add(MatIdx);
-						}
+						FinalTriangles.Add(V1); FinalTriangles.Add(M12); FinalTriangles.Add(M20);
+						FinalMaterialIndices.Add(MatIdx);
 					}
-					else // M01 && M20
-					{
-						// Corner at V0: (V0, M01, M20)
-						FinalTriangles.Add(V0); FinalTriangles.Add(*M01); FinalTriangles.Add(*M20);
-						FinalMaterialIndices.Add(MatIdx);
+				}
+				else // bHas01 && bHas20
+				{
+					int32 M01 = GetOrCreateMidpoint(V0, V1);
+					int32 M20 = GetOrCreateMidpoint(V2, V0);
 
-						// Quad M01-V1-V2-M20: compare diagonals V1-M20 vs M01-V2
-						float DiagA = FVector::DistSquared(Positions[V1], Positions[*M20]);
-						float DiagB = FVector::DistSquared(Positions[*M01], Positions[V2]);
-						if (DiagA <= DiagB)
-						{
-							// Diagonal V1-M20
-							FinalTriangles.Add(*M01); FinalTriangles.Add(V1); FinalTriangles.Add(*M20);
-							FinalMaterialIndices.Add(MatIdx);
-							FinalTriangles.Add(*M20); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
-							FinalMaterialIndices.Add(MatIdx);
-						}
-						else
-						{
-							// Diagonal M01-V2
-							FinalTriangles.Add(*M01); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
-							FinalMaterialIndices.Add(MatIdx);
-							FinalTriangles.Add(*M01); FinalTriangles.Add(V2); FinalTriangles.Add(*M20);
-							FinalMaterialIndices.Add(MatIdx);
-						}
+					FinalTriangles.Add(V0); FinalTriangles.Add(M01); FinalTriangles.Add(M20);
+					FinalMaterialIndices.Add(MatIdx);
+
+					float DiagA = FVector::DistSquared(Positions[V1], Positions[M20]);
+					float DiagB = FVector::DistSquared(Positions[M01], Positions[V2]);
+					if (DiagA <= DiagB)
+					{
+						FinalTriangles.Add(M01); FinalTriangles.Add(V1); FinalTriangles.Add(M20);
+						FinalMaterialIndices.Add(MatIdx);
+						FinalTriangles.Add(M20); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
+						FinalMaterialIndices.Add(MatIdx);
+					}
+					else
+					{
+						FinalTriangles.Add(M01); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
+						FinalMaterialIndices.Add(MatIdx);
+						FinalTriangles.Add(M01); FinalTriangles.Add(V2); FinalTriangles.Add(M20);
+						FinalMaterialIndices.Add(MatIdx);
 					}
 				}
 			}
@@ -848,30 +887,92 @@ int32 FLEBSubdivision::SubdivideRegion(
 
 	int32 InitialTriCount = Triangles.Num() / 3;
 
-	// Midpoint map: edge (VA, VB) -> midpoint vertex index
-	TMap<TPair<int32, int32>, int32> MidpointMap;
+	// ============================================================================
+	// Dual Midpoint Map System (Position + Index)
+	// ============================================================================
+	// 문제 1: 머티리얼 섹션/UV seam 경계에서 같은 위치의 버텍스가 다른 인덱스
+	//         -> GREEN split이 중점 존재를 감지 못함
+	// 문제 2: 위치만으로 버텍스 공유하면 UV가 섞임
+	//         -> UV seam에서 렌더링 아티팩트 발생
+	//
+	// 해결: 두 개의 맵 사용
+	//   1. PositionMidpointMap: GREEN split 감지용 (위치 기반) - "이 edge에 중점이 있나?"
+	//   2. IndexMidpointMap: 버텍스 재사용용 (인덱스 기반) - "같은 UV면 재사용"
+	// ============================================================================
 
-	auto MakeEdgeKey = [](int32 A, int32 B) -> TPair<int32, int32>
+	constexpr float MidpointWeldPrecision = 0.1f;
+
+	// Position -> 양자화된 정수 좌표 변환
+	auto PositionToKey = [MidpointWeldPrecision](const FVector& Pos) -> FIntVector
+	{
+		return FIntVector(
+			FMath::RoundToInt(Pos.X / MidpointWeldPrecision),
+			FMath::RoundToInt(Pos.Y / MidpointWeldPrecision),
+			FMath::RoundToInt(Pos.Z / MidpointWeldPrecision)
+		);
+	};
+
+	auto IntVectorLess = [](const FIntVector& A, const FIntVector& B) -> bool
+	{
+		if (A.X != B.X) return A.X < B.X;
+		if (A.Y != B.Y) return A.Y < B.Y;
+		return A.Z < B.Z;
+	};
+
+	// 1. Position-based map: GREEN split 감지용 (이 위치의 edge에 중점이 있는지)
+	TSet<TPair<FIntVector, FIntVector>> PositionMidpointSet;
+
+	auto MakePositionKey = [&](int32 VA, int32 VB) -> TPair<FIntVector, FIntVector>
+	{
+		FIntVector KeyA = PositionToKey(Positions[VA]);
+		FIntVector KeyB = PositionToKey(Positions[VB]);
+		if (IntVectorLess(KeyA, KeyB))
+			return TPair<FIntVector, FIntVector>(KeyA, KeyB);
+		else
+			return TPair<FIntVector, FIntVector>(KeyB, KeyA);
+	};
+
+	// 2. Index-based map: 버텍스 재사용용 (같은 인덱스 = 같은 UV)
+	TMap<TPair<int32, int32>, int32> IndexMidpointMap;
+
+	auto MakeIndexKey = [](int32 A, int32 B) -> TPair<int32, int32>
 	{
 		return A < B ? TPair<int32, int32>(A, B) : TPair<int32, int32>(B, A);
 	};
 
-	// GetOrCreateMidpoint: 새 버텍스 생성 시 부모 정보도 같이 기록
+	// 디버그 통계
+	int32 DebugMidpointCreated = 0, DebugMidpointReused = 0;
+
+	// GetOrCreateMidpoint: 인덱스 기반으로 재사용, 위치 기반으로 존재 등록
 	auto GetOrCreateMidpoint = [&](int32 VA, int32 VB) -> int32
 	{
-		TPair<int32, int32> Key = MakeEdgeKey(VA, VB);
-		if (int32* Existing = MidpointMap.Find(Key))
+		TPair<int32, int32> IndexKey = MakeIndexKey(VA, VB);
+
+		// 같은 인덱스(= 같은 UV)면 재사용
+		if (int32* Existing = IndexMidpointMap.Find(IndexKey))
 		{
+			DebugMidpointReused++;
 			return *Existing;
 		}
 
+		// 새 버텍스 생성 (자기 UV로)
+		DebugMidpointCreated++;
 		int32 NewIdx = Positions.Num();
 		Positions.Add((Positions[VA] + Positions[VB]) * 0.5f);
-		UVs.Add((UVs[VA] + UVs[VB]) * 0.5f);
-		// ★ 핵심: 부모 버텍스 정보를 생성 시점에 기록! O(1)
+		UVs.Add((UVs[VA] + UVs[VB]) * 0.5f);  // 자기 삼각형의 UV로 보간
 		ParentIndices.Add(TPair<int32, int32>(VA, VB));
-		MidpointMap.Add(Key, NewIdx);
+
+		// 두 맵 모두에 등록
+		IndexMidpointMap.Add(IndexKey, NewIdx);
+		PositionMidpointSet.Add(MakePositionKey(VA, VB));  // GREEN split 감지용
+
 		return NewIdx;
+	};
+
+	// GREEN split용: 이 edge에 중점이 있는지 확인 (위치 기반)
+	auto HasMidpointAtEdge = [&](int32 VA, int32 VB) -> bool
+	{
+		return PositionMidpointSet.Contains(MakePositionKey(VA, VB));
 	};
 
 	// 디버그용 통계
@@ -1027,10 +1128,16 @@ int32 FLEBSubdivision::SubdivideRegion(
 		}
 
 		// Phase 3: GREEN splits - fix T-junctions
+		// ============================================================================
+		// 핵심 변경: 감지는 위치 기반(HasMidpointAtEdge), 버텍스는 인덱스 기반(GetOrCreateMidpoint)
+		// -> UV seam에서 각 삼각형이 자기 UV로 중점 생성, 하지만 GREEN split은 정확히 감지
+		// ============================================================================
 		TArray<int32> FinalTriangles;
 		TArray<int32> FinalMaterialIndices;
 		FinalTriangles.Reserve(NewTriangles.Num() * 2);
 		FinalMaterialIndices.Reserve(NewMaterialIndices.Num() * 2);
+
+		int32 DebugGreenSplit1 = 0, DebugGreenSplit2 = 0;
 
 		NumTris = NewTriangles.Num() / 3;
 		for (int32 i = 0; i < NumTris; i++)
@@ -1040,120 +1147,145 @@ int32 FLEBSubdivision::SubdivideRegion(
 			int32 V2 = NewTriangles[i * 3 + 2];
 			int32 MatIdx = NewMaterialIndices.IsValidIndex(i) ? NewMaterialIndices[i] : 0;
 
-			// Check if any edge has a midpoint
-			int32* M01 = MidpointMap.Find(MakeEdgeKey(V0, V1));
-			int32* M12 = MidpointMap.Find(MakeEdgeKey(V1, V2));
-			int32* M20 = MidpointMap.Find(MakeEdgeKey(V2, V0));
+			// 위치 기반으로 중점 존재 여부 감지 (UV seam 경계도 감지)
+			bool bHas01 = HasMidpointAtEdge(V0, V1);
+			bool bHas12 = HasMidpointAtEdge(V1, V2);
+			bool bHas20 = HasMidpointAtEdge(V2, V0);
 
-			int32 NumMidpoints = (M01 ? 1 : 0) + (M12 ? 1 : 0) + (M20 ? 1 : 0);
+			int32 NumMidpoints = (bHas01 ? 1 : 0) + (bHas12 ? 1 : 0) + (bHas20 ? 1 : 0);
 
-			if (NumMidpoints == 0 || NumMidpoints == 3)
+			if (NumMidpoints == 0)
 			{
 				FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
 				FinalMaterialIndices.Add(MatIdx);
 			}
+			else if (NumMidpoints == 3)
+			{
+				// GREEN-3: 이웃들이 전부 RED split됨 → 강제 4분할
+				int32 M01 = GetOrCreateMidpoint(V0, V1);
+				int32 M12 = GetOrCreateMidpoint(V1, V2);
+				int32 M20 = GetOrCreateMidpoint(V2, V0);
+
+				FinalTriangles.Add(V0); FinalTriangles.Add(M01); FinalTriangles.Add(M20);
+				FinalMaterialIndices.Add(MatIdx);
+				FinalTriangles.Add(M01); FinalTriangles.Add(V1); FinalTriangles.Add(M12);
+				FinalMaterialIndices.Add(MatIdx);
+				FinalTriangles.Add(M20); FinalTriangles.Add(M12); FinalTriangles.Add(V2);
+				FinalMaterialIndices.Add(MatIdx);
+				FinalTriangles.Add(M01); FinalTriangles.Add(M12); FinalTriangles.Add(M20);
+				FinalMaterialIndices.Add(MatIdx);
+			}
 			else if (NumMidpoints == 1)
 			{
-				if (M01)
+				DebugGreenSplit1++;
+				if (bHas01)
 				{
-					FinalTriangles.Add(V0); FinalTriangles.Add(*M01); FinalTriangles.Add(V2);
+					// 자기 UV로 중점 생성/조회
+					int32 M01 = GetOrCreateMidpoint(V0, V1);
+					FinalTriangles.Add(V0); FinalTriangles.Add(M01); FinalTriangles.Add(V2);
 					FinalMaterialIndices.Add(MatIdx);
-					FinalTriangles.Add(*M01); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
+					FinalTriangles.Add(M01); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
 					FinalMaterialIndices.Add(MatIdx);
 				}
-				else if (M12)
+				else if (bHas12)
 				{
-					FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(*M12);
+					int32 M12 = GetOrCreateMidpoint(V1, V2);
+					FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(M12);
 					FinalMaterialIndices.Add(MatIdx);
-					FinalTriangles.Add(V0); FinalTriangles.Add(*M12); FinalTriangles.Add(V2);
+					FinalTriangles.Add(V0); FinalTriangles.Add(M12); FinalTriangles.Add(V2);
 					FinalMaterialIndices.Add(MatIdx);
 				}
-				else // M20
+				else // bHas20
 				{
-					FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(*M20);
+					int32 M20 = GetOrCreateMidpoint(V2, V0);
+					FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(M20);
 					FinalMaterialIndices.Add(MatIdx);
-					FinalTriangles.Add(*M20); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
+					FinalTriangles.Add(M20); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
 					FinalMaterialIndices.Add(MatIdx);
 				}
 			}
 			else // NumMidpoints == 2
 			{
+				DebugGreenSplit2++;
 				// GREEN-2: Corner triangle + quadrilateral split by shorter diagonal
-				if (M01 && M12)
+				if (bHas01 && bHas12)
 				{
+					int32 M01 = GetOrCreateMidpoint(V0, V1);
+					int32 M12 = GetOrCreateMidpoint(V1, V2);
+
 					// Corner at V1: (M01, V1, M12)
-					FinalTriangles.Add(*M01); FinalTriangles.Add(V1); FinalTriangles.Add(*M12);
+					FinalTriangles.Add(M01); FinalTriangles.Add(V1); FinalTriangles.Add(M12);
 					FinalMaterialIndices.Add(MatIdx);
 
 					// Quad V0-M01-M12-V2: compare diagonals M01-V2 vs V0-M12
-					float DiagA = FVector::DistSquared(Positions[*M01], Positions[V2]);
-					float DiagB = FVector::DistSquared(Positions[V0], Positions[*M12]);
+					float DiagA = FVector::DistSquared(Positions[M01], Positions[V2]);
+					float DiagB = FVector::DistSquared(Positions[V0], Positions[M12]);
 					if (DiagA <= DiagB)
 					{
-						// Diagonal M01-V2
-						FinalTriangles.Add(V0); FinalTriangles.Add(*M01); FinalTriangles.Add(V2);
+						FinalTriangles.Add(V0); FinalTriangles.Add(M01); FinalTriangles.Add(V2);
 						FinalMaterialIndices.Add(MatIdx);
-						FinalTriangles.Add(*M01); FinalTriangles.Add(*M12); FinalTriangles.Add(V2);
+						FinalTriangles.Add(M01); FinalTriangles.Add(M12); FinalTriangles.Add(V2);
 						FinalMaterialIndices.Add(MatIdx);
 					}
 					else
 					{
-						// Diagonal V0-M12
-						FinalTriangles.Add(V0); FinalTriangles.Add(*M01); FinalTriangles.Add(*M12);
+						FinalTriangles.Add(V0); FinalTriangles.Add(M01); FinalTriangles.Add(M12);
 						FinalMaterialIndices.Add(MatIdx);
-						FinalTriangles.Add(V0); FinalTriangles.Add(*M12); FinalTriangles.Add(V2);
+						FinalTriangles.Add(V0); FinalTriangles.Add(M12); FinalTriangles.Add(V2);
 						FinalMaterialIndices.Add(MatIdx);
 					}
 				}
-				else if (M12 && M20)
+				else if (bHas12 && bHas20)
 				{
+					int32 M12 = GetOrCreateMidpoint(V1, V2);
+					int32 M20 = GetOrCreateMidpoint(V2, V0);
+
 					// Corner at V2: (M20, M12, V2)
-					FinalTriangles.Add(*M20); FinalTriangles.Add(*M12); FinalTriangles.Add(V2);
+					FinalTriangles.Add(M20); FinalTriangles.Add(M12); FinalTriangles.Add(V2);
 					FinalMaterialIndices.Add(MatIdx);
 
-					// Quad V0-V1-M12-M20: compare diagonals V0-M12 vs V1-M20
-					float DiagA = FVector::DistSquared(Positions[V0], Positions[*M12]);
-					float DiagB = FVector::DistSquared(Positions[V1], Positions[*M20]);
+					// Quad V0-V1-M12-M20
+					float DiagA = FVector::DistSquared(Positions[V0], Positions[M12]);
+					float DiagB = FVector::DistSquared(Positions[V1], Positions[M20]);
 					if (DiagA <= DiagB)
 					{
-						// Diagonal V0-M12
-						FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(*M12);
+						FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(M12);
 						FinalMaterialIndices.Add(MatIdx);
-						FinalTriangles.Add(V0); FinalTriangles.Add(*M12); FinalTriangles.Add(*M20);
+						FinalTriangles.Add(V0); FinalTriangles.Add(M12); FinalTriangles.Add(M20);
 						FinalMaterialIndices.Add(MatIdx);
 					}
 					else
 					{
-						// Diagonal V1-M20
-						FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(*M20);
+						FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(M20);
 						FinalMaterialIndices.Add(MatIdx);
-						FinalTriangles.Add(V1); FinalTriangles.Add(*M12); FinalTriangles.Add(*M20);
+						FinalTriangles.Add(V1); FinalTriangles.Add(M12); FinalTriangles.Add(M20);
 						FinalMaterialIndices.Add(MatIdx);
 					}
 				}
-				else // M01 && M20
+				else // bHas01 && bHas20
 				{
+					int32 M01 = GetOrCreateMidpoint(V0, V1);
+					int32 M20 = GetOrCreateMidpoint(V2, V0);
+
 					// Corner at V0: (V0, M01, M20)
-					FinalTriangles.Add(V0); FinalTriangles.Add(*M01); FinalTriangles.Add(*M20);
+					FinalTriangles.Add(V0); FinalTriangles.Add(M01); FinalTriangles.Add(M20);
 					FinalMaterialIndices.Add(MatIdx);
 
-					// Quad M01-V1-V2-M20: compare diagonals V1-M20 vs M01-V2
-					float DiagA = FVector::DistSquared(Positions[V1], Positions[*M20]);
-					float DiagB = FVector::DistSquared(Positions[*M01], Positions[V2]);
+					// Quad M01-V1-V2-M20
+					float DiagA = FVector::DistSquared(Positions[V1], Positions[M20]);
+					float DiagB = FVector::DistSquared(Positions[M01], Positions[V2]);
 					if (DiagA <= DiagB)
 					{
-						// Diagonal V1-M20
-						FinalTriangles.Add(*M01); FinalTriangles.Add(V1); FinalTriangles.Add(*M20);
+						FinalTriangles.Add(M01); FinalTriangles.Add(V1); FinalTriangles.Add(M20);
 						FinalMaterialIndices.Add(MatIdx);
-						FinalTriangles.Add(*M20); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
+						FinalTriangles.Add(M20); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
 						FinalMaterialIndices.Add(MatIdx);
 					}
 					else
 					{
-						// Diagonal M01-V2
-						FinalTriangles.Add(*M01); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
+						FinalTriangles.Add(M01); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
 						FinalMaterialIndices.Add(MatIdx);
-						FinalTriangles.Add(*M01); FinalTriangles.Add(V2); FinalTriangles.Add(*M20);
+						FinalTriangles.Add(M01); FinalTriangles.Add(V2); FinalTriangles.Add(M20);
 						FinalMaterialIndices.Add(MatIdx);
 					}
 				}
@@ -1164,6 +1296,9 @@ int32 FLEBSubdivision::SubdivideRegion(
 		MaterialIndices = MoveTemp(FinalMaterialIndices);
 
 		int32 CurrentTriCount = Triangles.Num() / 3;
+
+		UE_LOG(LogTemp, Log, TEXT("  Level %d: GREEN splits - 1-midpoint: %d, 2-midpoint: %d, IndexMidpointMap size: %d"),
+			Level, DebugGreenSplit1, DebugGreenSplit2, IndexMidpointMap.Num());
 
 		// If no change, stop
 		if (CurrentTriCount == NumTris)
@@ -1176,6 +1311,7 @@ int32 FLEBSubdivision::SubdivideRegion(
 	UE_LOG(LogTemp, Log, TEXT("=== SubdivideRegion Complete ==="));
 	UE_LOG(LogTemp, Log, TEXT("  Vertices IN region: %d, OUT of region: %d"), DebugInCount, DebugOutCount);
 	UE_LOG(LogTemp, Log, TEXT("  Fail reasons - X: %d, Y: %d, Z: %d"), DebugFailX, DebugFailY, DebugFailZ);
+	UE_LOG(LogTemp, Log, TEXT("  Midpoints - Created: %d, Reused: %d (position-based welding)"), DebugMidpointCreated, DebugMidpointReused);
 
 	// Rebuild half-edge mesh from result with parent info
 	Mesh.Clear();
@@ -1250,18 +1386,56 @@ int32 FLEBSubdivision::SubdivideUniform(
 
 	UE_LOG(LogTemp, Log, TEXT("  Initial: %d vertices, %d triangles"), InitialVertCount, InitialTriCount);
 
-	// Midpoint map: edge (VA, VB) -> midpoint vertex index
-	TMap<TPair<int32, int32>, int32> MidpointMap;
+	// ============================================================================
+	// Dual Midpoint Map System (Position + Index) - GREEN split 지원
+	// ============================================================================
+	// 1. PositionMidpointSet: GREEN split 감지용 (위치 기반) - "이 edge에 중점이 있나?"
+	// 2. IndexMidpointMap: 버텍스 재사용용 (인덱스 기반) - "같은 UV면 재사용"
+	// ============================================================================
+	constexpr float MidpointWeldPrecision = 0.1f;
 
-	auto MakeEdgeKey = [](int32 A, int32 B) -> TPair<int32, int32>
+	auto PositionToKey = [MidpointWeldPrecision](const FVector& Pos) -> FIntVector
+	{
+		return FIntVector(
+			FMath::RoundToInt(Pos.X / MidpointWeldPrecision),
+			FMath::RoundToInt(Pos.Y / MidpointWeldPrecision),
+			FMath::RoundToInt(Pos.Z / MidpointWeldPrecision)
+		);
+	};
+
+	auto IntVectorLess = [](const FIntVector& A, const FIntVector& B) -> bool
+	{
+		if (A.X != B.X) return A.X < B.X;
+		if (A.Y != B.Y) return A.Y < B.Y;
+		return A.Z < B.Z;
+	};
+
+	// 1. Position-based set: GREEN split 감지용
+	TSet<TPair<FIntVector, FIntVector>> PositionMidpointSet;
+
+	auto MakePositionKey = [&](int32 VA, int32 VB) -> TPair<FIntVector, FIntVector>
+	{
+		FIntVector KeyA = PositionToKey(Positions[VA]);
+		FIntVector KeyB = PositionToKey(Positions[VB]);
+		if (IntVectorLess(KeyA, KeyB))
+			return TPair<FIntVector, FIntVector>(KeyA, KeyB);
+		else
+			return TPair<FIntVector, FIntVector>(KeyB, KeyA);
+	};
+
+	// 2. Index-based map: 버텍스 재사용용 (같은 인덱스 = 같은 UV)
+	TMap<TPair<int32, int32>, int32> IndexMidpointMap;
+
+	auto MakeIndexKey = [](int32 A, int32 B) -> TPair<int32, int32>
 	{
 		return A < B ? TPair<int32, int32>(A, B) : TPair<int32, int32>(B, A);
 	};
 
+	// GetOrCreateMidpoint: 인덱스 기반으로 재사용, 위치 기반으로 존재 등록
 	auto GetOrCreateMidpoint = [&](int32 VA, int32 VB) -> int32
 	{
-		TPair<int32, int32> Key = MakeEdgeKey(VA, VB);
-		if (int32* Existing = MidpointMap.Find(Key))
+		TPair<int32, int32> IndexKey = MakeIndexKey(VA, VB);
+		if (int32* Existing = IndexMidpointMap.Find(IndexKey))
 		{
 			return *Existing;
 		}
@@ -1270,8 +1444,16 @@ int32 FLEBSubdivision::SubdivideUniform(
 		Positions.Add((Positions[VA] + Positions[VB]) * 0.5f);
 		UVs.Add((UVs[VA] + UVs[VB]) * 0.5f);
 		ParentIndices.Add(TPair<int32, int32>(VA, VB));
-		MidpointMap.Add(Key, NewIdx);
+
+		IndexMidpointMap.Add(IndexKey, NewIdx);
+		PositionMidpointSet.Add(MakePositionKey(VA, VB));  // GREEN split 감지용
 		return NewIdx;
+	};
+
+	// GREEN split용: 이 edge에 중점이 있는지 확인 (위치 기반)
+	auto HasMidpointAtEdge = [&](int32 VA, int32 VB) -> bool
+	{
+		return PositionMidpointSet.Contains(MakePositionKey(VA, VB));
 	};
 
 	// Perform multiple levels of subdivision
@@ -1285,7 +1467,7 @@ int32 FLEBSubdivision::SubdivideUniform(
 		int32 NumTris = Triangles.Num() / 3;
 		int32 SplitCount = 0;
 
-		// 균일 subdivision: 모든 삼각형을 MinEdgeLength 조건만 확인하고 분할
+		// Phase 1: RED splits - MinEdgeLength 조건으로 4분할
 		for (int32 i = 0; i < NumTris; i++)
 		{
 			int32 V0 = Triangles[i * 3];
@@ -1327,23 +1509,185 @@ int32 FLEBSubdivision::SubdivideUniform(
 			}
 			else
 			{
-				// Keep original triangle
+				// Keep original triangle (may be GREEN split later)
 				NewTriangles.Add(V0); NewTriangles.Add(V1); NewTriangles.Add(V2);
 				NewMaterialIndices.Add(MatIdx);
 			}
 		}
 
-		UE_LOG(LogTemp, Log, TEXT("  Level %d: %d/%d triangles split"), Level + 1, SplitCount, NumTris);
+		// Phase 2: GREEN splits - T-junction 수정
+		TArray<int32> FinalTriangles;
+		TArray<int32> FinalMaterialIndices;
+		FinalTriangles.Reserve(NewTriangles.Num() * 2);
+		FinalMaterialIndices.Reserve(NewMaterialIndices.Num() * 2);
+
+		int32 GreenSplit1 = 0, GreenSplit2 = 0, GreenSplit3 = 0;
+
+		NumTris = NewTriangles.Num() / 3;
+		for (int32 i = 0; i < NumTris; i++)
+		{
+			int32 V0 = NewTriangles[i * 3];
+			int32 V1 = NewTriangles[i * 3 + 1];
+			int32 V2 = NewTriangles[i * 3 + 2];
+			int32 MatIdx = NewMaterialIndices.IsValidIndex(i) ? NewMaterialIndices[i] : 0;
+
+			// 위치 기반으로 중점 존재 여부 감지
+			bool bHas01 = HasMidpointAtEdge(V0, V1);
+			bool bHas12 = HasMidpointAtEdge(V1, V2);
+			bool bHas20 = HasMidpointAtEdge(V2, V0);
+
+			int32 NumMidpoints = (bHas01 ? 1 : 0) + (bHas12 ? 1 : 0) + (bHas20 ? 1 : 0);
+
+			if (NumMidpoints == 0)
+			{
+				// 분할 불필요
+				FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
+				FinalMaterialIndices.Add(MatIdx);
+			}
+			else if (NumMidpoints == 3)
+			{
+				// GREEN-3: 이웃들이 전부 RED split됨 → 강제 4분할
+				// (자기는 RED split 안 됐지만 T-junction 3개 해결 필요)
+				GreenSplit3++;
+				int32 M01 = GetOrCreateMidpoint(V0, V1);
+				int32 M12 = GetOrCreateMidpoint(V1, V2);
+				int32 M20 = GetOrCreateMidpoint(V2, V0);
+
+				FinalTriangles.Add(V0); FinalTriangles.Add(M01); FinalTriangles.Add(M20);
+				FinalMaterialIndices.Add(MatIdx);
+
+				FinalTriangles.Add(M01); FinalTriangles.Add(V1); FinalTriangles.Add(M12);
+				FinalMaterialIndices.Add(MatIdx);
+
+				FinalTriangles.Add(M20); FinalTriangles.Add(M12); FinalTriangles.Add(V2);
+				FinalMaterialIndices.Add(MatIdx);
+
+				FinalTriangles.Add(M01); FinalTriangles.Add(M12); FinalTriangles.Add(M20);
+				FinalMaterialIndices.Add(MatIdx);
+			}
+			else if (NumMidpoints == 1)
+			{
+				// GREEN split: 1개 중점 → 2개 삼각형
+				GreenSplit1++;
+				if (bHas01)
+				{
+					int32 M01 = GetOrCreateMidpoint(V0, V1);
+					FinalTriangles.Add(V0); FinalTriangles.Add(M01); FinalTriangles.Add(V2);
+					FinalMaterialIndices.Add(MatIdx);
+					FinalTriangles.Add(M01); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
+					FinalMaterialIndices.Add(MatIdx);
+				}
+				else if (bHas12)
+				{
+					int32 M12 = GetOrCreateMidpoint(V1, V2);
+					FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(M12);
+					FinalMaterialIndices.Add(MatIdx);
+					FinalTriangles.Add(V0); FinalTriangles.Add(M12); FinalTriangles.Add(V2);
+					FinalMaterialIndices.Add(MatIdx);
+				}
+				else // bHas20
+				{
+					int32 M20 = GetOrCreateMidpoint(V2, V0);
+					FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(M20);
+					FinalMaterialIndices.Add(MatIdx);
+					FinalTriangles.Add(M20); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
+					FinalMaterialIndices.Add(MatIdx);
+				}
+			}
+			else // NumMidpoints == 2
+			{
+				// GREEN split: 2개 중점 → 3개 삼각형
+				GreenSplit2++;
+				if (!bHas20) // bHas01 && bHas12
+				{
+					int32 M01 = GetOrCreateMidpoint(V0, V1);
+					int32 M12 = GetOrCreateMidpoint(V1, V2);
+
+					FinalTriangles.Add(M01); FinalTriangles.Add(V1); FinalTriangles.Add(M12);
+					FinalMaterialIndices.Add(MatIdx);
+
+					float DiagA = FVector::DistSquared(Positions[M01], Positions[V2]);
+					float DiagB = FVector::DistSquared(Positions[V0], Positions[M12]);
+					if (DiagA < DiagB)
+					{
+						FinalTriangles.Add(V0); FinalTriangles.Add(M01); FinalTriangles.Add(V2);
+						FinalMaterialIndices.Add(MatIdx);
+						FinalTriangles.Add(M01); FinalTriangles.Add(M12); FinalTriangles.Add(V2);
+						FinalMaterialIndices.Add(MatIdx);
+					}
+					else
+					{
+						FinalTriangles.Add(V0); FinalTriangles.Add(M01); FinalTriangles.Add(M12);
+						FinalMaterialIndices.Add(MatIdx);
+						FinalTriangles.Add(V0); FinalTriangles.Add(M12); FinalTriangles.Add(V2);
+						FinalMaterialIndices.Add(MatIdx);
+					}
+				}
+				else if (!bHas01) // bHas12 && bHas20
+				{
+					int32 M12 = GetOrCreateMidpoint(V1, V2);
+					int32 M20 = GetOrCreateMidpoint(V2, V0);
+
+					FinalTriangles.Add(M20); FinalTriangles.Add(M12); FinalTriangles.Add(V2);
+					FinalMaterialIndices.Add(MatIdx);
+
+					float DiagA = FVector::DistSquared(Positions[V0], Positions[M12]);
+					float DiagB = FVector::DistSquared(Positions[V1], Positions[M20]);
+					if (DiagA < DiagB)
+					{
+						FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(M12);
+						FinalMaterialIndices.Add(MatIdx);
+						FinalTriangles.Add(V0); FinalTriangles.Add(M12); FinalTriangles.Add(M20);
+						FinalMaterialIndices.Add(MatIdx);
+					}
+					else
+					{
+						FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(M20);
+						FinalMaterialIndices.Add(MatIdx);
+						FinalTriangles.Add(V1); FinalTriangles.Add(M12); FinalTriangles.Add(M20);
+						FinalMaterialIndices.Add(MatIdx);
+					}
+				}
+				else // bHas01 && bHas20
+				{
+					int32 M01 = GetOrCreateMidpoint(V0, V1);
+					int32 M20 = GetOrCreateMidpoint(V2, V0);
+
+					FinalTriangles.Add(V0); FinalTriangles.Add(M01); FinalTriangles.Add(M20);
+					FinalMaterialIndices.Add(MatIdx);
+
+					float DiagA = FVector::DistSquared(Positions[V1], Positions[M20]);
+					float DiagB = FVector::DistSquared(Positions[M01], Positions[V2]);
+					if (DiagA < DiagB)
+					{
+						FinalTriangles.Add(M01); FinalTriangles.Add(V1); FinalTriangles.Add(M20);
+						FinalMaterialIndices.Add(MatIdx);
+						FinalTriangles.Add(M20); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
+						FinalMaterialIndices.Add(MatIdx);
+					}
+					else
+					{
+						FinalTriangles.Add(M01); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
+						FinalMaterialIndices.Add(MatIdx);
+						FinalTriangles.Add(M01); FinalTriangles.Add(V2); FinalTriangles.Add(M20);
+						FinalMaterialIndices.Add(MatIdx);
+					}
+				}
+			}
+		}
+
+		Triangles = MoveTemp(FinalTriangles);
+		MaterialIndices = MoveTemp(FinalMaterialIndices);
+
+		UE_LOG(LogTemp, Log, TEXT("  Level %d: RED=%d, GREEN(1)=%d, GREEN(2)=%d, GREEN(3)=%d"),
+			Level + 1, SplitCount, GreenSplit1, GreenSplit2, GreenSplit3);
 
 		// If no split occurred, stop early
-		if (SplitCount == 0)
+		if (SplitCount == 0 && GreenSplit1 == 0 && GreenSplit2 == 0 && GreenSplit3 == 0)
 		{
 			UE_LOG(LogTemp, Log, TEXT("  Early stop: No more triangles to split"));
 			break;
 		}
-
-		Triangles = MoveTemp(NewTriangles);
-		MaterialIndices = MoveTemp(NewMaterialIndices);
 	}
 
 	// Rebuild half-edge mesh from result with parent info
