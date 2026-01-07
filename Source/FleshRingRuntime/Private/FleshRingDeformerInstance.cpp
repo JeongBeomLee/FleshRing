@@ -303,6 +303,14 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		FFleshRingWorkItem::FRingDispatchData DispatchData;
 		DispatchData.Params = CreateTightnessParams(RingData, TotalVertexCount);
 
+		// SmoothingBoundsZTop/Bottom 설정 (스무딩 영역 Z 확장)
+		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIndex))
+		{
+			const FFleshRingSettings& RingSettings = (*RingSettingsPtr)[RingIndex];
+			DispatchData.Params.BoundsZTop = RingSettings.SmoothingBoundsZTop;
+			DispatchData.Params.BoundsZBottom = RingSettings.SmoothingBoundsZBottom;
+		}
+
 		DispatchData.Indices = RingData.PackedIndices;
 		DispatchData.Influences = RingData.PackedInfluences;
 		DispatchData.LayerTypes = RingData.PackedLayerTypes;
@@ -313,6 +321,10 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		DispatchData.PostProcessingIndices = RingData.PostProcessingIndices;
 		DispatchData.PostProcessingInfluences = RingData.PostProcessingInfluences;
 		DispatchData.PostProcessingLayerTypes = RingData.PostProcessingLayerTypes;
+		DispatchData.PostProcessingLaplacianAdjacencyData = RingData.PostProcessingLaplacianAdjacencyData;
+		DispatchData.PostProcessingPBDAdjacencyWithRestLengths = RingData.PostProcessingPBDAdjacencyWithRestLengths;
+		DispatchData.PostProcessingAdjacencyOffsets = RingData.PostProcessingAdjacencyOffsets;
+		DispatchData.PostProcessingAdjacencyTriangles = RingData.PostProcessingAdjacencyTriangles;
 
 		// SkinSDF 레이어 분리용 데이터 복사
 		DispatchData.SkinVertexIndices = RingData.SkinVertexIndices;

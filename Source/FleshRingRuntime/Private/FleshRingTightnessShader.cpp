@@ -149,6 +149,11 @@ void DispatchFleshRingTightnessCS(
         PassParameters->SDFInfluenceFalloffDistance = 5.0f;
     }
 
+    // ===== Smoothing Bounds Z Extension Parameters =====
+    // ===== 스무딩 영역 Z 확장 파라미터 =====
+    PassParameters->BoundsZTop = Params.BoundsZTop;
+    PassParameters->BoundsZBottom = Params.BoundsZBottom;
+
     // ===== Volume Accumulation Parameters (for Bulge pass) =====
     // ===== 부피 누적 파라미터 (Bulge 패스용) =====
     PassParameters->bAccumulateVolume = Params.bAccumulateVolume;
@@ -294,6 +299,11 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
         PassParameters->ComponentToSDFLocal = FMatrix44f::Identity;
         PassParameters->SDFInfluenceFalloffDistance = 5.0f;
     }
+
+    // ===== Smoothing Bounds Z Extension Parameters =====
+    // ===== 스무딩 영역 Z 확장 파라미터 =====
+    PassParameters->BoundsZTop = Params.BoundsZTop;
+    PassParameters->BoundsZBottom = Params.BoundsZBottom;
 
     // Get shader reference
     // 셰이더 참조 가져오기

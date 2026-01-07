@@ -71,6 +71,12 @@ uint bAccumulateVolume;     // Bulge용 부피 누적 활성화
 float FixedPointScale;      // float → uint 변환 스케일
 uint RingIndex;             // VolumeAccumBuffer 슬롯
 
+// Z축 상단 확장 거리 (절대값, cm) - 스무딩 영역 확장용
+float BoundsZTop;
+
+// Z축 하단 확장 거리 (절대값, cm) - 스무딩 영역 확장용
+float BoundsZBottom;
+
 // Thread Group Size
 #ifndef THREADGROUP_SIZE
 #define THREADGROUP_SIZE 64

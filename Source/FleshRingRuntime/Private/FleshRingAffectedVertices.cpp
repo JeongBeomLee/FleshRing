@@ -596,6 +596,124 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
         BoundsMax.X, BoundsMax.Y, BoundsMax.Z);
 }
 
+void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
+    const FVertexSelectionContext& Context,
+    const TArray<FAffectedVertex>& AffectedVertices,
+    FRingAffectedData& OutRingData)
+{
+    OutRingData.PostProcessingIndices.Reset();
+    OutRingData.PostProcessingInfluences.Reset();
+    OutRingData.PostProcessingLayerTypes.Reset();
+
+    if (!Context.SDFCache || !Context.SDFCache->IsValid())
+    {
+        return;
+    }
+
+    const float BoundsZTop = Context.RingSettings.SmoothingBoundsZTop;
+    const float BoundsZBottom = Context.RingSettings.SmoothingBoundsZBottom;
+
+    // Z 확장이 없으면 원본 Affected Vertices를 그대로 사용
+    if (BoundsZTop < 0.01f && BoundsZBottom < 0.01f)
+    {
+        // 원본 복사
+        OutRingData.PostProcessingIndices.Reserve(AffectedVertices.Num());
+        OutRingData.PostProcessingInfluences.Reserve(AffectedVertices.Num());
+        OutRingData.PostProcessingLayerTypes.Reserve(AffectedVertices.Num());
+
+        for (const FAffectedVertex& V : AffectedVertices)
+        {
+            OutRingData.PostProcessingIndices.Add(V.VertexIndex);
+            OutRingData.PostProcessingInfluences.Add(1.0f);  // 코어 버텍스는 1.0
+            OutRingData.PostProcessingLayerTypes.Add(static_cast<uint32>(V.LayerType));
+        }
+
+        UE_LOG(LogFleshRingVertices, Log,
+            TEXT("PostProcessing: No Z extension, using %d affected vertices"),
+            OutRingData.PostProcessingIndices.Num());
+        return;
+    }
+
+    // Z 확장 범위 계산
+    const FTransform& LocalToComponent = Context.SDFCache->LocalToComponent;
+    const FTransform ComponentToLocal = LocalToComponent.Inverse();
+
+    const FVector OriginalBoundsMin = FVector(Context.SDFCache->BoundsMin);
+    const FVector OriginalBoundsMax = FVector(Context.SDFCache->BoundsMax);
+    const TArray<FVector3f>& AllVertices = Context.AllVertices;
+
+    // XY는 원본 유지, Z만 확장 (SmoothingBoundsZTop/Bottom)
+    FVector ExtendedBoundsMin = OriginalBoundsMin;
+    FVector ExtendedBoundsMax = OriginalBoundsMax;
+    ExtendedBoundsMin.Z -= BoundsZBottom;
+    ExtendedBoundsMax.Z += BoundsZTop;
+
+    const float OriginalZSize = OriginalBoundsMax.Z - OriginalBoundsMin.Z;
+
+    // Affected vertices를 빠르게 조회하기 위한 Set
+    TSet<uint32> AffectedSet;
+    AffectedSet.Reserve(AffectedVertices.Num());
+    for (const FAffectedVertex& V : AffectedVertices)
+    {
+        AffectedSet.Add(V.VertexIndex);
+    }
+
+    OutRingData.PostProcessingIndices.Reserve(AllVertices.Num() / 4);
+    OutRingData.PostProcessingInfluences.Reserve(AllVertices.Num() / 4);
+    OutRingData.PostProcessingLayerTypes.Reserve(AllVertices.Num() / 4);
+
+    int32 CoreCount = 0;
+    int32 ExtendedCount = 0;
+
+    for (int32 VertexIdx = 0; VertexIdx < AllVertices.Num(); ++VertexIdx)
+    {
+        const FVector VertexPos = FVector(AllVertices[VertexIdx]);
+        const FVector LocalPos = ComponentToLocal.TransformPosition(VertexPos);
+
+        // 확장된 Z 범위 내에 있는지 체크 (XY는 원본 범위)
+        if (LocalPos.X >= OriginalBoundsMin.X && LocalPos.X <= OriginalBoundsMax.X &&
+            LocalPos.Y >= OriginalBoundsMin.Y && LocalPos.Y <= OriginalBoundsMax.Y &&
+            LocalPos.Z >= ExtendedBoundsMin.Z && LocalPos.Z <= ExtendedBoundsMax.Z)
+        {
+            OutRingData.PostProcessingIndices.Add(static_cast<uint32>(VertexIdx));
+
+            // Influence 계산: 코어(원본 범위) = 1.0, Z 확장 영역 = falloff
+            float Influence = 1.0f;
+
+            if (LocalPos.Z < OriginalBoundsMin.Z)
+            {
+                // 하단 확장 영역: 거리에 따라 falloff
+                float Dist = OriginalBoundsMin.Z - LocalPos.Z;
+                Influence = 1.0f - FMath::Clamp(Dist / BoundsZBottom, 0.0f, 1.0f);
+                Influence = FMath::InterpEaseInOut(0.0f, 1.0f, Influence, 2.0f);  // Smooth falloff
+                ExtendedCount++;
+            }
+            else if (LocalPos.Z > OriginalBoundsMax.Z)
+            {
+                // 상단 확장 영역: 거리에 따라 falloff
+                float Dist = LocalPos.Z - OriginalBoundsMax.Z;
+                Influence = 1.0f - FMath::Clamp(Dist / BoundsZTop, 0.0f, 1.0f);
+                Influence = FMath::InterpEaseInOut(0.0f, 1.0f, Influence, 2.0f);  // Smooth falloff
+                ExtendedCount++;
+            }
+            else
+            {
+                CoreCount++;
+            }
+
+            OutRingData.PostProcessingInfluences.Add(Influence);
+
+            // Layer type은 OutRingData.Vertices에서 찾거나 Unknown으로 설정
+            OutRingData.PostProcessingLayerTypes.Add(static_cast<uint32>(EFleshRingLayerType::Unknown));
+        }
+    }
+
+    UE_LOG(LogFleshRingVertices, Log,
+        TEXT("PostProcessing: Selected %d vertices (Core=%d, ZExtended=%d) for Ring[%d], ZExtend=[%.1f, %.1f]"),
+        OutRingData.PostProcessingIndices.Num(), CoreCount, ExtendedCount,
+        Context.RingIndex, BoundsZBottom, BoundsZTop);
+}
+
 // ============================================================================
 // Affected Vertices Manager Implementation
 // 영향받는 버텍스 관리자 구현
@@ -931,6 +1049,30 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         // Ring별 Selector로 영향받는 버텍스 선택
         RingSelector->SelectVertices(Context, RingData.Vertices);
 
+        // ================================================================
+        // 후처리용 버텍스 선택 (Z 확장 범위)
+        // Select post-processing vertices (Z-extended range)
+        // ================================================================
+        // SDF 기반 선택기일 때만 Z 확장 범위의 후처리 버텍스 선택
+        // 설계:
+        // - Affected Vertices (PackedIndices) = 원본 SDF AABB → Tightness 변형 대상
+        // - Post-Processing Vertices = 원본 AABB + SmoothingBoundsZTop/Bottom → 스무딩/침투해결 등
+        if (bUseSDFForThisRing)
+        {
+            FSDFBoundsBasedVertexSelector* SDFSelector = static_cast<FSDFBoundsBasedVertexSelector*>(RingSelector.Get());
+            SDFSelector->SelectPostProcessingVertices(Context, RingData.Vertices, RingData);
+
+            // 후처리 버텍스에 레이어 타입 할당
+            for (int32 PPIdx = 0; PPIdx < RingData.PostProcessingIndices.Num(); ++PPIdx)
+            {
+                const uint32 VertIdx = RingData.PostProcessingIndices[PPIdx];
+                if (VertexLayerTypes.IsValidIndex(static_cast<int32>(VertIdx)))
+                {
+                    RingData.PostProcessingLayerTypes[PPIdx] = static_cast<uint32>(VertexLayerTypes[static_cast<int32>(VertIdx)]);
+                }
+            }
+        }
+
         // Pack for GPU (convert to flat arrays)
         // GPU용 패킹 (평면 배열로 변환)
         RingData.PackForGPU();
@@ -941,12 +1083,37 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         {
             BuildAdjacencyData(RingData, CachedMeshIndices);
 
+            // PostProcessing 버텍스용 노멀 인접 데이터도 빌드 (Z 확장 범위)
+            if (RingData.PostProcessingIndices.Num() > 0)
+            {
+                BuildPostProcessingAdjacencyData(RingData, CachedMeshIndices);
+            }
+
             // Build Laplacian adjacency data for smoothing (조건부: 스무딩 활성화 시에만)
             // 스무딩용 라플라시안 인접 데이터 빌드
             // 개선: 같은 레이어의 이웃만 포함하여 레이어 경계 혼합 방지
             if (RingSettings.bEnableLaplacianSmoothing)
             {
                 BuildLaplacianAdjacencyData(RingData, CachedMeshIndices, MeshVertices, VertexLayerTypes);
+
+                // PostProcessing 버텍스용 라플라시안 인접 데이터도 빌드 (Z 확장 범위)
+                if (RingData.PostProcessingIndices.Num() > 0)
+                {
+                    BuildPostProcessingLaplacianAdjacencyData(RingData, CachedMeshIndices, MeshVertices, VertexLayerTypes);
+                }
+            }
+
+            // Build PBD adjacency data (조건부: PBD 활성화 시에만)
+            // PBD 에지 제약용 인접 데이터 빌드
+            if (RingSettings.bEnablePBDEdgeConstraint)
+            {
+                BuildPBDAdjacencyData(RingData, CachedMeshIndices, MeshVertices, MeshVertices.Num());
+
+                // PostProcessing 버텍스용 PBD 인접 데이터도 빌드 (Z 확장 범위)
+                if (RingData.PostProcessingIndices.Num() > 0)
+                {
+                    BuildPostProcessingPBDAdjacencyData(RingData, CachedMeshIndices, MeshVertices, MeshVertices.Num());
+                }
             }
         }
 
@@ -1451,6 +1618,382 @@ void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
     UE_LOG(LogFleshRingVertices, Verbose,
         TEXT("BuildLaplacianAdjacencyData (Welded): %d affected, %d packed uints, %d cross-layer skipped"),
         NumAffected, RingData.LaplacianAdjacencyData.Num(), CrossLayerSkipped);
+}
+
+// ============================================================================
+// BuildPostProcessingLaplacianAdjacencyData - 후처리 버텍스용 라플라시안 인접 데이터 빌드
+// ============================================================================
+// PostProcessingIndices 기반으로 라플라시안 인접 데이터를 구축합니다.
+// Z 확장 범위의 버텍스들이 스무딩될 수 있도록 인접 정보 제공.
+
+void FFleshRingAffectedVerticesManager::BuildPostProcessingLaplacianAdjacencyData(
+    FRingAffectedData& RingData,
+    const TArray<uint32>& MeshIndices,
+    const TArray<FVector3f>& AllVertices,
+    const TArray<EFleshRingLayerType>& VertexLayerTypes)
+{
+    constexpr int32 MAX_NEIGHBORS = 12;
+    constexpr int32 PACKED_SIZE = 1 + MAX_NEIGHBORS;  // Count + 12 indices = 13
+
+    const int32 NumPostProcessing = RingData.PostProcessingIndices.Num();
+    if (NumPostProcessing == 0 || MeshIndices.Num() == 0)
+    {
+        RingData.PostProcessingLaplacianAdjacencyData.Reset();
+        return;
+    }
+
+    // ================================================================
+    // Step 0: Position-based vertex welding (UV seam 처리)
+    // ================================================================
+    constexpr float WeldPrecision = 0.001f;
+
+    TMap<FIntVector, TArray<uint32>> PositionToVertices;
+    TMap<uint32, FIntVector> VertexToPosition;
+
+    for (int32 i = 0; i < AllVertices.Num(); ++i)
+    {
+        const FVector3f& Pos = AllVertices[i];
+        FIntVector PosKey(
+            FMath::RoundToInt(Pos.X / WeldPrecision),
+            FMath::RoundToInt(Pos.Y / WeldPrecision),
+            FMath::RoundToInt(Pos.Z / WeldPrecision)
+        );
+        PositionToVertices.FindOrAdd(PosKey).Add(static_cast<uint32>(i));
+        VertexToPosition.Add(static_cast<uint32>(i), PosKey);
+    }
+
+    // ================================================================
+    // Step 1: Build global vertex neighbor map from mesh triangles
+    // ================================================================
+    TMap<uint32, TSet<uint32>> VertexNeighbors;
+
+    const int32 NumTriangles = MeshIndices.Num() / 3;
+    for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+    {
+        const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
+        const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
+        const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
+
+        VertexNeighbors.FindOrAdd(I0).Add(I1);
+        VertexNeighbors.FindOrAdd(I0).Add(I2);
+        VertexNeighbors.FindOrAdd(I1).Add(I0);
+        VertexNeighbors.FindOrAdd(I1).Add(I2);
+        VertexNeighbors.FindOrAdd(I2).Add(I0);
+        VertexNeighbors.FindOrAdd(I2).Add(I1);
+    }
+
+    // ================================================================
+    // Step 2: Welded neighbor map (UV 중복 버텍스 병합)
+    // ================================================================
+    TMap<FIntVector, TSet<FIntVector>> PositionToWeldedNeighborPositions;
+
+    for (const auto& PosEntry : PositionToVertices)
+    {
+        const FIntVector& PosKey = PosEntry.Key;
+        const TArray<uint32>& VerticesAtPos = PosEntry.Value;
+
+        TSet<FIntVector> MergedNeighborPositions;
+
+        for (uint32 VertIdx : VerticesAtPos)
+        {
+            const TSet<uint32>* Neighbors = VertexNeighbors.Find(VertIdx);
+            if (Neighbors)
+            {
+                for (uint32 NeighborIdx : *Neighbors)
+                {
+                    const FIntVector* NeighborPosKey = VertexToPosition.Find(NeighborIdx);
+                    if (NeighborPosKey && *NeighborPosKey != PosKey)
+                    {
+                        MergedNeighborPositions.Add(*NeighborPosKey);
+                    }
+                }
+            }
+        }
+
+        PositionToWeldedNeighborPositions.Add(PosKey, MergedNeighborPositions);
+    }
+
+    // ================================================================
+    // Step 3: Build adjacency for each post-processing vertex
+    // ================================================================
+    RingData.PostProcessingLaplacianAdjacencyData.Reset(NumPostProcessing * PACKED_SIZE);
+    RingData.PostProcessingLaplacianAdjacencyData.AddZeroed(NumPostProcessing * PACKED_SIZE);
+
+    int32 CrossLayerSkipped = 0;
+
+    for (int32 PPIdx = 0; PPIdx < NumPostProcessing; ++PPIdx)
+    {
+        const uint32 VertIdx = RingData.PostProcessingIndices[PPIdx];
+        const int32 BaseOffset = PPIdx * PACKED_SIZE;
+
+        // Get my layer type
+        EFleshRingLayerType MyLayerType = EFleshRingLayerType::Unknown;
+        if (PPIdx < RingData.PostProcessingLayerTypes.Num())
+        {
+            MyLayerType = static_cast<EFleshRingLayerType>(RingData.PostProcessingLayerTypes[PPIdx]);
+        }
+
+        // Get my position key
+        const FIntVector* MyPosKey = VertexToPosition.Find(VertIdx);
+        if (!MyPosKey)
+        {
+            RingData.PostProcessingLaplacianAdjacencyData[BaseOffset] = 0;
+            continue;
+        }
+
+        // Get welded neighbors
+        const TSet<FIntVector>* WeldedNeighborPositions = PositionToWeldedNeighborPositions.Find(*MyPosKey);
+        if (!WeldedNeighborPositions)
+        {
+            RingData.PostProcessingLaplacianAdjacencyData[BaseOffset] = 0;
+            continue;
+        }
+
+        uint32 NeighborCount = 0;
+        uint32 NeighborIndices[MAX_NEIGHBORS] = {0};
+
+        for (const FIntVector& NeighborPosKey : *WeldedNeighborPositions)
+        {
+            if (NeighborCount >= MAX_NEIGHBORS) break;
+
+            const TArray<uint32>* VerticesAtNeighborPos = PositionToVertices.Find(NeighborPosKey);
+            if (!VerticesAtNeighborPos || VerticesAtNeighborPos->Num() == 0) continue;
+
+            const uint32 NeighborIdx = (*VerticesAtNeighborPos)[0];
+
+            // Layer type filtering
+            EFleshRingLayerType NeighborLayerType = EFleshRingLayerType::Unknown;
+            if (VertexLayerTypes.IsValidIndex(static_cast<int32>(NeighborIdx)))
+            {
+                NeighborLayerType = VertexLayerTypes[static_cast<int32>(NeighborIdx)];
+            }
+
+            const bool bSameLayer = (MyLayerType == NeighborLayerType);
+            const bool bBothUnknown = (MyLayerType == EFleshRingLayerType::Unknown &&
+                                      NeighborLayerType == EFleshRingLayerType::Unknown);
+
+            if (bSameLayer || bBothUnknown)
+            {
+                NeighborIndices[NeighborCount++] = NeighborIdx;
+            }
+            else
+            {
+                CrossLayerSkipped++;
+            }
+        }
+
+        // Pack: [NeighborCount, N0, N1, ..., N11]
+        RingData.PostProcessingLaplacianAdjacencyData[BaseOffset] = NeighborCount;
+        for (int32 i = 0; i < MAX_NEIGHBORS; ++i)
+        {
+            RingData.PostProcessingLaplacianAdjacencyData[BaseOffset + 1 + i] = NeighborIndices[i];
+        }
+    }
+
+    UE_LOG(LogFleshRingVertices, Verbose,
+        TEXT("BuildPostProcessingLaplacianAdjacencyData: %d vertices, %d packed uints, %d cross-layer skipped"),
+        NumPostProcessing, RingData.PostProcessingLaplacianAdjacencyData.Num(), CrossLayerSkipped);
+}
+
+// ============================================================================
+// BuildPostProcessingPBDAdjacencyData - 후처리 버텍스용 PBD 인접 데이터 빌드
+// ============================================================================
+// PostProcessingIndices 기반으로 PBD 인접 데이터를 구축합니다.
+// BuildPBDAdjacencyData와 동일하지만 확장된 범위 사용.
+
+void FFleshRingAffectedVerticesManager::BuildPostProcessingPBDAdjacencyData(
+    FRingAffectedData& RingData,
+    const TArray<uint32>& MeshIndices,
+    const TArray<FVector3f>& AllVertices,
+    int32 TotalVertexCount)
+{
+    const int32 NumPostProcessing = RingData.PostProcessingIndices.Num();
+    if (NumPostProcessing == 0 || MeshIndices.Num() < 3)
+    {
+        RingData.PostProcessingPBDAdjacencyWithRestLengths.Reset();
+        return;
+    }
+
+    // Step 1: Build VertexIndex → ThreadIndex lookup
+    TMap<uint32, int32> VertexToThreadIndex;
+    for (int32 ThreadIdx = 0; ThreadIdx < NumPostProcessing; ++ThreadIdx)
+    {
+        VertexToThreadIndex.Add(RingData.PostProcessingIndices[ThreadIdx], ThreadIdx);
+    }
+
+    // Step 2: Build per-vertex neighbor set with rest lengths
+    TArray<TMap<uint32, float>> VertexNeighborsWithRestLen;
+    VertexNeighborsWithRestLen.SetNum(NumPostProcessing);
+
+    const int32 NumTriangles = MeshIndices.Num() / 3;
+    for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+    {
+        const uint32 Idx0 = MeshIndices[TriIdx * 3 + 0];
+        const uint32 Idx1 = MeshIndices[TriIdx * 3 + 1];
+        const uint32 Idx2 = MeshIndices[TriIdx * 3 + 2];
+
+        const uint32 TriIndices[3] = { Idx0, Idx1, Idx2 };
+
+        for (int32 Edge = 0; Edge < 3; ++Edge)
+        {
+            const uint32 V0 = TriIndices[Edge];
+            const uint32 V1 = TriIndices[(Edge + 1) % 3];
+
+            if (int32* ThreadIdxPtr = VertexToThreadIndex.Find(V0))
+            {
+                const int32 ThreadIdx = *ThreadIdxPtr;
+
+                if (V1 < static_cast<uint32>(AllVertices.Num()))
+                {
+                    const FVector3f& Pos0 = AllVertices[V0];
+                    const FVector3f& Pos1 = AllVertices[V1];
+                    const float RestLength = FVector3f::Distance(Pos0, Pos1);
+
+                    if (!VertexNeighborsWithRestLen[ThreadIdx].Contains(V1))
+                    {
+                        VertexNeighborsWithRestLen[ThreadIdx].Add(V1, RestLength);
+                    }
+                }
+            }
+        }
+    }
+
+    // Step 3: Pack adjacency data with rest lengths
+    const int32 PackedSizePerVertex = FRingAffectedData::PBD_ADJACENCY_PACKED_SIZE;
+    RingData.PostProcessingPBDAdjacencyWithRestLengths.Reset(NumPostProcessing * PackedSizePerVertex);
+    RingData.PostProcessingPBDAdjacencyWithRestLengths.AddZeroed(NumPostProcessing * PackedSizePerVertex);
+
+    for (int32 ThreadIdx = 0; ThreadIdx < NumPostProcessing; ++ThreadIdx)
+    {
+        const TMap<uint32, float>& NeighborsMap = VertexNeighborsWithRestLen[ThreadIdx];
+        const int32 NeighborCount = FMath::Min(NeighborsMap.Num(), FRingAffectedData::PBD_MAX_NEIGHBORS);
+        const int32 BaseOffset = ThreadIdx * PackedSizePerVertex;
+
+        RingData.PostProcessingPBDAdjacencyWithRestLengths[BaseOffset] = static_cast<uint32>(NeighborCount);
+
+        int32 SlotIdx = 0;
+        for (const auto& Pair : NeighborsMap)
+        {
+            if (SlotIdx >= FRingAffectedData::PBD_MAX_NEIGHBORS)
+            {
+                break;
+            }
+
+            const uint32 NeighborIdx = Pair.Key;
+            const float RestLength = Pair.Value;
+
+            RingData.PostProcessingPBDAdjacencyWithRestLengths[BaseOffset + 1 + SlotIdx * 2] = NeighborIdx;
+
+            uint32 RestLengthAsUint;
+            FMemory::Memcpy(&RestLengthAsUint, &RestLength, sizeof(float));
+            RingData.PostProcessingPBDAdjacencyWithRestLengths[BaseOffset + 1 + SlotIdx * 2 + 1] = RestLengthAsUint;
+
+            ++SlotIdx;
+        }
+    }
+
+    UE_LOG(LogFleshRingVertices, Verbose,
+        TEXT("BuildPostProcessingPBDAdjacencyData: %d vertices, %d packed uints"),
+        NumPostProcessing, RingData.PostProcessingPBDAdjacencyWithRestLengths.Num());
+}
+
+// ============================================================================
+// BuildPostProcessingAdjacencyData - 후처리 버텍스용 노멀 인접 데이터 빌드
+// ============================================================================
+// PostProcessingIndices 기반으로 노멀 재계산용 인접 데이터를 구축합니다.
+// BuildAdjacencyData와 동일하지만 확장된 범위 사용.
+
+void FFleshRingAffectedVerticesManager::BuildPostProcessingAdjacencyData(
+    FRingAffectedData& RingData,
+    const TArray<uint32>& MeshIndices)
+{
+    const int32 NumPostProcessing = RingData.PostProcessingIndices.Num();
+    if (NumPostProcessing == 0 || MeshIndices.Num() == 0)
+    {
+        RingData.PostProcessingAdjacencyOffsets.Reset();
+        RingData.PostProcessingAdjacencyTriangles.Reset();
+        return;
+    }
+
+    // Step 1: Build vertex-to-index lookup
+    TMap<uint32, int32> VertexToIndex;
+    VertexToIndex.Reserve(NumPostProcessing);
+
+    for (int32 PPIdx = 0; PPIdx < NumPostProcessing; ++PPIdx)
+    {
+        VertexToIndex.Add(RingData.PostProcessingIndices[PPIdx], PPIdx);
+    }
+
+    // Step 2: Count adjacencies
+    TArray<int32> AdjCounts;
+    AdjCounts.SetNumZeroed(NumPostProcessing);
+
+    const int32 NumTriangles = MeshIndices.Num() / 3;
+
+    for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+    {
+        const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
+        const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
+        const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
+
+        if (const int32* Idx = VertexToIndex.Find(I0))
+        {
+            AdjCounts[*Idx]++;
+        }
+        if (const int32* Idx = VertexToIndex.Find(I1))
+        {
+            AdjCounts[*Idx]++;
+        }
+        if (const int32* Idx = VertexToIndex.Find(I2))
+        {
+            AdjCounts[*Idx]++;
+        }
+    }
+
+    // Step 3: Build offsets array (prefix sum)
+    RingData.PostProcessingAdjacencyOffsets.SetNum(NumPostProcessing + 1);
+    RingData.PostProcessingAdjacencyOffsets[0] = 0;
+
+    for (int32 i = 0; i < NumPostProcessing; ++i)
+    {
+        RingData.PostProcessingAdjacencyOffsets[i + 1] = RingData.PostProcessingAdjacencyOffsets[i] + AdjCounts[i];
+    }
+
+    const uint32 TotalAdjacencies = RingData.PostProcessingAdjacencyOffsets[NumPostProcessing];
+
+    // Step 4: Fill adjacency triangles array
+    RingData.PostProcessingAdjacencyTriangles.SetNum(TotalAdjacencies);
+
+    TArray<uint32> WritePos;
+    WritePos.SetNum(NumPostProcessing);
+    for (int32 i = 0; i < NumPostProcessing; ++i)
+    {
+        WritePos[i] = RingData.PostProcessingAdjacencyOffsets[i];
+    }
+
+    for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+    {
+        const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
+        const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
+        const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
+
+        if (const int32* Idx = VertexToIndex.Find(I0))
+        {
+            RingData.PostProcessingAdjacencyTriangles[WritePos[*Idx]++] = static_cast<uint32>(TriIdx);
+        }
+        if (const int32* Idx = VertexToIndex.Find(I1))
+        {
+            RingData.PostProcessingAdjacencyTriangles[WritePos[*Idx]++] = static_cast<uint32>(TriIdx);
+        }
+        if (const int32* Idx = VertexToIndex.Find(I2))
+        {
+            RingData.PostProcessingAdjacencyTriangles[WritePos[*Idx]++] = static_cast<uint32>(TriIdx);
+        }
+    }
+
+    UE_LOG(LogFleshRingVertices, Verbose,
+        TEXT("BuildPostProcessingAdjacencyData: %d vertices, %d offsets, %d triangles"),
+        NumPostProcessing, RingData.PostProcessingAdjacencyOffsets.Num(), TotalAdjacencies);
 }
 
 // ============================================================================

@@ -183,6 +183,36 @@ struct FRingAffectedData
      */
     TArray<uint32> PostProcessingLayerTypes;
 
+    /**
+     * GPU buffer: Laplacian adjacency data for post-processing vertices
+     * Format: [NeighborCount, N0, N1, ..., N11] per vertex (13 uints each)
+     * Neighbor indices are raw vertex indices (not thread indices)
+     * 후처리 버텍스용 라플라시안 인접 데이터
+     * 포맷: 버텍스당 [이웃수, N0, N1, ..., N11] (각 13 uint)
+     * 이웃 인덱스는 전역 버텍스 인덱스 (thread index가 아님)
+     */
+    TArray<uint32> PostProcessingLaplacianAdjacencyData;
+
+    /**
+     * PBD adjacency data for PostProcessing vertices
+     * 후처리 버텍스용 PBD 인접 데이터
+     * Format: [Count, N0, RL0, N1, RL1, ...] per vertex (1 + MAX_NEIGHBORS*2 uints)
+     */
+    TArray<uint32> PostProcessingPBDAdjacencyWithRestLengths;
+
+    /**
+     * Normal adjacency offsets for PostProcessing vertices
+     * 후처리 버텍스용 노멀 인접 오프셋
+     * Size: NumPostProcessing + 1 (sentinel)
+     */
+    TArray<uint32> PostProcessingAdjacencyOffsets;
+
+    /**
+     * Normal adjacency triangles for PostProcessing vertices
+     * 후처리 버텍스용 노멀 인접 삼각형
+     */
+    TArray<uint32> PostProcessingAdjacencyTriangles;
+
     // =========== Skin SDF Layer Separation Data ===========
     // =========== 스킨 SDF 레이어 분리용 데이터 ===========
 
@@ -818,6 +848,24 @@ private:
         const TArray<EFleshRingLayerType>& VertexLayerTypes);
 
     /**
+     * Build Laplacian adjacency data for post-processing vertices (Z-extended range)
+     * 후처리 버텍스(Z 확장 범위)용 라플라시안 인접 데이터 빌드
+     *
+     * Similar to BuildLaplacianAdjacencyData but for PostProcessingIndices.
+     * BuildLaplacianAdjacencyData와 유사하지만 PostProcessingIndices 기반.
+     *
+     * @param RingData - Ring data with PostProcessingIndices already populated
+     * @param MeshIndices - Mesh index buffer (3 indices per triangle)
+     * @param AllVertices - All mesh vertex positions (for position-based welding)
+     * @param VertexLayerTypes - Per-vertex layer types (for same-layer filtering)
+     */
+    void BuildPostProcessingLaplacianAdjacencyData(
+        FRingAffectedData& RingData,
+        const TArray<uint32>& MeshIndices,
+        const TArray<FVector3f>& AllVertices,
+        const TArray<EFleshRingLayerType>& VertexLayerTypes);
+
+    /**
      * Build slice data for bone ratio preservation
      * 본 거리 비율 보존용 슬라이스 데이터 빌드
      *
@@ -865,6 +913,45 @@ private:
         const TArray<uint32>& MeshIndices,
         const TArray<FVector3f>& AllVertices,
         int32 TotalVertexCount);
+
+    /**
+     * Build PBD adjacency data for PostProcessing vertices
+     * 후처리 버텍스용 PBD 인접 데이터 빌드
+     *
+     * Same as BuildPBDAdjacencyData but for PostProcessingIndices range.
+     * BuildPBDAdjacencyData와 동일하지만 PostProcessingIndices 범위 사용.
+     *
+     * Output:
+     * - RingData.PostProcessingPBDAdjacencyWithRestLengths: [Count, N0, RL0, N1, RL1, ...] per vertex
+     *
+     * @param RingData - Ring data with PostProcessingIndices already populated
+     * @param MeshIndices - Mesh index buffer (3 indices per triangle)
+     * @param AllVertices - All mesh vertices in bind pose component space
+     * @param TotalVertexCount - Total number of vertices in mesh
+     */
+    void BuildPostProcessingPBDAdjacencyData(
+        FRingAffectedData& RingData,
+        const TArray<uint32>& MeshIndices,
+        const TArray<FVector3f>& AllVertices,
+        int32 TotalVertexCount);
+
+    /**
+     * Build adjacency data for PostProcessing vertices (Normal recomputation)
+     * 후처리 버텍스용 인접 데이터 빌드 (노멀 재계산용)
+     *
+     * Same as BuildAdjacencyData but for PostProcessingIndices range.
+     * BuildAdjacencyData와 동일하지만 PostProcessingIndices 범위 사용.
+     *
+     * Output:
+     * - RingData.PostProcessingAdjacencyOffsets: [NumPostProcessing+1] offsets
+     * - RingData.PostProcessingAdjacencyTriangles: flattened triangle indices
+     *
+     * @param RingData - Ring data with PostProcessingIndices already populated
+     * @param MeshIndices - Mesh index buffer (3 indices per triangle)
+     */
+    void BuildPostProcessingAdjacencyData(
+        FRingAffectedData& RingData,
+        const TArray<uint32>& MeshIndices);
 
     /**
      * Build hop distance data for topology-based smoothing

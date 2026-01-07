@@ -1,4 +1,4 @@
-﻿// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "FleshRingComputeWorker.h"
 #include "FleshRingDeformerInstance.h"
@@ -199,16 +199,12 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 		AddCopyBufferPass(GraphBuilder, TightenedBindPoseBuffer, SourceBuffer);
 
 		// ===== VolumeAccumBuffer 생성 (하나 이상의 Ring에서 Bulge 활성화 시) =====
-		// [버그 수정] 각 Ring이 독립된 VolumeAccum 슬롯을 사용하도록 변경
-		// 이전: 크기 1 버퍼를 모든 Ring이 공유 → Ring A의 압축량이 Ring B에 영향
-		// 수정: Ring 개수만큼 버퍼 생성 → 각 Ring이 자신의 슬롯만 사용
 		FRDGBufferRef VolumeAccumBuffer = nullptr;
-		const int32 NumRings = WorkItem.RingDispatchDataPtr.IsValid() ? WorkItem.RingDispatchDataPtr->Num() : 0;
 
-		if (WorkItem.bAnyRingHasBulge && NumRings > 0)
+		if (WorkItem.bAnyRingHasBulge)
 		{
 			VolumeAccumBuffer = GraphBuilder.CreateBuffer(
-				FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), NumRings),
+				FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), 1),
 				TEXT("FleshRing_VolumeAccum")
 			);
 			// 0으로 초기화 (Atomic 연산 전)
@@ -285,7 +281,6 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				{
 					Params.bAccumulateVolume = 1;
 					Params.FixedPointScale = 1000.0f;  // float → uint 변환 스케일
-					Params.RingIndex = RingIdx;       // Ring별 VolumeAccumBuffer 슬롯 지정
 				}
 
 				DispatchFleshRingTightnessCS(
@@ -379,8 +374,8 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				static TSet<int32> LoggedBulgeRings;
 				if (!LoggedBulgeRings.Contains(RingIdx))
 				{
-					UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] BulgeCS Dispatch Ring[%d]: Verts=%d, Strength=%.2f, MaxDist=%.2f, Direction=%d"),
-						RingIdx, NumBulgeVertices, BulgeParams.BulgeStrength, BulgeParams.MaxBulgeDistance, BulgeParams.BulgeAxisDirection);
+					UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] BulgeCS Dispatch Ring[%d]: Verts=%d, Strength=%.2f, MaxDist=%.2f"),
+						RingIdx, NumBulgeVertices, BulgeParams.BulgeStrength, BulgeParams.MaxBulgeDistance);
 					LoggedBulgeRings.Add(RingIdx);
 				}
 
@@ -397,6 +392,794 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 
 				// 결과를 TightenedBindPoseBuffer로 복사 (다음 Ring이 이 결과 위에 누적)
 				AddCopyBufferPass(GraphBuilder, TightenedBindPoseBuffer, BulgeOutputBuffer);
+			}
+		}
+
+		// ===== BoneRatioCS Dispatch (BulgeCS 이후, NormalRecomputeCS 이전) =====
+		// 같은 높이(슬라이스)의 버텍스들이 동일한 반경을 갖도록 균일화
+		if (WorkItem.RingDispatchDataPtr.IsValid())
+		{
+			for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
+			{
+				const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
+
+				// 반경 균일화 스무딩이 비활성화되면 스킵
+				if (!DispatchData.bEnableRadialSmoothing)
+				{
+					continue;
+				}
+
+				// 슬라이스 데이터가 없으면 스킵
+				if (DispatchData.SlicePackedData.Num() == 0 || DispatchData.OriginalBoneDistances.Num() == 0)
+				{
+					continue;
+				}
+
+				// 축 높이 데이터가 없으면 스킵 (가우시안 가중치 필요)
+				if (DispatchData.AxisHeights.Num() == 0)
+				{
+					continue;
+				}
+
+				const uint32 NumAffected = DispatchData.Indices.Num();
+				if (NumAffected == 0) continue;
+
+				// 영향받는 버텍스 인덱스 버퍼
+				FRDGBufferRef BoneRatioIndicesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumAffected),
+					*FString::Printf(TEXT("FleshRing_BoneRatioIndices_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					BoneRatioIndicesBuffer,
+					DispatchData.Indices.GetData(),
+					NumAffected * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// Influence 버퍼
+				FRDGBufferRef BoneRatioInfluencesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(float), NumAffected),
+					*FString::Printf(TEXT("FleshRing_BoneRatioInfluences_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					BoneRatioInfluencesBuffer,
+					DispatchData.Influences.GetData(),
+					NumAffected * sizeof(float),
+					ERDGInitialDataFlags::None
+				);
+
+				// 원본 본 거리 버퍼
+				FRDGBufferRef OriginalBoneDistancesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(float), NumAffected),
+					*FString::Printf(TEXT("FleshRing_OriginalBoneDistances_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					OriginalBoneDistancesBuffer,
+					DispatchData.OriginalBoneDistances.GetData(),
+					NumAffected * sizeof(float),
+					ERDGInitialDataFlags::None
+				);
+
+				// 축 높이 버퍼 (가우시안 가중치용)
+				FRDGBufferRef AxisHeightsBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(float), NumAffected),
+					*FString::Printf(TEXT("FleshRing_AxisHeights_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					AxisHeightsBuffer,
+					DispatchData.AxisHeights.GetData(),
+					NumAffected * sizeof(float),
+					ERDGInitialDataFlags::None
+				);
+
+				// 슬라이스 데이터 버퍼
+				FRDGBufferRef SliceDataBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), DispatchData.SlicePackedData.Num()),
+					*FString::Printf(TEXT("FleshRing_SliceData_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					SliceDataBuffer,
+					DispatchData.SlicePackedData.GetData(),
+					DispatchData.SlicePackedData.Num() * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// 출력 버퍼 생성 및 초기화
+				// 중요: 셰이더는 영향받는 버텍스만 쓰기 때문에,
+				// 나머지 버텍스를 보존하려면 입력 데이터로 초기화해야 함
+				FRDGBufferRef BoneRatioOutputBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateBufferDesc(sizeof(float), ActualNumVertices * 3),
+					*FString::Printf(TEXT("FleshRing_BoneRatioOutput_Ring%d"), RingIdx)
+				);
+				AddCopyBufferPass(GraphBuilder, BoneRatioOutputBuffer, TightenedBindPoseBuffer);
+
+				// BoneRatio 디스패치 파라미터
+				FBoneRatioDispatchParams BoneRatioParams;
+				BoneRatioParams.NumAffectedVertices = NumAffected;
+				BoneRatioParams.NumTotalVertices = ActualNumVertices;
+				BoneRatioParams.RingAxis = FVector3f(DispatchData.Params.RingAxis);
+				BoneRatioParams.RingCenter = FVector3f(DispatchData.Params.RingCenter);
+				BoneRatioParams.BlendStrength = 1.0f;  // 완전 균일화
+				BoneRatioParams.HeightSigma = 1.0f;    // 1cm sigma (버킷 크기와 동일)
+
+				// BoneRatio 디스패치
+				DispatchFleshRingBoneRatioCS(
+					GraphBuilder,
+					BoneRatioParams,
+					TightenedBindPoseBuffer,
+					BoneRatioOutputBuffer,
+					BoneRatioIndicesBuffer,
+					BoneRatioInfluencesBuffer,
+					OriginalBoneDistancesBuffer,
+					AxisHeightsBuffer,
+					SliceDataBuffer
+				);
+
+				// 결과를 TightenedBindPoseBuffer로 복사
+				AddCopyBufferPass(GraphBuilder, TightenedBindPoseBuffer, BoneRatioOutputBuffer);
+
+				// [조건부 로그] 첫 프레임만
+				static TSet<int32> LoggedBoneRatioRings;
+				if (!LoggedBoneRatioRings.Contains(RingIdx))
+				{
+					UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] BoneRatioCS Dispatch Ring[%d]: AffectedVerts=%d, Slices=%d"),
+						RingIdx, NumAffected, DispatchData.SlicePackedData.Num() / 33);
+					LoggedBoneRatioRings.Add(RingIdx);
+				}
+			}
+		}
+
+		// ===== LaplacianCS Dispatch (BoneRatioCS 이후, NormalRecomputeCS 이전) =====
+		// 전체적인 메시 스무딩 적용 (경계 영역 부드럽게)
+		if (WorkItem.RingDispatchDataPtr.IsValid())
+		{
+			for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
+			{
+				const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
+
+				// Laplacian 스무딩이 비활성화되었으면 스킵
+				if (!DispatchData.bEnableLaplacianSmoothing)
+				{
+					continue;
+				}
+
+				// ===== 스무딩 영역 선택 =====
+				// [설계] bUseHopBasedSmoothing 플래그에 따라 확장 방식 결정:
+				//   - true:  ExtendedSmoothingIndices (Hop 기반, 토폴로지 확장)
+				//   - false: PostProcessingIndices (Z 기반, BoundsZTop/Bottom 확장)
+				const bool bUseExtendedRegion = DispatchData.bUseHopBasedSmoothing &&
+					DispatchData.ExtendedSmoothingIndices.Num() > 0 &&
+					DispatchData.ExtendedInfluences.Num() == DispatchData.ExtendedSmoothingIndices.Num() &&
+					DispatchData.ExtendedLaplacianAdjacency.Num() > 0;
+
+				const bool bUsePostProcessingRegion = !bUseExtendedRegion &&
+					DispatchData.PostProcessingIndices.Num() > 0 &&
+					DispatchData.PostProcessingInfluences.Num() == DispatchData.PostProcessingIndices.Num() &&
+					DispatchData.PostProcessingLaplacianAdjacencyData.Num() > 0;
+
+				// 사용할 데이터 소스 선택 (우선순위: Extended(Hop) > PostProcessing(Z) > Original)
+				const TArray<uint32>& IndicesSource = bUseExtendedRegion
+					? DispatchData.ExtendedSmoothingIndices
+					: (bUsePostProcessingRegion ? DispatchData.PostProcessingIndices : DispatchData.Indices);
+				const TArray<float>& InfluenceSource = bUseExtendedRegion
+					? DispatchData.ExtendedInfluences
+					: (bUsePostProcessingRegion ? DispatchData.PostProcessingInfluences : DispatchData.Influences);
+				const TArray<uint32>& AdjacencySource = bUseExtendedRegion
+					? DispatchData.ExtendedLaplacianAdjacency
+					: (bUsePostProcessingRegion ? DispatchData.PostProcessingLaplacianAdjacencyData : DispatchData.LaplacianAdjacencyData);
+
+				// 인접 데이터가 없으면 스킵
+				if (AdjacencySource.Num() == 0)
+				{
+					continue;
+				}
+
+				const uint32 NumSmoothingVertices = IndicesSource.Num();
+				if (NumSmoothingVertices == 0) continue;
+
+				// [DEBUG] 영역 사용 로그
+				static TSet<int32> LoggedRegionStatus;
+				if (!LoggedRegionStatus.Contains(RingIdx))
+				{
+					if (bUsePostProcessingRegion)
+					{
+						UE_LOG(LogFleshRingWorker, Log,
+							TEXT("[DEBUG] Ring[%d] LaplacianCS: POSTPROCESSING region (Z-extended, %d vertices, %d original)"),
+							RingIdx, NumSmoothingVertices, DispatchData.Indices.Num());
+					}
+					else if (bUseExtendedRegion)
+					{
+						UE_LOG(LogFleshRingWorker, Log,
+							TEXT("[DEBUG] Ring[%d] LaplacianCS: HOP-EXTENDED region (%d vertices, %d original seeds)"),
+							RingIdx, NumSmoothingVertices, DispatchData.Indices.Num());
+					}
+					else
+					{
+						UE_LOG(LogFleshRingWorker, Log,
+							TEXT("[DEBUG] Ring[%d] LaplacianCS: ORIGINAL region (%d vertices)"),
+							RingIdx, NumSmoothingVertices);
+					}
+					LoggedRegionStatus.Add(RingIdx);
+				}
+
+				// 버텍스 인덱스 버퍼
+				FRDGBufferRef LaplacianIndicesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumSmoothingVertices),
+					*FString::Printf(TEXT("FleshRing_LaplacianIndices_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					LaplacianIndicesBuffer,
+					IndicesSource.GetData(),
+					NumSmoothingVertices * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// Influence 버퍼
+				FRDGBufferRef LaplacianInfluencesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(float), NumSmoothingVertices),
+					*FString::Printf(TEXT("FleshRing_LaplacianInfluences_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					LaplacianInfluencesBuffer,
+					InfluenceSource.GetData(),
+					NumSmoothingVertices * sizeof(float),
+					ERDGInitialDataFlags::None
+				);
+
+				// Laplacian 인접 데이터 버퍼
+				FRDGBufferRef LaplacianAdjacencyBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), AdjacencySource.Num()),
+					*FString::Printf(TEXT("FleshRing_LaplacianAdjacency_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					LaplacianAdjacencyBuffer,
+					AdjacencySource.GetData(),
+					AdjacencySource.Num() * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// Laplacian/Taubin 디스패치 파라미터 (UI 설정값 사용)
+				FLaplacianDispatchParams LaplacianParams;
+				LaplacianParams.NumAffectedVertices = NumSmoothingVertices;
+				LaplacianParams.NumTotalVertices = ActualNumVertices;
+				LaplacianParams.SmoothingLambda = DispatchData.SmoothingLambda;
+				LaplacianParams.VolumePreservation = DispatchData.LaplacianVolumePreservation;
+				LaplacianParams.NumIterations = DispatchData.SmoothingIterations;
+				LaplacianParams.BulgeSmoothingFactor = 1.0f; // Bulge 영역에도 전체 스무딩 적용
+				// Taubin smoothing (수축 방지)
+				LaplacianParams.bUseTaubinSmoothing = DispatchData.bUseTaubinSmoothing;
+				LaplacianParams.TaubinMu = DispatchData.TaubinMu;
+				// 스타킹 레이어 스무딩 제외 활성화 - 분리된 메시에서 크랙 방지
+				LaplacianParams.bExcludeStockingFromSmoothing = true;
+
+				// ===== VertexLayerTypes 버퍼 생성 (스타킹 스무딩 제외용) =====
+				const TArray<uint32>& LayerTypesSource = DispatchData.PostProcessingLayerTypes.Num() > 0
+					? DispatchData.PostProcessingLayerTypes
+					: DispatchData.LayerTypes;
+				const TArray<uint32>& LayerIndicesSource = DispatchData.PostProcessingIndices.Num() > 0
+					? DispatchData.PostProcessingIndices
+					: DispatchData.Indices;
+
+				FRDGBufferRef LaplacianLayerTypesBuffer = nullptr;
+				if (LayerTypesSource.Num() > 0 && LayerIndicesSource.Num() > 0)
+				{
+					TArray<uint32> FullVertexLayerTypes;
+					FullVertexLayerTypes.Init(4, static_cast<int32>(ActualNumVertices));  // 4 = LAYER_UNKNOWN
+
+					const int32 NumLayerEntries = FMath::Min(LayerIndicesSource.Num(), LayerTypesSource.Num());
+					for (int32 i = 0; i < NumLayerEntries; ++i)
+					{
+						const int32 VertIdx = static_cast<int32>(LayerIndicesSource[i]);
+						if (VertIdx >= 0 && VertIdx < static_cast<int32>(ActualNumVertices))
+						{
+							FullVertexLayerTypes[VertIdx] = LayerTypesSource[i];
+						}
+					}
+
+					LaplacianLayerTypesBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), ActualNumVertices),
+						*FString::Printf(TEXT("FleshRing_LaplacianLayerTypes_Ring%d"), RingIdx)
+					);
+					GraphBuilder.QueueBufferUpload(
+						LaplacianLayerTypesBuffer,
+						FullVertexLayerTypes.GetData(),
+						ActualNumVertices * sizeof(uint32),
+						ERDGInitialDataFlags::None
+					);
+				}
+
+				// Laplacian MultiPass 디스패치 (in-place smoothing)
+				DispatchFleshRingLaplacianCS_MultiPass(
+					GraphBuilder,
+					LaplacianParams,
+					TightenedBindPoseBuffer,
+					LaplacianIndicesBuffer,
+					LaplacianInfluencesBuffer,
+					LaplacianAdjacencyBuffer,
+					LaplacianLayerTypesBuffer  // 스타킹 스무딩 제외용
+				);
+
+				// [조건부 로그] 첫 프레임만
+				static TSet<int32> LoggedLaplacianRings;
+				if (!LoggedLaplacianRings.Contains(RingIdx))
+				{
+					const TCHAR* RegionMode = bUseExtendedRegion ? TEXT("EXTENDED") : TEXT("ORIGINAL");
+					if (LaplacianParams.bUseTaubinSmoothing)
+					{
+						UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] TaubinCS Ring[%d]: %s region, %d verts, Lambda=%.2f, Mu=%.2f, Iter=%d"),
+							RingIdx, RegionMode, NumSmoothingVertices, LaplacianParams.SmoothingLambda, LaplacianParams.TaubinMu, LaplacianParams.NumIterations);
+					}
+					else
+					{
+						UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] LaplacianCS Ring[%d]: %s region, %d verts, Lambda=%.2f, Iter=%d"),
+							RingIdx, RegionMode, NumSmoothingVertices, LaplacianParams.SmoothingLambda, LaplacianParams.NumIterations);
+					}
+					LoggedLaplacianRings.Add(RingIdx);
+				}
+			}
+		}
+
+		// ===== PBD Edge Constraint (LaplacianCS 이후, LayerPenetrationCS 이전) =====
+		// 변형량이 큰 버텍스를 앵커로 하여 에지 제약으로 변형을 전파
+		// "역 PBD": 고정점이 아닌, 변형된 점을 기준으로 주변으로 퍼져나감
+		if (WorkItem.RingDispatchDataPtr.IsValid())
+		{
+			for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
+			{
+				const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
+
+				// PBD Edge Constraint가 비활성화되었으면 스킵
+				if (!DispatchData.bEnablePBDEdgeConstraint)
+				{
+					continue;
+				}
+
+				// ===== PBD 영역 선택 (LaplacianCS와 동일한 범위 사용) =====
+				// Note: Hop 기반 확장은 PBD 인접 데이터가 없으므로, PostProcessing만 지원
+				const bool bUsePostProcessingRegion =
+					DispatchData.PostProcessingIndices.Num() > 0 &&
+					DispatchData.PostProcessingInfluences.Num() == DispatchData.PostProcessingIndices.Num() &&
+					DispatchData.PostProcessingPBDAdjacencyWithRestLengths.Num() > 0;
+
+				// 사용할 데이터 소스 선택
+				const TArray<uint32>& IndicesSource = bUsePostProcessingRegion
+					? DispatchData.PostProcessingIndices : DispatchData.Indices;
+				const TArray<float>& InfluenceSource = bUsePostProcessingRegion
+					? DispatchData.PostProcessingInfluences : DispatchData.Influences;
+				const TArray<uint32>& AdjacencySource = bUsePostProcessingRegion
+					? DispatchData.PostProcessingPBDAdjacencyWithRestLengths : DispatchData.PBDAdjacencyWithRestLengths;
+
+				// 인접 데이터가 없으면 스킵
+				if (AdjacencySource.Num() == 0)
+				{
+					continue;
+				}
+
+				const uint32 NumAffected = IndicesSource.Num();
+				if (NumAffected == 0) continue;
+
+				// 영향받는 버텍스 인덱스 버퍼
+				FRDGBufferRef PBDIndicesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumAffected),
+					*FString::Printf(TEXT("FleshRing_PBDIndices_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					PBDIndicesBuffer,
+					IndicesSource.GetData(),
+					NumAffected * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// Influence 버퍼
+				FRDGBufferRef PBDInfluencesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(float), NumAffected),
+					*FString::Printf(TEXT("FleshRing_PBDInfluences_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					PBDInfluencesBuffer,
+					InfluenceSource.GetData(),
+					NumAffected * sizeof(float),
+					ERDGInitialDataFlags::None
+				);
+
+				// PBD 인접 데이터 버퍼 (rest length 포함)
+				FRDGBufferRef PBDAdjacencyBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), AdjacencySource.Num()),
+					*FString::Printf(TEXT("FleshRing_PBDAdjacency_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					PBDAdjacencyBuffer,
+					AdjacencySource.GetData(),
+					AdjacencySource.Num() * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// Full Influence Map 버퍼
+				FRDGBufferRef FullInfluenceMapBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(float), DispatchData.FullInfluenceMap.Num()),
+					*FString::Printf(TEXT("FleshRing_FullInfluenceMap_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					FullInfluenceMapBuffer,
+					DispatchData.FullInfluenceMap.GetData(),
+					DispatchData.FullInfluenceMap.Num() * sizeof(float),
+					ERDGInitialDataFlags::None
+				);
+
+				// PBD 디스패치 파라미터
+				FPBDEdgeDispatchParams PBDParams;
+				PBDParams.NumAffectedVertices = NumAffected;
+				PBDParams.NumTotalVertices = ActualNumVertices;
+				PBDParams.Stiffness = DispatchData.PBDStiffness;
+				PBDParams.NumIterations = DispatchData.PBDIterations;
+
+				// PBD Edge Constraint 디스패치 (in-place, ping-pong 내부 처리)
+				DispatchFleshRingPBDEdgeCS_MultiPass(
+					GraphBuilder,
+					PBDParams,
+					TightenedBindPoseBuffer,
+					PBDIndicesBuffer,
+					PBDInfluencesBuffer,
+					PBDAdjacencyBuffer,
+					FullInfluenceMapBuffer
+				);
+
+				// [조건부 로그] 첫 프레임만
+				static TSet<int32> LoggedPBDRings;
+				if (!LoggedPBDRings.Contains(RingIdx))
+				{
+					UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] PBDEdgeCS Ring[%d]: %s region (%d vertices, %d original), Stiffness=%.2f, Iterations=%d"),
+						RingIdx,
+						bUsePostProcessingRegion ? TEXT("POSTPROCESSING") : TEXT("ORIGINAL"),
+						NumAffected, DispatchData.Indices.Num(),
+						PBDParams.Stiffness, PBDParams.NumIterations);
+					LoggedPBDRings.Add(RingIdx);
+				}
+			}
+		}
+
+		// ===== Self-Collision Detection & Resolution (비활성화됨) =====
+		// NOTE: O(n²) 복잡도로 인해 비활성화
+		// 대신 Layer Penetration Resolution (LayerPenetrationCS)이
+		// 레이어 기반으로 더 효율적으로 스타킹-스킨 분리를 처리함
+		//
+		// 필요시 FleshRingAsset에 bEnableSelfCollision 플래그 추가하여 제어 가능
+#if 0  // Self-Collision Detection 비활성화
+		if (WorkItem.RingDispatchDataPtr.IsValid())
+		{
+			for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
+			{
+				const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
+
+				// CollisionTriangleIndices가 없거나 너무 적으면 스킵
+				const uint32 NumCollisionTriangles = DispatchData.CollisionTriangleIndices.Num() / 3;
+				if (NumCollisionTriangles < 2)
+				{
+					continue;
+				}
+
+				// 삼각형 인덱스 버퍼 생성
+				FRDGBufferRef CollisionTriIndicesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), DispatchData.CollisionTriangleIndices.Num()),
+					*FString::Printf(TEXT("FleshRing_CollisionTriIndices_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					CollisionTriIndicesBuffer,
+					DispatchData.CollisionTriangleIndices.GetData(),
+					DispatchData.CollisionTriangleIndices.Num() * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// Collision dispatch 파라미터
+				FCollisionDispatchParams CollisionParams;
+				CollisionParams.NumTriangles = NumCollisionTriangles;
+				CollisionParams.NumTotalVertices = ActualNumVertices;
+				CollisionParams.MaxCollisionPairs = FMath::Min(NumCollisionTriangles * 10, 1024u);  // 예상 충돌 수 제한
+				CollisionParams.ResolutionStrength = 1.0f;
+				CollisionParams.NumIterations = 1;
+
+				// Collision dispatch
+				DispatchFleshRingCollisionCS(
+					GraphBuilder,
+					CollisionParams,
+					TightenedBindPoseBuffer,
+					CollisionTriIndicesBuffer
+				);
+
+				// [조건부 로그] 첫 프레임만
+				static TSet<int32> LoggedCollisionRings;
+				if (!LoggedCollisionRings.Contains(RingIdx))
+				{
+					UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] CollisionCS Dispatch Ring[%d]: %d triangles, MaxPairs=%d"),
+						RingIdx, NumCollisionTriangles, CollisionParams.MaxCollisionPairs);
+					LoggedCollisionRings.Add(RingIdx);
+				}
+			}
+		}
+#endif
+
+		// ===== Layer Penetration Resolution =====
+		// 스타킹 레이어가 항상 스킨 레이어 바깥에 위치하도록 보장
+		// 단순 ON/OFF 토글: OFF면 전체 디스패치 스킵
+		{
+			// 상태 변경 추적 (ON↔OFF 토글 감지)
+			static bool bLastEnabled = true;  // 기본값 true
+			if (bLastEnabled != WorkItem.bEnableLayerPenetrationResolution)
+			{
+				UE_LOG(LogFleshRingWorker, Warning, TEXT("[LayerPenetration] %s"),
+					WorkItem.bEnableLayerPenetrationResolution ? TEXT("ENABLED") : TEXT("DISABLED"));
+				bLastEnabled = WorkItem.bEnableLayerPenetrationResolution;
+			}
+		}
+
+		// ===== LayerPenetrationCS 비활성화 =====
+		// 레이어별 Tightness 차등화(50%)로 대체 테스트 중
+		// 활성화하려면 아래 조건에서 true로 변경
+		constexpr bool bForceDisableLayerPenetration = true;
+
+		if (!WorkItem.bEnableLayerPenetrationResolution || bForceDisableLayerPenetration)
+		{
+			// OFF: 디스패치 스킵 (아무것도 안 함)
+		}
+		else if (WorkItem.RingDispatchDataPtr.IsValid() && WorkItem.MeshIndicesPtr.IsValid())
+		{
+			const TArray<uint32>& MeshIndices = *WorkItem.MeshIndicesPtr;
+			const uint32 NumTriangles = MeshIndices.Num() / 3;
+
+			if (NumTriangles > 0)
+			{
+				// 삼각형 인덱스 버퍼 생성 (모든 Ring이 공유)
+				FRDGBufferRef LayerTriIndicesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), MeshIndices.Num()),
+					TEXT("FleshRing_LayerTriIndices")
+				);
+				GraphBuilder.QueueBufferUpload(
+					LayerTriIndicesBuffer,
+					MeshIndices.GetData(),
+					MeshIndices.Num() * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
+				{
+					const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
+
+					// 레이어 타입 데이터가 없으면 스킵
+					if (DispatchData.LayerTypes.Num() == 0)
+					{
+						// [디버그] 첫 프레임만
+						static TSet<int32> LoggedLayerSkipRings;
+						if (!LoggedLayerSkipRings.Contains(RingIdx))
+						{
+							UE_LOG(LogFleshRingWorker, Warning, TEXT("[LayerPenetration] Ring[%d]: SKIPPED - LayerTypes is EMPTY!"), RingIdx);
+							LoggedLayerSkipRings.Add(RingIdx);
+						}
+						continue;
+					}
+
+					// [디버그] 레이어 타입 분포 로그 (첫 프레임만)
+					static TSet<int32> LoggedLayerDistribution;
+					if (!LoggedLayerDistribution.Contains(RingIdx))
+					{
+						int32 SkinCount = 0, StockingCount = 0, UnderwearCount = 0, OuterwearCount = 0, UnknownCount = 0;
+						for (uint32 LayerType : DispatchData.LayerTypes)
+						{
+							switch (LayerType)
+							{
+								case 0: SkinCount++; break;
+								case 1: StockingCount++; break;
+								case 2: UnderwearCount++; break;
+								case 3: OuterwearCount++; break;
+								default: UnknownCount++; break;
+							}
+						}
+						UE_LOG(LogFleshRingWorker, Warning,
+							TEXT("[LayerPenetration] Ring[%d] LayerTypes: Skin=%d, Stocking=%d, Underwear=%d, Outerwear=%d, Unknown=%d"),
+							RingIdx, SkinCount, StockingCount, UnderwearCount, OuterwearCount, UnknownCount);
+
+						// 레이어 분리가 안 되면 경고
+						if (SkinCount == 0 || StockingCount == 0)
+						{
+							UE_LOG(LogFleshRingWorker, Error,
+								TEXT("[LayerPenetration] Ring[%d] WARNING: No layer separation possible! Need both Skin AND Stocking."),
+								RingIdx);
+							UE_LOG(LogFleshRingWorker, Error,
+								TEXT("  → Check material names contain keywords: 'skin'/'body' for Skin, 'stocking'/'sock'/'tights' for Stocking"));
+							UE_LOG(LogFleshRingWorker, Error,
+								TEXT("  → Or configure MaterialLayerMappings in FleshRingAsset"));
+						}
+						LoggedLayerDistribution.Add(RingIdx);
+					}
+
+					// ===== Z 확장된 후처리 버텍스 사용 =====
+					// 설계: LayerPenetration은 Z 확장 범위(PostProcessing*)에서 수행
+					// 경계에서 날카로운 크랙 방지를 위함
+					const TArray<uint32>& PPIndices = DispatchData.PostProcessingIndices.Num() > 0
+						? DispatchData.PostProcessingIndices
+						: DispatchData.Indices;
+					const TArray<uint32>& PPLayerTypes = DispatchData.PostProcessingLayerTypes.Num() > 0
+						? DispatchData.PostProcessingLayerTypes
+						: DispatchData.LayerTypes;
+
+					const uint32 NumAffected = PPIndices.Num();
+					if (NumAffected == 0) continue;
+
+					// 영향받는 버텍스 인덱스 버퍼
+					FRDGBufferRef LayerAffectedIndicesBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumAffected),
+						*FString::Printf(TEXT("FleshRing_LayerAffectedIndices_Ring%d"), RingIdx)
+					);
+					GraphBuilder.QueueBufferUpload(
+						LayerAffectedIndicesBuffer,
+						PPIndices.GetData(),
+						NumAffected * sizeof(uint32),
+						ERDGInitialDataFlags::None
+					);
+
+					// 전체 버텍스 레이어 타입 버퍼 (후처리 버텍스에서 구축)
+					TArray<uint32> FullVertexLayerTypes;
+					FullVertexLayerTypes.SetNumZeroed(static_cast<int32>(ActualNumVertices));
+					for (int32 i = 0; i < static_cast<int32>(NumAffected); ++i)
+					{
+						const int32 VertIdx = static_cast<int32>(PPIndices[i]);
+						if (VertIdx < static_cast<int32>(ActualNumVertices) && i < static_cast<int32>(PPLayerTypes.Num()))
+						{
+							FullVertexLayerTypes[VertIdx] = PPLayerTypes[i];
+						}
+					}
+
+					FRDGBufferRef VertexLayerTypesBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), ActualNumVertices),
+						*FString::Printf(TEXT("FleshRing_VertexLayerTypes_Ring%d"), RingIdx)
+					);
+					GraphBuilder.QueueBufferUpload(
+						VertexLayerTypesBuffer,
+						FullVertexLayerTypes.GetData(),
+						ActualNumVertices * sizeof(uint32),
+						ERDGInitialDataFlags::None
+					);
+
+					// NOTE: 노멀 버퍼는 이제 사용하지 않음 (방사 방향으로 대체됨)
+					// 셰이더는 RingCenter/RingAxis에서 방사 방향을 계산하여 정렬 체크에 사용
+					// 함수 시그니처 호환성을 위해 더미 버퍼 생성
+					FRDGBufferRef LayerNormalsBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateBufferDesc(sizeof(float), 3),  // 최소 크기 (사용 안 함)
+						*FString::Printf(TEXT("FleshRing_LayerNormals_Dummy_Ring%d"), RingIdx)
+					);
+
+					// LayerPenetration 디스패치 파라미터
+					// v4: 적절한 분리 거리 확보 (너무 작으면 침투 해결 안 됨)
+					FLayerPenetrationDispatchParams LayerParams;
+					LayerParams.NumAffectedVertices = NumAffected;
+					LayerParams.NumTriangles = NumTriangles;
+					LayerParams.MinSeparation = 0.02f;   // 0.2mm 최소 분리
+					LayerParams.MaxPushDistance = 1.0f;  // 1cm 최대 푸시 per iteration
+					LayerParams.RingCenter = FVector3f(DispatchData.Params.RingCenter);
+					LayerParams.RingAxis = FVector3f(DispatchData.Params.RingAxis);
+					LayerParams.NumIterations = 8;       // 8회 반복 (1cm×8=8cm 최대)
+					// 동적 분리 및 푸시 파라미터
+					LayerParams.TightnessStrength = DispatchData.Params.TightnessStrength;
+					LayerParams.OuterLayerPushRatio = 1.0f;  // 스타킹 100% 바깥으로 (살은 제자리)
+					LayerParams.InnerLayerPushRatio = 0.0f;  // 살은 밀지 않음
+
+					// LayerPenetration 디스패치
+					DispatchFleshRingLayerPenetrationCS(
+						GraphBuilder,
+						LayerParams,
+						TightenedBindPoseBuffer,
+						LayerNormalsBuffer,
+						VertexLayerTypesBuffer,
+						LayerAffectedIndicesBuffer,
+						LayerTriIndicesBuffer
+					);
+
+					// [조건부 로그] 첫 프레임만
+					static TSet<int32> LoggedLayerPenetrationRings;
+					if (!LoggedLayerPenetrationRings.Contains(RingIdx))
+					{
+						const bool bUsingPPIndices = DispatchData.PostProcessingIndices.Num() > 0;
+						UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] LayerPenetrationCS Dispatch Ring[%d]: %s Verts=%d (original=%d), Triangles=%d"),
+							RingIdx,
+							bUsingPPIndices ? TEXT("PostProcessing") : TEXT("Affected"),
+							NumAffected,
+							DispatchData.Indices.Num(),
+							NumTriangles);
+						LoggedLayerPenetrationRings.Add(RingIdx);
+					}
+				}
+			}
+		}
+
+		// ===== SkinSDF Layer Separation (LayerPenetrationCS 이후) =====
+		// 스킨 버텍스 기반 implicit surface로 완전한 레이어 분리 보장
+		// 스타킹 버텍스가 스킨 안쪽에 있으면 바깥으로 밀어냄
+		if (WorkItem.bEnableLayerPenetrationResolution && WorkItem.RingDispatchDataPtr.IsValid())
+		{
+			for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
+			{
+				const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
+
+				// 스킨/스타킹 버텍스가 모두 있어야 처리
+				if (DispatchData.SkinVertexIndices.Num() == 0 || DispatchData.StockingVertexIndices.Num() == 0)
+				{
+					continue;
+				}
+
+				// 스킨 버텍스 인덱스 버퍼
+				FRDGBufferRef SkinIndicesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), DispatchData.SkinVertexIndices.Num()),
+					*FString::Printf(TEXT("FleshRing_SkinIndices_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					SkinIndicesBuffer,
+					DispatchData.SkinVertexIndices.GetData(),
+					DispatchData.SkinVertexIndices.Num() * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// 스킨 노멀 버퍼 (방사 방향)
+				FRDGBufferRef SkinNormalsBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateBufferDesc(sizeof(float), DispatchData.SkinVertexNormals.Num()),
+					*FString::Printf(TEXT("FleshRing_SkinNormals_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					SkinNormalsBuffer,
+					DispatchData.SkinVertexNormals.GetData(),
+					DispatchData.SkinVertexNormals.Num() * sizeof(float),
+					ERDGInitialDataFlags::None
+				);
+
+				// 스타킹 버텍스 인덱스 버퍼
+				FRDGBufferRef StockingIndicesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), DispatchData.StockingVertexIndices.Num()),
+					*FString::Printf(TEXT("FleshRing_StockingIndices_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					StockingIndicesBuffer,
+					DispatchData.StockingVertexIndices.GetData(),
+					DispatchData.StockingVertexIndices.Num() * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// ===== SkinSDF 패스 비활성화 =====
+				// 레이어별 Tightness 차등화(50%)로 대체 테스트 중
+				// 활성화하려면 bEnableSkinSDFSeparation = true로 변경
+				constexpr bool bEnableSkinSDFSeparation = false;
+
+				if (bEnableSkinSDFSeparation)
+				{
+					// SkinSDF 디스패치 파라미터
+					FSkinSDFDispatchParams SkinSDFParams;
+					SkinSDFParams.NumStockingVertices = DispatchData.StockingVertexIndices.Num();
+					SkinSDFParams.NumSkinVertices = DispatchData.SkinVertexIndices.Num();
+					SkinSDFParams.NumTotalVertices = ActualNumVertices;
+					SkinSDFParams.MinSeparation = 0.005f;
+					SkinSDFParams.TargetSeparation = 0.02f;
+					SkinSDFParams.MaxPushDistance = 0.5f;
+					SkinSDFParams.MaxPullDistance = 0.0f;
+					SkinSDFParams.MaxIterations = 50;
+					SkinSDFParams.RingAxis = FVector3f(DispatchData.Params.RingAxis);
+					SkinSDFParams.RingCenter = FVector3f(DispatchData.Params.RingCenter);
+
+					DispatchFleshRingSkinSDFCS(
+						GraphBuilder,
+						SkinSDFParams,
+						TightenedBindPoseBuffer,
+						SkinIndicesBuffer,
+						SkinNormalsBuffer,
+						StockingIndicesBuffer
+					);
+
+					// [조건부 로그] 첫 프레임만
+					static TSet<int32> LoggedSkinSDFRings;
+					if (!LoggedSkinSDFRings.Contains(RingIdx))
+					{
+						UE_LOG(LogFleshRingWorker, Log,
+							TEXT("[DEBUG] SkinSDFCS Dispatch Ring[%d]: SkinVerts=%d, StockingVerts=%d, MaxIter=%d"),
+							RingIdx, SkinSDFParams.NumSkinVertices, SkinSDFParams.NumStockingVertices, SkinSDFParams.MaxIterations);
+						LoggedSkinSDFRings.Add(RingIdx);
+					}
+				}
 			}
 		}
 
@@ -445,13 +1228,28 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				{
 					const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
 
+					// ===== Normal 영역 선택 (LaplacianCS와 동일한 범위 사용) =====
+					// Note: Hop 기반 확장은 Normal 인접 데이터가 없으므로, PostProcessing만 지원
+					const bool bUsePostProcessingRegion =
+						DispatchData.PostProcessingIndices.Num() > 0 &&
+						DispatchData.PostProcessingAdjacencyOffsets.Num() > 0 &&
+						DispatchData.PostProcessingAdjacencyTriangles.Num() > 0;
+
+					// 사용할 데이터 소스 선택
+					const TArray<uint32>& IndicesSource = bUsePostProcessingRegion
+						? DispatchData.PostProcessingIndices : DispatchData.Indices;
+					const TArray<uint32>& AdjacencyOffsetsSource = bUsePostProcessingRegion
+						? DispatchData.PostProcessingAdjacencyOffsets : DispatchData.AdjacencyOffsets;
+					const TArray<uint32>& AdjacencyTrianglesSource = bUsePostProcessingRegion
+						? DispatchData.PostProcessingAdjacencyTriangles : DispatchData.AdjacencyTriangles;
+
 					// 인접 데이터가 없으면 스킵
-					if (DispatchData.AdjacencyOffsets.Num() == 0 || DispatchData.AdjacencyTriangles.Num() == 0)
+					if (AdjacencyOffsetsSource.Num() == 0 || AdjacencyTrianglesSource.Num() == 0)
 					{
 						continue;
 					}
 
-					const uint32 NumAffected = DispatchData.Indices.Num();
+					const uint32 NumAffected = IndicesSource.Num();
 					if (NumAffected == 0) continue;
 
 					// 영향받는 버텍스 인덱스 버퍼
@@ -461,32 +1259,32 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					);
 					GraphBuilder.QueueBufferUpload(
 						AffectedIndicesBuffer,
-						DispatchData.Indices.GetData(),
+						IndicesSource.GetData(),
 						NumAffected * sizeof(uint32),
 						ERDGInitialDataFlags::None
 					);
 
 					// 인접 오프셋 버퍼
 					FRDGBufferRef AdjacencyOffsetsBuffer = GraphBuilder.CreateBuffer(
-						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), DispatchData.AdjacencyOffsets.Num()),
+						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), AdjacencyOffsetsSource.Num()),
 						*FString::Printf(TEXT("FleshRing_AdjacencyOffsets_Ring%d"), RingIdx)
 					);
 					GraphBuilder.QueueBufferUpload(
 						AdjacencyOffsetsBuffer,
-						DispatchData.AdjacencyOffsets.GetData(),
-						DispatchData.AdjacencyOffsets.Num() * sizeof(uint32),
+						AdjacencyOffsetsSource.GetData(),
+						AdjacencyOffsetsSource.Num() * sizeof(uint32),
 						ERDGInitialDataFlags::None
 					);
 
 					// 인접 삼각형 버퍼
 					FRDGBufferRef AdjacencyTrianglesBuffer = GraphBuilder.CreateBuffer(
-						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), DispatchData.AdjacencyTriangles.Num()),
+						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), AdjacencyTrianglesSource.Num()),
 						*FString::Printf(TEXT("FleshRing_AdjacencyTriangles_Ring%d"), RingIdx)
 					);
 					GraphBuilder.QueueBufferUpload(
 						AdjacencyTrianglesBuffer,
-						DispatchData.AdjacencyTriangles.GetData(),
-						DispatchData.AdjacencyTriangles.Num() * sizeof(uint32),
+						AdjacencyTrianglesSource.GetData(),
+						AdjacencyTrianglesSource.Num() * sizeof(uint32),
 						ERDGInitialDataFlags::None
 					);
 
@@ -518,8 +1316,11 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					static TSet<int32> LoggedNormalRings;
 					if (!LoggedNormalRings.Contains(RingIdx))
 					{
-						UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] NormalRecomputeCS Dispatch Ring[%d]: AffectedVerts=%d, AdjTriangles=%d"),
-							RingIdx, NumAffected, DispatchData.AdjacencyTriangles.Num());
+						UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] NormalRecomputeCS Ring[%d]: %s region (%d vertices, %d original), AdjTriangles=%d"),
+							RingIdx,
+							bUsePostProcessingRegion ? TEXT("POSTPROCESSING") : TEXT("ORIGINAL"),
+							NumAffected, DispatchData.Indices.Num(),
+							AdjacencyTrianglesSource.Num());
 						LoggedNormalRings.Add(RingIdx);
 					}
 				}

@@ -145,6 +145,10 @@ struct FFleshRingWorkItem
 		TArray<uint32> PostProcessingIndices;
 		TArray<float> PostProcessingInfluences;
 		TArray<uint32> PostProcessingLayerTypes;
+		TArray<uint32> PostProcessingLaplacianAdjacencyData;  // 후처리 버텍스용 라플라시안 인접 데이터
+		TArray<uint32> PostProcessingPBDAdjacencyWithRestLengths;  // 후처리 버텍스용 PBD 인접 데이터
+		TArray<uint32> PostProcessingAdjacencyOffsets;    // 후처리 버텍스용 노멀 인접 오프셋
+		TArray<uint32> PostProcessingAdjacencyTriangles;  // 후처리 버텍스용 노멀 인접 삼각형
 
 		// ===== Skin SDF 기반 레이어 분리용 데이터 =====
 		// 스킨 버텍스 인덱스 (PostProcessing 범위 내, LayerType=Skin)
@@ -195,6 +199,10 @@ struct FFleshRingWorkItem
 	// 캐시 버퍼 (렌더 스레드에서 접근)
 	// TSharedPtr로 래핑하여 DeformerInstance 파괴 후에도 안전하게 접근 가능
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedBufferSharedPtr;
+
+	// 재계산된 노멀 캐시 버퍼 (TightenedBindPose와 함께 캐싱)
+	// NormalRecomputeCS 결과를 캐싱하여 캐싱된 프레임에서도 올바른 노멀 사용
+	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedNormalsBufferSharedPtr;
 
 	// Fallback 델리게이트
 	FSimpleDelegate FallbackDelegate;

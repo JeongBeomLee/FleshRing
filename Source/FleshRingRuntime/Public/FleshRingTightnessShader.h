@@ -136,6 +136,14 @@ public:
         // SDF 모드 falloff 거리 (이 거리에서 Influence가 0이 됨)
         // SDF mode falloff distance (Influence becomes 0 at this distance)
         SHADER_PARAMETER(float, SDFInfluenceFalloffDistance)
+
+        // Z축 상단 확장 거리 (절대값, cm 단위)
+        // 링 위쪽으로 얼마나 확장할지 설정 (0 = 확장 없음)
+        SHADER_PARAMETER(float, BoundsZTop)
+
+        // Z축 하단 확장 거리 (절대값, cm 단위)
+        // 링 아래쪽으로 얼마나 확장할지 설정 (0 = 확장 없음)
+        SHADER_PARAMETER(float, BoundsZBottom)
     END_SHADER_PARAMETER_STRUCT()
 
     // Shader Compilation Settings
@@ -296,6 +304,18 @@ struct FTightnessDispatchParams
      */
     float SDFInfluenceFalloffDistance;
 
+    /**
+     * Z축 상단 확장 거리 (절대값, cm 단위)
+     * 링 위쪽으로 얼마나 확장할지 (0 = 확장 없음)
+     */
+    float BoundsZTop;
+
+    /**
+     * Z축 하단 확장 거리 (절대값, cm 단위)
+     * 링 아래쪽으로 얼마나 확장할지 (0 = 확장 없음)
+     */
+    float BoundsZBottom;
+
     // =========== Volume Accumulation Parameters (for Bulge pass) ===========
     // =========== 부피 누적 파라미터 (Bulge 패스용) ===========
 
@@ -335,6 +355,8 @@ struct FTightnessDispatchParams
         , bUseSDFInfluence(0)
         , ComponentToSDFLocal(FMatrix44f::Identity)
         , SDFInfluenceFalloffDistance(5.0f)
+        , BoundsZTop(5.0f)
+        , BoundsZBottom(0.0f)
         , bAccumulateVolume(0)
         , FixedPointScale(1000.0f)
         , RingIndex(0)
