@@ -1,4 +1,4 @@
-// AdaptiveSubdivisionComponent.cpp
+﻿// AdaptiveSubdivisionComponent.cpp
 // Runtime adaptive mesh subdivision with ring deformation
 
 #include "AdaptiveSubdivisionComponent.h"

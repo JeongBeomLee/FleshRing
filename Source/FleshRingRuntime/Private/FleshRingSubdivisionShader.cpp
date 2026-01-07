@@ -1,4 +1,4 @@
-// FleshRingSubdivisionShader.cpp
+﻿// FleshRingSubdivisionShader.cpp
 // GPU Barycentric Interpolation Shader Implementation
 
 #include "FleshRingSubdivisionShader.h"

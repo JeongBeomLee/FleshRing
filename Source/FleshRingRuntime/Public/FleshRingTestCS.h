@@ -1,4 +1,4 @@
-// FleshRing Test Compute Shader - 헤더 파일
+﻿// FleshRing Test Compute Shader - 헤더 파일
 // 목적: 외부에서 Dispatch 함수를 호출할 수 있도록 선언
 
 #pragma once

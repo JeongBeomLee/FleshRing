@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // FleshRing Self-Collision Detection & Resolution Shader
 // ============================================================================
 // Purpose: Detect and resolve triangle-triangle intersections within SDF region

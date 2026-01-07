@@ -1,4 +1,4 @@
-// HalfEdgeMesh.cpp
+﻿// HalfEdgeMesh.cpp
 // Implementation of Half-Edge mesh and Red-Green adaptive subdivision
 
 #include "HalfEdgeMesh.h"

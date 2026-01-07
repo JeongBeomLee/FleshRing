@@ -1,4 +1,4 @@
-// FleshRingSubdivisionProcessor.h
+﻿// FleshRingSubdivisionProcessor.h
 // CPU-side subdivision topology processor using Red-Green Refinement / LEB
 // GPU는 최종 버텍스 보간만 담당
 

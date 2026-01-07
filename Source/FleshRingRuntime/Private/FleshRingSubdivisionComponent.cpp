@@ -1,4 +1,4 @@
-// FleshRingSubdivisionComponent.cpp
+﻿// FleshRingSubdivisionComponent.cpp
 // FleshRing Subdivision Component Implementation
 
 #include "FleshRingSubdivisionComponent.h"

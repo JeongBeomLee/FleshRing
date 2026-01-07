@@ -1,4 +1,4 @@
-// AdaptiveSubdivisionActor.h
+﻿// AdaptiveSubdivisionActor.h
 // Easy-to-use test actor for adaptive subdivision
 
 #pragma once

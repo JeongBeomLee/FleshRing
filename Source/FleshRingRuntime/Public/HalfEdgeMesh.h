@@ -1,4 +1,4 @@
-// HalfEdgeMesh.h
+﻿// HalfEdgeMesh.h
 // Half-Edge data structure for topology-aware mesh operations
 // Supports Red-Green Refinement for crack-free adaptive subdivision
 

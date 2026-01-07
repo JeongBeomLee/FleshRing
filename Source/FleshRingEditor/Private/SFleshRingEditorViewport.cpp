@@ -11,6 +11,10 @@
 #include "RenderingThread.h"  // FlushRenderingCommands용
 #include "Slate/SceneViewport.h"
 #include "EditorModeRegistry.h"
+#include "BufferVisualizationMenuCommands.h"
+#include "Framework/MultiBox/MultiBoxBuilder.h"
+#include "Styling/AppStyle.h"
+#include "Viewports.h"
 
 #define LOCTEXT_NAMESPACE "FleshRingEditorViewport"
 
@@ -138,7 +142,48 @@ TSharedRef<SEditorViewport> SFleshRingEditorViewport::GetViewportWidget()
 
 TSharedPtr<FExtender> SFleshRingEditorViewport::GetExtenders() const
 {
-	return MakeShared<FExtender>();
+	TSharedPtr<FExtender> Extender = MakeShared<FExtender>();
+
+	// 뷰 모드 메뉴에 버퍼 시각화 서브메뉴 추가
+	TWeakPtr<const SFleshRingEditorViewport> WeakViewport = SharedThis(this);
+	Extender->AddMenuExtension(
+		TEXT("ViewMode"),
+		EExtensionHook::After,
+		GetCommandList(),
+		FMenuExtensionDelegate::CreateLambda(
+			[WeakViewport](FMenuBuilder& InMenuBuilder)
+			{
+				InMenuBuilder.AddSubMenu(
+					LOCTEXT("VisualizeBufferViewModeDisplayName", "Buffer Visualization"),
+					LOCTEXT("BufferVisualizationMenu_ToolTip", "Select a mode for buffer visualization"),
+					FNewMenuDelegate::CreateStatic(&FBufferVisualizationMenuCommands::BuildVisualisationSubMenu),
+					FUIAction(
+						FExecuteAction(),
+						FCanExecuteAction(),
+						FIsActionChecked::CreateLambda(
+							[WeakViewport]()
+							{
+								if (TSharedPtr<const SFleshRingEditorViewport> ViewportPtr = WeakViewport.Pin())
+								{
+									if (ViewportPtr->GetViewportClient().IsValid())
+									{
+										return ViewportPtr->GetViewportClient()->IsViewModeEnabled(VMI_VisualizeBuffer);
+									}
+								}
+								return false;
+							}
+						)
+					),
+					NAME_None,  // InExtensionHook
+					EUserInterfaceActionType::RadioButton,
+					/* bInOpenSubMenuOnClick = */ false,
+					FSlateIcon(FAppStyle::GetAppStyleSetName(), "EditorViewport.VisualizeBufferMode")
+				);
+			}
+		)
+	);
+
+	return Extender;
 }
 
 void SFleshRingEditorViewport::OnFloatingButtonClicked()
@@ -184,6 +229,15 @@ void SFleshRingEditorViewport::PopulateViewportOverlays(TSharedRef<SOverlay> Ove
 TSharedRef<SWidget> SFleshRingEditorViewport::MakeToolbar()
 {
 	return SNew(SFleshRingEditorViewportToolbar, SharedThis(this));
+}
+
+void SFleshRingEditorViewport::BindCommands()
+{
+	// 부모 클래스 커맨드 바인딩 (뷰 모드, 카메라 등)
+	SEditorViewport::BindCommands();
+
+	// 버퍼 시각화 커맨드 바인딩
+	FBufferVisualizationMenuCommands::Get().BindCommands(*CommandList, Client);
 }
 
 #undef LOCTEXT_NAMESPACE

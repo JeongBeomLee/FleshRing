@@ -1,4 +1,4 @@
-// AdaptiveSubdivisionComponent.h
+﻿// AdaptiveSubdivisionComponent.h
 // Runtime adaptive mesh subdivision with ring deformation
 
 #pragma once

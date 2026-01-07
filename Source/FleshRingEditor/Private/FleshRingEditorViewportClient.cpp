@@ -65,6 +65,9 @@ FFleshRingEditorViewportClient::FFleshRingEditorViewportClient(
 	DrawHelper.AxesLineThickness = 2.0f;
 	DrawHelper.PivotSize = 5.0f;
 
+	// 근거리 평면 기본값 (작은 오브젝트 확대 시 클리핑 방지)
+	OverrideNearClipPlane(0.001f);
+
 	// 배경 설정
 	EngineShowFlags.SetGrid(true);
 	EngineShowFlags.SetBones(false);  // 직접 그리기 위해 기본 본 렌더링 비활성화

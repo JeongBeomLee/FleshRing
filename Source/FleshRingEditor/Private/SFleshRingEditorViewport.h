@@ -57,6 +57,7 @@ protected:
 	virtual TSharedRef<FEditorViewportClient> MakeEditorViewportClient() override;
 	virtual void PopulateViewportOverlays(TSharedRef<SOverlay> Overlay) override;
 	virtual void OnFocusViewportToSelection() override;
+	virtual void BindCommands() override;
 
 private:
 	/** 프리뷰 씬 */

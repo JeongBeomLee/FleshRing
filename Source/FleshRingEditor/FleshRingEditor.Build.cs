@@ -48,6 +48,7 @@ public class FleshRingEditor : ModuleRules
 				"EditorFramework",
 				"ApplicationCore",
 				"RenderCore",
+				"CommonMenuExtensions",
 			}
 			);
 

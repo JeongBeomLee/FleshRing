@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // FleshRing ProceduralBand Mathematical SDF Generator
 // ============================================================================
 // Purpose: Generate SDF using mathematical formulas for ProceduralBand shapes

@@ -50,12 +50,14 @@ public:
 		SLATE_ARGUMENT(int32, RingIndex)
 		SLATE_EVENT(FSimpleDelegate, OnClicked)
 		SLATE_EVENT(FOnTextCommitted, OnTextCommitted)
+		SLATE_EVENT(FSimpleDelegate, OnDeleteRequested)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs)
 	{
 		OnClickedDelegate = InArgs._OnClicked;
 		OnTextCommittedDelegate = InArgs._OnTextCommitted;
+		OnDeleteRequestedDelegate = InArgs._OnDeleteRequested;
 		IsSelectedAttr = InArgs._IsSelected;
 		Asset = InArgs._Asset;
 		RingIndex = InArgs._RingIndex;
@@ -221,6 +223,14 @@ public:
 			EnterEditingMode();
 			return FReply::Handled();
 		}
+
+		// Delete 키: Ring 삭제
+		if (InKeyEvent.GetKey() == EKeys::Delete)
+		{
+			OnDeleteRequestedDelegate.ExecuteIfBound();
+			return FReply::Handled();
+		}
+
 		return SCompoundWidget::OnKeyDown(MyGeometry, InKeyEvent);
 	}
 
@@ -320,6 +330,7 @@ private:
 	TSharedPtr<SInlineEditableTextBlock> InlineTextBlock;
 	FSimpleDelegate OnClickedDelegate;
 	FOnTextCommitted OnTextCommittedDelegate;
+	FSimpleDelegate OnDeleteRequestedDelegate;
 	TAttribute<bool> IsSelectedAttr;
 	UFleshRingAsset* Asset = nullptr;
 	int32 RingIndex = INDEX_NONE;
@@ -558,6 +569,13 @@ void FFleshRingSettingsCustomization::CustomizeHeader(
 					.RingIndex(CachedArrayIndex)
 					.OnClicked(FSimpleDelegate::CreateRaw(this, &FFleshRingSettingsCustomization::OnHeaderClickedVoid))
 					.OnTextCommitted(this, &FFleshRingSettingsCustomization::OnRingNameCommitted)
+					.OnDeleteRequested_Lambda([PropHandleRef]() {
+						if (TSharedPtr<IPropertyHandleArray> ArrayHandle = PropHandleRef->GetParentHandle()->AsArray())
+						{
+							int32 Index = PropHandleRef->GetIndexInArray();
+							ArrayHandle->DeleteItem(Index);
+						}
+					})
 				]
 			]
 			// 우측 열: Bone 이름 + 버튼 (65%)

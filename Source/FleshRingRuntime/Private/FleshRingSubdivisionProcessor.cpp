@@ -1,4 +1,4 @@
-// FleshRingSubdivisionProcessor.cpp
+﻿// FleshRingSubdivisionProcessor.cpp
 // CPU-side subdivision topology processor implementation
 
 #include "FleshRingSubdivisionProcessor.h"

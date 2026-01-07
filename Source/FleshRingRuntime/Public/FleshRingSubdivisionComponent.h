@@ -1,4 +1,4 @@
-// FleshRingSubdivisionComponent.h
+﻿// FleshRingSubdivisionComponent.h
 // FleshRing Subdivision Component using Hybrid CPU+GPU Architecture
 //
 // CPU: Red-Green Refinement / LEB 기반 토폴로지 결정
