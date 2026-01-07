@@ -17,14 +17,26 @@
 #include "ViewportToolbar/UnrealEdViewportToolbarContext.h"
 #include "FleshRingEditorViewportClient.h"
 #include "Styling/AppStyle.h"
+#include "Styling/SlateStyleRegistry.h"
+#include "Styling/SlateStyle.h"
+#include "Styling/SlateTypes.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Images/SImage.h"
 #include "ToolMenuContext.h"
+#include "Interfaces/IPluginManager.h"
 
 #define LOCTEXT_NAMESPACE "FFleshRingEditorModule"
 
 void FFleshRingEditorModule::StartupModule()
 {
+	// 커스텀 스타일 셋 등록
+	StyleSet = MakeShareable(new FSlateStyleSet(GetStyleSetName()));
+	StyleSet->SetContentRoot(FPaths::EngineContentDir() / TEXT("Editor/Slate"));
+	StyleSet->Set("FleshRing.RingIcon", new FSlateVectorImageBrush(
+		StyleSet->RootToContentDir(TEXT("Icons/AssetIcons/ModelingTorus_16"), TEXT(".svg")),
+		FVector2D(16.0f, 16.0f)));
+	FSlateStyleRegistry::RegisterSlateStyle(*StyleSet);
+
 	// This code will execute after your module is loaded into memory; the exact timing is specified in the .uplugin file per-module
 	// Register asset type actions
 	IAssetTools& AssetTools = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools").Get();
@@ -233,6 +245,13 @@ void FFleshRingEditorModule::StartupModule()
 
 void FFleshRingEditorModule::ShutdownModule()
 {
+	// 커스텀 스타일 셋 해제
+	if (StyleSet.IsValid())
+	{
+		FSlateStyleRegistry::UnRegisterSlateStyle(*StyleSet);
+		StyleSet.Reset();
+	}
+
 	// This function may be called during shutdown to clean up your module.  For modules that support dynamic reloading,
 	// we call this function before unloading the module.
 	// Unregister asset type actions

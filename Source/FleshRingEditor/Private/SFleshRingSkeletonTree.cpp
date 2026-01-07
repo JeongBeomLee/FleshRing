@@ -16,6 +16,7 @@
 #include "Widgets/Input/SComboButton.h"
 #include "Styling/AppStyle.h"
 #include "Styling/StyleColors.h"
+#include "Styling/SlateStyleRegistry.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "HAL/PlatformApplicationMisc.h"
 #include "Widgets/Views/SExpanderArrow.h"
@@ -69,7 +70,7 @@ public:
 
 		if (bIsRing)
 		{
-			IconBrush = FAppStyle::GetBrush("Icons.FilledCircle");
+			IconBrush = FSlateStyleRegistry::FindSlateStyle("FleshRingStyle")->GetBrush("FleshRing.RingIcon");
 			IconColor = FSlateColor(FLinearColor(1.0f, 0.3f, 0.3f));
 			TextColor = FSlateColor(FLinearColor(1.0f, 0.6f, 0.2f));
 			TooltipText = FText::Format(LOCTEXT("RingTooltip", "Ring attached to bone: {0}\nDouble-click to rename"), FText::FromName(Item->BoneName));
