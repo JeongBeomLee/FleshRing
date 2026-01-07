@@ -1,4 +1,4 @@
-// Purpose: Pull vertices toward Ring center axis (Tightness effect)
+﻿// Purpose: Pull vertices toward Ring center axis (Tightness effect)
 // 목적: 버텍스를 링 중심축 방향으로 안쪽으로 당김 (조이기 효과)
 // This shader processes only AffectedVertices (not all mesh vertices) for performance optimization.
 // 성능 최적화를 위해 영향받는 버텍스만 처리 (전체 메시 버텍스 X)
