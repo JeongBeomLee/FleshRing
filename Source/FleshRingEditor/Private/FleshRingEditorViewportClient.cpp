@@ -1582,11 +1582,14 @@ void FFleshRingEditorViewportClient::TrackingStarted(const FInputEventState& InI
 void FFleshRingEditorViewportClient::TrackingStopped()
 {
 	// 드래그 종료 시 트랜잭션 종료
+	// 트랜잭션이 있었는지 먼저 체크 (Ring 수정 시에만 트랜잭션 생성됨)
+	bool bHadTransaction = ScopedTransaction.IsValid();
 	ScopedTransaction.Reset();
 	bIsDraggingRotation = false;
 
 	// 드래그 종료 시 에셋 dirty 마킹 (성능 최적화: 드래그 중에는 호출 안 함)
-	if (EditingAsset.IsValid())
+	// 카메라 이동 등 에셋을 수정하지 않는 경우는 제외
+	if (bHadTransaction && EditingAsset.IsValid())
 	{
 		SCOPE_CYCLE_COUNTER(STAT_FleshRingEditor_MarkPackageDirty);
 		EditingAsset->MarkPackageDirty();
