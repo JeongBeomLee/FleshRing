@@ -738,6 +738,36 @@ public:
      */
     bool IsRingDirty(int32 RingIndex) const;
 
+    // ===== Topology Cache Public API =====
+
+    /**
+     * Build topology cache from mesh data (call once per mesh)
+     * 메시 데이터로 토폴로지 캐시 빌드 (메시당 한 번만 호출)
+     *
+     * Builds position groups, neighbor maps, and welded neighbor data.
+     * This is O(V*T) but only runs once per mesh binding.
+     * 위치 그룹, 이웃 맵, 용접된 이웃 데이터 빌드.
+     * O(V*T) 복잡도지만 메시 바인딩당 한 번만 실행.
+     *
+     * @param AllVertices - All mesh vertices in bind pose
+     * @param MeshIndices - Mesh index buffer (3 indices per triangle)
+     */
+    void BuildTopologyCache(
+        const TArray<FVector3f>& AllVertices,
+        const TArray<uint32>& MeshIndices);
+
+    /**
+     * Invalidate topology cache (call when mesh changes)
+     * 토폴로지 캐시 무효화 (메시 변경 시 호출)
+     */
+    void InvalidateTopologyCache();
+
+    /**
+     * Check if topology cache is built
+     * 토폴로지 캐시 빌드 여부 확인
+     */
+    bool IsTopologyCacheBuilt() const { return bTopologyCacheBuilt; }
+
     /**
      * Get cached mesh indices for Normal recomputation
      * 노멀 재계산용 캐시된 메시 인덱스 반환
@@ -792,6 +822,51 @@ private:
      * Ring별 dirty 플래그 (true = 재빌드 필요)
      */
     TArray<bool> RingDirtyFlags;
+
+    // ===== Topology Cache (Immutable after first build) =====
+    // ===== 토폴로지 캐시 (첫 빌드 후 불변) =====
+    // 메시 토폴로지(버텍스 인접 관계, UV seam 용접 정보)는 바인드 포즈에서 결정되며
+    // 런타임에 변하지 않음. 한 번만 빌드하고 캐싱하여 성능 최적화.
+
+    /**
+     * Flag indicating topology cache is built
+     * 토폴로지 캐시 빌드 완료 플래그
+     */
+    bool bTopologyCacheBuilt = false;
+
+    /**
+     * Position-based vertex grouping for UV seam welding
+     * UV seam 용접을 위한 위치 기반 버텍스 그룹핑
+     * Key: quantized position (FIntVector), Value: vertex indices at that position
+     */
+    TMap<FIntVector, TArray<uint32>> CachedPositionToVertices;
+
+    /**
+     * Reverse lookup: vertex index to quantized position
+     * 역방향 조회: 버텍스 인덱스 → 양자화된 위치
+     */
+    TMap<uint32, FIntVector> CachedVertexToPosition;
+
+    /**
+     * Per-vertex neighbor map (direct mesh connectivity)
+     * 버텍스별 이웃 맵 (직접 메시 연결)
+     * Key: vertex index, Value: set of neighbor vertex indices
+     */
+    TMap<uint32, TSet<uint32>> CachedVertexNeighbors;
+
+    /**
+     * Position-based welded neighbor map (UV seam aware)
+     * 위치 기반 용접된 이웃 맵 (UV seam 인식)
+     * Key: quantized position, Value: set of neighbor positions (welded)
+     */
+    TMap<FIntVector, TSet<FIntVector>> CachedWeldedNeighborPositions;
+
+    /**
+     * Full mesh adjacency map for BFS/hop distance calculation
+     * BFS/홉 거리 계산용 전체 메시 인접 맵
+     * Key: vertex index, Value: neighbor vertex indices
+     */
+    TMap<uint32, TArray<uint32>> CachedFullAdjacencyMap;
 
     /**
      * Extract vertices from skeletal mesh at specific LOD

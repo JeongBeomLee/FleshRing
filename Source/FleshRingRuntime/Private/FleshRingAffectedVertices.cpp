@@ -1174,6 +1174,9 @@ const FRingAffectedData* FFleshRingAffectedVerticesManager::GetRingData(int32 Ri
 void FFleshRingAffectedVerticesManager::ClearAll()
 {
     RingDataArray.Reset();
+
+    // 토폴로지 캐시도 무효화 (메시가 변경될 수 있음)
+    InvalidateTopologyCache();
 }
 
 int32 FFleshRingAffectedVerticesManager::GetTotalAffectedCount() const
@@ -1214,6 +1217,175 @@ bool FFleshRingAffectedVerticesManager::IsRingDirty(int32 RingIndex) const
     }
     // 플래그가 없으면 dirty로 간주 (첫 빌드)
     return true;
+}
+
+// ============================================================================
+// BuildTopologyCache - 토폴로지 캐시 빌드 (메시당 한 번만)
+// ============================================================================
+// 메시의 토폴로지 데이터는 바인드 포즈에서 결정되며 런타임에 변하지 않음.
+// - 위치 기반 버텍스 그룹 (UV seam 용접용)
+// - 버텍스 이웃 맵 (직접 메시 연결)
+// - 용접된 이웃 위치 맵 (UV seam 인식)
+// - 전체 메시 인접 맵 (BFS/홉 계산용)
+// 이 함수를 한 번 호출하면 이후 모든 Ring 업데이트에서 O(1) 조회 가능.
+
+void FFleshRingAffectedVerticesManager::BuildTopologyCache(
+    const TArray<FVector3f>& AllVertices,
+    const TArray<uint32>& MeshIndices)
+{
+    // 이미 캐시가 빌드되어 있으면 스킵
+    if (bTopologyCacheBuilt)
+    {
+        return;
+    }
+
+    UE_LOG(LogFleshRingVertices, Log,
+        TEXT("BuildTopologyCache: Building topology cache for %d vertices, %d indices"),
+        AllVertices.Num(), MeshIndices.Num());
+
+    const double StartTime = FPlatformTime::Seconds();
+
+    // ================================================================
+    // Step 1: Build position-based vertex groups for UV seam welding
+    // 1단계: UV seam 용접을 위한 위치 기반 버텍스 그룹 구축
+    // ================================================================
+    constexpr float WeldPrecision = 0.001f;  // 0.001 units tolerance
+
+    CachedPositionToVertices.Reset();
+    CachedVertexToPosition.Reset();
+
+    for (int32 i = 0; i < AllVertices.Num(); ++i)
+    {
+        const FVector3f& Pos = AllVertices[i];
+        FIntVector PosKey(
+            FMath::RoundToInt(Pos.X / WeldPrecision),
+            FMath::RoundToInt(Pos.Y / WeldPrecision),
+            FMath::RoundToInt(Pos.Z / WeldPrecision)
+        );
+        CachedPositionToVertices.FindOrAdd(PosKey).Add(static_cast<uint32>(i));
+        CachedVertexToPosition.Add(static_cast<uint32>(i), PosKey);
+    }
+
+    const int32 WeldedPositionCount = CachedPositionToVertices.Num();
+    const int32 DuplicateVertexCount = AllVertices.Num() - WeldedPositionCount;
+
+    // ================================================================
+    // Step 2: Build global vertex neighbor map from mesh triangles
+    // 2단계: 메시 삼각형에서 전역 버텍스 이웃 맵 구축
+    // ================================================================
+    CachedVertexNeighbors.Reset();
+
+    const int32 NumTriangles = MeshIndices.Num() / 3;
+    for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+    {
+        const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
+        const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
+        const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
+
+        CachedVertexNeighbors.FindOrAdd(I0).Add(I1);
+        CachedVertexNeighbors.FindOrAdd(I0).Add(I2);
+        CachedVertexNeighbors.FindOrAdd(I1).Add(I0);
+        CachedVertexNeighbors.FindOrAdd(I1).Add(I2);
+        CachedVertexNeighbors.FindOrAdd(I2).Add(I0);
+        CachedVertexNeighbors.FindOrAdd(I2).Add(I1);
+    }
+
+    // ================================================================
+    // Step 3: Build welded neighbor map (merge neighbors across UV duplicates)
+    // 3단계: 용접된 이웃 맵 구축 (UV 중복 버텍스들의 이웃 병합)
+    // ================================================================
+    CachedWeldedNeighborPositions.Reset();
+
+    for (const auto& PosEntry : CachedPositionToVertices)
+    {
+        const FIntVector& PosKey = PosEntry.Key;
+        const TArray<uint32>& VerticesAtPos = PosEntry.Value;
+
+        // Merge all neighbors from all vertices at this position
+        TSet<FIntVector> MergedNeighborPositions;
+
+        for (uint32 VertIdx : VerticesAtPos)
+        {
+            const TSet<uint32>* Neighbors = CachedVertexNeighbors.Find(VertIdx);
+            if (Neighbors)
+            {
+                for (uint32 NeighborIdx : *Neighbors)
+                {
+                    const FIntVector* NeighborPosKey = CachedVertexToPosition.Find(NeighborIdx);
+                    if (NeighborPosKey)
+                    {
+                        // Exclude self position (UV duplicates are conceptually the same vertex)
+                        if (*NeighborPosKey != PosKey)
+                        {
+                            MergedNeighborPositions.Add(*NeighborPosKey);
+                        }
+                    }
+                }
+            }
+        }
+
+        CachedWeldedNeighborPositions.Add(PosKey, MoveTemp(MergedNeighborPositions));
+    }
+
+    // ================================================================
+    // Step 4: Build full mesh adjacency map for BFS/hop distance
+    // 4단계: BFS/홉 거리 계산용 전체 메시 인접 맵 구축
+    // ================================================================
+    CachedFullAdjacencyMap.Reset();
+    CachedFullAdjacencyMap.Reserve(AllVertices.Num());
+
+    for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+    {
+        const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
+        const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
+        const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
+
+        // 각 에지에 대해 양방향 인접 추가
+        auto AddEdge = [this](uint32 A, uint32 B)
+        {
+            TArray<uint32>& NeighborsA = CachedFullAdjacencyMap.FindOrAdd(A);
+            if (!NeighborsA.Contains(B))
+            {
+                NeighborsA.Add(B);
+            }
+
+            TArray<uint32>& NeighborsB = CachedFullAdjacencyMap.FindOrAdd(B);
+            if (!NeighborsB.Contains(A))
+            {
+                NeighborsB.Add(A);
+            }
+        };
+
+        AddEdge(I0, I1);
+        AddEdge(I1, I2);
+        AddEdge(I2, I0);
+    }
+
+    // 캐시 빌드 완료 표시
+    bTopologyCacheBuilt = true;
+
+    const double ElapsedMs = (FPlatformTime::Seconds() - StartTime) * 1000.0;
+
+    UE_LOG(LogFleshRingVertices, Log,
+        TEXT("BuildTopologyCache: Completed in %.2f ms - %d vertices -> %d welded positions (%d duplicates), %d adjacency entries"),
+        ElapsedMs, AllVertices.Num(), WeldedPositionCount, DuplicateVertexCount, CachedFullAdjacencyMap.Num());
+}
+
+// ============================================================================
+// InvalidateTopologyCache - 토폴로지 캐시 무효화
+// ============================================================================
+
+void FFleshRingAffectedVerticesManager::InvalidateTopologyCache()
+{
+    bTopologyCacheBuilt = false;
+    CachedPositionToVertices.Empty();
+    CachedVertexToPosition.Empty();
+    CachedVertexNeighbors.Empty();
+    CachedWeldedNeighborPositions.Empty();
+    CachedFullAdjacencyMap.Empty();
+
+    UE_LOG(LogFleshRingVertices, Verbose,
+        TEXT("InvalidateTopologyCache: Topology cache cleared"));
 }
 
 // ============================================================================
@@ -1446,6 +1618,7 @@ void FFleshRingAffectedVerticesManager::BuildAdjacencyData(
 // ============================================================================
 // 개선: 같은 레이어의 이웃만 포함 (스타킹-살 경계에서 섞이지 않음)
 // 개선: UV seam 용접 - 동일 위치의 분리된 버텍스들이 같은 이웃을 공유하여 크랙 방지
+// 최적화: 토폴로지 캐시 사용 - 매 프레임 O(V*T) 재빌드 제거
 void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
     FRingAffectedData& RingData,
     const TArray<uint32>& MeshIndices,
@@ -1464,103 +1637,17 @@ void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
     }
 
     // ================================================================
-    // Step 0: Build position-based vertex groups for UV seam welding
-    // 0단계: UV seam 용접을 위한 위치 기반 버텍스 그룹 구축
-    // 동일 위치의 버텍스들(UV seam으로 분리된)을 하나로 취급
+    // Step 0: Ensure topology cache is built (O(1) if already cached)
+    // 0단계: 토폴로지 캐시 확인 (이미 캐시되어 있으면 O(1))
     // ================================================================
-    constexpr float WeldPrecision = 0.001f;  // 0.001 units tolerance
-
-    // Position key -> All vertex indices at that position
-    TMap<FIntVector, TArray<uint32>> PositionToVertices;
-    // Vertex index -> Position key
-    TMap<uint32, FIntVector> VertexToPosition;
-
-    for (int32 i = 0; i < AllVertices.Num(); ++i)
+    if (!bTopologyCacheBuilt)
     {
-        const FVector3f& Pos = AllVertices[i];
-        FIntVector PosKey(
-            FMath::RoundToInt(Pos.X / WeldPrecision),
-            FMath::RoundToInt(Pos.Y / WeldPrecision),
-            FMath::RoundToInt(Pos.Z / WeldPrecision)
-        );
-        PositionToVertices.FindOrAdd(PosKey).Add(static_cast<uint32>(i));
-        VertexToPosition.Add(static_cast<uint32>(i), PosKey);
-    }
-
-    int32 WeldedPositionCount = PositionToVertices.Num();
-    int32 DuplicateVertexCount = AllVertices.Num() - WeldedPositionCount;
-
-    UE_LOG(LogFleshRingVertices, Verbose,
-        TEXT("BuildLaplacianAdjacencyData: Welding %d vertices -> %d positions (%d duplicates)"),
-        AllVertices.Num(), WeldedPositionCount, DuplicateVertexCount);
-
-    // ================================================================
-    // Step 1: Build global vertex neighbor map from mesh triangles
-    // 1단계: 메시 삼각형에서 전역 버텍스 이웃 맵 구축
-    // ================================================================
-    TMap<uint32, TSet<uint32>> VertexNeighbors;
-
-    const int32 NumTriangles = MeshIndices.Num() / 3;
-    for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
-    {
-        const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
-        const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
-        const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
-
-        VertexNeighbors.FindOrAdd(I0).Add(I1);
-        VertexNeighbors.FindOrAdd(I0).Add(I2);
-        VertexNeighbors.FindOrAdd(I1).Add(I0);
-        VertexNeighbors.FindOrAdd(I1).Add(I2);
-        VertexNeighbors.FindOrAdd(I2).Add(I0);
-        VertexNeighbors.FindOrAdd(I2).Add(I1);
+        BuildTopologyCache(AllVertices, MeshIndices);
     }
 
     // ================================================================
-    // Step 2: Build welded neighbor map (merge neighbors across UV duplicates)
-    // 2단계: 용접된 이웃 맵 구축 (UV 중복 버텍스들의 이웃 병합)
-    //
-    // 문제: UV seam에서 분리된 버텍스들(A, B)이 같은 위치에 있지만
-    //       서로 다른 이웃 집합을 가짐 -> 스무딩 시 다르게 이동 -> 크랙!
-    //
-    // 해결: 같은 위치의 모든 버텍스들의 이웃을 병합하여
-    //       동일한 스무딩 결과를 보장
-    // ================================================================
-    TMap<FIntVector, TSet<FIntVector>> PositionToWeldedNeighborPositions;
-
-    for (const auto& PosEntry : PositionToVertices)
-    {
-        const FIntVector& PosKey = PosEntry.Key;
-        const TArray<uint32>& VerticesAtPos = PosEntry.Value;
-
-        // Merge all neighbors from all vertices at this position
-        TSet<FIntVector> MergedNeighborPositions;
-
-        for (uint32 VertIdx : VerticesAtPos)
-        {
-            const TSet<uint32>* Neighbors = VertexNeighbors.Find(VertIdx);
-            if (Neighbors)
-            {
-                for (uint32 NeighborIdx : *Neighbors)
-                {
-                    const FIntVector* NeighborPosKey = VertexToPosition.Find(NeighborIdx);
-                    if (NeighborPosKey)
-                    {
-                        // Exclude self position (UV duplicates are conceptually the same vertex)
-                        if (*NeighborPosKey != PosKey)
-                        {
-                            MergedNeighborPositions.Add(*NeighborPosKey);
-                        }
-                    }
-                }
-            }
-        }
-
-        PositionToWeldedNeighborPositions.Add(PosKey, MoveTemp(MergedNeighborPositions));
-    }
-
-    // ================================================================
-    // Step 3: Pack adjacency data for affected vertices
-    // 3단계: 영향받는 버텍스에 대한 인접 데이터 패킹
+    // Step 1: Pack adjacency data for affected vertices using cached topology
+    // 1단계: 캐시된 토폴로지를 사용하여 영향받는 버텍스의 인접 데이터 패킹
     //
     // 핵심: 같은 위치의 모든 버텍스가 동일한 이웃 위치 집합을 사용
     //       -> 동일한 Laplacian 계산 -> 동일한 이동 -> 크랙 없음!
@@ -1578,19 +1665,19 @@ void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
         uint32 NeighborCount = 0;
         uint32 NeighborIndices[MAX_NEIGHBORS] = { 0 };
 
-        // Get this vertex's position key
-        const FIntVector* MyPosKey = VertexToPosition.Find(VertexIndex);
+        // Get this vertex's position key from cache
+        const FIntVector* MyPosKey = CachedVertexToPosition.Find(VertexIndex);
         if (MyPosKey)
         {
-            // Get the welded neighbor positions for this position
-            const TSet<FIntVector>* WeldedNeighborPosSet = PositionToWeldedNeighborPositions.Find(*MyPosKey);
+            // Get the welded neighbor positions from cache
+            const TSet<FIntVector>* WeldedNeighborPosSet = CachedWeldedNeighborPositions.Find(*MyPosKey);
 
             if (WeldedNeighborPosSet)
             {
                 for (const FIntVector& NeighborPosKey : *WeldedNeighborPosSet)
                 {
-                    // Get a representative vertex at that position
-                    const TArray<uint32>* VerticesAtNeighborPos = PositionToVertices.Find(NeighborPosKey);
+                    // Get a representative vertex at that position from cache
+                    const TArray<uint32>* VerticesAtNeighborPos = CachedPositionToVertices.Find(NeighborPosKey);
                     if (!VerticesAtNeighborPos || VerticesAtNeighborPos->Num() == 0)
                     {
                         continue;
@@ -1634,7 +1721,7 @@ void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
     }
 
     UE_LOG(LogFleshRingVertices, Verbose,
-        TEXT("BuildLaplacianAdjacencyData (Welded): %d affected, %d packed uints, %d cross-layer skipped"),
+        TEXT("BuildLaplacianAdjacencyData (Cached): %d affected, %d packed uints, %d cross-layer skipped"),
         NumAffected, RingData.LaplacianAdjacencyData.Num(), CrossLayerSkipped);
 }
 
@@ -1643,6 +1730,7 @@ void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
 // ============================================================================
 // PostProcessingIndices 기반으로 라플라시안 인접 데이터를 구축합니다.
 // Z 확장 범위의 버텍스들이 스무딩될 수 있도록 인접 정보 제공.
+// 최적화: 토폴로지 캐시 사용 - 매 프레임 O(V*T) 재빌드 제거
 
 void FFleshRingAffectedVerticesManager::BuildPostProcessingLaplacianAdjacencyData(
     FRingAffectedData& RingData,
@@ -1661,78 +1749,17 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingLaplacianAdjacencyDat
     }
 
     // ================================================================
-    // Step 0: Position-based vertex welding (UV seam 처리)
+    // Step 0: Ensure topology cache is built (O(1) if already cached)
+    // 0단계: 토폴로지 캐시 확인 (이미 캐시되어 있으면 O(1))
     // ================================================================
-    constexpr float WeldPrecision = 0.001f;
-
-    TMap<FIntVector, TArray<uint32>> PositionToVertices;
-    TMap<uint32, FIntVector> VertexToPosition;
-
-    for (int32 i = 0; i < AllVertices.Num(); ++i)
+    if (!bTopologyCacheBuilt)
     {
-        const FVector3f& Pos = AllVertices[i];
-        FIntVector PosKey(
-            FMath::RoundToInt(Pos.X / WeldPrecision),
-            FMath::RoundToInt(Pos.Y / WeldPrecision),
-            FMath::RoundToInt(Pos.Z / WeldPrecision)
-        );
-        PositionToVertices.FindOrAdd(PosKey).Add(static_cast<uint32>(i));
-        VertexToPosition.Add(static_cast<uint32>(i), PosKey);
+        BuildTopologyCache(AllVertices, MeshIndices);
     }
 
     // ================================================================
-    // Step 1: Build global vertex neighbor map from mesh triangles
-    // ================================================================
-    TMap<uint32, TSet<uint32>> VertexNeighbors;
-
-    const int32 NumTriangles = MeshIndices.Num() / 3;
-    for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
-    {
-        const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
-        const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
-        const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
-
-        VertexNeighbors.FindOrAdd(I0).Add(I1);
-        VertexNeighbors.FindOrAdd(I0).Add(I2);
-        VertexNeighbors.FindOrAdd(I1).Add(I0);
-        VertexNeighbors.FindOrAdd(I1).Add(I2);
-        VertexNeighbors.FindOrAdd(I2).Add(I0);
-        VertexNeighbors.FindOrAdd(I2).Add(I1);
-    }
-
-    // ================================================================
-    // Step 2: Welded neighbor map (UV 중복 버텍스 병합)
-    // ================================================================
-    TMap<FIntVector, TSet<FIntVector>> PositionToWeldedNeighborPositions;
-
-    for (const auto& PosEntry : PositionToVertices)
-    {
-        const FIntVector& PosKey = PosEntry.Key;
-        const TArray<uint32>& VerticesAtPos = PosEntry.Value;
-
-        TSet<FIntVector> MergedNeighborPositions;
-
-        for (uint32 VertIdx : VerticesAtPos)
-        {
-            const TSet<uint32>* Neighbors = VertexNeighbors.Find(VertIdx);
-            if (Neighbors)
-            {
-                for (uint32 NeighborIdx : *Neighbors)
-                {
-                    const FIntVector* NeighborPosKey = VertexToPosition.Find(NeighborIdx);
-                    if (NeighborPosKey && *NeighborPosKey != PosKey)
-                    {
-                        MergedNeighborPositions.Add(*NeighborPosKey);
-                    }
-                }
-            }
-        }
-
-        PositionToWeldedNeighborPositions.Add(PosKey, MergedNeighborPositions);
-    }
-
-    // ================================================================
-    // Step 3: Build adjacency for each post-processing vertex
+    // Step 1: Build adjacency for each post-processing vertex using cached topology
+    // 1단계: 캐시된 토폴로지를 사용하여 후처리 버텍스의 인접 데이터 빌드
     // ================================================================
     RingData.PostProcessingLaplacianAdjacencyData.Reset(NumPostProcessing * PACKED_SIZE);
     RingData.PostProcessingLaplacianAdjacencyData.AddZeroed(NumPostProcessing * PACKED_SIZE);
@@ -1751,16 +1778,16 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingLaplacianAdjacencyDat
             MyLayerType = static_cast<EFleshRingLayerType>(RingData.PostProcessingLayerTypes[PPIdx]);
         }
 
-        // Get my position key
-        const FIntVector* MyPosKey = VertexToPosition.Find(VertIdx);
+        // Get my position key from cache
+        const FIntVector* MyPosKey = CachedVertexToPosition.Find(VertIdx);
         if (!MyPosKey)
         {
             RingData.PostProcessingLaplacianAdjacencyData[BaseOffset] = 0;
             continue;
         }
 
-        // Get welded neighbors
-        const TSet<FIntVector>* WeldedNeighborPositions = PositionToWeldedNeighborPositions.Find(*MyPosKey);
+        // Get welded neighbors from cache
+        const TSet<FIntVector>* WeldedNeighborPositions = CachedWeldedNeighborPositions.Find(*MyPosKey);
         if (!WeldedNeighborPositions)
         {
             RingData.PostProcessingLaplacianAdjacencyData[BaseOffset] = 0;
@@ -1774,7 +1801,8 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingLaplacianAdjacencyDat
         {
             if (NeighborCount >= MAX_NEIGHBORS) break;
 
-            const TArray<uint32>* VerticesAtNeighborPos = PositionToVertices.Find(NeighborPosKey);
+            // Get representative vertex from cache
+            const TArray<uint32>* VerticesAtNeighborPos = CachedPositionToVertices.Find(NeighborPosKey);
             if (!VerticesAtNeighborPos || VerticesAtNeighborPos->Num() == 0) continue;
 
             const uint32 NeighborIdx = (*VerticesAtNeighborPos)[0];
@@ -1809,7 +1837,7 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingLaplacianAdjacencyDat
     }
 
     UE_LOG(LogFleshRingVertices, Verbose,
-        TEXT("BuildPostProcessingLaplacianAdjacencyData: %d vertices, %d packed uints, %d cross-layer skipped"),
+        TEXT("BuildPostProcessingLaplacianAdjacencyData (Cached): %d vertices, %d packed uints, %d cross-layer skipped"),
         NumPostProcessing, RingData.PostProcessingLaplacianAdjacencyData.Num(), CrossLayerSkipped);
 }
 
@@ -2395,6 +2423,7 @@ void FFleshRingAffectedVerticesManager::BuildExtendedLaplacianAdjacency(
 // ============================================================================
 // BuildHopDistanceData - 홉 기반 스무딩용 확장 영역 구축 (전체 메시 BFS)
 // ============================================================================
+// 최적화: 토폴로지 캐시 사용 - 매 프레임 O(T) 인접 맵 재빌드 제거
 
 void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
     FRingAffectedData& RingData,
@@ -2413,11 +2442,14 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
         return;
     }
 
-    // ===== Step 1: 전체 메시 인접 맵 구축 =====
-    TMap<uint32, TArray<uint32>> FullAdjacencyMap;
-    BuildFullMeshAdjacency(MeshIndices, NumTotalVertices, FullAdjacencyMap);
+    // ===== Step 0: Ensure topology cache is built (O(1) if already cached) =====
+    // 0단계: 토폴로지 캐시 확인 (이미 캐시되어 있으면 O(1))
+    if (!bTopologyCacheBuilt)
+    {
+        BuildTopologyCache(AllVertices, MeshIndices);
+    }
 
-    // ===== Step 2: Seeds = 모든 Affected Vertices =====
+    // ===== Step 1: Seeds = 모든 Affected Vertices =====
     // Seeds는 전체 메시 버텍스 인덱스
     TSet<uint32> SeedSet;
     SeedSet.Reserve(NumAffected);
@@ -2426,7 +2458,8 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
         SeedSet.Add(AffVert.VertexIndex);
     }
 
-    // ===== Step 3: 전체 메시에서 BFS (N-hop 도달 버텍스 수집) =====
+    // ===== Step 2: 전체 메시에서 BFS (N-hop 도달 버텍스 수집) =====
+    // 캐시된 인접 맵 사용 - 매 프레임 재빌드 제거
     // HopDistanceMap: 전체 버텍스 인덱스 → 홉 거리
     TMap<uint32, int32> HopDistanceMap;
     HopDistanceMap.Reserve(NumAffected * (MaxHops + 1));
@@ -2439,7 +2472,7 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
         BfsQueue.Enqueue(SeedVertIdx);
     }
 
-    // BFS 전파
+    // BFS 전파 (캐시된 인접 맵 사용)
     while (!BfsQueue.IsEmpty())
     {
         uint32 CurrentVertIdx;
@@ -2453,8 +2486,8 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
             continue;
         }
 
-        // 이웃들 확인
-        const TArray<uint32>* NeighborsPtr = FullAdjacencyMap.Find(CurrentVertIdx);
+        // 이웃들 확인 (캐시에서 조회)
+        const TArray<uint32>* NeighborsPtr = CachedFullAdjacencyMap.Find(CurrentVertIdx);
         if (!NeighborsPtr)
         {
             continue;
@@ -2471,7 +2504,7 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
         }
     }
 
-    // ===== Step 4: ExtendedSmoothing* 배열 구축 =====
+    // ===== Step 3: ExtendedSmoothing* 배열 구축 =====
     const int32 NumExtended = HopDistanceMap.Num();
     RingData.ExtendedSmoothingIndices.Reset(NumExtended);
     RingData.ExtendedHopDistances.Reset(NumExtended);
@@ -2528,8 +2561,8 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
         RingData.ExtendedInfluences.Add(FMath::Clamp(Influence, 0.0f, 1.0f));
     }
 
-    // ===== Step 5: 확장된 영역의 Laplacian 인접 데이터 구축 =====
-    BuildExtendedLaplacianAdjacency(RingData, FullAdjacencyMap);
+    // ===== Step 4: 확장된 영역의 Laplacian 인접 데이터 구축 (캐시 사용) =====
+    BuildExtendedLaplacianAdjacency(RingData, CachedFullAdjacencyMap);
 
     // ===== Step 6: 기존 HopBasedInfluences도 업데이트 (기존 Affected 영역용) =====
     // 이건 기존 코드와의 호환성을 위해 유지
