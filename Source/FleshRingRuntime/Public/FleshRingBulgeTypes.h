@@ -5,6 +5,9 @@
 #include "CoreMinimal.h"
 #include "Math/Vector.h"
 
+// Forward declaration for Spatial Hash
+class FVertexSpatialHash;
+
 // ============================================================================
 // EBulgeDirection - Bulge 방향 모드
 // ============================================================================
@@ -175,8 +178,17 @@ class IBulgeRegionProvider
 public:
 	virtual ~IBulgeRegionProvider() = default;
 
+	/**
+	 * Bulge 영역 버텍스 계산
+	 * @param AllVertexPositions - 모든 메시 버텍스 위치 (Component Space)
+	 * @param SpatialHash - Spatial Hash (O(1) 쿼리, nullptr이면 브루트포스)
+	 * @param OutBulgeVertexIndices - 출력: Bulge 영향받는 버텍스 인덱스
+	 * @param OutBulgeInfluences - 출력: 각 버텍스의 Bulge 영향도
+	 * @param OutBulgeDirections - 출력: Bulge 방향 (GPU에서 계산 시 비어있음)
+	 */
 	virtual void CalculateBulgeRegion(
 		const TArrayView<const FVector3f>& AllVertexPositions,
+		const FVertexSpatialHash* SpatialHash,
 		TArray<uint32>& OutBulgeVertexIndices,
 		TArray<float>& OutBulgeInfluences,
 		TArray<FVector3f>& OutBulgeDirections

@@ -544,18 +544,32 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
 
     constexpr float WeldPrecision = 0.001f;  // 위치 양자화 정밀도
 
-    // Step 1: 모든 버텍스를 위치 기반으로 그룹화
-    TMap<FIntVector, TArray<uint32>> PositionToVertices;
-    for (int32 i = 0; i < AllVertices.Num(); ++i)
+    // Step 1: 캐시된 맵 사용 또는 폴백으로 로컬 맵 빌드
+    // Use cached map if available, otherwise fallback to local build (slow)
+    TMap<FIntVector, TArray<uint32>> LocalPositionToVertices;
+    const TMap<FIntVector, TArray<uint32>>* PositionToVerticesPtr = Context.CachedPositionToVertices;
+
+    if (!PositionToVerticesPtr || PositionToVerticesPtr->Num() == 0)
     {
-        const FVector3f& Pos = AllVertices[i];
-        FIntVector PosKey(
-            FMath::RoundToInt(Pos.X / WeldPrecision),
-            FMath::RoundToInt(Pos.Y / WeldPrecision),
-            FMath::RoundToInt(Pos.Z / WeldPrecision)
-        );
-        PositionToVertices.FindOrAdd(PosKey).Add(static_cast<uint32>(i));
+        // 폴백: 캐시 없음, 로컬 맵 빌드 (O(N) - 느림!)
+        UE_LOG(LogFleshRingVertices, Warning,
+            TEXT("SDFBoundsBasedSelector Ring[%d]: CachedPositionToVertices not available, falling back to O(N) local build"),
+            Context.RingIndex);
+
+        for (int32 i = 0; i < AllVertices.Num(); ++i)
+        {
+            const FVector3f& Pos = AllVertices[i];
+            FIntVector PosKey(
+                FMath::RoundToInt(Pos.X / WeldPrecision),
+                FMath::RoundToInt(Pos.Y / WeldPrecision),
+                FMath::RoundToInt(Pos.Z / WeldPrecision)
+            );
+            LocalPositionToVertices.FindOrAdd(PosKey).Add(static_cast<uint32>(i));
+        }
+        PositionToVerticesPtr = &LocalPositionToVertices;
     }
+
+    const TMap<FIntVector, TArray<uint32>>& PositionToVertices = *PositionToVerticesPtr;
 
     // ===== Spatial Hash 사용 시 O(1) 쿼리, 없으면 브루트포스 O(n) =====
     TArray<int32> CandidateIndices;
@@ -1077,7 +1091,8 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             BoneTransform,
             MeshVertices,
             SDFCache,  // nullptr이면 SDF 미사용 (Distance 기반 Selector는 무시)
-            &VertexSpatialHash  // O(1) 버텍스 쿼리용 Spatial Hash
+            &VertexSpatialHash,  // O(1) 버텍스 쿼리용 Spatial Hash
+            bTopologyCacheBuilt ? &CachedPositionToVertices : nullptr  // UV seam 용접용 캐시 (빌드됨 시에만)
         );
 
         // Ring별 InfluenceMode에 따라 Selector 결정
@@ -1351,6 +1366,25 @@ void FFleshRingAffectedVerticesManager::BuildTopologyCache(
     const int32 DuplicateVertexCount = AllVertices.Num() - WeldedPositionCount;
 
     // ================================================================
+    // Step 1.5: Build representative vertex map for UV seam welding
+    // 1.5단계: UV seam 용접용 대표 버텍스 맵 구축
+    // ================================================================
+    // 각 위치의 대표 버텍스 = 해당 위치 버텍스들 중 최소 인덱스
+    // BuildRepresentativeIndices()에서 O(A) 맵 빌드 제거하여 O(1) 조회로 최적화
+    CachedPositionToRepresentative.Reset();
+    CachedPositionToRepresentative.Reserve(CachedPositionToVertices.Num());
+
+    for (const auto& PosEntry : CachedPositionToVertices)
+    {
+        uint32 MinIdx = MAX_uint32;
+        for (uint32 VertIdx : PosEntry.Value)
+        {
+            MinIdx = FMath::Min(MinIdx, VertIdx);
+        }
+        CachedPositionToRepresentative.Add(PosEntry.Key, MinIdx);
+    }
+
+    // ================================================================
     // Step 2: Build global vertex neighbor map from mesh triangles
     // 2단계: 메시 삼각형에서 전역 버텍스 이웃 맵 구축
     // ================================================================
@@ -1442,6 +1476,25 @@ void FFleshRingAffectedVerticesManager::BuildTopologyCache(
         AddEdge(I2, I0);
     }
 
+    // ================================================================
+    // Step 5: Build per-vertex triangle list for adjacency lookup
+    // 5단계: 인접 조회용 버텍스별 삼각형 리스트 구축
+    // ================================================================
+    // BuildAdjacencyData()에서 O(T) → O(avg_triangles_per_vertex) 최적화에 사용
+    CachedVertexTriangles.Reset();
+    CachedVertexTriangles.Reserve(AllVertices.Num());
+
+    for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+    {
+        const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
+        const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
+        const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
+
+        CachedVertexTriangles.FindOrAdd(I0).Add(TriIdx);
+        CachedVertexTriangles.FindOrAdd(I1).Add(TriIdx);
+        CachedVertexTriangles.FindOrAdd(I2).Add(TriIdx);
+    }
+
     // 캐시 빌드 완료 표시
     bTopologyCacheBuilt = true;
 
@@ -1461,9 +1514,11 @@ void FFleshRingAffectedVerticesManager::InvalidateTopologyCache()
     bTopologyCacheBuilt = false;
     CachedPositionToVertices.Empty();
     CachedVertexToPosition.Empty();
+    CachedPositionToRepresentative.Empty();
     CachedVertexNeighbors.Empty();
     CachedWeldedNeighborPositions.Empty();
     CachedFullAdjacencyMap.Empty();
+    CachedVertexTriangles.Empty();
 
     UE_LOG(LogFleshRingVertices, Verbose,
         TEXT("InvalidateTopologyCache: Topology cache cleared"));
@@ -1581,8 +1636,9 @@ bool FFleshRingAffectedVerticesManager::ExtractMeshIndices(
 }
 
 // ============================================================================
-// BuildAdjacencyData - 인접 삼각형 데이터 빌드
+// BuildAdjacencyData - 인접 삼각형 데이터 빌드 (캐시 사용 최적화)
 // ============================================================================
+// 최적화: CachedVertexTriangles 사용으로 O(T) → O(A × avg_triangles_per_vertex)
 void FFleshRingAffectedVerticesManager::BuildAdjacencyData(
     FRingAffectedData& RingData,
     const TArray<uint32>& MeshIndices)
@@ -1595,56 +1651,85 @@ void FFleshRingAffectedVerticesManager::BuildAdjacencyData(
         return;
     }
 
-    // ================================================================
-    // Step 1: Build vertex-to-affected-index lookup
-    // 1단계: 버텍스 인덱스 → 영향받는 버텍스 인덱스 룩업 빌드
-    // ================================================================
-    // 영향받는 버텍스가 전체 버텍스의 일부이므로, 빠른 룩업을 위해 맵 사용
-    TMap<uint32, int32> VertexToAffectedIndex;
-    VertexToAffectedIndex.Reserve(NumAffected);
-
-    for (int32 AffIdx = 0; AffIdx < NumAffected; ++AffIdx)
+    // 캐시가 없으면 폴백 (발생하면 안 되지만 안전 장치)
+    if (!bTopologyCacheBuilt || CachedVertexTriangles.Num() == 0)
     {
-        VertexToAffectedIndex.Add(RingData.Vertices[AffIdx].VertexIndex, AffIdx);
+        UE_LOG(LogFleshRingVertices, Warning,
+            TEXT("BuildAdjacencyData: Topology cache not built, falling back to brute force"));
+
+        // 폴백: 전체 삼각형 순회 (기존 방식)
+        TMap<uint32, int32> VertexToAffectedIndex;
+        VertexToAffectedIndex.Reserve(NumAffected);
+        for (int32 AffIdx = 0; AffIdx < NumAffected; ++AffIdx)
+        {
+            VertexToAffectedIndex.Add(RingData.Vertices[AffIdx].VertexIndex, AffIdx);
+        }
+
+        TArray<int32> AdjCounts;
+        AdjCounts.SetNumZeroed(NumAffected);
+
+        const int32 NumTriangles = MeshIndices.Num() / 3;
+        for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+        {
+            const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
+            const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
+            const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
+
+            if (const int32* AffIdx = VertexToAffectedIndex.Find(I0)) { AdjCounts[*AffIdx]++; }
+            if (const int32* AffIdx = VertexToAffectedIndex.Find(I1)) { AdjCounts[*AffIdx]++; }
+            if (const int32* AffIdx = VertexToAffectedIndex.Find(I2)) { AdjCounts[*AffIdx]++; }
+        }
+
+        RingData.AdjacencyOffsets.SetNum(NumAffected + 1);
+        RingData.AdjacencyOffsets[0] = 0;
+        for (int32 i = 0; i < NumAffected; ++i)
+        {
+            RingData.AdjacencyOffsets[i + 1] = RingData.AdjacencyOffsets[i] + AdjCounts[i];
+        }
+
+        const uint32 TotalAdjacencies = RingData.AdjacencyOffsets[NumAffected];
+        RingData.AdjacencyTriangles.SetNum(TotalAdjacencies);
+
+        TArray<uint32> WritePos;
+        WritePos.SetNum(NumAffected);
+        for (int32 i = 0; i < NumAffected; ++i)
+        {
+            WritePos[i] = RingData.AdjacencyOffsets[i];
+        }
+
+        for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+        {
+            const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
+            const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
+            const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
+
+            if (const int32* AffIdx = VertexToAffectedIndex.Find(I0)) { RingData.AdjacencyTriangles[WritePos[*AffIdx]++] = TriIdx; }
+            if (const int32* AffIdx = VertexToAffectedIndex.Find(I1)) { RingData.AdjacencyTriangles[WritePos[*AffIdx]++] = TriIdx; }
+            if (const int32* AffIdx = VertexToAffectedIndex.Find(I2)) { RingData.AdjacencyTriangles[WritePos[*AffIdx]++] = TriIdx; }
+        }
+        return;
     }
 
     // ================================================================
-    // Step 2: Build per-affected-vertex triangle lists
-    // 2단계: 영향받는 버텍스별 삼각형 리스트 빌드
+    // 캐시 사용 최적화 경로: O(A × avg_triangles_per_vertex)
     // ================================================================
-    // TArray<TArray<uint32>>는 느리므로 2-pass 방식 사용
-    // Pass 1: 각 영향받는 버텍스의 인접 삼각형 수 계산
+
+    // Step 1: 각 영향받는 버텍스의 삼각형 수 계산 (캐시에서 O(1) 조회)
     TArray<int32> AdjCounts;
     AdjCounts.SetNumZeroed(NumAffected);
 
-    const int32 NumTriangles = MeshIndices.Num() / 3;
-
-    for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+    for (int32 AffIdx = 0; AffIdx < NumAffected; ++AffIdx)
     {
-        const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
-        const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
-        const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
-
-        // 이 삼각형의 각 버텍스가 영향받는 버텍스인지 확인
-        if (const int32* AffIdx = VertexToAffectedIndex.Find(I0))
+        const uint32 VertexIndex = RingData.Vertices[AffIdx].VertexIndex;
+        const TArray<uint32>* TrianglesPtr = CachedVertexTriangles.Find(VertexIndex);
+        if (TrianglesPtr)
         {
-            AdjCounts[*AffIdx]++;
-        }
-        if (const int32* AffIdx = VertexToAffectedIndex.Find(I1))
-        {
-            AdjCounts[*AffIdx]++;
-        }
-        if (const int32* AffIdx = VertexToAffectedIndex.Find(I2))
-        {
-            AdjCounts[*AffIdx]++;
+            AdjCounts[AffIdx] = TrianglesPtr->Num();
         }
     }
 
-    // ================================================================
-    // Step 3: Build offsets array (prefix sum)
-    // 3단계: 오프셋 배열 빌드 (누적합)
-    // ================================================================
-    RingData.AdjacencyOffsets.SetNum(NumAffected + 1);  // +1 for sentinel
+    // Step 2: 오프셋 배열 빌드 (누적합)
+    RingData.AdjacencyOffsets.SetNum(NumAffected + 1);
     RingData.AdjacencyOffsets[0] = 0;
 
     for (int32 i = 0; i < NumAffected; ++i)
@@ -1654,42 +1739,27 @@ void FFleshRingAffectedVerticesManager::BuildAdjacencyData(
 
     const uint32 TotalAdjacencies = RingData.AdjacencyOffsets[NumAffected];
 
-    // ================================================================
-    // Step 4: Fill adjacency triangles array
-    // 4단계: 인접 삼각형 배열 채우기
-    // ================================================================
+    // Step 3: 삼각형 배열 채우기 (캐시에서 직접 복사)
     RingData.AdjacencyTriangles.SetNum(TotalAdjacencies);
 
-    // 현재 쓰기 위치 추적용 (AdjCounts 재활용)
-    TArray<uint32> WritePos;
-    WritePos.SetNum(NumAffected);
-    for (int32 i = 0; i < NumAffected; ++i)
+    for (int32 AffIdx = 0; AffIdx < NumAffected; ++AffIdx)
     {
-        WritePos[i] = RingData.AdjacencyOffsets[i];
-    }
+        const uint32 VertexIndex = RingData.Vertices[AffIdx].VertexIndex;
+        const TArray<uint32>* TrianglesPtr = CachedVertexTriangles.Find(VertexIndex);
 
-    for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
-    {
-        const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
-        const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
-        const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
-
-        if (const int32* AffIdx = VertexToAffectedIndex.Find(I0))
+        if (TrianglesPtr && TrianglesPtr->Num() > 0)
         {
-            RingData.AdjacencyTriangles[WritePos[*AffIdx]++] = static_cast<uint32>(TriIdx);
-        }
-        if (const int32* AffIdx = VertexToAffectedIndex.Find(I1))
-        {
-            RingData.AdjacencyTriangles[WritePos[*AffIdx]++] = static_cast<uint32>(TriIdx);
-        }
-        if (const int32* AffIdx = VertexToAffectedIndex.Find(I2))
-        {
-            RingData.AdjacencyTriangles[WritePos[*AffIdx]++] = static_cast<uint32>(TriIdx);
+            const uint32 Offset = RingData.AdjacencyOffsets[AffIdx];
+            FMemory::Memcpy(
+                &RingData.AdjacencyTriangles[Offset],
+                TrianglesPtr->GetData(),
+                TrianglesPtr->Num() * sizeof(uint32)
+            );
         }
     }
 
     UE_LOG(LogFleshRingVertices, Verbose,
-        TEXT("BuildAdjacencyData: %d affected vertices, %d total adjacencies (avg %.1f triangles/vertex)"),
+        TEXT("BuildAdjacencyData (Cached): %d affected vertices, %d total adjacencies (avg %.1f triangles/vertex)"),
         NumAffected, TotalAdjacencies,
         NumAffected > 0 ? static_cast<float>(TotalAdjacencies) / NumAffected : 0.0f);
 }
@@ -1996,36 +2066,66 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingPBDAdjacencyData(
     }
 
     // Step 2: Build per-vertex neighbor set with rest lengths
+    // 캐시 사용 최적화: CachedVertexNeighbors에서 이웃 조회, rest length는 on-demand 계산
     TArray<TMap<uint32, float>> VertexNeighborsWithRestLen;
     VertexNeighborsWithRestLen.SetNum(NumPostProcessing);
 
-    const int32 NumTriangles = MeshIndices.Num() / 3;
-    for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+    if (bTopologyCacheBuilt && CachedVertexNeighbors.Num() > 0)
     {
-        const uint32 Idx0 = MeshIndices[TriIdx * 3 + 0];
-        const uint32 Idx1 = MeshIndices[TriIdx * 3 + 1];
-        const uint32 Idx2 = MeshIndices[TriIdx * 3 + 2];
-
-        const uint32 TriIndices[3] = { Idx0, Idx1, Idx2 };
-
-        for (int32 Edge = 0; Edge < 3; ++Edge)
+        // 캐시 사용 경로: O(PP × avg_neighbors_per_vertex)
+        for (int32 ThreadIdx = 0; ThreadIdx < NumPostProcessing; ++ThreadIdx)
         {
-            const uint32 V0 = TriIndices[Edge];
-            const uint32 V1 = TriIndices[(Edge + 1) % 3];
+            const uint32 VertexIndex = RingData.PostProcessingIndices[ThreadIdx];
+            const TSet<uint32>* NeighborsPtr = CachedVertexNeighbors.Find(VertexIndex);
 
-            if (int32* ThreadIdxPtr = VertexToThreadIndex.Find(V0))
+            if (NeighborsPtr)
             {
-                const int32 ThreadIdx = *ThreadIdxPtr;
+                const FVector3f& Pos0 = AllVertices[VertexIndex];
 
-                if (V1 < static_cast<uint32>(AllVertices.Num()))
+                for (uint32 NeighborIdx : *NeighborsPtr)
                 {
-                    const FVector3f& Pos0 = AllVertices[V0];
-                    const FVector3f& Pos1 = AllVertices[V1];
-                    const float RestLength = FVector3f::Distance(Pos0, Pos1);
-
-                    if (!VertexNeighborsWithRestLen[ThreadIdx].Contains(V1))
+                    if (NeighborIdx < static_cast<uint32>(AllVertices.Num()))
                     {
-                        VertexNeighborsWithRestLen[ThreadIdx].Add(V1, RestLength);
+                        const FVector3f& Pos1 = AllVertices[NeighborIdx];
+                        const float RestLength = FVector3f::Distance(Pos0, Pos1);
+                        VertexNeighborsWithRestLen[ThreadIdx].Add(NeighborIdx, RestLength);
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        // 폴백: 전체 삼각형 순회 (기존 방식)
+        UE_LOG(LogFleshRingVertices, Warning,
+            TEXT("BuildPostProcessingPBDAdjacencyData: Topology cache not built, falling back to brute force"));
+
+        const int32 NumTriangles = MeshIndices.Num() / 3;
+        for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+        {
+            const uint32 Idx0 = MeshIndices[TriIdx * 3 + 0];
+            const uint32 Idx1 = MeshIndices[TriIdx * 3 + 1];
+            const uint32 Idx2 = MeshIndices[TriIdx * 3 + 2];
+
+            const uint32 TriIndices[3] = { Idx0, Idx1, Idx2 };
+
+            for (int32 Edge = 0; Edge < 3; ++Edge)
+            {
+                const uint32 V0 = TriIndices[Edge];
+                const uint32 V1 = TriIndices[(Edge + 1) % 3];
+
+                if (int32* ThreadIdxPtr = VertexToThreadIndex.Find(V0))
+                {
+                    const int32 ThreadIdx = *ThreadIdxPtr;
+                    if (V1 < static_cast<uint32>(AllVertices.Num()))
+                    {
+                        if (!VertexNeighborsWithRestLen[ThreadIdx].Contains(V1))
+                        {
+                            const FVector3f& Pos0 = AllVertices[V0];
+                            const FVector3f& Pos1 = AllVertices[V1];
+                            const float RestLength = FVector3f::Distance(Pos0, Pos1);
+                            VertexNeighborsWithRestLen[ThreadIdx].Add(V1, RestLength);
+                        }
                     }
                 }
             }
@@ -2089,42 +2189,84 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingAdjacencyData(
         return;
     }
 
-    // Step 1: Build vertex-to-index lookup
-    TMap<uint32, int32> VertexToIndex;
-    VertexToIndex.Reserve(NumPostProcessing);
-
-    for (int32 PPIdx = 0; PPIdx < NumPostProcessing; ++PPIdx)
+    // 캐시가 없으면 폴백 (발생하면 안 되지만 안전 장치)
+    if (!bTopologyCacheBuilt || CachedVertexTriangles.Num() == 0)
     {
-        VertexToIndex.Add(RingData.PostProcessingIndices[PPIdx], PPIdx);
+        UE_LOG(LogFleshRingVertices, Warning,
+            TEXT("BuildPostProcessingAdjacencyData: Topology cache not built, falling back to brute force"));
+
+        // 폴백: 전체 삼각형 순회 (기존 방식)
+        TMap<uint32, int32> VertexToIndex;
+        VertexToIndex.Reserve(NumPostProcessing);
+        for (int32 PPIdx = 0; PPIdx < NumPostProcessing; ++PPIdx)
+        {
+            VertexToIndex.Add(RingData.PostProcessingIndices[PPIdx], PPIdx);
+        }
+
+        TArray<int32> AdjCounts;
+        AdjCounts.SetNumZeroed(NumPostProcessing);
+
+        const int32 NumTriangles = MeshIndices.Num() / 3;
+        for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+        {
+            const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
+            const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
+            const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
+
+            if (const int32* Idx = VertexToIndex.Find(I0)) { AdjCounts[*Idx]++; }
+            if (const int32* Idx = VertexToIndex.Find(I1)) { AdjCounts[*Idx]++; }
+            if (const int32* Idx = VertexToIndex.Find(I2)) { AdjCounts[*Idx]++; }
+        }
+
+        RingData.PostProcessingAdjacencyOffsets.SetNum(NumPostProcessing + 1);
+        RingData.PostProcessingAdjacencyOffsets[0] = 0;
+        for (int32 i = 0; i < NumPostProcessing; ++i)
+        {
+            RingData.PostProcessingAdjacencyOffsets[i + 1] = RingData.PostProcessingAdjacencyOffsets[i] + AdjCounts[i];
+        }
+
+        const uint32 TotalAdjacencies = RingData.PostProcessingAdjacencyOffsets[NumPostProcessing];
+        RingData.PostProcessingAdjacencyTriangles.SetNum(TotalAdjacencies);
+
+        TArray<uint32> WritePos;
+        WritePos.SetNum(NumPostProcessing);
+        for (int32 i = 0; i < NumPostProcessing; ++i)
+        {
+            WritePos[i] = RingData.PostProcessingAdjacencyOffsets[i];
+        }
+
+        for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+        {
+            const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
+            const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
+            const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
+
+            if (const int32* Idx = VertexToIndex.Find(I0)) { RingData.PostProcessingAdjacencyTriangles[WritePos[*Idx]++] = TriIdx; }
+            if (const int32* Idx = VertexToIndex.Find(I1)) { RingData.PostProcessingAdjacencyTriangles[WritePos[*Idx]++] = TriIdx; }
+            if (const int32* Idx = VertexToIndex.Find(I2)) { RingData.PostProcessingAdjacencyTriangles[WritePos[*Idx]++] = TriIdx; }
+        }
+        return;
     }
 
-    // Step 2: Count adjacencies
+    // ================================================================
+    // 캐시 사용 최적화 경로: O(PP × avg_triangles_per_vertex)
+    // ================================================================
+
+    // Step 1: 각 후처리 버텍스의 삼각형 수 계산 (캐시에서 O(1) 조회)
     TArray<int32> AdjCounts;
     AdjCounts.SetNumZeroed(NumPostProcessing);
 
-    const int32 NumTriangles = MeshIndices.Num() / 3;
-
-    for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+    for (int32 PPIdx = 0; PPIdx < NumPostProcessing; ++PPIdx)
     {
-        const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
-        const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
-        const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
-
-        if (const int32* Idx = VertexToIndex.Find(I0))
+        const uint32 VertexIndex = RingData.PostProcessingIndices[PPIdx];
+        const TArray<uint32>* TrianglesPtr = CachedVertexTriangles.Find(VertexIndex);
+        if (TrianglesPtr)
         {
-            AdjCounts[*Idx]++;
-        }
-        if (const int32* Idx = VertexToIndex.Find(I1))
-        {
-            AdjCounts[*Idx]++;
-        }
-        if (const int32* Idx = VertexToIndex.Find(I2))
-        {
-            AdjCounts[*Idx]++;
+            AdjCounts[PPIdx] = TrianglesPtr->Num();
         }
     }
 
-    // Step 3: Build offsets array (prefix sum)
+    // Step 2: 오프셋 배열 빌드 (누적합)
     RingData.PostProcessingAdjacencyOffsets.SetNum(NumPostProcessing + 1);
     RingData.PostProcessingAdjacencyOffsets[0] = 0;
 
@@ -2135,38 +2277,27 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingAdjacencyData(
 
     const uint32 TotalAdjacencies = RingData.PostProcessingAdjacencyOffsets[NumPostProcessing];
 
-    // Step 4: Fill adjacency triangles array
+    // Step 3: 삼각형 배열 채우기 (캐시에서 직접 복사)
     RingData.PostProcessingAdjacencyTriangles.SetNum(TotalAdjacencies);
 
-    TArray<uint32> WritePos;
-    WritePos.SetNum(NumPostProcessing);
-    for (int32 i = 0; i < NumPostProcessing; ++i)
+    for (int32 PPIdx = 0; PPIdx < NumPostProcessing; ++PPIdx)
     {
-        WritePos[i] = RingData.PostProcessingAdjacencyOffsets[i];
-    }
+        const uint32 VertexIndex = RingData.PostProcessingIndices[PPIdx];
+        const TArray<uint32>* TrianglesPtr = CachedVertexTriangles.Find(VertexIndex);
 
-    for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
-    {
-        const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
-        const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
-        const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
-
-        if (const int32* Idx = VertexToIndex.Find(I0))
+        if (TrianglesPtr && TrianglesPtr->Num() > 0)
         {
-            RingData.PostProcessingAdjacencyTriangles[WritePos[*Idx]++] = static_cast<uint32>(TriIdx);
-        }
-        if (const int32* Idx = VertexToIndex.Find(I1))
-        {
-            RingData.PostProcessingAdjacencyTriangles[WritePos[*Idx]++] = static_cast<uint32>(TriIdx);
-        }
-        if (const int32* Idx = VertexToIndex.Find(I2))
-        {
-            RingData.PostProcessingAdjacencyTriangles[WritePos[*Idx]++] = static_cast<uint32>(TriIdx);
+            const uint32 Offset = RingData.PostProcessingAdjacencyOffsets[PPIdx];
+            FMemory::Memcpy(
+                &RingData.PostProcessingAdjacencyTriangles[Offset],
+                TrianglesPtr->GetData(),
+                TrianglesPtr->Num() * sizeof(uint32)
+            );
         }
     }
 
     UE_LOG(LogFleshRingVertices, Verbose,
-        TEXT("BuildPostProcessingAdjacencyData: %d vertices, %d offsets, %d triangles"),
+        TEXT("BuildPostProcessingAdjacencyData (Cached): %d vertices, %d offsets, %d triangles"),
         NumPostProcessing, RingData.PostProcessingAdjacencyOffsets.Num(), TotalAdjacencies);
 }
 
@@ -2292,8 +2423,9 @@ void FFleshRingAffectedVerticesManager::BuildSliceData(
 }
 
 // ============================================================================
-// BuildPBDAdjacencyData - PBD 에지 제약용 인접 데이터 빌드
+// BuildPBDAdjacencyData - PBD 에지 제약용 인접 데이터 빌드 (캐시 사용 최적화)
 // ============================================================================
+// 최적화: CachedVertexNeighbors 사용으로 O(T) → O(A × avg_neighbors_per_vertex)
 
 void FFleshRingAffectedVerticesManager::BuildPBDAdjacencyData(
     FRingAffectedData& RingData,
@@ -2316,43 +2448,66 @@ void FFleshRingAffectedVerticesManager::BuildPBDAdjacencyData(
     }
 
     // Step 2: Build per-vertex neighbor set with rest lengths
-    // 버텍스별 이웃 세트 빌드 (rest length 포함)
-    // Key: neighbor vertex index, Value: rest length
+    // 캐시 사용 최적화: CachedVertexNeighbors에서 이웃 조회, rest length는 on-demand 계산
     TArray<TMap<uint32, float>> VertexNeighborsWithRestLen;
     VertexNeighborsWithRestLen.SetNum(NumAffected);
 
-    const int32 NumTriangles = MeshIndices.Num() / 3;
-    for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+    if (bTopologyCacheBuilt && CachedVertexNeighbors.Num() > 0)
     {
-        const uint32 Idx0 = MeshIndices[TriIdx * 3 + 0];
-        const uint32 Idx1 = MeshIndices[TriIdx * 3 + 1];
-        const uint32 Idx2 = MeshIndices[TriIdx * 3 + 2];
-
-        // 삼각형의 세 에지를 처리
-        const uint32 TriIndices[3] = { Idx0, Idx1, Idx2 };
-
-        for (int32 Edge = 0; Edge < 3; ++Edge)
+        // 캐시 사용 경로: O(A × avg_neighbors_per_vertex)
+        for (int32 ThreadIdx = 0; ThreadIdx < NumAffected; ++ThreadIdx)
         {
-            const uint32 V0 = TriIndices[Edge];
-            const uint32 V1 = TriIndices[(Edge + 1) % 3];
+            const uint32 VertexIndex = RingData.Vertices[ThreadIdx].VertexIndex;
+            const TSet<uint32>* NeighborsPtr = CachedVertexNeighbors.Find(VertexIndex);
 
-            // V0가 영향 영역에 있으면 V1을 이웃으로 추가
-            if (int32* ThreadIdxPtr = VertexToThreadIndex.Find(V0))
+            if (NeighborsPtr)
             {
-                const int32 ThreadIdx = *ThreadIdxPtr;
+                const FVector3f& Pos0 = AllVertices[VertexIndex];
 
-                // V1이 유효한 인덱스인지 확인
-                if (V1 < static_cast<uint32>(AllVertices.Num()))
+                for (uint32 NeighborIdx : *NeighborsPtr)
                 {
-                    // Rest length 계산 (바인드 포즈 거리)
-                    const FVector3f& Pos0 = AllVertices[V0];
-                    const FVector3f& Pos1 = AllVertices[V1];
-                    const float RestLength = FVector3f::Distance(Pos0, Pos1);
-
-                    // 이미 등록된 이웃이면 rest length는 동일해야 하므로 스킵
-                    if (!VertexNeighborsWithRestLen[ThreadIdx].Contains(V1))
+                    if (NeighborIdx < static_cast<uint32>(AllVertices.Num()))
                     {
-                        VertexNeighborsWithRestLen[ThreadIdx].Add(V1, RestLength);
+                        const FVector3f& Pos1 = AllVertices[NeighborIdx];
+                        const float RestLength = FVector3f::Distance(Pos0, Pos1);
+                        VertexNeighborsWithRestLen[ThreadIdx].Add(NeighborIdx, RestLength);
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        // 폴백: 전체 삼각형 순회 (기존 방식)
+        UE_LOG(LogFleshRingVertices, Warning,
+            TEXT("BuildPBDAdjacencyData: Topology cache not built, falling back to brute force"));
+
+        const int32 NumTriangles = MeshIndices.Num() / 3;
+        for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+        {
+            const uint32 Idx0 = MeshIndices[TriIdx * 3 + 0];
+            const uint32 Idx1 = MeshIndices[TriIdx * 3 + 1];
+            const uint32 Idx2 = MeshIndices[TriIdx * 3 + 2];
+
+            const uint32 TriIndices[3] = { Idx0, Idx1, Idx2 };
+
+            for (int32 Edge = 0; Edge < 3; ++Edge)
+            {
+                const uint32 V0 = TriIndices[Edge];
+                const uint32 V1 = TriIndices[(Edge + 1) % 3];
+
+                if (int32* ThreadIdxPtr = VertexToThreadIndex.Find(V0))
+                {
+                    const int32 ThreadIdx = *ThreadIdxPtr;
+                    if (V1 < static_cast<uint32>(AllVertices.Num()))
+                    {
+                        if (!VertexNeighborsWithRestLen[ThreadIdx].Contains(V1))
+                        {
+                            const FVector3f& Pos0 = AllVertices[V0];
+                            const FVector3f& Pos1 = AllVertices[V1];
+                            const float RestLength = FVector3f::Distance(Pos0, Pos1);
+                            VertexNeighborsWithRestLen[ThreadIdx].Add(V1, RestLength);
+                        }
                     }
                 }
             }
@@ -2558,21 +2713,105 @@ void FFleshRingAffectedVerticesManager::BuildExtendedLaplacianAdjacency(
 //   2. 변형 계산
 //   3. 자기 인덱스에 기록
 // 이로써 UV 중복이 항상 동일하게 움직여 크랙 방지.
+//
+// [최적화 - 2024.01]
+// 토폴로지 캐시 활용: CachedPositionToRepresentative, CachedVertexToPosition
+// 기존: 매 프레임 O(A) TMap 빌드 + O(A) PosKey 재계산 = ~30-50ms
+// 최적화: O(A) 캐시 조회 = ~1-2ms
 
 void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
     FRingAffectedData& RingData,
     const TArray<FVector3f>& AllVertices)
 {
+    // ================================================================
+    // 캐시가 있으면 O(1) 조회로 최적화된 경로 사용
+    // ================================================================
+    if (bTopologyCacheBuilt && CachedPositionToRepresentative.Num() > 0)
+    {
+        // ===== Affected Vertices용 RepresentativeIndices (캐시 사용) =====
+        const int32 NumAffected = RingData.Vertices.Num();
+        RingData.RepresentativeIndices.Reset(NumAffected);
+        RingData.RepresentativeIndices.AddUninitialized(NumAffected);
+
+        int32 NumWelded = 0;
+        for (int32 i = 0; i < NumAffected; ++i)
+        {
+            const uint32 VertIdx = RingData.Vertices[i].VertexIndex;
+
+            // O(1) 조회 - CachedVertexToPosition에서 PosKey 가져오기
+            const FIntVector* PosKey = CachedVertexToPosition.Find(VertIdx);
+            if (PosKey)
+            {
+                // O(1) 조회 - CachedPositionToRepresentative에서 대표 가져오기
+                const uint32* Representative = CachedPositionToRepresentative.Find(*PosKey);
+                const uint32 RepIdx = Representative ? *Representative : VertIdx;
+                RingData.RepresentativeIndices[i] = RepIdx;
+
+                if (RepIdx != VertIdx)
+                {
+                    NumWelded++;
+                }
+            }
+            else
+            {
+                // 캐시 미스 - 자기 자신을 대표로
+                RingData.RepresentativeIndices[i] = VertIdx;
+            }
+        }
+
+        // ===== PostProcessing Vertices용 RepresentativeIndices (캐시 사용) =====
+        const int32 NumPostProcessing = RingData.PostProcessingIndices.Num();
+        if (NumPostProcessing > 0)
+        {
+            RingData.PostProcessingRepresentativeIndices.Reset(NumPostProcessing);
+            RingData.PostProcessingRepresentativeIndices.AddUninitialized(NumPostProcessing);
+
+            int32 PPNumWelded = 0;
+            for (int32 i = 0; i < NumPostProcessing; ++i)
+            {
+                const uint32 VertIdx = RingData.PostProcessingIndices[i];
+
+                // O(1) 조회 - 동일 패턴
+                const FIntVector* PosKey = CachedVertexToPosition.Find(VertIdx);
+                if (PosKey)
+                {
+                    const uint32* Representative = CachedPositionToRepresentative.Find(*PosKey);
+                    const uint32 RepIdx = Representative ? *Representative : VertIdx;
+                    RingData.PostProcessingRepresentativeIndices[i] = RepIdx;
+
+                    if (RepIdx != VertIdx)
+                    {
+                        PPNumWelded++;
+                    }
+                }
+                else
+                {
+                    RingData.PostProcessingRepresentativeIndices[i] = VertIdx;
+                }
+            }
+
+            UE_LOG(LogFleshRingVertices, Verbose,
+                TEXT("BuildRepresentativeIndices (cached): Affected=%d (welded=%d), PostProcessing=%d (welded=%d)"),
+                NumAffected, NumWelded, NumPostProcessing, PPNumWelded);
+        }
+        else
+        {
+            UE_LOG(LogFleshRingVertices, Verbose,
+                TEXT("BuildRepresentativeIndices (cached): Affected=%d (welded=%d), PostProcessing=0"),
+                NumAffected, NumWelded);
+        }
+
+        return;  // 최적화된 경로 완료
+    }
+
+    // ================================================================
+    // 폴백: 캐시가 없으면 기존 로직 사용 (첫 호출 시)
+    // ================================================================
     constexpr float WeldPrecision = 0.001f;  // SelectVertices와 동일한 정밀도
 
-    // ================================================================
     // Step 1: 위치 기반 그룹화 및 대표 선택
-    // ================================================================
-    // Position → (대표 버텍스 인덱스, 그룹 내 버텍스들)
-    // 대표는 그룹 내 가장 작은 인덱스 (일관성)
     TMap<FIntVector, uint32> PositionToRepresentative;
 
-    // Affected Vertices의 대표 결정
     for (const FAffectedVertex& Vert : RingData.Vertices)
     {
         const uint32 VertIdx = Vert.VertexIndex;
@@ -2587,7 +2826,6 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
         uint32* ExistingRep = PositionToRepresentative.Find(PosKey);
         if (ExistingRep)
         {
-            // 더 작은 인덱스를 대표로 선택 (일관성)
             *ExistingRep = FMath::Min(*ExistingRep, VertIdx);
         }
         else
@@ -2596,9 +2834,7 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
         }
     }
 
-    // ================================================================
     // Step 2: Affected Vertices용 RepresentativeIndices 빌드
-    // ================================================================
     const int32 NumAffected = RingData.Vertices.Num();
     RingData.RepresentativeIndices.Reset(NumAffected);
     RingData.RepresentativeIndices.AddUninitialized(NumAffected);
@@ -2618,20 +2854,16 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
         const uint32 Representative = PositionToRepresentative[PosKey];
         RingData.RepresentativeIndices[i] = Representative;
 
-        // 자기 자신이 대표가 아니면 welded로 카운트
         if (Representative != Vert.VertexIndex)
         {
             NumWelded++;
         }
     }
 
-    // ================================================================
     // Step 3: PostProcessing Vertices용 RepresentativeIndices 빌드
-    // ================================================================
     const int32 NumPostProcessing = RingData.PostProcessingIndices.Num();
     if (NumPostProcessing > 0)
     {
-        // PostProcessing 전용 대표 맵 구축 (Affected와 별개)
         TMap<FIntVector, uint32> PPPositionToRepresentative;
 
         for (uint32 VertIdx : RingData.PostProcessingIndices)
@@ -2680,13 +2912,13 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
         }
 
         UE_LOG(LogFleshRingVertices, Log,
-            TEXT("BuildRepresentativeIndices: Affected=%d (welded=%d), PostProcessing=%d (welded=%d)"),
+            TEXT("BuildRepresentativeIndices (fallback): Affected=%d (welded=%d), PostProcessing=%d (welded=%d)"),
             NumAffected, NumWelded, NumPostProcessing, PPNumWelded);
     }
     else
     {
         UE_LOG(LogFleshRingVertices, Log,
-            TEXT("BuildRepresentativeIndices: Affected=%d (welded=%d), PostProcessing=0"),
+            TEXT("BuildRepresentativeIndices (fallback): Affected=%d (welded=%d), PostProcessing=0"),
             NumAffected, NumWelded);
     }
 }

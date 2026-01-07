@@ -1,6 +1,7 @@
 ﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "FleshRingBulgeProviders.h"
+#include "FleshRingAffectedVertices.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogFleshRingBulge, Log, All);
 
@@ -20,6 +21,7 @@ void FSDFBulgeProvider::InitFromSDFCache(
 
 void FSDFBulgeProvider::CalculateBulgeRegion(
 	const TArrayView<const FVector3f>& AllVertexPositions,
+	const FVertexSpatialHash* SpatialHash,
 	TArray<uint32>& OutBulgeVertexIndices,
 	TArray<float>& OutBulgeInfluences,
 	TArray<FVector3f>& OutBulgeDirections) const
@@ -53,21 +55,46 @@ void FSDFBulgeProvider::CalculateBulgeRegion(
 	const float AxialLimit = BulgeStartDist + RingWidth * 0.5f * AxialRange;
 	const float RadialLimit = RingRadius * RadialRange;
 
-	//const float AxialLimit = RingWidth * 0.5f * AxialRange;   // 위아래 최대 범위
-	//const float RadialLimit = RingRadius * RadialRange;       // 옆 최대 범위
+	// ================================================================
+	// Spatial Hash 최적화: 전체 버텍스 대신 후보만 쿼리
+	// ================================================================
+	TArray<int32> CandidateIndices;
+	const int32 TotalVertexCount = AllVertexPositions.Num();
+
+	if (SpatialHash && SpatialHash->IsBuilt())
+	{
+		// Spatial Hash 쿼리로 후보만 추출 - O(1)
+		FVector ExpandedLocalMin, ExpandedLocalMax;
+		CalculateExpandedBulgeAABB(ExpandedLocalMin, ExpandedLocalMax);
+		SpatialHash->QueryOBB(LocalToComponent, ExpandedLocalMin, ExpandedLocalMax, CandidateIndices);
+
+		UE_LOG(LogFleshRingBulge, Verbose, TEXT("Bulge SpatialHash: %d 후보 (전체 %d 중, %.1f%%)"),
+			CandidateIndices.Num(), TotalVertexCount,
+			TotalVertexCount > 0 ? (100.0f * CandidateIndices.Num() / TotalVertexCount) : 0.0f);
+	}
+	else
+	{
+		// 폴백: 전체 버텍스 (기존 브루트포스 동작)
+		CandidateIndices.Reserve(TotalVertexCount);
+		for (int32 i = 0; i < TotalVertexCount; ++i)
+		{
+			CandidateIndices.Add(i);
+		}
+		UE_LOG(LogFleshRingBulge, Verbose, TEXT("Bulge 브루트포스: SpatialHash 없음, 전체 %d 버텍스 순회"), TotalVertexCount);
+	}
 
 	// 비균등 스케일 + 회전 조합에서 InverseTransformPosition 사용 필수!
 	// Inverse().TransformPosition()은 스케일과 회전 순서가 잘못됨
-	const int32 NumVertices = AllVertexPositions.Num();
-	OutBulgeVertexIndices.Reserve(NumVertices / 5);
-	OutBulgeInfluences.Reserve(NumVertices / 5);
+	OutBulgeVertexIndices.Reserve(CandidateIndices.Num() / 5);
+	OutBulgeInfluences.Reserve(CandidateIndices.Num() / 5);
 
 	int32 AxialPassCount = 0;
 	int32 RadialPassCount = 0;
 
-	for (int32 i = 0; i < NumVertices; ++i)
+	// 후보에 대해서만 정밀 필터링
+	for (int32 VertexIdx : CandidateIndices)
 	{
-		const FVector3f& VertexPosComponent = AllVertexPositions[i];
+		const FVector3f& VertexPosComponent = AllVertexPositions[VertexIdx];
 		// Component Space → Local Space 변환
 		// InverseTransformPosition: (V - Trans) * Rot^-1 / Scale (올바른 순서)
 		const FVector VertexPosLocalD = LocalToComponent.InverseTransformPosition(FVector(VertexPosComponent));
@@ -119,17 +146,35 @@ void FSDFBulgeProvider::CalculateBulgeRegion(
 
 		if (BulgeInfluence > KINDA_SMALL_NUMBER)
 		{
-			OutBulgeVertexIndices.Add(static_cast<uint32>(i));
+			OutBulgeVertexIndices.Add(static_cast<uint32>(VertexIdx));
 			OutBulgeInfluences.Add(BulgeInfluence);
 		}
 	}
 
-	UE_LOG(LogFleshRingBulge, Verbose, TEXT("Bulge 필터링: Axial통과=%d, Radial통과=%d, 최종=%d/%d (%.1f%%)"),
+	UE_LOG(LogFleshRingBulge, Verbose, TEXT("Bulge 필터링: 후보=%d, Axial통과=%d, Radial통과=%d, 최종=%d (%.1f%%)"),
+		CandidateIndices.Num(),
 		AxialPassCount,
 		RadialPassCount,
 		OutBulgeVertexIndices.Num(),
-		NumVertices,
-		NumVertices > 0 ? (100.0f * OutBulgeVertexIndices.Num() / NumVertices) : 0.0f);
+		CandidateIndices.Num() > 0 ? (100.0f * OutBulgeVertexIndices.Num() / CandidateIndices.Num()) : 0.0f);
+}
+
+void FSDFBulgeProvider::CalculateExpandedBulgeAABB(FVector& OutMin, FVector& OutMax) const
+{
+	const FVector3f BoundsSize = SDFBoundsMax - SDFBoundsMin;
+	const float RingWidth = FMath::Min3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z);
+	const float RingRadius = FMath::Max3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z) * 0.5f;
+
+	// Bulge 영역 확장량 계산
+	const float AxialExpansion = RingWidth * 0.5f * AxialRange;
+	// 동적 RadialLimit 확장 고려 (최대 1.5배)
+	const float RadialExpansion = RingRadius * RadialRange * 1.5f;
+
+	// 로컬 스페이스에서 확장된 AABB
+	// 모든 축에 대해 확장 (Radial + Axial 모두 포함)
+	const float MaxExpansion = FMath::Max(AxialExpansion, RadialExpansion);
+	OutMin = FVector(SDFBoundsMin) - FVector(MaxExpansion);
+	OutMax = FVector(SDFBoundsMax) + FVector(MaxExpansion);
 }
 
 FVector3f FSDFBulgeProvider::DetectRingAxis() const

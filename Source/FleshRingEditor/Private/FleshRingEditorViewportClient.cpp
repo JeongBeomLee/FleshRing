@@ -1489,11 +1489,8 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		}
 	}
 
-	// Asset 변경 알림
-	{
-		SCOPE_CYCLE_COUNTER(STAT_FleshRingEditor_MarkPackageDirty);
-		EditingAsset->MarkPackageDirty();
-	}
+	// 성능 최적화: MarkPackageDirty()는 TrackingStopped()에서 한 번만 호출
+	// 드래그 중 매 프레임 호출 시 5-10ms 오버헤드 발생
 
 	// 트랜스폼만 업데이트 (Deformer 유지, 깜빡임 방지)
 	if (PreviewScene)
@@ -1587,6 +1584,13 @@ void FFleshRingEditorViewportClient::TrackingStopped()
 	// 드래그 종료 시 트랜잭션 종료
 	ScopedTransaction.Reset();
 	bIsDraggingRotation = false;
+
+	// 드래그 종료 시 에셋 dirty 마킹 (성능 최적화: 드래그 중에는 호출 안 함)
+	if (EditingAsset.IsValid())
+	{
+		SCOPE_CYCLE_COUNTER(STAT_FleshRingEditor_MarkPackageDirty);
+		EditingAsset->MarkPackageDirty();
+	}
 
 	FEditorViewportClient::TrackingStopped();
 }

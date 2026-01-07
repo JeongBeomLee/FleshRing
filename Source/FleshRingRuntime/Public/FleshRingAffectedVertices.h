@@ -566,19 +566,30 @@ struct FVertexSelectionContext
     /** Spatial hash for O(1) vertex query */
     const FVertexSpatialHash* SpatialHash;
 
+    // ===== Position-to-Vertices Cache (Optional - nullptr for fallback to local build) =====
+
+    /**
+     * Cached position-to-vertices map for UV seam welding
+     * UV seam 용접용 캐시된 위치-버텍스 맵
+     * nullptr이면 SelectVertices에서 로컬 맵 빌드 (폴백, 느림)
+     */
+    const TMap<FIntVector, TArray<uint32>>* CachedPositionToVertices;
+
     FVertexSelectionContext(
         const FFleshRingSettings& InRingSettings,
         int32 InRingIndex,
         const FTransform& InBoneTransform,
         const TArray<FVector3f>& InAllVertices,
         const FRingSDFCache* InSDFCache = nullptr,
-        const FVertexSpatialHash* InSpatialHash = nullptr)
+        const FVertexSpatialHash* InSpatialHash = nullptr,
+        const TMap<FIntVector, TArray<uint32>>* InCachedPositionToVertices = nullptr)
         : RingSettings(InRingSettings)
         , RingIndex(InRingIndex)
         , BoneTransform(InBoneTransform)
         , AllVertices(InAllVertices)
         , SDFCache(InSDFCache)
         , SpatialHash(InSpatialHash)
+        , CachedPositionToVertices(InCachedPositionToVertices)
     {
     }
 };
@@ -734,6 +745,14 @@ public:
     const TArray<FRingAffectedData>& GetAllRingData() const { return RingDataArray; }
 
     /**
+     * Get the Spatial Hash for O(1) vertex queries
+     * O(1) 버텍스 쿼리용 Spatial Hash 반환
+     * Used by Bulge calculation for performance optimization
+     * Bulge 계산 성능 최적화에 사용
+     */
+    const FVertexSpatialHash& GetSpatialHash() const { return VertexSpatialHash; }
+
+    /**
      * Clear all registered data
      * 모든 등록된 데이터 삭제
      */
@@ -801,6 +820,14 @@ public:
      * 노멀 재계산용 캐시된 메시 인덱스 반환
      */
     const TArray<uint32>& GetCachedMeshIndices() const { return CachedMeshIndices; }
+
+    /**
+     * Get cached position-to-vertices map for UV seam welding
+     * UV seam 용접용 캐시된 위치-버텍스 맵 반환
+     * Used by SDFBoundsBasedSelector to avoid O(N) rebuild every frame
+     * SDFBoundsBasedSelector에서 매 프레임 O(N) 재빌드 방지에 사용
+     */
+    const TMap<FIntVector, TArray<uint32>>& GetCachedPositionToVertices() const { return CachedPositionToVertices; }
 
 private:
     /**
@@ -895,6 +922,22 @@ private:
      * Key: vertex index, Value: neighbor vertex indices
      */
     TMap<uint32, TArray<uint32>> CachedFullAdjacencyMap;
+
+    /**
+     * Per-vertex triangle list for fast adjacency lookup
+     * 빠른 인접 조회용 버텍스별 삼각형 리스트
+     * Key: vertex index, Value: list of triangle indices containing this vertex
+     * BuildAdjacencyData()에서 O(T) → O(avg_triangles_per_vertex) 최적화에 사용
+     */
+    TMap<uint32, TArray<uint32>> CachedVertexTriangles;
+
+    /**
+     * Position → Representative vertex (smallest index at that position)
+     * UV seam 용접용 대표 버텍스 맵
+     * 같은 위치에 있는 버텍스들 중 가장 작은 인덱스가 대표
+     * BuildRepresentativeIndices()에서 O(A) 맵 빌드 → O(1) 캐시 조회로 최적화
+     */
+    TMap<FIntVector, uint32> CachedPositionToRepresentative;
 
     /**
      * Extract vertices from skeletal mesh at specific LOD

@@ -35,6 +35,7 @@ public:
 	// IBulgeRegionProvider
 	virtual void CalculateBulgeRegion(
 		const TArrayView<const FVector3f>& AllVertexPositions,
+		const FVertexSpatialHash* SpatialHash,
 		TArray<uint32>& OutBulgeVertexIndices,
 		TArray<float>& OutBulgeInfluences,
 		TArray<FVector3f>& OutBulgeDirections
@@ -43,4 +44,7 @@ public:
 private:
 	/** Ring 축 감지 (가장 짧은 SDF 바운드 축) */
 	FVector3f DetectRingAxis() const;
+
+	/** Bulge 영역의 확장된 AABB 계산 (Spatial Hash 쿼리용) */
+	void CalculateExpandedBulgeAABB(FVector& OutMin, FVector& OutMax) const;
 };

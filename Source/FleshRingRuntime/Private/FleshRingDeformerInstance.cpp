@@ -615,13 +615,17 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			RingBulgeRadialRange);
 		BulgeProvider.FalloffType = RingBulgeFalloff;
 
-		// Bulge 영역 계산
+		// Bulge 영역 계산 (Spatial Hash로 O(N) → O(후보수) 최적화)
 		TArray<uint32> BulgeIndices;
 		TArray<float> BulgeInfluences;
 		TArray<FVector3f> BulgeDirections;  // GPU에서 계산하므로 비어있음
 
+		// AffectedVerticesManager에서 Spatial Hash 가져오기
+		const FVertexSpatialHash* SpatialHash = &CurrentLODData.AffectedVerticesManager.GetSpatialHash();
+
 		BulgeProvider.CalculateBulgeRegion(
 			AllVertexPositions,
+			SpatialHash,
 			BulgeIndices,
 			BulgeInfluences,
 			BulgeDirections);
