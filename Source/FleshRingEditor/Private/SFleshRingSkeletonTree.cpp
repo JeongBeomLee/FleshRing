@@ -672,13 +672,14 @@ TSharedPtr<SWidget> SFleshRingSkeletonTree::CreateContextMenu()
 				PasteParams.InputBindingOverride = FText::FromString(TEXT("Ctrl+V"));
 				MenuBuilder.AddMenuEntry(PasteParams);
 
-				// 선택된 본에 링 붙여넣기
+				// 선택된 본에 링 붙여넣기 (메시 본에만 가능)
 				FMenuEntryParams PasteToSelectedParams;
 				PasteToSelectedParams.LabelOverride = LOCTEXT("PasteRingToSelectedBone", "Paste Ring to Selected Bone");
 				PasteToSelectedParams.ToolTipOverride = LOCTEXT("PasteRingToSelectedBoneTooltip", "Paste ring to currently selected bone");
 				PasteToSelectedParams.IconOverride = FSlateIcon(FAppStyle::GetAppStyleSetName(), "GenericCommands.Paste");
 				PasteToSelectedParams.DirectActions = FUIAction(
-					FExecuteAction::CreateSP(this, &SFleshRingSkeletonTree::OnContextMenuPasteRingToSelectedBone)
+					FExecuteAction::CreateSP(this, &SFleshRingSkeletonTree::OnContextMenuPasteRingToSelectedBone),
+					FCanExecuteAction::CreateSP(this, &SFleshRingSkeletonTree::CanPasteRingToSelectedBone)
 				);
 				PasteToSelectedParams.InputBindingOverride = FText::FromString(TEXT("Ctrl+Shift+V"));
 				MenuBuilder.AddMenuEntry(PasteToSelectedParams);
@@ -1539,6 +1540,16 @@ bool SFleshRingSkeletonTree::CanPasteRing() const
 	return true;
 }
 
+bool SFleshRingSkeletonTree::CanPasteRingToSelectedBone() const
+{
+	// 기본 붙여넣기 조건 + 선택된 본이 메시 본인지 확인
+	// IK/가상 본에는 Ring 추가 불가 (CanAddRing과 동일 조건)
+	return CanPasteRing()
+		&& SelectedItem.IsValid()
+		&& SelectedItem->ItemType == EFleshRingTreeItemType::Bone
+		&& SelectedItem->bIsMeshBone;
+}
+
 void SFleshRingSkeletonTree::PasteRingToBone(FName TargetBoneName)
 {
 	UFleshRingAsset* Asset = EditingAsset.Get();
@@ -1585,10 +1596,10 @@ FReply SFleshRingSkeletonTree::OnKeyDown(const FGeometry& MyGeometry, const FKey
 		}
 	}
 
-	// Ctrl+Shift+V: 선택한 본에 붙여넣기 (Ctrl+V보다 먼저 체크)
+	// Ctrl+Shift+V: 선택한 본에 붙여넣기 (Ctrl+V보다 먼저 체크, 메시 본에만 가능)
 	if (InKeyEvent.IsControlDown() && InKeyEvent.IsShiftDown() && InKeyEvent.GetKey() == EKeys::V)
 	{
-		if (CanPasteRing() && SelectedItem.IsValid())
+		if (CanPasteRingToSelectedBone())
 		{
 			OnContextMenuPasteRingToSelectedBone();
 			return FReply::Handled();

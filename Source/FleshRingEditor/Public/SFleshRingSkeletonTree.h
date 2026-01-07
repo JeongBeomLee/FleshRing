@@ -264,6 +264,7 @@ private:
 
 	/** Ring 붙여넣기 (선택한 본에) */
 	void OnContextMenuPasteRingToSelectedBone();
+	bool CanPasteRingToSelectedBone() const;
 
 	/** Ring을 특정 본에 붙여넣기 (공통 로직) */
 	void PasteRingToBone(FName TargetBoneName);
