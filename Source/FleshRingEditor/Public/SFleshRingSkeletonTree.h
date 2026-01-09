@@ -94,8 +94,17 @@ public:
 	/** 드롭 가능 여부 */
 	bool bCanDrop = false;
 
+	/** 드래그 시작 시 Modifier 키 상태 */
+	FModifierKeysState ModifierKeysState;
+
+	/** Alt 드래그 여부 (복제) */
+	bool IsAltDrag() const { return ModifierKeysState.IsAltDown(); }
+
+	/** Shift 드래그 여부 (월드 위치 유지) */
+	bool IsShiftDrag() const { return ModifierKeysState.IsShiftDown(); }
+
 	/** 팩토리 함수 */
-	static TSharedRef<FFleshRingDragDropOp> New(int32 InRingIndex, const FString& InRingName, FName InBoneName, UFleshRingAsset* InAsset);
+	static TSharedRef<FFleshRingDragDropOp> New(int32 InRingIndex, const FString& InRingName, FName InBoneName, UFleshRingAsset* InAsset, FModifierKeysState InModifierKeys);
 
 	/** 드래그 비주얼 */
 	virtual TSharedPtr<SWidget> GetDefaultDecorator() const override;
@@ -272,7 +281,10 @@ private:
 	// === 드래그 앤 드롭 ===
 
 	/** Ring을 다른 본으로 이동 */
-	void MoveRingToBone(int32 RingIndex, FName NewBoneName);
+	void MoveRingToBone(int32 RingIndex, FName NewBoneName, bool bPreserveWorldPosition = false);
+
+	/** Ring을 복제하여 다른 본에 추가 (Alt+드래그) */
+	void DuplicateRingToBone(int32 SourceRingIndex, FName TargetBoneName);
 
 private:
 	/** 편집 중인 Asset */

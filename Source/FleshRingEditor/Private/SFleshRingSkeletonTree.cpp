@@ -28,8 +28,11 @@
 /** Ring 이름 변경 델리게이트 */
 DECLARE_DELEGATE_TwoParams(FOnRingRenamed, int32 /*RingIndex*/, FName /*NewName*/);
 
-/** Ring 이동 델리게이트 */
-DECLARE_DELEGATE_TwoParams(FOnRingMoved, int32 /*RingIndex*/, FName /*NewBoneName*/);
+/** Ring 이동 델리게이트 (Shift 드래그 시 월드 위치 유지) */
+DECLARE_DELEGATE_ThreeParams(FOnRingMoved, int32 /*RingIndex*/, FName /*NewBoneName*/, bool /*bPreserveWorldPosition*/);
+
+/** Ring 복제 델리게이트 (Alt 드래그) */
+DECLARE_DELEGATE_TwoParams(FOnRingDuplicated, int32 /*SourceRingIndex*/, FName /*TargetBoneName*/);
 
 /**
  * FleshRing 트리 행 위젯 (SExpanderArrow + Wires 지원)
@@ -44,6 +47,7 @@ public:
 		SLATE_ARGUMENT(UFleshRingAsset*, Asset)
 		SLATE_EVENT(FOnRingRenamed, OnRingRenamed)
 		SLATE_EVENT(FOnRingMoved, OnRingMoved)
+		SLATE_EVENT(FOnRingDuplicated, OnRingDuplicated)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& InOwnerTable)
@@ -54,6 +58,7 @@ public:
 		Asset = InArgs._Asset;
 		OnRingRenamed = InArgs._OnRingRenamed;
 		OnRingMoved = InArgs._OnRingMoved;
+		OnRingDuplicated = InArgs._OnRingDuplicated;
 
 		// 원본 이름 저장 (검증 실패 시 복원용)
 		if (Item.IsValid())
@@ -73,7 +78,12 @@ public:
 			IconBrush = FSlateStyleRegistry::FindSlateStyle("FleshRingStyle")->GetBrush("FleshRing.RingIcon");
 			IconColor = FSlateColor(FLinearColor(1.0f, 0.3f, 0.3f));
 			TextColor = FSlateColor(FLinearColor(1.0f, 0.6f, 0.2f));
-			TooltipText = FText::Format(LOCTEXT("RingTooltip", "Ring attached to bone: {0}\nDouble-click to rename"), FText::FromName(Item->BoneName));
+			TooltipText = FText::Format(
+				LOCTEXT("RingTooltip",
+					"Ring attached to bone: {0}\nDouble-click to rename\n\n"
+					"Alt 키를 누른 채 드래그하면 Ring을 복제합니다.\n"
+					"Shift 키를 누른 채 드래그하면 절대 위치를 유지합니다."),
+				FText::FromName(Item->BoneName));
 		}
 		else
 		{
@@ -208,7 +218,8 @@ public:
 				Item->RingIndex,
 				RingName,
 				Item->BoneName,
-				Item->EditingAsset.Get()
+				Item->EditingAsset.Get(),
+				MouseEvent.GetModifierKeys()  // Modifier 키 상태 캡처
 			);
 			return FReply::Handled().BeginDragDrop(DragOp);
 		}
@@ -220,10 +231,13 @@ public:
 		TSharedPtr<FFleshRingDragDropOp> DragOp = DragDropEvent.GetOperationAs<FFleshRingDragDropOp>();
 		if (DragOp.IsValid() && Item.IsValid() && Item->ItemType == EFleshRingTreeItemType::Bone)
 		{
+			bool bIsDifferentBone = (Item->BoneName != DragOp->SourceBoneName);
+
 			// 드롭 가능 조건:
 			// 1. bIsMeshBone = 자신 또는 자손 중 웨이팅된 본이 있음
-			// 2. 현재 부착된 본과 다른 본이어야 함
-			bool bCanDrop = Item->bIsMeshBone && (Item->BoneName != DragOp->SourceBoneName);
+			// 2. 다른 본이거나, Alt 드래그(복제)면 같은 본도 허용
+			bool bCanDrop = Item->bIsMeshBone && (bIsDifferentBone || DragOp->IsAltDrag());
+
 			DragOp->bCanDrop = bCanDrop;
 			DragOp->SetIcon(FAppStyle::GetBrush(bCanDrop
 				? TEXT("Graph.ConnectorFeedback.OK")
@@ -259,10 +273,22 @@ public:
 		TSharedPtr<FFleshRingDragDropOp> DragOp = DragDropEvent.GetOperationAs<FFleshRingDragDropOp>();
 		if (DragOp.IsValid() && DragOp->bCanDrop && Item.IsValid() && Item->ItemType == EFleshRingTreeItemType::Bone)
 		{
-			// Ring을 이 본으로 이동
-			if (OnRingMoved.IsBound())
+			if (DragOp->IsAltDrag())
 			{
-				OnRingMoved.Execute(DragOp->RingIndex, Item->BoneName);
+				// Alt+드래그: Ring 복제
+				if (OnRingDuplicated.IsBound())
+				{
+					OnRingDuplicated.Execute(DragOp->RingIndex, Item->BoneName);
+				}
+			}
+			else
+			{
+				// 일반/Shift+드래그: Ring 이동
+				if (OnRingMoved.IsBound())
+				{
+					bool bPreserveWorldPosition = DragOp->IsShiftDrag();
+					OnRingMoved.Execute(DragOp->RingIndex, Item->BoneName, bPreserveWorldPosition);
+				}
 			}
 			return FReply::Handled();
 		}
@@ -379,6 +405,7 @@ private:
 	UFleshRingAsset* Asset = nullptr;
 	FOnRingRenamed OnRingRenamed;
 	FOnRingMoved OnRingMoved;
+	FOnRingDuplicated OnRingDuplicated;
 	TSharedPtr<SInlineEditableTextBlock> InlineTextBlock;
 	TSharedPtr<SBorder> ValidationBorder;
 	FString OriginalName;
@@ -431,7 +458,7 @@ TSharedPtr<FFleshRingTreeItem> FFleshRingTreeItem::CreateRing(FName InBoneName, 
 //////////////////////////////////////////////////////////////////////////
 // FFleshRingDragDropOp
 
-TSharedRef<FFleshRingDragDropOp> FFleshRingDragDropOp::New(int32 InRingIndex, const FString& InRingName, FName InBoneName, UFleshRingAsset* InAsset)
+TSharedRef<FFleshRingDragDropOp> FFleshRingDragDropOp::New(int32 InRingIndex, const FString& InRingName, FName InBoneName, UFleshRingAsset* InAsset, FModifierKeysState InModifierKeys)
 {
 	TSharedRef<FFleshRingDragDropOp> Operation = MakeShareable(new FFleshRingDragDropOp());
 	Operation->RingIndex = InRingIndex;
@@ -439,6 +466,7 @@ TSharedRef<FFleshRingDragDropOp> FFleshRingDragDropOp::New(int32 InRingIndex, co
 	Operation->SourceBoneName = InBoneName;
 	Operation->Asset = InAsset;
 	Operation->bCanDrop = false;
+	Operation->ModifierKeysState = InModifierKeys;
 	// 기본 아이콘: 빨간색 (드롭 불가)
 	Operation->SetIcon(FAppStyle::GetBrush(TEXT("Graph.ConnectorFeedback.Error")));
 	Operation->Construct();
@@ -1275,7 +1303,8 @@ TSharedRef<ITableRow> SFleshRingSkeletonTree::GenerateTreeRow(TSharedPtr<FFleshR
 		.RowIndex(RowIndexCounter++)
 		.Asset(EditingAsset.Get())
 		.OnRingRenamed(this, &SFleshRingSkeletonTree::HandleRingRenamed)
-		.OnRingMoved(this, &SFleshRingSkeletonTree::MoveRingToBone);
+		.OnRingMoved(this, &SFleshRingSkeletonTree::MoveRingToBone)
+		.OnRingDuplicated(this, &SFleshRingSkeletonTree::DuplicateRingToBone);
 }
 
 void SFleshRingSkeletonTree::GetChildrenForTree(TSharedPtr<FFleshRingTreeItem> Item, TArray<TSharedPtr<FFleshRingTreeItem>>& OutChildren)
@@ -1646,7 +1675,7 @@ FReply SFleshRingSkeletonTree::OnKeyDown(const FGeometry& MyGeometry, const FKey
 	return SCompoundWidget::OnKeyDown(MyGeometry, InKeyEvent);
 }
 
-void SFleshRingSkeletonTree::MoveRingToBone(int32 RingIndex, FName NewBoneName)
+void SFleshRingSkeletonTree::MoveRingToBone(int32 RingIndex, FName NewBoneName, bool bPreserveWorldPosition)
 {
 	UFleshRingAsset* Asset = EditingAsset.Get();
 	if (!Asset || !Asset->Rings.IsValidIndex(RingIndex))
@@ -1654,7 +1683,7 @@ void SFleshRingSkeletonTree::MoveRingToBone(int32 RingIndex, FName NewBoneName)
 		return;
 	}
 
-	// 같은 본이면 무시
+	// 같은 본이면 무시 (복제가 아닌 이동의 경우)
 	if (Asset->Rings[RingIndex].BoneName == NewBoneName)
 	{
 		return;
@@ -1664,8 +1693,46 @@ void SFleshRingSkeletonTree::MoveRingToBone(int32 RingIndex, FName NewBoneName)
 	FScopedTransaction Transaction(LOCTEXT("MoveRingToBone", "Move Ring to Bone"));
 	Asset->Modify();
 
-	// BoneName만 변경 (위치/회전 값은 그대로 유지 - 로컬 좌표)
-	Asset->Rings[RingIndex].BoneName = NewBoneName;
+	FFleshRingSettings& Ring = Asset->Rings[RingIndex];
+
+	// Shift+드래그: 월드(바인드 포즈) 위치 유지
+	USkeletalMesh* SkelMesh = Asset->TargetSkeletalMesh.LoadSynchronous();
+	if (bPreserveWorldPosition && SkelMesh)
+	{
+		const FReferenceSkeleton& RefSkeleton = SkelMesh->GetRefSkeleton();
+		int32 OldBoneIndex = RefSkeleton.FindBoneIndex(Ring.BoneName);
+		int32 NewBoneIndex = RefSkeleton.FindBoneIndex(NewBoneName);
+
+		if (OldBoneIndex != INDEX_NONE && NewBoneIndex != INDEX_NONE)
+		{
+			// 바인드 포즈 기준 본 트랜스폼 계산 (기존 코드 패턴 사용)
+			auto GetBindPoseTransform = [&RefSkeleton](int32 BoneIndex) -> FTransform
+			{
+				FTransform BindPoseBoneTransform = FTransform::Identity;
+				int32 CurrentBoneIdx = BoneIndex;
+				while (CurrentBoneIdx != INDEX_NONE)
+				{
+					BindPoseBoneTransform = BindPoseBoneTransform * RefSkeleton.GetRefBonePose()[CurrentBoneIdx];
+					CurrentBoneIdx = RefSkeleton.GetParentIndex(CurrentBoneIdx);
+				}
+				return BindPoseBoneTransform;
+			};
+
+			FTransform OldBoneAbsolute = GetBindPoseTransform(OldBoneIndex);
+			FTransform NewBoneAbsolute = GetBindPoseTransform(NewBoneIndex);
+
+			// MeshOffset 변환: OldWorld → NewLocal
+			FVector OldWorldOffset = OldBoneAbsolute.TransformPosition(Ring.MeshOffset);
+			Ring.MeshOffset = NewBoneAbsolute.InverseTransformPosition(OldWorldOffset);
+
+			// MeshRotation 변환: OldWorld → NewLocal
+			FQuat OldWorldRotation = OldBoneAbsolute.GetRotation() * Ring.MeshRotation;
+			Ring.MeshRotation = NewBoneAbsolute.GetRotation().Inverse() * OldWorldRotation;
+		}
+	}
+
+	// BoneName 변경
+	Ring.BoneName = NewBoneName;
 
 	// 에셋 변경 알림
 	Asset->OnAssetChanged.Broadcast(Asset);
@@ -1675,6 +1742,37 @@ void SFleshRingSkeletonTree::MoveRingToBone(int32 RingIndex, FName NewBoneName)
 
 	// 이동한 Ring 선택
 	SelectRingByIndex(RingIndex);
+}
+
+void SFleshRingSkeletonTree::DuplicateRingToBone(int32 SourceRingIndex, FName TargetBoneName)
+{
+	UFleshRingAsset* Asset = EditingAsset.Get();
+	if (!Asset || !Asset->Rings.IsValidIndex(SourceRingIndex))
+	{
+		return;
+	}
+
+	FScopedTransaction Transaction(LOCTEXT("DuplicateRing", "Duplicate Ring"));
+	Asset->Modify();
+
+	// Ring 복제
+	FFleshRingSettings NewRing = Asset->Rings[SourceRingIndex];
+	NewRing.BoneName = TargetBoneName;
+
+	// 기존 UFleshRingAsset::MakeUniqueRingName() 사용 (언리얼 소켓과 동일한 FName 넘버링)
+	NewRing.RingName = Asset->MakeUniqueRingName(NewRing.RingName);
+
+	// 배열에 추가
+	int32 NewIndex = Asset->Rings.Add(NewRing);
+
+	// 에셋 변경 알림
+	Asset->OnAssetChanged.Broadcast(Asset);
+
+	// 트리 갱신
+	RefreshTree();
+
+	// 복제된 Ring 선택
+	SelectRingByIndex(NewIndex);
 }
 
 #undef LOCTEXT_NAMESPACE
