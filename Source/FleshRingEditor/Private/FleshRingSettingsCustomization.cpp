@@ -31,6 +31,7 @@
 #include "ScopedTransaction.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "Framework/Application/SlateApplication.h"
+#include "FleshRingEditorViewportClient.h"
 
 #define LOCTEXT_NAMESPACE "FleshRingSettingsCustomization"
 
@@ -231,6 +232,13 @@ public:
 			return FReply::Handled();
 		}
 
+		// F 키: 카메라 포커스 (선택된 Ring에)
+		if (InKeyEvent.GetKey() == EKeys::F)
+		{
+			FocusCameraOnRing();
+			return FReply::Handled();
+		}
+
 		return SCompoundWidget::OnKeyDown(MyGeometry, InKeyEvent);
 	}
 
@@ -263,6 +271,25 @@ private:
 	bool IsSelected() const
 	{
 		return IsSelectedAttr.Get(false);
+	}
+
+	/** 카메라를 선택된 Ring에 포커스 */
+	void FocusCameraOnRing()
+	{
+		if (!Asset)
+		{
+			return;
+		}
+
+		// 현재 에셋을 편집 중인 뷰포트 클라이언트 찾기
+		for (FFleshRingEditorViewportClient* ViewportClient : FFleshRingEditorViewportClient::GetAllInstances())
+		{
+			if (ViewportClient && ViewportClient->GetEditingAsset() == Asset)
+			{
+				ViewportClient->FocusOnMesh();
+				break;
+			}
+		}
 	}
 
 	/** 이름 검증 (빈 이름/중복 체크) */

@@ -87,6 +87,9 @@ public:
 	/** 프리뷰 씬 반환 */
 	FFleshRingPreviewScene* GetPreviewScene() const { return PreviewScene; }
 
+	/** 편집 중인 Asset 반환 */
+	UFleshRingAsset* GetEditingAsset() const { return EditingAsset.Get(); }
+
 	/** 카메라를 메시에 맞게 포커스 */
 	void FocusOnMesh();
 
