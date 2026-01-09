@@ -964,10 +964,19 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             }
         }
 
+        // 토폴로지 캐시 빌드 (메시 데이터 캐싱과 함께)
+        // 라플라시안 스무딩 여부와 무관하게 항상 빌드하여 모든 함수에서 캐시 활용
+        // 이전에는 BuildLaplacianAdjacencyData() 내부에서만 빌드되어
+        // BuildRepresentativeIndices(), BuildAdjacencyData() 등이 캐시를 활용하지 못했음
+        if (CachedMeshIndices.Num() > 0 && !bTopologyCacheBuilt)
+        {
+            BuildTopologyCache(CachedMeshVertices, CachedMeshIndices);
+        }
+
         bMeshDataCached = true;
         UE_LOG(LogFleshRingVertices, Log,
-            TEXT("RegisterAffectedVertices: Cached mesh data (%d vertices, %d indices, SpatialHash built)"),
-            CachedMeshVertices.Num(), CachedMeshIndices.Num());
+            TEXT("RegisterAffectedVertices: Cached mesh data (%d vertices, %d indices, SpatialHash built, TopologyCache=%s)"),
+            CachedMeshVertices.Num(), CachedMeshIndices.Num(), bTopologyCacheBuilt ? TEXT("Yes") : TEXT("No"));
     }
 
     // 로컬 참조용 (이후 코드와 호환)
@@ -1800,18 +1809,10 @@ void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
     }
 
     // ================================================================
-    // Step 0: Ensure topology cache is built (O(1) if already cached)
-    // 0단계: 토폴로지 캐시 확인 (이미 캐시되어 있으면 O(1))
-    // ================================================================
-    if (!bTopologyCacheBuilt)
-    {
-        BuildTopologyCache(AllVertices, MeshIndices);
-    }
-
-    // ================================================================
     // Step 1: Build affected vertex lookup set
     // 1단계: Affected 버텍스 조회용 Set 빌드
     // ================================================================
+    // 참고: 토폴로지 캐시는 RegisterAffectedVertices() 초기 단계에서 이미 빌드됨
     // 이웃 선택 시 Affected 버텍스를 우선하기 위해 필요.
     // Affected가 아닌 버텍스는 스무딩되지 않으므로 위치가 변하지 않음.
     // -> 일관성을 위해 Affected 버텍스를 이웃으로 선택해야 함.
@@ -1939,18 +1940,10 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingLaplacianAdjacencyDat
     }
 
     // ================================================================
-    // Step 0: Ensure topology cache is built (O(1) if already cached)
-    // 0단계: 토폴로지 캐시 확인 (이미 캐시되어 있으면 O(1))
-    // ================================================================
-    if (!bTopologyCacheBuilt)
-    {
-        BuildTopologyCache(AllVertices, MeshIndices);
-    }
-
-    // ================================================================
     // Step 1: Build PostProcessing vertex lookup set
     // 1단계: PostProcessing 버텍스 조회용 Set 빌드
     // ================================================================
+    // 참고: 토폴로지 캐시는 RegisterAffectedVertices() 초기 단계에서 이미 빌드됨
     TSet<uint32> PostProcessingVertexSet;
     PostProcessingVertexSet.Reserve(NumPostProcessing);
     for (int32 i = 0; i < NumPostProcessing; ++i)
@@ -2957,14 +2950,8 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
         return;
     }
 
-    // ===== Step 0: Ensure topology cache is built (O(1) if already cached) =====
-    // 0단계: 토폴로지 캐시 확인 (이미 캐시되어 있으면 O(1))
-    if (!bTopologyCacheBuilt)
-    {
-        BuildTopologyCache(AllVertices, MeshIndices);
-    }
-
     // ===== Step 1: Seeds = 모든 Affected Vertices =====
+    // 참고: 토폴로지 캐시는 RegisterAffectedVertices() 초기 단계에서 이미 빌드됨
     // Seeds는 전체 메시 버텍스 인덱스
     TSet<uint32> SeedSet;
     SeedSet.Reserve(NumAffected);
