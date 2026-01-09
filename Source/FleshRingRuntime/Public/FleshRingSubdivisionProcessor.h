@@ -7,6 +7,68 @@
 #include "CoreMinimal.h"
 #include "HalfEdgeMesh.h"
 
+// Forward declarations
+class USkeletalMesh;
+struct FReferenceSkeleton;
+
+/**
+ * 버텍스별 본 영향 정보
+ * SkinWeightVertexBuffer에서 추출한 데이터
+ */
+struct FVertexBoneInfluence
+{
+	static constexpr int32 MAX_INFLUENCES = 8;
+
+	uint16 BoneIndices[MAX_INFLUENCES] = {0};
+	uint8 BoneWeights[MAX_INFLUENCES] = {0};  // 0-255 normalized
+
+	/** 특정 본 집합에 유의미한 영향을 받는지 확인 */
+	bool IsAffectedByBones(const TSet<int32>& TargetBones, uint8 WeightThreshold = 25) const  // 25 ≈ 10%
+	{
+		for (int32 i = 0; i < MAX_INFLUENCES; ++i)
+		{
+			if (BoneWeights[i] >= WeightThreshold && TargetBones.Contains(BoneIndices[i]))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+};
+
+/**
+ * 본 영역 기반 Subdivision 파라미터
+ * 에디터 프리뷰용 - 링 부착 본의 이웃 본 영역만 subdivision
+ */
+struct FBoneRegionSubdivisionParams
+{
+	/** 대상 본 인덱스들 (링 부착 본 + 이웃 본) */
+	TSet<int32> TargetBoneIndices;
+
+	/** 본 가중치 임계값 (0-255, 기본 25 ≈ 10%) */
+	uint8 BoneWeightThreshold = 25;
+
+	/** 이웃 본 탐색 깊이 (1 = 부모+자식, 2 = 조부모+손자 포함) */
+	int32 NeighborHopCount = 1;
+
+	/** subdivision 최대 레벨 */
+	int32 MaxSubdivisionLevel = 2;
+
+	/** 파라미터 해시 (캐시 무효화 판단용) */
+	uint32 GetHash() const
+	{
+		uint32 Hash = 0;
+		for (int32 BoneIdx : TargetBoneIndices)
+		{
+			Hash = HashCombine(Hash, GetTypeHash(BoneIdx));
+		}
+		Hash = HashCombine(Hash, GetTypeHash(BoneWeightThreshold));
+		Hash = HashCombine(Hash, GetTypeHash(NeighborHopCount));
+		Hash = HashCombine(Hash, GetTypeHash(MaxSubdivisionLevel));
+		return Hash;
+	}
+};
+
 /**
  * 새 버텍스 생성 정보 (GPU로 전달)
  * Barycentric 보간에 필요한 모든 정보 포함
@@ -295,16 +357,81 @@ public:
 	bool Process(FSubdivisionTopologyResult& OutResult);
 
 	/**
-	 * 균일 Subdivision 실행 (에디터 프리뷰용)
+	 * 균일 Subdivision 실행 (에디터 프리뷰용 - 레거시)
 	 *
 	 * Ring 영역 검사 없이 전체 메시를 균일하게 subdivision
 	 * 에디터에서 링 편집 시 실시간 프리뷰용으로 사용
+	 *
+	 * @deprecated ProcessBoneRegion 사용 권장 (성능 개선)
 	 *
 	 * @param OutResult - 출력 토폴로지 결과
 	 * @param MaxLevel - 최대 subdivision 레벨 (기본 2)
 	 * @return 성공 여부
 	 */
 	bool ProcessUniform(FSubdivisionTopologyResult& OutResult, int32 MaxLevel = 2);
+
+	/**
+	 * 본 영역 기반 Subdivision 실행 (에디터 프리뷰용 - 최적화)
+	 *
+	 * 링 부착 본의 이웃 본에 영향받는 버텍스 영역만 subdivision
+	 * 전체 메시 대비 70-85% 버텍스 수 감소
+	 *
+	 * @param OutResult - 출력 토폴로지 결과
+	 * @param Params - 본 영역 파라미터
+	 * @return 성공 여부
+	 */
+	bool ProcessBoneRegion(FSubdivisionTopologyResult& OutResult, const FBoneRegionSubdivisionParams& Params);
+
+	// =====================================
+	// 본 정보 관련 (에디터 프리뷰용)
+	// =====================================
+
+	/**
+	 * SkeletalMesh에서 본 정보 포함하여 소스 메시 추출
+	 *
+	 * @param SkeletalMesh - 소스 스켈레탈 메시
+	 * @param LODIndex - LOD 인덱스
+	 * @return 성공 여부
+	 */
+	bool SetSourceMeshWithBoneInfo(USkeletalMesh* SkeletalMesh, int32 LODIndex = 0);
+
+	/**
+	 * 링 부착 본들의 이웃 본 집합 수집
+	 *
+	 * @param RefSkeleton - 스켈레톤 레퍼런스
+	 * @param RingBoneIndices - 링 부착 본 인덱스 배열
+	 * @param HopCount - 탐색 깊이 (1 = 부모+자식)
+	 * @return 이웃 본 인덱스 집합
+	 */
+	static TSet<int32> GatherNeighborBones(
+		const FReferenceSkeleton& RefSkeleton,
+		const TArray<int32>& RingBoneIndices,
+		int32 HopCount = 1);
+
+	/**
+	 * 본 영역 캐시 유효성 확인
+	 */
+	bool IsBoneRegionCacheValid() const { return bBoneRegionCacheValid; }
+
+	/**
+	 * 본 영역 캐시 무효화
+	 */
+	void InvalidateBoneRegionCache() { bBoneRegionCacheValid = false; }
+
+	/**
+	 * 버텍스별 본 영향 정보 직접 설정 (중복 추출 방지용)
+	 *
+	 * GeneratePreviewMesh()에서 이미 추출한 본 정보를 재사용
+	 * SetSourceMeshWithBoneInfo() 대신 SetSourceMesh() + SetVertexBoneInfluences() 조합 사용
+	 *
+	 * @param InInfluences - 버텍스별 본 영향 정보 배열
+	 */
+	void SetVertexBoneInfluences(const TArray<FVertexBoneInfluence>& InInfluences);
+
+	/**
+	 * 본 정보가 로드되어 있는지 확인
+	 */
+	bool HasBoneInfo() const { return VertexBoneInfluences.Num() > 0; }
 
 	/**
 	 * 캐싱된 결과 반환
@@ -353,13 +480,24 @@ private:
 	// 설정
 	FSubdivisionProcessorSettings CurrentSettings;
 
-	// 캐시
+	// 캐시 (런타임용 - Process())
 	FSubdivisionTopologyResult CachedResult;
 	bool bCacheValid = false;
 	TArray<FSubdivisionRingParams> CachedRingParamsArray;
 
+	// 본 영역 캐시 (에디터 프리뷰용 - ProcessBoneRegion())
+	FSubdivisionTopologyResult BoneRegionCachedResult;
+	bool bBoneRegionCacheValid = false;
+	uint32 CachedBoneRegionParamsHash = 0;
+
+	// 버텍스별 본 영향 정보 (SetSourceMeshWithBoneInfo에서 추출)
+	TArray<FVertexBoneInfluence> VertexBoneInfluences;
+
 	// Half-Edge 메시에서 토폴로지 결과 추출
 	bool ExtractTopologyResult(FSubdivisionTopologyResult& OutResult);
+
+	// 삼각형이 대상 본 영역에 포함되는지 확인
+	bool IsTriangleInBoneRegion(int32 V0, int32 V1, int32 V2, const TSet<int32>& TargetBones, uint8 WeightThreshold) const;
 
 	// 원본 버텍스 인덱스 → 새 버텍스 인덱스 매핑
 	TMap<uint32, uint32> OriginalToNewVertexMap;

@@ -49,9 +49,6 @@ bool FFleshRingSubdivisionProcessor::SetSourceMesh(
 
 	InvalidateCache();
 
-	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("Source mesh set: %d vertices, %d triangles"),
-		SourcePositions.Num(), SourceIndices.Num() / 3);
-
 	return true;
 }
 
@@ -187,8 +184,6 @@ bool FFleshRingSubdivisionProcessor::Process(FSubdivisionTopologyResult& OutResu
 	OutResult.OriginalTriangleCount = SourceIndices.Num() / 3;
 
 	// 1. Half-Edge 메시 구축
-	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("Building Half-Edge mesh..."));
-
 	// int32 배열로 변환 (FHalfEdgeMesh가 int32 사용)
 	TArray<int32> IndicesInt32;
 	IndicesInt32.SetNum(SourceIndices.Num());
@@ -203,20 +198,13 @@ bool FFleshRingSubdivisionProcessor::Process(FSubdivisionTopologyResult& OutResu
 		return false;
 	}
 
-	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("Half-Edge mesh built: %d vertices, %d faces, %d half-edges"),
-		HalfEdgeMesh.GetVertexCount(), HalfEdgeMesh.GetFaceCount(), HalfEdgeMesh.GetHalfEdgeCount());
-
 	// 2. LEB/Red-Green Refinement 수행 (모든 Ring에 대해)
-	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("Performing LEB subdivision for %d Ring(s)..."), RingParamsArray.Num());
-
 	int32 TotalFacesAdded = 0;
 
 	for (int32 RingIdx = 0; RingIdx < RingParamsArray.Num(); ++RingIdx)
 	{
 		const FSubdivisionRingParams& CurrentRingParams = RingParamsArray[RingIdx];
 		int32 FacesAdded = 0;
-
-		UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("=== Processing Ring %d/%d ==="), RingIdx + 1, RingParamsArray.Num());
 
 		if (CurrentRingParams.bUseSDFBounds)
 		{
@@ -227,13 +215,6 @@ bool FFleshRingSubdivisionProcessor::Process(FSubdivisionTopologyResult& OutResu
 				CurrentRingParams.SDFLocalToComponent,
 				CurrentRingParams.SDFInfluenceMultiplier
 			);
-
-			// 디버그 출력
-			UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-				TEXT("  OBB Mode - Local BoundsMin: %s, Max: %s"),
-				*OBB.LocalBoundsMin.ToString(), *OBB.LocalBoundsMax.ToString());
-			UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-				TEXT("  InfluenceMargin: %.2f"), OBB.InfluenceMargin);
 
 			FacesAdded = FLEBSubdivision::SubdivideRegion(
 				HalfEdgeMesh,
@@ -252,10 +233,6 @@ bool FFleshRingSubdivisionProcessor::Process(FSubdivisionTopologyResult& OutResu
 			TorusParams.MinorRadius = CurrentRingParams.Width * 0.5f;
 			TorusParams.InfluenceMargin = CurrentRingParams.GetInfluenceRadius();
 
-			UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-				TEXT("  Torus Mode - Center=%s, MajorR=%.2f, MinorR=%.2f"),
-				*TorusParams.Center.ToString(), TorusParams.MajorRadius, TorusParams.MinorRadius);
-
 			FacesAdded = FLEBSubdivision::SubdivideRegion(
 				HalfEdgeMesh,
 				TorusParams,
@@ -264,12 +241,8 @@ bool FFleshRingSubdivisionProcessor::Process(FSubdivisionTopologyResult& OutResu
 			);
 		}
 
-		UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("  Ring %d: %d faces added"), RingIdx + 1, FacesAdded);
 		TotalFacesAdded += FacesAdded;
 	}
-
-	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("LEB subdivision complete: %d total faces added, %d total faces"),
-		TotalFacesAdded, HalfEdgeMesh.GetFaceCount());
 
 	// 3. 토폴로지 결과 추출
 	if (!ExtractTopologyResult(OutResult))
@@ -426,14 +399,8 @@ bool FFleshRingSubdivisionProcessor::ExtractTopologyResult(FSubdivisionTopologyR
 	if (FallbackCount > 0)
 	{
 		UE_LOG(LogFleshRingSubdivisionProcessor, Error,
-			TEXT("★★★ CRITICAL: %d vertices fell back to vertex 0's bone weights! Animation will break! ★★★"),
+			TEXT("CRITICAL: %d vertices fell back to vertex 0's bone weights! Animation will break!"),
 			FallbackCount);
-	}
-	else
-	{
-		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-			TEXT("✓ All %d subdivided vertices have valid parent info (no fallback)"),
-			HEVertexCount - OriginalVertexCount);
 	}
 
 	// 검증: 기여도 합계가 1.0인지 확인
@@ -485,20 +452,6 @@ bool FFleshRingSubdivisionProcessor::ExtractTopologyResult(FSubdivisionTopologyR
 		UE_LOG(LogFleshRingSubdivisionProcessor, Error,
 			TEXT("CONTRIBUTION ERRORS: %d empty, %d invalid totals"),
 			EmptyContribCount, InvalidTotalCount);
-	}
-
-	// 디버그: 샘플 버텍스의 기여도 출력
-	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("=== Sample Vertex Contributions ==="));
-	for (int32 i = OriginalVertexCount; i < FMath::Min(OriginalVertexCount + 5, HEVertexCount); ++i)
-	{
-		FString ContribStr;
-		for (const auto& C : OriginalContributions[i])
-		{
-			ContribStr += FString::Printf(TEXT("[%d:%.3f] "), C.Key, C.Value);
-		}
-		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-			TEXT("  V[%d] parents=(%d,%d) -> contribs: %s"),
-			i, ImmediateParents[i].Key, ImmediateParents[i].Value, *ContribStr);
 	}
 
 	// 3단계: 기여도를 FSubdivisionVertexData로 변환 (최대 3개 원본 버텍스)
@@ -643,9 +596,6 @@ bool FFleshRingSubdivisionProcessor::ProcessUniform(FSubdivisionTopologyResult& 
 	OutResult.OriginalTriangleCount = SourceIndices.Num() / 3;
 
 	// 1. Half-Edge 메시 구축
-	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("ProcessUniform: Building Half-Edge mesh..."));
-
-	// int32 배열로 변환
 	TArray<int32> IndicesInt32;
 	IndicesInt32.SetNum(SourceIndices.Num());
 	for (int32 i = 0; i < SourceIndices.Num(); ++i)
@@ -659,20 +609,12 @@ bool FFleshRingSubdivisionProcessor::ProcessUniform(FSubdivisionTopologyResult& 
 		return false;
 	}
 
-	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("ProcessUniform: Half-Edge mesh built: %d vertices, %d faces"),
-		HalfEdgeMesh.GetVertexCount(), HalfEdgeMesh.GetFaceCount());
-
 	// 2. 균일 Subdivision 수행
-	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("ProcessUniform: Performing uniform subdivision (MaxLevel=%d)..."), MaxLevel);
-
-	int32 FacesAdded = FLEBSubdivision::SubdivideUniform(
+	FLEBSubdivision::SubdivideUniform(
 		HalfEdgeMesh,
 		MaxLevel,
 		CurrentSettings.MinEdgeLength
 	);
-
-	UE_LOG(LogFleshRingSubdivisionProcessor, Log, TEXT("ProcessUniform: Subdivision complete - %d faces added, %d total faces"),
-		FacesAdded, HalfEdgeMesh.GetFaceCount());
 
 	// 3. 토폴로지 결과 추출
 	if (!ExtractTopologyResult(OutResult))
@@ -683,6 +625,336 @@ bool FFleshRingSubdivisionProcessor::ProcessUniform(FSubdivisionTopologyResult& 
 
 	UE_LOG(LogFleshRingSubdivisionProcessor, Log,
 		TEXT("ProcessUniform: Complete - %d -> %d vertices, %d -> %d triangles"),
+		OutResult.OriginalVertexCount, OutResult.SubdividedVertexCount,
+		OutResult.OriginalTriangleCount, OutResult.SubdividedTriangleCount);
+
+	return true;
+}
+
+// =====================================
+// 본 영역 기반 Subdivision (에디터 프리뷰 최적화)
+// =====================================
+
+bool FFleshRingSubdivisionProcessor::SetSourceMeshWithBoneInfo(USkeletalMesh* SkeletalMesh, int32 LODIndex)
+{
+	if (!SkeletalMesh)
+	{
+		UE_LOG(LogFleshRingSubdivisionProcessor, Warning, TEXT("SetSourceMeshWithBoneInfo: SkeletalMesh is null"));
+		return false;
+	}
+
+	FSkeletalMeshRenderData* RenderData = SkeletalMesh->GetResourceForRendering();
+	if (!RenderData || LODIndex >= RenderData->LODRenderData.Num())
+	{
+		UE_LOG(LogFleshRingSubdivisionProcessor, Warning, TEXT("SetSourceMeshWithBoneInfo: Invalid LOD index: %d"), LODIndex);
+		return false;
+	}
+
+	const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[LODIndex];
+	const uint32 NumVertices = LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
+
+	// Position 추출
+	TArray<FVector> Positions;
+	Positions.SetNum(NumVertices);
+	for (uint32 i = 0; i < NumVertices; ++i)
+	{
+		Positions[i] = FVector(LODData.StaticVertexBuffers.PositionVertexBuffer.VertexPosition(i));
+	}
+
+	// Index 추출
+	TArray<uint32> Indices;
+	const FRawStaticIndexBuffer16or32Interface* IndexBuffer = LODData.MultiSizeIndexContainer.GetIndexBuffer();
+	if (IndexBuffer)
+	{
+		const int32 NumIndices = IndexBuffer->Num();
+		Indices.SetNum(NumIndices);
+		for (int32 i = 0; i < NumIndices; ++i)
+		{
+			Indices[i] = IndexBuffer->Get(i);
+		}
+	}
+
+	// UV 추출
+	TArray<FVector2D> UVs;
+	if (LODData.StaticVertexBuffers.StaticMeshVertexBuffer.GetNumVertices() > 0)
+	{
+		UVs.SetNum(NumVertices);
+		for (uint32 i = 0; i < NumVertices; ++i)
+		{
+			UVs[i] = FVector2D(LODData.StaticVertexBuffers.StaticMeshVertexBuffer.GetVertexUV(i, 0));
+		}
+	}
+
+	// ★ 섹션별 머티리얼 인덱스 추출
+	TArray<int32> MaterialIndices;
+	{
+		const int32 NumTriangles = Indices.Num() / 3;
+		MaterialIndices.SetNum(NumTriangles);
+		for (int32& MatIdx : MaterialIndices) { MatIdx = 0; }
+
+		for (const FSkelMeshRenderSection& Section : LODData.RenderSections)
+		{
+			const int32 StartTriangle = Section.BaseIndex / 3;
+			const int32 EndTriangle = StartTriangle + Section.NumTriangles;
+			for (int32 TriIdx = StartTriangle; TriIdx < EndTriangle && TriIdx < NumTriangles; ++TriIdx)
+			{
+				MaterialIndices[TriIdx] = Section.MaterialIndex;
+			}
+		}
+
+		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+			TEXT("SetSourceMeshWithBoneInfo: Extracted material indices for %d triangles (%d sections)"),
+			NumTriangles, LODData.RenderSections.Num());
+	}
+
+	// ★ 본 정보 추출 (SkinWeightVertexBuffer)
+	// 버텍스별 섹션 인덱스 맵 생성 (로컬→글로벌 본 인덱스 변환용)
+	TArray<int32> VertexToSectionIndex;
+	VertexToSectionIndex.SetNum(NumVertices);
+	for (int32& SectionIdx : VertexToSectionIndex) { SectionIdx = INDEX_NONE; }
+
+	for (int32 SectionIdx = 0; SectionIdx < LODData.RenderSections.Num(); ++SectionIdx)
+	{
+		const FSkelMeshRenderSection& Section = LODData.RenderSections[SectionIdx];
+		const int32 StartIndex = Section.BaseIndex;
+		const int32 EndIndex = StartIndex + Section.NumTriangles * 3;
+		for (int32 IdxPos = StartIndex; IdxPos < EndIndex && IdxPos < Indices.Num(); ++IdxPos)
+		{
+			uint32 VertexIdx = Indices[IdxPos];
+			if (VertexIdx < NumVertices && VertexToSectionIndex[VertexIdx] == INDEX_NONE)
+			{
+				VertexToSectionIndex[VertexIdx] = SectionIdx;
+			}
+		}
+	}
+
+	VertexBoneInfluences.SetNum(NumVertices);
+	const FSkinWeightVertexBuffer* SkinWeightBuffer = LODData.GetSkinWeightVertexBuffer();
+
+	if (SkinWeightBuffer && SkinWeightBuffer->GetNumVertices() > 0)
+	{
+		const int32 MaxInfluences = FMath::Min((int32)SkinWeightBuffer->GetMaxBoneInfluences(), FVertexBoneInfluence::MAX_INFLUENCES);
+
+		for (uint32 VertIdx = 0; VertIdx < NumVertices; ++VertIdx)
+		{
+			FVertexBoneInfluence& Influence = VertexBoneInfluences[VertIdx];
+
+			// 초기화
+			FMemory::Memzero(Influence.BoneIndices, sizeof(Influence.BoneIndices));
+			FMemory::Memzero(Influence.BoneWeights, sizeof(Influence.BoneWeights));
+
+			// 이 버텍스의 섹션 BoneMap 획득
+			int32 SectionIdx = VertexToSectionIndex[VertIdx];
+			const TArray<FBoneIndexType>* BoneMap = nullptr;
+			if (SectionIdx != INDEX_NONE && SectionIdx < LODData.RenderSections.Num())
+			{
+				BoneMap = &LODData.RenderSections[SectionIdx].BoneMap;
+			}
+
+			// SkinWeightBuffer에서 읽고 글로벌 본 인덱스로 변환
+			for (int32 InfluenceIdx = 0; InfluenceIdx < MaxInfluences; ++InfluenceIdx)
+			{
+				uint16 LocalBoneIdx = SkinWeightBuffer->GetBoneIndex(VertIdx, InfluenceIdx);
+				uint8 Weight = SkinWeightBuffer->GetBoneWeight(VertIdx, InfluenceIdx);
+
+				// ★ 로컬 → 글로벌 본 인덱스 변환
+				uint16 GlobalBoneIdx = LocalBoneIdx;
+				if (BoneMap && LocalBoneIdx < BoneMap->Num())
+				{
+					GlobalBoneIdx = (*BoneMap)[LocalBoneIdx];
+				}
+
+				Influence.BoneIndices[InfluenceIdx] = GlobalBoneIdx;
+				Influence.BoneWeights[InfluenceIdx] = Weight;
+			}
+		}
+	}
+	else
+	{
+		UE_LOG(LogFleshRingSubdivisionProcessor, Warning, TEXT("SetSourceMeshWithBoneInfo: No SkinWeightBuffer available"));
+	}
+
+	// 캐시 무효화
+	InvalidateCache();
+	InvalidateBoneRegionCache();
+
+	return SetSourceMesh(Positions, Indices, UVs, MaterialIndices);
+}
+
+void FFleshRingSubdivisionProcessor::SetVertexBoneInfluences(const TArray<FVertexBoneInfluence>& InInfluences)
+{
+	VertexBoneInfluences = InInfluences;
+	InvalidateBoneRegionCache();
+}
+
+TSet<int32> FFleshRingSubdivisionProcessor::GatherNeighborBones(
+	const FReferenceSkeleton& RefSkeleton,
+	const TArray<int32>& RingBoneIndices,
+	int32 HopCount)
+{
+	TSet<int32> Result;
+	const int32 NumBones = RefSkeleton.GetNum();
+
+	// 초기 본 추가
+	for (int32 BoneIdx : RingBoneIndices)
+	{
+		if (BoneIdx >= 0 && BoneIdx < NumBones)
+		{
+			Result.Add(BoneIdx);
+		}
+	}
+
+	// BFS로 이웃 본 확장
+	for (int32 Hop = 0; Hop < HopCount; ++Hop)
+	{
+		TSet<int32> NewBones;
+
+		for (int32 BoneIdx : Result)
+		{
+			// 부모 추가
+			int32 ParentIdx = RefSkeleton.GetParentIndex(BoneIdx);
+			if (ParentIdx != INDEX_NONE)
+			{
+				NewBones.Add(ParentIdx);
+			}
+
+			// 자식 추가
+			for (int32 i = 0; i < NumBones; ++i)
+			{
+				if (RefSkeleton.GetParentIndex(i) == BoneIdx)
+				{
+					NewBones.Add(i);
+				}
+			}
+		}
+
+		Result.Append(NewBones);
+	}
+
+	UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+		TEXT("GatherNeighborBones: %d ring bones -> %d total bones (HopCount=%d)"),
+		RingBoneIndices.Num(), Result.Num(), HopCount);
+
+	return Result;
+}
+
+bool FFleshRingSubdivisionProcessor::IsTriangleInBoneRegion(
+	int32 V0, int32 V1, int32 V2,
+	const TSet<int32>& TargetBones,
+	uint8 WeightThreshold) const
+{
+	// 삼각형의 버텍스 중 하나라도 대상 본에 영향받으면 포함
+	if (V0 < VertexBoneInfluences.Num() && VertexBoneInfluences[V0].IsAffectedByBones(TargetBones, WeightThreshold))
+	{
+		return true;
+	}
+	if (V1 < VertexBoneInfluences.Num() && VertexBoneInfluences[V1].IsAffectedByBones(TargetBones, WeightThreshold))
+	{
+		return true;
+	}
+	if (V2 < VertexBoneInfluences.Num() && VertexBoneInfluences[V2].IsAffectedByBones(TargetBones, WeightThreshold))
+	{
+		return true;
+	}
+	return false;
+}
+
+bool FFleshRingSubdivisionProcessor::ProcessBoneRegion(
+	FSubdivisionTopologyResult& OutResult,
+	const FBoneRegionSubdivisionParams& Params)
+{
+	// ★ 캐시 확인 - 파라미터 해시가 동일하면 캐시된 결과 반환
+	const uint32 ParamsHash = Params.GetHash();
+	if (bBoneRegionCacheValid && CachedBoneRegionParamsHash == ParamsHash)
+	{
+		OutResult = BoneRegionCachedResult;
+		return true;
+	}
+
+	// 소스 데이터 검증
+	if (SourcePositions.Num() == 0 || SourceIndices.Num() == 0)
+	{
+		UE_LOG(LogFleshRingSubdivisionProcessor, Warning, TEXT("ProcessBoneRegion: No source mesh data"));
+		return false;
+	}
+
+	// 본 정보 검증
+	if (VertexBoneInfluences.Num() == 0)
+	{
+		UE_LOG(LogFleshRingSubdivisionProcessor, Warning,
+			TEXT("ProcessBoneRegion: No bone info - falling back to ProcessUniform"));
+		return ProcessUniform(OutResult, Params.MaxSubdivisionLevel);
+	}
+
+	// 대상 본이 없으면 전체 subdivision (fallback)
+	if (Params.TargetBoneIndices.Num() == 0)
+	{
+		UE_LOG(LogFleshRingSubdivisionProcessor, Warning,
+			TEXT("ProcessBoneRegion: No target bones specified - falling back to ProcessUniform"));
+		return ProcessUniform(OutResult, Params.MaxSubdivisionLevel);
+	}
+
+	OutResult.Reset();
+	OutResult.OriginalVertexCount = SourcePositions.Num();
+	OutResult.OriginalTriangleCount = SourceIndices.Num() / 3;
+
+	// 1. 대상 영역의 삼각형 인덱스 수집
+	TSet<int32> TargetTriangles;
+	const int32 NumTriangles = SourceIndices.Num() / 3;
+
+	for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+	{
+		int32 V0 = SourceIndices[TriIdx * 3 + 0];
+		int32 V1 = SourceIndices[TriIdx * 3 + 1];
+		int32 V2 = SourceIndices[TriIdx * 3 + 2];
+
+		if (IsTriangleInBoneRegion(V0, V1, V2, Params.TargetBoneIndices, Params.BoneWeightThreshold))
+		{
+			TargetTriangles.Add(TriIdx);
+		}
+	}
+
+	UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+		TEXT("ProcessBoneRegion: %d/%d triangles in bone region (%.1f%% reduction)"),
+		TargetTriangles.Num(), NumTriangles,
+		100.0f * (1.0f - (float)TargetTriangles.Num() / NumTriangles));
+
+	// 2. Half-Edge 메시 구축
+	TArray<int32> IndicesInt32;
+	IndicesInt32.SetNum(SourceIndices.Num());
+	for (int32 i = 0; i < SourceIndices.Num(); ++i)
+	{
+		IndicesInt32[i] = static_cast<int32>(SourceIndices[i]);
+	}
+
+	if (!HalfEdgeMesh.BuildFromTriangles(SourcePositions, IndicesInt32, SourceUVs, SourceMaterialIndices))
+	{
+		UE_LOG(LogFleshRingSubdivisionProcessor, Warning, TEXT("ProcessBoneRegion: Failed to build Half-Edge mesh"));
+		return false;
+	}
+
+	// 3. 대상 영역만 subdivision
+	FLEBSubdivision::SubdivideSelectedFaces(
+		HalfEdgeMesh,
+		TargetTriangles,
+		Params.MaxSubdivisionLevel,
+		CurrentSettings.MinEdgeLength
+	);
+
+	// 4. 토폴로지 결과 추출
+	if (!ExtractTopologyResult(OutResult))
+	{
+		UE_LOG(LogFleshRingSubdivisionProcessor, Warning, TEXT("ProcessBoneRegion: Failed to extract topology result"));
+		return false;
+	}
+
+	// ★ 캐시 저장
+	BoneRegionCachedResult = OutResult;
+	CachedBoneRegionParamsHash = ParamsHash;
+	bBoneRegionCacheValid = true;
+
+	UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+		TEXT("ProcessBoneRegion: Complete - %d -> %d vertices, %d -> %d triangles (cached)"),
 		OutResult.OriginalVertexCount, OutResult.SubdividedVertexCount,
 		OutResult.OriginalTriangleCount, OutResult.SubdividedTriangleCount);
 

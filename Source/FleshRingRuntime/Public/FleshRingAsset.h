@@ -122,7 +122,7 @@ public:
 
 	/**
 	 * 에디터 프리뷰용 Subdivision 메시 (Transient - 저장 안 함)
-	 * 전체 메시를 균일하게 subdivision하여 링 편집 시 실시간 프리뷰 제공
+	 * 본 기반 영역 subdivision으로 링 편집 시 실시간 프리뷰 제공
 	 * GeneratePreviewMesh()로 생성됨
 	 */
 	UPROPERTY(Transient)
@@ -131,6 +131,30 @@ public:
 	/** 에디터 프리뷰용 Subdivision 레벨 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision Settings|Preview", meta = (ClampMin = "1", ClampMax = "4"))
 	int32 PreviewSubdivisionLevel = 2;
+
+	/**
+	 * 이웃 본 탐색 깊이 (0 = 타겟 본만, 1 = 부모+자식, 2 = 조부모+손자 포함)
+	 * 0이면 BoneWeightThreshold만으로 영역 판단
+	 * 높을수록 subdivision 영역이 넓어지지만 성능 비용 증가
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision Settings|Preview", meta = (ClampMin = "0", ClampMax = "3"))
+	int32 PreviewBoneHopCount = 1;
+
+	/**
+	 * 본 가중치 임계값 (0.0-1.0)
+	 * 이 값 이상의 영향을 받는 버텍스만 subdivision 대상
+	 * 높을수록 subdivision 영역이 좁아져 성능 향상
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision Settings|Preview", meta = (ClampMin = "0.01", ClampMax = "0.7"))
+	float PreviewBoneWeightThreshold = 0.1f;
+
+	// =====================================
+	// Preview Mesh Cache (Editor Only, Transient)
+	// =====================================
+
+	/** 프리뷰 메시 캐시 해시 (본 배치 변경 감지용) */
+	UPROPERTY(Transient)
+	uint32 CachedPreviewBoneConfigHash = 0;
 
 	// =====================================
 	// Editor Selection State (Undo 가능, 디스크 저장 시 초기화)
@@ -234,6 +258,23 @@ public:
 
 	/** 프리뷰 메시 재생성 필요 여부 (레벨 변경 시 등) */
 	bool NeedsPreviewMeshRegeneration() const;
+
+	/**
+	 * 프리뷰 메시 캐시 무효화
+	 * 링 본 변경, 링 추가/삭제 시 호출됨
+	 */
+	void InvalidatePreviewMeshCache();
+
+	/**
+	 * 현재 본 구성의 해시 계산
+	 * 링 부착 본 목록 + subdivision 파라미터 기반
+	 */
+	uint32 CalculatePreviewBoneConfigHash() const;
+
+	/**
+	 * 프리뷰 메시 캐시가 유효한지 확인
+	 */
+	bool IsPreviewMeshCacheValid() const;
 #endif
 
 	/** 에셋 로드 후 호출 - 에디터 선택 상태 초기화 */

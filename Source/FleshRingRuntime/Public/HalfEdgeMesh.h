@@ -337,6 +337,24 @@ public:
 	);
 
 	/**
+	 * 선택된 삼각형들만 Subdivision (에디터 프리뷰용 - 본 기반 최적화)
+	 * 지정된 삼각형 인덱스 집합만 분할
+	 * Red-Green refinement로 T-junction 방지
+	 *
+	 * @param Mesh - Half-edge mesh to subdivide (modified in place)
+	 * @param TargetFaces - 대상 삼각형 인덱스 집합
+	 * @param MaxLevel - Maximum subdivision depth
+	 * @param MinEdgeLength - Stop subdividing when edges are smaller than this
+	 * @return Number of faces added
+	 */
+	static int32 SubdivideSelectedFaces(
+		FHalfEdgeMesh& Mesh,
+		const TSet<int32>& TargetFaces,
+		int32 MaxLevel = 2,
+		float MinEdgeLength = 1.0f
+	);
+
+	/**
 	 * Subdivide a single edge using LEB
 	 * Automatically propagates to maintain mesh consistency
 	 *
