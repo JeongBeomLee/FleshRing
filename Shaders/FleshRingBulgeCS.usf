@@ -28,6 +28,10 @@ int BulgeAxisDirection;  // -1: 음의 축, +1: 양의 축, 0: 양방향
 uint RingIndex;          // Ring 인덱스 (VolumeAccumBuffer 슬롯 지정용)
 float BulgeRadialRatio;  // Radial vs Axial 방향 비율 (0.0~1.0, 기본 0.7)
 
+// Ring Center/Axis (SDF Local Space) - 바운드 확장 시에도 정확한 위치 전달
+float3 SDFLocalRingCenter;
+float3 SDFLocalRingAxis;
+
 #ifndef THREADGROUP_SIZE
 #define THREADGROUP_SIZE 64
 #endif
@@ -63,19 +67,6 @@ float3 TransformDirectionToComponent(float3 LocalDir)
     return mul(LocalDir, (float3x3)transpose(ComponentToSDFLocal));
 }
 
-// Ring 축: 가장 짧은 SDF 바운드 축
-float3 DetectRingAxis()
-{
-    float3 BoundsSize = SDFBoundsMax - SDFBoundsMin;
-
-    if (BoundsSize.x <= BoundsSize.y && BoundsSize.x <= BoundsSize.z)
-        return float3(1, 0, 0);
-    else if (BoundsSize.y <= BoundsSize.x && BoundsSize.y <= BoundsSize.z)
-        return float3(0, 1, 0);
-    else
-        return float3(0, 0, 1);
-}
-
 struct FRingGeometry
 {
     float3 Center;
@@ -86,8 +77,10 @@ struct FRingGeometry
 FRingGeometry ComputeRingGeometry()
 {
     FRingGeometry Ring;
-    Ring.Center = (SDFBoundsMin + SDFBoundsMax) * 0.5;
-    Ring.Axis = DetectRingAxis();
+
+    // CPU에서 전달받은 Ring Center/Axis 사용 (바운드 확장 시에도 정확한 위치)
+    Ring.Center = SDFLocalRingCenter;
+    Ring.Axis = SDFLocalRingAxis;
 
     // EffectWidth: CPU의 BoundsExpansionRatio와 맞춤
     // t = axialDist / EffectWidth > 1 이어야 Bulge 영역

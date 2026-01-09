@@ -44,6 +44,10 @@ public:
 		SHADER_PARAMETER(int32, BulgeAxisDirection)
 		SHADER_PARAMETER(uint32, RingIndex)           // Ring 인덱스 (VolumeAccumBuffer 슬롯 지정)
 		SHADER_PARAMETER(float, BulgeRadialRatio)     // Radial vs Axial 방향 비율 (0.0~1.0, 기본 0.7)
+
+		// Ring Center/Axis (SDF Local Space) - 바운드 확장 시에도 정확한 위치 전달
+		SHADER_PARAMETER(FVector3f, SDFLocalRingCenter)
+		SHADER_PARAMETER(FVector3f, SDFLocalRingAxis)
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
@@ -72,6 +76,10 @@ struct FBulgeDispatchParams
 	FVector3f SDFBoundsMin = FVector3f::ZeroVector;			// in Ring Local Space
 	FVector3f SDFBoundsMax = FVector3f::ZeroVector;			// in Ring Local Space
 	FMatrix44f ComponentToSDFLocal = FMatrix44f::Identity;	// Component -> SDF Local
+
+	// Ring Center/Axis (SDF Local Space) - 바운드 확장 시에도 정확한 위치 전달
+	FVector3f SDFLocalRingCenter = FVector3f::ZeroVector;
+	FVector3f SDFLocalRingAxis = FVector3f(0.0f, 0.0f, 1.0f);
 };
 
 void DispatchFleshRingBulgeCS(

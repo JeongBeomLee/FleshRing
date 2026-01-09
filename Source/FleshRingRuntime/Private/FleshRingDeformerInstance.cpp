@@ -490,6 +490,19 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				float MinAxisSize = FMath::Min3(SDFExtent.X, SDFExtent.Y, SDFExtent.Z);
 				DispatchData.Params.SDFInfluenceFalloffDistance = FMath::Max(MinAxisSize * 0.5f, 1.0f);
 
+				// Ring Center: SDF 바운드 중심 사용 (본 위치보다 정확한 링 메시 중심)
+				// 본 위치는 링 메시 중심과 다를 수 있음 (MeshOffset 등)
+				DispatchData.SDFLocalRingCenter = (SDFCache->BoundsMin + SDFCache->BoundsMax) * 0.5f;
+
+				// Ring Axis: SDF 바운드에서 가장 짧은 축 = 링 구멍 방향
+				// GPU Depot 버전과 동일한 로직 (본 기반 대신 메시 형상 기반)
+				if (SDFExtent.Z < SDFExtent.X && SDFExtent.Z < SDFExtent.Y)
+					DispatchData.SDFLocalRingAxis = FVector3f(0, 0, 1);
+				else if (SDFExtent.Y < SDFExtent.X)
+					DispatchData.SDFLocalRingAxis = FVector3f(0, 1, 0);
+				else
+					DispatchData.SDFLocalRingAxis = FVector3f(1, 0, 0);
+
 				// [조건부 로그] 첫 프레임만 출력
 				static bool bLoggedSDFMode = false;
 				if (!bLoggedSDFMode)

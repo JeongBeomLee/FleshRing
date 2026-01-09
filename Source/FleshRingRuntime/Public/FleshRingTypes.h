@@ -446,6 +446,22 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "3.0"))
 	float TightnessStrength = 1.0f;
 
+	/**
+	 * SDF 바운드 X 방향 확장 (cm)
+	 * SDF 텍스처 생성 및 버텍스 필터링 바운드를 X 방향으로 확장
+	 * 작은 Ring이 더 큰 영역을 커버해야 할 때 사용
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "10.0", DisplayName = "SDF Bounds Expand X (cm)"))
+	float SDFBoundsExpandX = 0.0f;
+
+	/**
+	 * SDF 바운드 Y 방향 확장 (cm)
+	 * SDF 텍스처 생성 및 버텍스 필터링 바운드를 Y 방향으로 확장
+	 * 작은 Ring이 더 큰 영역를 커버해야 할 때 사용
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "10.0", DisplayName = "SDF Bounds Expand Y (cm)"))
+	float SDFBoundsExpandY = 0.0f;
+
 	/** 감쇠 곡선 타입 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
 	EFalloffType FalloffType = EFalloffType::Linear;

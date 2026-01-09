@@ -143,6 +143,12 @@ public:
         // SDF mode falloff distance (Influence becomes 0 at this distance)
         SHADER_PARAMETER(float, SDFInfluenceFalloffDistance)
 
+        // Ring Center/Axis (SDF Local Space)
+        // 원본 Ring 바운드 기준으로 계산 (확장 전)
+        // SDF 바운드가 확장되어도 Ring의 실제 위치/축을 정확히 전달
+        SHADER_PARAMETER(FVector3f, SDFLocalRingCenter)
+        SHADER_PARAMETER(FVector3f, SDFLocalRingAxis)
+
         // Z축 상단 확장 거리 (절대값, cm 단위)
         // 링 위쪽으로 얼마나 확장할지 설정 (0 = 확장 없음)
         SHADER_PARAMETER(float, BoundsZTop)
@@ -322,6 +328,23 @@ struct FTightnessDispatchParams
      */
     float BoundsZBottom;
 
+    // =========== SDF Local Ring Geometry ===========
+    // =========== SDF 로컬 링 지오메트리 ===========
+
+    /**
+     * Ring Center (SDF Local Space)
+     * 원본 Ring 바운드 기준으로 계산 (확장 전)
+     * SDF 바운드가 확장되어도 Ring의 실제 위치를 정확히 전달
+     */
+    FVector3f SDFLocalRingCenter;
+
+    /**
+     * Ring Axis (SDF Local Space)
+     * 원본 Ring 바운드 기준으로 계산 (확장 전)
+     * SDF 바운드가 확장되어도 Ring의 실제 축을 정확히 전달
+     */
+    FVector3f SDFLocalRingAxis;
+
     // =========== Volume Accumulation Parameters (for Bulge pass) ===========
     // =========== 부피 누적 파라미터 (Bulge 패스용) ===========
 
@@ -363,6 +386,8 @@ struct FTightnessDispatchParams
         , SDFInfluenceFalloffDistance(5.0f)
         , BoundsZTop(5.0f)
         , BoundsZBottom(0.0f)
+        , SDFLocalRingCenter(FVector3f::ZeroVector)
+        , SDFLocalRingAxis(FVector3f(0.0f, 0.0f, 1.0f))
         , bAccumulateVolume(0)
         , FixedPointScale(1000.0f)
         , RingIndex(0)

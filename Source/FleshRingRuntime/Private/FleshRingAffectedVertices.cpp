@@ -523,8 +523,20 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
     // Inverse().TransformPosition()은 스케일과 회전 순서가 잘못됨
     const FTransform& LocalToComponent = Context.SDFCache->LocalToComponent;
 
-    const FVector BoundsMin = FVector(Context.SDFCache->BoundsMin);
-    const FVector BoundsMax = FVector(Context.SDFCache->BoundsMax);
+    // 버텍스 필터링 바운드 (SDFBoundsExpandX/Y 적용)
+    // NOTE: SDF 텍스처 바운드는 원래 크기 유지, 버텍스 필터링만 확장
+    const float ExpandX = Context.RingSettings.SDFBoundsExpandX;
+    const float ExpandY = Context.RingSettings.SDFBoundsExpandY;
+
+    FVector BoundsMin = FVector(Context.SDFCache->BoundsMin);
+    FVector BoundsMax = FVector(Context.SDFCache->BoundsMax);
+
+    // Ring 로컬 스페이스에서 X, Y 방향 확장 (Z는 Ring 축이므로 유지)
+    BoundsMin.X -= ExpandX;
+    BoundsMin.Y -= ExpandY;
+    BoundsMax.X += ExpandX;
+    BoundsMax.Y += ExpandY;
+
     const TArray<FVector3f>& AllVertices = Context.AllVertices;
 
     // [디버그] LocalToComponent 변환 정보 로그 (스케일 확인용)

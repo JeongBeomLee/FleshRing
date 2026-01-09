@@ -66,6 +66,15 @@ struct FFleshRingWorkItem
 		 */
 		FTransform SDFLocalToComponent = FTransform::Identity;
 
+		/**
+		 * Ring Center/Axis (SDF Local Space)
+		 * 원본 Ring 메시 바운드 기준으로 계산 (확장 전 바운드)
+		 * SDF 바운드가 확장되어도 Ring의 실제 위치/축을 정확히 전달
+		 * CPU에서 계산하여 GPU 셰이더로 전달 (바운드 기반 추론 대체)
+		 */
+		FVector3f SDFLocalRingCenter = FVector3f::ZeroVector;
+		FVector3f SDFLocalRingAxis = FVector3f(0.0f, 0.0f, 1.0f);
+
 		// ===== Ring별 Bulge 데이터 =====
 		bool bEnableBulge = false;
 		TArray<uint32> BulgeIndices;

@@ -48,6 +48,10 @@ void DispatchFleshRingBulgeCS(
 		PassParameters->SDFBoundsMin = Params.SDFBoundsMin;
 		PassParameters->SDFBoundsMax = Params.SDFBoundsMax;
 		PassParameters->ComponentToSDFLocal = Params.ComponentToSDFLocal;
+
+		// Ring Center/Axis (SDF Local Space)
+		PassParameters->SDFLocalRingCenter = Params.SDFLocalRingCenter;
+		PassParameters->SDFLocalRingAxis = Params.SDFLocalRingAxis;
 	}
 	else
 	{
@@ -65,6 +69,10 @@ void DispatchFleshRingBulgeCS(
 		PassParameters->SDFBoundsMin = FVector3f::ZeroVector;
 		PassParameters->SDFBoundsMax = FVector3f::OneVector;
 		PassParameters->ComponentToSDFLocal = FMatrix44f::Identity;
+
+		// Ring Center/Axis (default values for non-SDF mode)
+		PassParameters->SDFLocalRingCenter = FVector3f::ZeroVector;
+		PassParameters->SDFLocalRingAxis = FVector3f(0.0f, 0.0f, 1.0f);
 	}
 
 	// Params

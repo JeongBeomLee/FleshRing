@@ -279,6 +279,10 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					FMatrix InverseMatrix = DispatchData.SDFLocalToComponent.Inverse().ToMatrixWithScale();
 					Params.ComponentToSDFLocal = FMatrix44f(InverseMatrix);
 
+					// Ring Center/Axis (SDF Local Space) - 바운드 확장 시에도 정확한 위치 전달
+					Params.SDFLocalRingCenter = DispatchData.SDFLocalRingCenter;
+					Params.SDFLocalRingAxis = DispatchData.SDFLocalRingAxis;
+
 					// [조건부 로그] 첫 프레임만 출력
 					static bool bLoggedSDFDispatch = false;
 					if (!bLoggedSDFDispatch)
@@ -395,6 +399,10 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				BulgeParams.SDFBoundsMin = DispatchData.SDFBoundsMin;
 				BulgeParams.SDFBoundsMax = DispatchData.SDFBoundsMax;
 				BulgeParams.ComponentToSDFLocal = RingComponentToSDFLocal;
+
+				// Ring Center/Axis (SDF Local Space) - 바운드 확장 시에도 정확한 위치 전달
+				BulgeParams.SDFLocalRingCenter = DispatchData.SDFLocalRingCenter;
+				BulgeParams.SDFLocalRingAxis = DispatchData.SDFLocalRingAxis;
 
 				// [조건부 로그] 각 Ring별 첫 프레임만 출력
 				static TSet<int32> LoggedBulgeRings;

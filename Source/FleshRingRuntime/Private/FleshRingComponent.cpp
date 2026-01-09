@@ -489,10 +489,13 @@ void UFleshRingComponent::GenerateSDF()
 			const int32 Resolution = 64;
 			const FIntVector SDFResolution(Resolution, Resolution, Resolution);
 
-			// 4. Bounds 계산
-			const float BoundsPadding = 0.0f;
-			FVector3f BoundsMin = MeshData.Bounds.Min - FVector3f(BoundsPadding);
-			FVector3f BoundsMax = MeshData.Bounds.Max + FVector3f(BoundsPadding);
+			// 4. Bounds 계산 (SDF 텍스처용 - 원래 바운드 유지)
+			// NOTE: SDFBoundsExpandX/Y는 SDF 텍스처 바운드에 적용하지 않음
+			// 이유 1: 에디터에서 Expand 값 조절 시 매번 SDF 재생성 → 성능/메모리 문제
+			// 이유 2: 바운드 확장 시 SDF 해상도 밀도 저하 → 링 형태 품질 저하
+			// 현재 설계: Two-Phase 레이마칭으로 외부 버텍스 처리 (SDF 품질 유지)
+			FVector3f BoundsMin = MeshData.Bounds.Min;
+			FVector3f BoundsMax = MeshData.Bounds.Max;
 
 			// 5. 캐시 메타데이터 설정
 			FRingSDFCache* CachePtr = &RingSDFCaches[RingIndex];
@@ -583,10 +586,13 @@ void UFleshRingComponent::GenerateSDF()
 		const int32 Resolution = 64;
 		const FIntVector SDFResolution(Resolution, Resolution, Resolution);
 
-		// 4. Bounds 계산 (로컬 스페이스 메시 bounds + 패딩)
-		const float BoundsPadding = 0.0f; // SDF 경계 여유 공간 이거 무조건 프로퍼티화 해야함 TODOTODOTODOTODO
-		FVector3f BoundsMin = MeshData.Bounds.Min - FVector3f(BoundsPadding);
-		FVector3f BoundsMax = MeshData.Bounds.Max + FVector3f(BoundsPadding);
+		// 4. Bounds 계산 (SDF 텍스처용 - 원래 바운드 유지)
+		// NOTE: SDFBoundsExpandX/Y는 SDF 텍스처 바운드에 적용하지 않음
+		// 이유 1: 에디터에서 Expand 값 조절 시 매번 SDF 재생성 → 성능/메모리 문제
+		// 이유 2: 바운드 확장 시 SDF 해상도 밀도 저하 → 링 형태 품질 저하
+		// 현재 설계: Two-Phase 레이마칭으로 외부 버텍스 처리 (SDF 품질 유지)
+		FVector3f BoundsMin = MeshData.Bounds.Min;
+		FVector3f BoundsMax = MeshData.Bounds.Max;
 
 		// 5. GPU SDF 생성 (렌더 스레드에서 실행)
 		// MeshData를 값으로 캡처 (렌더 스레드로 전달)
@@ -1167,7 +1173,8 @@ void UFleshRingComponent::DrawSdfVolume(int32 RingIndex)
 		bLoggedOBBDebug = true;
 	}
 
-	FColor BracketColor = FColor(130, 200, 255, 160);
+	FColor BracketColor = FColor(130, 200, 255, 160);  // 파란색 (SDF 텍스처 바운드)
+	FColor ExpandedBracketColor = FColor(80, 220, 80, 160);  // 초록색 (확장 바운드)
 	float LineThickness = 0.20f;
 	float BracketRatio = 0.25f;
 
@@ -1181,7 +1188,7 @@ void UFleshRingComponent::DrawSdfVolume(int32 RingIndex)
 	float BracketLenY = ScaledExtent.Y * 2.0f * BracketRatio;
 	float BracketLenZ = ScaledExtent.Z * 2.0f * BracketRatio;
 
-	// 8개 코너 계산 및 브라켓 그리기
+	// 8개 코너 계산 및 브라켓 그리기 (SDF 텍스처 바운드 - 파란색)
 	// 코너 = Center + (±ExtentX * AxisX) + (±ExtentY * AxisY) + (±ExtentZ * AxisZ)
 	for (int32 i = 0; i < 8; ++i)
 	{
@@ -1209,6 +1216,60 @@ void UFleshRingComponent::DrawSdfVolume(int32 RingIndex)
 		// Z축 브라켓
 		FVector EndZ = Corner - AxisZ * BracketLenZ * SignZ;
 		DrawDebugLine(World, Corner, EndZ, BracketColor, false, -1.0f, SDPG_Foreground, LineThickness);
+	}
+
+	// ===== 확장 바운드 그리기 (초록색) - SDFBoundsExpandX/Y 적용 =====
+	if (FleshRingAsset && FleshRingAsset->Rings.IsValidIndex(RingIndex))
+	{
+		const FFleshRingSettings& Ring = FleshRingAsset->Rings[RingIndex];
+		const float ExpandX = Ring.SDFBoundsExpandX;
+		const float ExpandY = Ring.SDFBoundsExpandY;
+
+		// 확장이 있을 때만 그리기
+		if (ExpandX > 0.01f || ExpandY > 0.01f)
+		{
+			// 확장된 로컬 바운드 계산
+			FVector ExpandedLocalMin = LocalBoundsMin - FVector(ExpandX, ExpandY, 0.0f);
+			FVector ExpandedLocalMax = LocalBoundsMax + FVector(ExpandX, ExpandY, 0.0f);
+
+			// 확장된 Center와 Extent
+			FVector ExpandedLocalCenter = (ExpandedLocalMin + ExpandedLocalMax) * 0.5f;
+			FVector ExpandedLocalExtent = (ExpandedLocalMax - ExpandedLocalMin) * 0.5f;
+
+			// 월드 공간 변환
+			FVector ExpandedWorldCenter = LocalToWorld.TransformPosition(ExpandedLocalCenter);
+			FVector ExpandedScaledExtent = ExpandedLocalExtent * LocalToWorld.GetScale3D();
+
+			// 확장된 브라켓 길이
+			float ExpandedBracketLenX = ExpandedScaledExtent.X * 2.0f * BracketRatio;
+			float ExpandedBracketLenY = ExpandedScaledExtent.Y * 2.0f * BracketRatio;
+			float ExpandedBracketLenZ = ExpandedScaledExtent.Z * 2.0f * BracketRatio;
+
+			// 확장 바운드 8개 코너 그리기 (초록색)
+			for (int32 i = 0; i < 8; ++i)
+			{
+				float SignX = (i & 1) ? 1.0f : -1.0f;
+				float SignY = (i & 2) ? 1.0f : -1.0f;
+				float SignZ = (i & 4) ? 1.0f : -1.0f;
+
+				FVector ExpandedCorner = ExpandedWorldCenter
+					+ AxisX * ExpandedScaledExtent.X * SignX
+					+ AxisY * ExpandedScaledExtent.Y * SignY
+					+ AxisZ * ExpandedScaledExtent.Z * SignZ;
+
+				// X축 브라켓 (초록색)
+				FVector EndX = ExpandedCorner - AxisX * ExpandedBracketLenX * SignX;
+				DrawDebugLine(World, ExpandedCorner, EndX, ExpandedBracketColor, false, -1.0f, SDPG_Foreground, LineThickness);
+
+				// Y축 브라켓 (초록색)
+				FVector EndY = ExpandedCorner - AxisY * ExpandedBracketLenY * SignY;
+				DrawDebugLine(World, ExpandedCorner, EndY, ExpandedBracketColor, false, -1.0f, SDPG_Foreground, LineThickness);
+
+				// Z축 브라켓 (초록색)
+				FVector EndZ = ExpandedCorner - AxisZ * ExpandedBracketLenZ * SignZ;
+				DrawDebugLine(World, ExpandedCorner, EndZ, ExpandedBracketColor, false, -1.0f, SDPG_Foreground, LineThickness);
+			}
+		}
 	}
 }
 

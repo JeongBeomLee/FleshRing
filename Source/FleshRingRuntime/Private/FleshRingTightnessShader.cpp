@@ -138,6 +138,9 @@ void DispatchFleshRingTightnessCS(
         PassParameters->ComponentToSDFLocal = Params.ComponentToSDFLocal;
         // SDF falloff 거리
         PassParameters->SDFInfluenceFalloffDistance = Params.SDFInfluenceFalloffDistance;
+        // Ring Center/Axis (SDF Local Space) - 바운드 확장 시에도 정확한 위치 전달
+        PassParameters->SDFLocalRingCenter = Params.SDFLocalRingCenter;
+        PassParameters->SDFLocalRingAxis = Params.SDFLocalRingAxis;
     }
     else
     {
@@ -161,6 +164,9 @@ void DispatchFleshRingTightnessCS(
         PassParameters->ComponentToSDFLocal = FMatrix44f::Identity;
         // Manual 모드에서는 사용 안 하지만 바인딩 필요
         PassParameters->SDFInfluenceFalloffDistance = 5.0f;
+        // Manual 모드: 기본값 바인딩 (사용 안함)
+        PassParameters->SDFLocalRingCenter = FVector3f::ZeroVector;
+        PassParameters->SDFLocalRingAxis = FVector3f(0.0f, 0.0f, 1.0f);
     }
 
     // ===== Smoothing Bounds Z Extension Parameters =====
@@ -291,6 +297,9 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
         PassParameters->bUseSDFInfluence = 1;
         PassParameters->ComponentToSDFLocal = Params.ComponentToSDFLocal;
         PassParameters->SDFInfluenceFalloffDistance = Params.SDFInfluenceFalloffDistance;
+        // Ring Center/Axis (SDF Local Space) - 바운드 확장 시에도 정확한 위치 전달
+        PassParameters->SDFLocalRingCenter = Params.SDFLocalRingCenter;
+        PassParameters->SDFLocalRingAxis = Params.SDFLocalRingAxis;
     }
     else
     {
@@ -312,6 +321,9 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
         PassParameters->bUseSDFInfluence = 0;
         PassParameters->ComponentToSDFLocal = FMatrix44f::Identity;
         PassParameters->SDFInfluenceFalloffDistance = 5.0f;
+        // Manual 모드: 기본값 바인딩 (사용 안함)
+        PassParameters->SDFLocalRingCenter = FVector3f::ZeroVector;
+        PassParameters->SDFLocalRingAxis = FVector3f(0.0f, 0.0f, 1.0f);
     }
 
     // ===== Smoothing Bounds Z Extension Parameters =====
