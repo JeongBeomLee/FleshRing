@@ -434,6 +434,9 @@ void UFleshRingComponent::CleanupDeformer()
 
 void UFleshRingComponent::GenerateSDF()
 {
+	// 이전 렌더 커맨드 완료 대기
+	FlushRenderingCommands();
+
 	if (!FleshRingAsset)
 	{
 		return;
@@ -800,6 +803,45 @@ void UFleshRingComponent::UpdateRingTransforms()
 #endif
 }
 
+bool UFleshRingComponent::RefreshWithDeformerReuse()
+{
+	// Deformer 재사용 가능 여부 확인
+	if (!InternalDeformer || !ResolvedTargetMesh.IsValid() || !bEnableFleshRing)
+	{
+		return false;
+	}
+
+	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: RefreshWithDeformerReuse - Reusing existing Deformer (avoiding GPU resource leak)"));
+
+	// 렌더 커맨드 완료 대기 (이전 SDF 생성 커맨드가 완료되어야 캐시 해제 가능)
+	FlushRenderingCommands();
+
+	// SDF 캐시만 정리 (Deformer는 유지)
+	for (FRingSDFCache& Cache : RingSDFCaches)
+	{
+		Cache.Reset();
+	}
+	RingSDFCaches.Empty();
+
+	// SDF 재생성
+	GenerateSDF();
+
+	// Ring 메시 갱신
+	CleanupRingMeshes();
+	SetupRingMeshes();
+
+	// DeformerInstance의 Tightness 캐시 무효화 (Ring 변경 반영)
+	if (USkeletalMeshComponent* SkelMeshComp = ResolvedTargetMesh.Get())
+	{
+		if (UFleshRingDeformerInstance* DeformerInstance = Cast<UFleshRingDeformerInstance>(SkelMeshComp->GetMeshDeformerInstance()))
+		{
+			DeformerInstance->InvalidateTightnessCache();
+		}
+	}
+
+	return true;
+}
+
 void UFleshRingComponent::ApplyAsset()
 {
 	if (!FleshRingAsset)
@@ -810,7 +852,13 @@ void UFleshRingComponent::ApplyAsset()
 
 	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Applying asset '%s'"), *FleshRingAsset->GetName());
 
-	// 기존 설정 정리 후 재설정
+	// Deformer가 이미 존재하면 재사용 (GPU 메모리 누수 방지)
+	if (RefreshWithDeformerReuse())
+	{
+		return;
+	}
+
+	// 기존 설정 정리 후 재설정 (최초 설정 또는 Deformer가 없는 경우)
 	CleanupRingMeshes();
 	CleanupDeformer();
 #if WITH_EDITOR

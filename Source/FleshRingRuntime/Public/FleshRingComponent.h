@@ -329,6 +329,13 @@ private:
 	/** Deformer 제거 */
 	void CleanupDeformer();
 
+	/**
+	 * Deformer를 유지한 채 SDF와 Ring 메시만 갱신
+	 * Undo/Redo 시 GPU 메모리 누수 방지를 위해 Deformer 재생성 대신 이 함수 사용
+	 * @return true if refresh succeeded, false if full recreation needed
+	 */
+	bool RefreshWithDeformerReuse();
+
 	/** SDF 생성 (각 Ring의 RingMesh 기반) */
 	void GenerateSDF();
 
