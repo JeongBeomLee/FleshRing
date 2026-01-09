@@ -390,14 +390,22 @@ void UFleshRingComponent::CleanupDeformer()
 		// 1. 먼저 진행중인 렌더 작업 완료 대기
 		FlushRenderingCommands();
 
-		// 2. Deformer 해제
+		// 2. 이전 DeformerInstance 명시적 파괴 (메모리 누수 방지)
+		// SetMeshDeformer(nullptr)는 포인터만 해제하고 Instance를 파괴하지 않음
+		if (UMeshDeformerInstance* OldInstance = TargetMesh->GetMeshDeformerInstance())
+		{
+			OldInstance->MarkAsGarbage();
+			OldInstance->ConditionalBeginDestroy();
+		}
+
+		// 3. Deformer 해제
 		TargetMesh->SetMeshDeformer(nullptr);
 
-		// 3. Render State를 dirty로 마킹하여 Scene Proxy 재생성 트리거
+		// 4. Render State를 dirty로 마킹하여 Scene Proxy 재생성 트리거
 		// VertexFactory가 올바르게 재초기화되도록 함
 		TargetMesh->MarkRenderStateDirty();
 
-		// 4. 새 렌더 스테이트가 적용될 때까지 대기
+		// 5. 새 렌더 스테이트가 적용될 때까지 대기
 		// FMeshBatch 유효성 문제 방지
 		FlushRenderingCommands();
 
@@ -808,6 +816,24 @@ bool UFleshRingComponent::RefreshWithDeformerReuse()
 	// Deformer 재사용 가능 여부 확인
 	if (!InternalDeformer || !ResolvedTargetMesh.IsValid() || !bEnableFleshRing)
 	{
+		return false;
+	}
+
+	// ★ Deformer가 실제로 SkeletalMeshComponent에 설정되어 있는지 확인
+	// PreviewScene에서 메시 변경 시 Deformer를 먼저 해제하므로 이 체크 필요
+	USkeletalMeshComponent* TargetMesh = ResolvedTargetMesh.Get();
+	if (TargetMesh && !TargetMesh->GetMeshDeformerInstance())
+	{
+		// ★ SDF 캐시 먼저 정리 (InternalDeformer를 null로 설정하면 CleanupDeformer에서 정리 안 됨)
+		FlushRenderingCommands();
+		for (FRingSDFCache& Cache : RingSDFCaches)
+		{
+			Cache.Reset();
+		}
+		RingSDFCaches.Empty();
+
+		// DeformerInstance가 없으면 Deformer가 해제된 것으로 간주
+		InternalDeformer = nullptr;
 		return false;
 	}
 

@@ -1290,10 +1290,23 @@ const FRingAffectedData* FFleshRingAffectedVerticesManager::GetRingData(int32 Ri
 
 void FFleshRingAffectedVerticesManager::ClearAll()
 {
-    RingDataArray.Reset();
+    // Empty()로 메모리 완전 해제 (Reset()은 메모리 유지)
+    RingDataArray.Empty();
 
-    // 토폴로지 캐시도 무효화 (메시가 변경될 수 있음)
+    // 토폴로지 캐시 무효화
     InvalidateTopologyCache();
+
+    // ★ 캐시된 메시 데이터도 해제 (메모리 누수 방지)
+    CachedMeshIndices.Empty();
+    CachedMeshVertices.Empty();
+    CachedVertexLayerTypes.Empty();
+    bMeshDataCached = false;
+
+    // ★ Spatial Hash 해제
+    VertexSpatialHash.Clear();
+
+    // ★ Dirty Flags 해제
+    RingDirtyFlags.Empty();
 }
 
 int32 FFleshRingAffectedVerticesManager::GetTotalAffectedCount() const

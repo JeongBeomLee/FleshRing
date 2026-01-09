@@ -6,6 +6,7 @@
 #include "FleshRingUtils.h"
 #include "FleshRingMeshComponent.h"
 #include "Animation/DebugSkelMeshComponent.h"
+#include "Animation/MeshDeformerInstance.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "Engine/StaticMesh.h"
@@ -119,6 +120,20 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	// 1단계: 먼저 원본 메시로 설정 (FleshRingComponent 초기화용)
 	// ============================================
 	USkeletalMesh* OriginalMesh = InAsset->TargetSkeletalMesh.LoadSynchronous();
+
+	// ★ 메시 변경 전에 이전 DeformerInstance 명시적 파괴 (메모리 누수 방지)
+	// SetSkeletalMesh()가 새 DeformerInstance를 생성하기 전에 이전 것을 정리
+	if (SkeletalMeshComponent)
+	{
+		if (UMeshDeformerInstance* OldInstance = SkeletalMeshComponent->GetMeshDeformerInstance())
+		{
+			FlushRenderingCommands();
+			OldInstance->MarkAsGarbage();
+			OldInstance->ConditionalBeginDestroy();
+		}
+		// Deformer도 해제하여 SetSkeletalMesh()가 새 Instance를 생성하지 않도록 함
+		SkeletalMeshComponent->SetMeshDeformer(nullptr);
+	}
 
 	// TargetSkeletalMesh가 null이면 씬 정리 후 리턴
 	if (!OriginalMesh)

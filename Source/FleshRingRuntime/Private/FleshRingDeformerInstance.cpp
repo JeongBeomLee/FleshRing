@@ -39,10 +39,25 @@ void UFleshRingDeformerInstance::BeginDestroy()
 			Worker->AbortWork(this);
 		}
 	}
+	Scene = nullptr;
 
 	// 렌더 스레드가 현재 작업을 완료할 때까지 대기
 	// 이미 큐잉된 작업이 실행 중일 수 있으므로 flush 필요
 	FlushRenderingCommands();
+
+	// ★ GPU 버퍼 및 캐시 명시적 해제 (메모리 누수 방지)
+	ReleaseResources();
+
+	// ★ DeformerGeometry 명시적 해제
+	DeformerGeometry.Reset();
+
+	// LODData 배열 완전 정리 (ReleaseResources에서 이미 ClearAll 호출됨)
+	LODData.Empty();
+
+	// ★ 약한 참조들도 명시적 해제
+	Deformer.Reset();
+	MeshComponent.Reset();
+	FleshRingComponent.Reset();
 
 	Super::BeginDestroy();
 }
@@ -115,6 +130,7 @@ void UFleshRingDeformerInstance::ReleaseResources()
 		if (Data.CachedTightenedBindPoseShared.IsValid())
 		{
 			Data.CachedTightenedBindPoseShared->SafeRelease();
+			Data.CachedTightenedBindPoseShared.Reset();  // ★ TSharedPtr도 Reset (메모리 누수 방지)
 		}
 		Data.bTightenedBindPoseCached = false;
 		Data.CachedTightnessVertexCount = 0;
@@ -123,12 +139,14 @@ void UFleshRingDeformerInstance::ReleaseResources()
 		if (Data.CachedNormalsShared.IsValid())
 		{
 			Data.CachedNormalsShared->SafeRelease();
+			Data.CachedNormalsShared.Reset();  // ★ TSharedPtr도 Reset (메모리 누수 방지)
 		}
 
 		// 재계산된 탄젠트 버퍼 해제
 		if (Data.CachedTangentsShared.IsValid())
 		{
 			Data.CachedTangentsShared->SafeRelease();
+			Data.CachedTangentsShared.Reset();  // ★ TSharedPtr도 Reset (메모리 누수 방지)
 		}
 
 		// 소스 위치 해제
