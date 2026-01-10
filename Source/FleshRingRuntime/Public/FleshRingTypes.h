@@ -501,6 +501,9 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing && DeformPropagationMode == EDeformPropagationMode::HeatDiffusion", ClampMin = "0.1", ClampMax = "0.9", DisplayName = "Heat Diffusion Lambda"))
 	float HeatDiffusionLambda = 0.5f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing"))
+	EFalloffType HopFalloffType = EFalloffType::Hermite;
+
 	/**
 	 * 스무딩 영역 상단 확장 거리 (cm)
 	 * - 링 위쪽으로 스무딩 영역을 얼마나 확장할지 설정
