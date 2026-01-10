@@ -791,6 +791,66 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingOffset));
 	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingEulerRotation));
 
+	// Smoothing 프로퍼티 핸들 개별 획득
+	TSharedPtr<IPropertyHandle> bEnableRadialSmoothingHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableRadialSmoothing));
+	TSharedPtr<IPropertyHandle> bEnableLaplacianSmoothingHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableLaplacianSmoothing));
+	TSharedPtr<IPropertyHandle> bUseTaubinSmoothingHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bUseTaubinSmoothing));
+	TSharedPtr<IPropertyHandle> SmoothingLambdaHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingLambda));
+	TSharedPtr<IPropertyHandle> TaubinMuHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, TaubinMu));
+	TSharedPtr<IPropertyHandle> SmoothingIterationsHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingIterations));
+	TSharedPtr<IPropertyHandle> VolumePreservationHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, VolumePreservation));
+	TSharedPtr<IPropertyHandle> bUseHopBasedSmoothingHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bUseHopBasedSmoothing));
+	TSharedPtr<IPropertyHandle> MaxSmoothingHopsHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MaxSmoothingHops));
+	TSharedPtr<IPropertyHandle> HopFalloffRatioHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HopFalloffRatio));
+	TSharedPtr<IPropertyHandle> HopFalloffTypeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HopFalloffType));
+	TSharedPtr<IPropertyHandle> PostHopLaplacianIterationsHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PostHopLaplacianIterations));
+	TSharedPtr<IPropertyHandle> PostHopLaplacianLambdaHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PostHopLaplacianLambda));
+	TSharedPtr<IPropertyHandle> SeedBlendCountHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SeedBlendCount));
+	TSharedPtr<IPropertyHandle> SeedBlendWeightTypeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SeedBlendWeightType));
+	TSharedPtr<IPropertyHandle> SeedBlendGaussianSigmaHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SeedBlendGaussianSigma));
+	TSharedPtr<IPropertyHandle> DeformPropagationModeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, DeformPropagationMode));
+	TSharedPtr<IPropertyHandle> HeatDiffusionIterationsHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HeatDiffusionIterations));
+	TSharedPtr<IPropertyHandle> HeatDiffusionLambdaHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HeatDiffusionLambda));
+	TSharedPtr<IPropertyHandle> SmoothingBoundsZTopHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingBoundsZTop));
+	TSharedPtr<IPropertyHandle> SmoothingBoundsZBottomHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingBoundsZBottom));
+
+	// Smoothing 그룹에 들어갈 프로퍼티 이름들
+	TSet<FName> SmoothingGroupProperties;
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableRadialSmoothing));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableLaplacianSmoothing));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bUseTaubinSmoothing));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingLambda));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, TaubinMu));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingIterations));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, VolumePreservation));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bUseHopBasedSmoothing));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MaxSmoothingHops));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HopFalloffRatio));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HopFalloffType));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PostHopLaplacianIterations));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PostHopLaplacianLambda));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SeedBlendCount));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SeedBlendWeightType));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SeedBlendGaussianSigma));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, DeformPropagationMode));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HeatDiffusionIterations));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HeatDiffusionLambda));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingBoundsZTop));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingBoundsZBottom));
+
+	// PBD 프로퍼티 핸들 개별 획득
+	TSharedPtr<IPropertyHandle> bEnablePBDEdgeConstraintHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnablePBDEdgeConstraint));
+	TSharedPtr<IPropertyHandle> PBDStiffnessHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PBDStiffness));
+	TSharedPtr<IPropertyHandle> PBDIterationsHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PBDIterations));
+	TSharedPtr<IPropertyHandle> bPBDUseDeformAmountWeightHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bPBDUseDeformAmountWeight));
+
+	// PBD 그룹에 들어갈 프로퍼티 이름들
+	TSet<FName> PBDGroupProperties;
+	PBDGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnablePBDEdgeConstraint));
+	PBDGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PBDStiffness));
+	PBDGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PBDIterations));
+	PBDGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bPBDUseDeformAmountWeight));
+
 	// 나머지 프로퍼티들 먼저 표시 (Ring 그룹 제외)
 	uint32 NumChildren;
 	PropertyHandle->GetNumChildren(NumChildren);
@@ -821,6 +881,18 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 
 		// Ring 그룹에 넣을 프로퍼티는 여기서 스킵
 		if (RingGroupProperties.Contains(PropertyName))
+		{
+			continue;
+		}
+
+		// Smoothing 그룹에 넣을 프로퍼티는 여기서 스킵
+		if (SmoothingGroupProperties.Contains(PropertyName))
+		{
+			continue;
+		}
+
+		// PBD 그룹에 넣을 프로퍼티는 여기서 스킵
+		if (PBDGroupProperties.Contains(PropertyName))
 		{
 			continue;
 		}
@@ -1185,6 +1257,130 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 					})
 				)
 			);
+	}
+
+	// Smoothing 그룹 생성 (Ring Transform 그룹 뒤)
+	IDetailGroup& SmoothingGroup = ChildBuilder.AddGroup(TEXT("Smoothing"), LOCTEXT("SmoothingGroup", "Smoothing"));
+	SmoothingGroup.HeaderRow()
+		.NameContent()
+		[
+			SNew(STextBlock)
+			.Text(LOCTEXT("SmoothingHeader", "Smoothing"))
+			.Font(IDetailLayoutBuilder::GetDetailFontBold())
+		];
+
+	// Smoothing 프로퍼티 명시적 순서로 추가
+	if (bEnableRadialSmoothingHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(bEnableRadialSmoothingHandle.ToSharedRef());
+	}
+	if (bEnableLaplacianSmoothingHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(bEnableLaplacianSmoothingHandle.ToSharedRef());
+	}
+	if (bUseTaubinSmoothingHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(bUseTaubinSmoothingHandle.ToSharedRef());
+	}
+	if (SmoothingLambdaHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(SmoothingLambdaHandle.ToSharedRef());
+	}
+	if (TaubinMuHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(TaubinMuHandle.ToSharedRef());
+	}
+	if (SmoothingIterationsHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(SmoothingIterationsHandle.ToSharedRef());
+	}
+	if (VolumePreservationHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(VolumePreservationHandle.ToSharedRef());
+	}
+	if (bUseHopBasedSmoothingHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(bUseHopBasedSmoothingHandle.ToSharedRef());
+	}
+	if (MaxSmoothingHopsHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(MaxSmoothingHopsHandle.ToSharedRef());
+	}
+	if (HopFalloffRatioHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(HopFalloffRatioHandle.ToSharedRef());
+	}
+	if (HopFalloffTypeHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(HopFalloffTypeHandle.ToSharedRef());
+	}
+	if (PostHopLaplacianIterationsHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(PostHopLaplacianIterationsHandle.ToSharedRef());
+	}
+	if (PostHopLaplacianLambdaHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(PostHopLaplacianLambdaHandle.ToSharedRef());
+	}
+	if (SeedBlendCountHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(SeedBlendCountHandle.ToSharedRef());
+	}
+	if (SeedBlendWeightTypeHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(SeedBlendWeightTypeHandle.ToSharedRef());
+	}
+	if (SeedBlendGaussianSigmaHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(SeedBlendGaussianSigmaHandle.ToSharedRef());
+	}
+	if (DeformPropagationModeHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(DeformPropagationModeHandle.ToSharedRef());
+	}
+	if (HeatDiffusionIterationsHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(HeatDiffusionIterationsHandle.ToSharedRef());
+	}
+	if (HeatDiffusionLambdaHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(HeatDiffusionLambdaHandle.ToSharedRef());
+	}
+	if (SmoothingBoundsZTopHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(SmoothingBoundsZTopHandle.ToSharedRef());
+	}
+	if (SmoothingBoundsZBottomHandle.IsValid())
+	{
+		SmoothingGroup.AddPropertyRow(SmoothingBoundsZBottomHandle.ToSharedRef());
+	}
+
+	// PBD 그룹 생성 (Smoothing 그룹 뒤)
+	IDetailGroup& PBDGroup = ChildBuilder.AddGroup(TEXT("PBDEdgeConstraint"), LOCTEXT("PBDGroup", "PBD Edge Constraint"));
+	PBDGroup.HeaderRow()
+		.NameContent()
+		[
+			SNew(STextBlock)
+			.Text(LOCTEXT("PBDHeader", "PBD Edge Constraint"))
+			.Font(IDetailLayoutBuilder::GetDetailFontBold())
+		];
+
+	// PBD 프로퍼티 명시적 순서로 추가
+	if (bEnablePBDEdgeConstraintHandle.IsValid())
+	{
+		PBDGroup.AddPropertyRow(bEnablePBDEdgeConstraintHandle.ToSharedRef());
+	}
+	if (PBDStiffnessHandle.IsValid())
+	{
+		PBDGroup.AddPropertyRow(PBDStiffnessHandle.ToSharedRef());
+	}
+	if (PBDIterationsHandle.IsValid())
+	{
+		PBDGroup.AddPropertyRow(PBDIterationsHandle.ToSharedRef());
+	}
+	if (bPBDUseDeformAmountWeightHandle.IsValid())
+	{
+		PBDGroup.AddPropertyRow(bPBDUseDeformAmountWeightHandle.ToSharedRef());
 	}
 }
 
