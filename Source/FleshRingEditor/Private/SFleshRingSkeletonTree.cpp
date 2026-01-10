@@ -19,6 +19,10 @@
 #include "Styling/SlateStyleRegistry.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "HAL/PlatformApplicationMisc.h"
+#include "ContentBrowserModule.h"
+#include "IContentBrowserSingleton.h"
+#include "Engine/StaticMesh.h"
+#include "Framework/Application/SlateApplication.h"
 #include "Widgets/Views/SExpanderArrow.h"
 #include "Widgets/Text/SInlineEditableTextBlock.h"
 #include "ScopedTransaction.h"
@@ -1436,10 +1440,108 @@ TSharedPtr<FFleshRingTreeItem> SFleshRingSkeletonTree::FindItem(FName BoneName, 
 
 void SFleshRingSkeletonTree::OnContextMenuAddRing()
 {
-	if (CanAddRing() && OnAddRingRequested.IsBound())
+	if (!CanAddRing() || !OnAddRingRequested.IsBound())
 	{
-		OnAddRingRequested.Execute(SelectedItem->BoneName);
+		return;
 	}
+
+	// 선택된 본 이름 저장 (람다에서 사용)
+	FName BoneNameToAdd = SelectedItem->BoneName;
+
+	// 에셋 피커 설정
+	FAssetPickerConfig AssetPickerConfig;
+	AssetPickerConfig.Filter.ClassPaths.Add(UStaticMesh::StaticClass()->GetClassPathName());
+	AssetPickerConfig.Filter.bRecursiveClasses = true;
+	AssetPickerConfig.SelectionMode = ESelectionMode::Single;
+	AssetPickerConfig.bAllowNullSelection = false;  // 버튼으로 처리하므로 비활성화
+	AssetPickerConfig.bFocusSearchBoxWhenOpened = true;
+	AssetPickerConfig.InitialAssetViewType = EAssetViewType::List;
+
+	// 메쉬 선택 시 콜백
+	AssetPickerConfig.OnAssetSelected = FOnAssetSelected::CreateLambda(
+		[this, BoneNameToAdd](const FAssetData& AssetData)
+		{
+			// 팝업 닫기
+			FSlateApplication::Get().DismissAllMenus();
+
+			UStaticMesh* SelectedMesh = nullptr;
+			if (AssetData.IsValid())
+			{
+				SelectedMesh = Cast<UStaticMesh>(AssetData.GetAsset());
+			}
+
+			// Ring 추가 요청
+			OnAddRingRequested.ExecuteIfBound(BoneNameToAdd, SelectedMesh);
+		}
+	);
+
+	// 에셋 피커 팝업 표시
+	FContentBrowserModule& ContentBrowserModule =
+		FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
+
+	TSharedRef<SWidget> AssetPickerWidget = ContentBrowserModule.Get().CreateAssetPicker(AssetPickerConfig);
+
+	// 하단 버튼 바 포함 팝업 (다이얼로그 스타일)
+	FSlateApplication::Get().PushMenu(
+		AsShared(),
+		FWidgetPath(),
+		SNew(SBox)
+			.WidthOverride(400.0f)
+			.HeightOverride(500.0f)
+			[
+				SNew(SVerticalBox)
+				// 에셋 피커 (상단)
+				+ SVerticalBox::Slot()
+				.FillHeight(1.0f)
+				[
+					AssetPickerWidget
+				]
+				// 구분선
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(0.0f, 4.0f)
+				[
+					SNew(SSeparator)
+				]
+				// 버튼 바 (하단)
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(8.0f, 4.0f, 8.0f, 8.0f)
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot()
+					.FillWidth(1.0f)
+					// 왼쪽 여백
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(0.0f, 0.0f, 4.0f, 0.0f)
+					[
+						SNew(SButton)
+						.Text(LOCTEXT("SkipMesh", "Skip Mesh"))
+						.ToolTipText(LOCTEXT("SkipMeshTooltip", "Add ring without mesh"))
+						.OnClicked_Lambda([this, BoneNameToAdd]()
+						{
+							FSlateApplication::Get().DismissAllMenus();
+							OnAddRingRequested.ExecuteIfBound(BoneNameToAdd, nullptr);
+							return FReply::Handled();
+						})
+					]
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					[
+						SNew(SButton)
+						.Text(LOCTEXT("Cancel", "Cancel"))
+						.OnClicked_Lambda([]()
+						{
+							FSlateApplication::Get().DismissAllMenus();
+							return FReply::Handled();
+						})
+					]
+				]
+			],
+		FSlateApplication::Get().GetCursorPos(),
+		FPopupTransitionEffect::ContextMenu
+	);
 }
 
 bool SFleshRingSkeletonTree::CanAddRing() const

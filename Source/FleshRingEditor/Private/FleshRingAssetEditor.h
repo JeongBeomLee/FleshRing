@@ -81,8 +81,11 @@ private:
 	/** 본 선택 콜백 (뷰포트에서 피킹) */
 	void OnBoneSelectedInViewport(FName BoneName);
 
-	/** Ring 추가 요청 콜백 */
-	void OnAddRingRequested(FName BoneName);
+	/** Ring 추가 요청 콜백 (스켈레톤 트리에서 - 메쉬 선택 포함) */
+	void OnAddRingRequested(FName BoneName, UStaticMesh* SelectedMesh);
+
+	/** Ring 추가 요청 콜백 (뷰포트 우클릭에서 - 위치 및 메쉬 포함) */
+	void OnAddRingAtPositionRequested(FName BoneName, const FVector& LocalOffset, const FRotator& LocalRotation, UStaticMesh* SelectedMesh);
 
 	/** 카메라 포커스 요청 콜백 */
 	void OnFocusCameraRequested();

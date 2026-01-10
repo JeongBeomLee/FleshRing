@@ -10,6 +10,7 @@
 
 class UFleshRingAsset;
 class USkeletalMesh;
+class UStaticMesh;
 class SSearchBox;
 class SComboButton;
 struct FFleshRingSettings;
@@ -126,8 +127,8 @@ DECLARE_DELEGATE_OneParam(FOnBoneSelected, FName /*BoneName*/);
 /** Ring 선택 델리게이트 */
 DECLARE_DELEGATE_OneParam(FOnRingSelected, int32 /*RingIndex*/);
 
-/** Ring 추가 요청 델리게이트 */
-DECLARE_DELEGATE_OneParam(FOnAddRingRequested, FName /*BoneName*/);
+/** Ring 추가 요청 델리게이트 (메쉬 선택 포함) */
+DECLARE_DELEGATE_TwoParams(FOnAddRingRequested, FName /*BoneName*/, UStaticMesh* /*SelectedMesh*/);
 
 /** 카메라 포커스 요청 델리게이트 */
 DECLARE_DELEGATE(FOnFocusCameraRequested);

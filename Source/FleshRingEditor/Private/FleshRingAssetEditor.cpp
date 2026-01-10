@@ -240,6 +240,10 @@ TSharedRef<SDockTab> FFleshRingAssetEditor::SpawnTab_Viewport(const FSpawnTabArg
 		// 뷰포트에서 본 피킹 시 스켈레톤 트리 동기화
 		ViewportClient->SetOnBoneSelectedInViewport(
 			FOnBoneSelectedInViewport::CreateSP(this, &FFleshRingAssetEditor::OnBoneSelectedInViewport));
+
+		// 뷰포트에서 Ring 추가 요청 시 콜백 (우클릭 메뉴)
+		ViewportClient->SetOnAddRingAtPositionRequested(
+			FOnAddRingAtPositionRequested::CreateSP(this, &FFleshRingAssetEditor::OnAddRingAtPositionRequested));
 	}
 
 	return SNew(SDockTab)
@@ -661,7 +665,7 @@ void FFleshRingAssetEditor::OnRingSelectedInViewport(int32 RingIndex, EFleshRing
 	bSyncingFromViewport = false;
 }
 
-void FFleshRingAssetEditor::OnAddRingRequested(FName BoneName)
+void FFleshRingAssetEditor::OnAddRingRequested(FName BoneName, UStaticMesh* SelectedMesh)
 {
 	// 선택한 본에 Ring 추가
 	if (EditingAsset && !BoneName.IsNone())
@@ -673,17 +677,115 @@ void FFleshRingAssetEditor::OnAddRingRequested(FName BoneName)
 		// 새 Ring 추가
 		FFleshRingSettings NewRing;
 		NewRing.BoneName = BoneName;
+
+		// 선택된 메쉬 설정
+		if (SelectedMesh)
+		{
+			NewRing.RingMesh = SelectedMesh;
+		}
+
+		// 본의 가중치 자식 기반으로 기본 회전 계산
+		if (ViewportWidget.IsValid())
+		{
+			if (TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient())
+			{
+				FRotator DefaultRotation = ViewportClient->CalculateDefaultRingRotationForBone(BoneName);
+
+				// Ring 회전 설정
+				NewRing.RingEulerRotation = DefaultRotation;
+				NewRing.RingRotation = DefaultRotation.Quaternion();
+
+				// Mesh 회전도 같이 설정 (Auto 모드에서는 MeshRotation 사용)
+				NewRing.MeshEulerRotation = DefaultRotation;
+				NewRing.MeshRotation = DefaultRotation.Quaternion();
+			}
+		}
+
 		EditingAsset->Rings.Add(NewRing);
+
+		// 새로 추가된 Ring 선택
+		int32 NewRingIndex = EditingAsset->Rings.Num() - 1;
+		EditingAsset->EditorSelectedRingIndex = NewRingIndex;
 
 		// 뷰포트 갱신
 		RefreshViewport();
 
-		// Details 패널 갱신
+		// 스켈레톤 트리 갱신 및 새 Ring 선택
+		if (SkeletonTreeWidget.IsValid())
+		{
+			SkeletonTreeWidget->RefreshTree();
+			SkeletonTreeWidget->SelectRingByIndex(NewRingIndex);
+		}
+
+		// Details 패널 갱신 후 새 Ring 선택 (ForceRefresh가 하이라이트를 초기화하므로)
 		if (DetailsView.IsValid())
 		{
 			DetailsView->ForceRefresh();
 		}
+
+		// 새로 추가된 Ring 선택 (디테일 패널 하이라이트 포함)
+		OnRingSelected(NewRingIndex);
 	}
+}
+
+void FFleshRingAssetEditor::OnAddRingAtPositionRequested(FName BoneName, const FVector& LocalOffset, const FRotator& LocalRotation, UStaticMesh* SelectedMesh)
+{
+	// 뷰포트 우클릭에서 Ring 추가 (위치 및 메쉬 포함, 메쉬는 선택사항)
+	if (!EditingAsset || BoneName.IsNone())
+	{
+		return;
+	}
+
+	// Undo/Redo 지원
+	FScopedTransaction Transaction(NSLOCTEXT("FleshRingEditor", "AddRingAtPosition", "Add Ring at Position"));
+	EditingAsset->Modify();
+
+	// 새 Ring 생성
+	FFleshRingSettings NewRing;
+	NewRing.BoneName = BoneName;
+
+	// RingOffset과 MeshOffset 둘 다 같은 위치에 설정 (본 로컬 공간)
+	NewRing.RingOffset = LocalOffset;
+	NewRing.MeshOffset = LocalOffset;
+
+	// Ring 회전 설정 (녹색 라인 방향이 Z축이 되도록)
+	NewRing.RingEulerRotation = LocalRotation;
+	NewRing.RingRotation = LocalRotation.Quaternion();
+
+	// Mesh 회전도 같이 설정 (Auto 모드에서는 MeshRotation 사용)
+	NewRing.MeshEulerRotation = LocalRotation;
+	NewRing.MeshRotation = LocalRotation.Quaternion();
+
+	// 선택된 메쉬 설정 (nullptr이면 메쉬 없이 추가)
+	if (SelectedMesh)
+	{
+		NewRing.RingMesh = SelectedMesh;
+	}
+
+	EditingAsset->Rings.Add(NewRing);
+
+	// 새로 추가된 Ring 선택
+	int32 NewRingIndex = EditingAsset->Rings.Num() - 1;
+	EditingAsset->EditorSelectedRingIndex = NewRingIndex;
+
+	// 뷰포트 갱신
+	RefreshViewport();
+
+	// 스켈레톤 트리 갱신 및 새 Ring 선택
+	if (SkeletonTreeWidget.IsValid())
+	{
+		SkeletonTreeWidget->RefreshTree();
+		SkeletonTreeWidget->SelectRingByIndex(NewRingIndex);
+	}
+
+	// Details 패널 갱신 후 새 Ring 선택 (ForceRefresh가 하이라이트를 초기화하므로)
+	if (DetailsView.IsValid())
+	{
+		DetailsView->ForceRefresh();
+	}
+
+	// 새로 추가된 Ring 선택 (디테일 패널 하이라이트 포함)
+	OnRingSelected(NewRingIndex);
 }
 
 void FFleshRingAssetEditor::OnFocusCameraRequested()

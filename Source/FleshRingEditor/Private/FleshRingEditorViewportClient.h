@@ -37,6 +37,9 @@ DECLARE_DELEGATE(FOnRingDeletedInViewport);
 /** 뷰포트에서 본 선택 델리게이트 */
 DECLARE_DELEGATE_OneParam(FOnBoneSelectedInViewport, FName /*BoneName*/);
 
+/** 뷰포트에서 Ring 추가 요청 델리게이트 (우클릭 메뉴에서 호출) */
+DECLARE_DELEGATE_FourParams(FOnAddRingAtPositionRequested, FName /*BoneName*/, const FVector& /*LocalOffset*/, const FRotator& /*LocalRotation*/, UStaticMesh* /*SelectedMesh*/);
+
 /**
  * FleshRing 에디터 뷰포트 클라이언트
  * 렌더링, 카메라 컨트롤, 입력 처리 담당
@@ -190,6 +193,21 @@ public:
 	/** 본 선택 델리게이트 설정 (뷰포트에서 본 피킹 시 호출) */
 	void SetOnBoneSelectedInViewport(FOnBoneSelectedInViewport InDelegate) { OnBoneSelectedInViewport = InDelegate; }
 
+	/** Ring 추가 요청 델리게이트 설정 (우클릭 메뉴에서 Ring 추가 시 호출) */
+	void SetOnAddRingAtPositionRequested(FOnAddRingAtPositionRequested InDelegate) { OnAddRingAtPositionRequested = InDelegate; }
+
+	/** 본 우클릭 컨텍스트 메뉴 표시 */
+	void ShowBoneContextMenu(FName BoneName, const FVector2D& ScreenPos);
+
+	/** 컨텍스트 메뉴에서 Ring 추가 선택 시 콜백 */
+	void OnContextMenu_AddRing();
+
+	/** 스크린 좌표에서 본 로컬 오프셋 계산 (본 라인에 투영) */
+	FVector CalculateBoneLocalOffsetFromScreenPos(const FVector2D& ScreenPos, FName BoneName, FRotator* OutLocalRotation = nullptr);
+
+	/** 본에 대한 기본 Ring 회전 계산 (가중치 자식 기반) */
+	FRotator CalculateDefaultRingRotationForBone(FName BoneName);
+
 	/** 선택된 Ring 삭제 */
 	void DeleteSelectedRing();
 
@@ -256,6 +274,21 @@ private:
 	/** 마지막 캐싱 시 스켈레탈 메시 (변경 감지용) */
 	TWeakObjectPtr<USkeletalMesh> CachedSkeletalMesh;
 
+	/** 가중치가 있는 본 인덱스 캐시 */
+	TSet<int32> WeightedBoneIndices;
+
+	/** 가중치 본 캐시 빌드 */
+	void BuildWeightedBoneCache();
+
+	/** 본이 가중치를 가지고 있는지 확인 */
+	bool IsBoneWeighted(int32 BoneIndex) const;
+
+	/** 가중치가 있는 자식 본 찾기 (없으면 INDEX_NONE 반환) */
+	int32 FindWeightedChildBone(int32 ParentBoneIndex) const;
+
+	/** 가중치가 있는 직속 자식 본 개수 반환 */
+	int32 CountWeightedChildBones(int32 ParentBoneIndex) const;
+
 	// 디버그 시각화 옵션 (캐싱 - 컴포넌트 생명주기와 독립적으로 저장/로드)
 	bool bCachedShowDebugVisualization = false;
 	bool bCachedShowSdfVolume = false;
@@ -285,4 +318,11 @@ private:
 
 	// 본 선택 델리게이트 (뷰포트에서 피킹 시)
 	FOnBoneSelectedInViewport OnBoneSelectedInViewport;
+
+	// Ring 추가 요청 델리게이트 (우클릭 메뉴에서 호출)
+	FOnAddRingAtPositionRequested OnAddRingAtPositionRequested;
+
+	// 우클릭 Ring 추가용 임시 저장
+	FName PendingRingAddBoneName = NAME_None;
+	FVector2D PendingRingAddScreenPos = FVector2D::ZeroVector;
 };

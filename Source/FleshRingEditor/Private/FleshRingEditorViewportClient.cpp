@@ -12,6 +12,7 @@
 #include "Animation/DebugSkelMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
+#include "Rendering/SkeletalMeshRenderData.h"
 #include "CanvasItem.h"
 #include "CanvasTypes.h"
 #include "EngineUtils.h"
@@ -21,6 +22,12 @@
 #include "Editor.h"
 #include "Settings/LevelEditorViewportSettings.h"
 #include "Stats/Stats.h"
+#include "ContentBrowserModule.h"
+#include "IContentBrowserSingleton.h"
+#include "Framework/MultiBox/MultiBoxBuilder.h"
+#include "Framework/Application/SlateApplication.h"
+#include "HAL/PlatformApplicationMisc.h"
+#include "Engine/StaticMesh.h"
 
 // Stat 그룹 및 카운터 선언
 DECLARE_STATS_GROUP(TEXT("FleshRingEditor"), STATGROUP_FleshRingEditor, STATCAT_Advanced);
@@ -466,6 +473,34 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 		// 빈 공간 클릭 - 선택 해제 (Ring + 본)
 		ClearSelection();
 		ClearSelectedBone();
+	}
+
+	// 우클릭 처리 - 컨텍스트 메뉴 표시
+	if (Key == EKeys::RightMouseButton && Event == IE_Released)
+	{
+		FName TargetBoneName = NAME_None;
+
+		// 1. 본 위에서 우클릭 - 해당 본 사용
+		if (HitProxy && HitProxy->IsA(HFleshRingBoneHitProxy::StaticGetType()))
+		{
+			HFleshRingBoneHitProxy* BoneProxy = static_cast<HFleshRingBoneHitProxy*>(HitProxy);
+			TargetBoneName = BoneProxy->BoneName;
+			SetSelectedBone(TargetBoneName);
+		}
+		// 2. 본이 선택된 상태에서 빈 공간 우클릭 - 선택된 본 사용
+		else if (!SelectedBoneName.IsNone())
+		{
+			TargetBoneName = SelectedBoneName;
+		}
+
+		// 대상 본이 있으면 컨텍스트 메뉴 표시
+		if (!TargetBoneName.IsNone())
+		{
+			PendingRingAddBoneName = TargetBoneName;
+			PendingRingAddScreenPos = FVector2D(static_cast<float>(HitX), static_cast<float>(HitY));
+			ShowBoneContextMenu(TargetBoneName, FVector2D(static_cast<float>(HitX), static_cast<float>(HitY)));
+			return;
+		}
 	}
 
 	FEditorViewportClient::ProcessClick(View, HitProxy, Key, Event, HitX, HitY);
@@ -2125,4 +2160,513 @@ void FFleshRingEditorViewportClient::UpdateBonesToDraw()
 		SelectedBones,
 		EngineBoneDrawMode,
 		BonesToDraw);
+}
+
+// ============================================================================
+// 우클릭 컨텍스트 메뉴 관련 함수
+// ============================================================================
+
+void FFleshRingEditorViewportClient::ShowBoneContextMenu(FName BoneName, const FVector2D& ScreenPos)
+{
+	// 가중치 본 캐시가 비어있으면 빌드
+	if (WeightedBoneIndices.Num() == 0)
+	{
+		BuildWeightedBoneCache();
+	}
+
+	// 선택된 본의 인덱스 가져오기
+	int32 BoneIndex = INDEX_NONE;
+	if (PreviewScene)
+	{
+		if (UDebugSkelMeshComponent* SkelComp = PreviewScene->GetSkeletalMeshComponent())
+		{
+			if (USkeletalMesh* SkelMesh = SkelComp->GetSkeletalMeshAsset())
+			{
+				BoneIndex = SkelMesh->GetRefSkeleton().FindBoneIndex(BoneName);
+			}
+		}
+	}
+
+	// Ring 추가 가능 조건:
+	// 1. 가중치 있는 자식 본이 있거나 (방향 자동 계산)
+	// 2. 말단 본이지만 자기 자신이 가중치가 있는 경우 (기본값 사용)
+	bool bHasWeightedChild = (FindWeightedChildBone(BoneIndex) != INDEX_NONE);
+	bool bIsSelfWeighted = IsBoneWeighted(BoneIndex);
+	bool bCanAddRing = (BoneIndex != INDEX_NONE) && (bHasWeightedChild || bIsSelfWeighted);
+
+	FMenuBuilder MenuBuilder(true, nullptr);
+
+	MenuBuilder.BeginSection("BoneActions", NSLOCTEXT("FleshRingEditor", "BoneActionsSection", "Bone"));
+	{
+		// Add Ring 메뉴 - 가중치가 있는 자식이 있을 때만 활성화
+		MenuBuilder.AddMenuEntry(
+			NSLOCTEXT("FleshRingEditor", "AddRingAtPosition", "Add Ring Here..."),
+			bCanAddRing
+				? NSLOCTEXT("FleshRingEditor", "AddRingAtPositionTooltip", "Select a mesh and add a ring at clicked position")
+				: NSLOCTEXT("FleshRingEditor", "AddRingAtPositionDisabledTooltip", "Cannot add ring: This bone has no weighted child bones"),
+			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Plus"),
+			FUIAction(
+				FExecuteAction::CreateRaw(this, &FFleshRingEditorViewportClient::OnContextMenu_AddRing),
+				FCanExecuteAction::CreateLambda([bCanAddRing]() { return bCanAddRing; })
+			)
+		);
+
+		// Copy Bone Name 메뉴
+		MenuBuilder.AddMenuEntry(
+			NSLOCTEXT("FleshRingEditor", "CopyBoneName", "Copy Bone Name"),
+			FText::GetEmpty(),
+			FSlateIcon(FAppStyle::GetAppStyleSetName(), "GenericCommands.Copy"),
+			FUIAction(
+				FExecuteAction::CreateLambda([BoneName]()
+				{
+					FPlatformApplicationMisc::ClipboardCopy(*BoneName.ToString());
+				})
+			)
+		);
+	}
+	MenuBuilder.EndSection();
+
+	// 메뉴 표시 - 커서 위치에 표시 (ScreenPos는 뷰포트 로컬 좌표이므로 커서 위치 사용)
+	TSharedPtr<SWidget> MenuWidget = MenuBuilder.MakeWidget();
+
+	if (TSharedPtr<SFleshRingEditorViewport> ViewportPtr = ViewportWidget.Pin())
+	{
+		FSlateApplication::Get().PushMenu(
+			ViewportPtr.ToSharedRef(),
+			FWidgetPath(),
+			MenuWidget.ToSharedRef(),
+			FSlateApplication::Get().GetCursorPos(),
+			FPopupTransitionEffect::ContextMenu
+		);
+	}
+}
+
+void FFleshRingEditorViewportClient::OnContextMenu_AddRing()
+{
+	if (PendingRingAddBoneName.IsNone())
+	{
+		return;
+	}
+
+	// 에셋 피커 설정
+	FAssetPickerConfig AssetPickerConfig;
+	AssetPickerConfig.Filter.ClassPaths.Add(UStaticMesh::StaticClass()->GetClassPathName());
+	AssetPickerConfig.Filter.bRecursiveClasses = true;
+	AssetPickerConfig.SelectionMode = ESelectionMode::Single;
+	AssetPickerConfig.bAllowNullSelection = false;  // 버튼으로 처리하므로 비활성화
+	AssetPickerConfig.bFocusSearchBoxWhenOpened = true;
+	AssetPickerConfig.InitialAssetViewType = EAssetViewType::List;
+
+	// 메쉬 선택 시 콜백 - 멤버 변수를 캡처하기 위해 람다 사용
+	FName CapturedBoneName = PendingRingAddBoneName;
+	FVector2D CapturedScreenPos = PendingRingAddScreenPos;
+
+	AssetPickerConfig.OnAssetSelected = FOnAssetSelected::CreateLambda(
+		[this, CapturedBoneName, CapturedScreenPos](const FAssetData& AssetData)
+		{
+			// 팝업 닫기
+			FSlateApplication::Get().DismissAllMenus();
+
+			UStaticMesh* SelectedMesh = nullptr;
+			if (AssetData.IsValid())
+			{
+				SelectedMesh = Cast<UStaticMesh>(AssetData.GetAsset());
+			}
+
+			// 본 로컬 오프셋 및 회전 계산 (본 축 라인에 투영된 위치, 녹색 라인 방향)
+			FRotator LocalRotation;
+			FVector LocalOffset = CalculateBoneLocalOffsetFromScreenPos(CapturedScreenPos, CapturedBoneName, &LocalRotation);
+
+			// Ring 추가 요청
+			OnAddRingAtPositionRequested.ExecuteIfBound(
+				CapturedBoneName,
+				LocalOffset,
+				LocalRotation,
+				SelectedMesh
+			);
+		}
+	);
+
+	// 상태 초기화 (에셋 피커 열기 전에)
+	PendingRingAddBoneName = NAME_None;
+
+	// 에셋 피커 팝업 표시
+	FContentBrowserModule& ContentBrowserModule =
+		FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
+
+	TSharedRef<SWidget> AssetPickerWidget = ContentBrowserModule.Get().CreateAssetPicker(AssetPickerConfig);
+
+	// 팝업 메뉴로 표시
+	if (TSharedPtr<SFleshRingEditorViewport> ViewportPtr = ViewportWidget.Pin())
+	{
+		// 하단 버튼 바 포함 팝업 (다이얼로그 스타일)
+		FSlateApplication::Get().PushMenu(
+			ViewportPtr.ToSharedRef(),
+			FWidgetPath(),
+			SNew(SBox)
+				.WidthOverride(400.0f)
+				.HeightOverride(500.0f)
+				[
+					SNew(SVerticalBox)
+					// 에셋 피커 (상단)
+					+ SVerticalBox::Slot()
+					.FillHeight(1.0f)
+					[
+						AssetPickerWidget
+					]
+					// 구분선
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.0f, 4.0f)
+					[
+						SNew(SSeparator)
+					]
+					// 버튼 바 (하단)
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(8.0f, 4.0f, 8.0f, 8.0f)
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot()
+						.FillWidth(1.0f)
+						// 왼쪽 여백
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.Padding(0.0f, 0.0f, 4.0f, 0.0f)
+						[
+							SNew(SButton)
+							.Text(NSLOCTEXT("FleshRingEditor", "SkipMesh", "Skip Mesh"))
+							.ToolTipText(NSLOCTEXT("FleshRingEditor", "SkipMeshTooltip", "Add ring without mesh"))
+							.OnClicked_Lambda([this, CapturedBoneName, CapturedScreenPos]()
+							{
+								FSlateApplication::Get().DismissAllMenus();
+
+								// 본 로컬 오프셋 및 회전 계산
+								FRotator LocalRotation;
+								FVector LocalOffset = CalculateBoneLocalOffsetFromScreenPos(CapturedScreenPos, CapturedBoneName, &LocalRotation);
+
+								// 메쉬 없이 Ring 추가 요청
+								OnAddRingAtPositionRequested.ExecuteIfBound(
+									CapturedBoneName,
+									LocalOffset,
+									LocalRotation,
+									nullptr
+								);
+								return FReply::Handled();
+							})
+						]
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						[
+							SNew(SButton)
+							.Text(NSLOCTEXT("FleshRingEditor", "Cancel", "Cancel"))
+							.OnClicked_Lambda([]()
+							{
+								FSlateApplication::Get().DismissAllMenus();
+								return FReply::Handled();
+							})
+						]
+					]
+				],
+			FSlateApplication::Get().GetCursorPos(),
+			FPopupTransitionEffect::ContextMenu
+		);
+	}
+}
+
+FVector FFleshRingEditorViewportClient::CalculateBoneLocalOffsetFromScreenPos(const FVector2D& ScreenPos, FName BoneName, FRotator* OutLocalRotation)
+{
+	if (!PreviewScene || !EditingAsset.IsValid())
+	{
+		return FVector::ZeroVector;
+	}
+
+	// 본 트랜스폼 가져오기
+	UDebugSkelMeshComponent* SkeletalMeshComponent = PreviewScene->GetSkeletalMeshComponent();
+	if (!SkeletalMeshComponent)
+	{
+		return FVector::ZeroVector;
+	}
+
+	const FReferenceSkeleton& RefSkeleton = SkeletalMeshComponent->GetSkeletalMeshAsset()->GetRefSkeleton();
+	int32 BoneIndex = RefSkeleton.FindBoneIndex(BoneName);
+	if (BoneIndex == INDEX_NONE)
+	{
+		return FVector::ZeroVector;
+	}
+
+	FTransform BoneTransform = SkeletalMeshComponent->GetBoneTransform(BoneIndex);
+	FVector BoneOrigin = BoneTransform.GetLocation();
+
+	// 가중치 본 캐시가 비어있으면 빌드
+	if (WeightedBoneIndices.Num() == 0)
+	{
+		const_cast<FFleshRingEditorViewportClient*>(this)->BuildWeightedBoneCache();
+	}
+
+	// 본 축 방향 계산: 현재 본에서 가중치가 있는 자식 본으로 향하는 방향 사용
+	FVector BoneAxisDir;
+
+	// 가중치가 있는 자식 본 개수 확인
+	int32 WeightedChildCount = CountWeightedChildBones(BoneIndex);
+
+	if (WeightedChildCount == 1)
+	{
+		// 가중치가 있는 자식 본이 하나만 있을 때: 자동 방향 계산
+		int32 WeightedChildIndex = FindWeightedChildBone(BoneIndex);
+		FVector ChildLocation = SkeletalMeshComponent->GetBoneTransform(WeightedChildIndex).GetLocation();
+		BoneAxisDir = (ChildLocation - BoneOrigin).GetSafeNormal();
+	}
+	else if (WeightedChildCount >= 2)
+	{
+		// 가중치가 있는 자식 본이 여러 개: 기본 회전값 사용 (방향이 모호함)
+		if (OutLocalRotation)
+		{
+			*OutLocalRotation = FRotator(-90.0f, 0.0f, 0.0f);
+		}
+		return FVector::ZeroVector;
+	}
+	else
+	{
+		// 말단 본 (자식 없음): 기본 회전값 사용
+		if (OutLocalRotation)
+		{
+			*OutLocalRotation = FRotator(-90.0f, 0.0f, 0.0f);
+		}
+		return FVector::ZeroVector;
+	}
+
+	// 스크린 좌표 → 월드 레이 변환
+	FSceneViewFamilyContext ViewFamily(FSceneViewFamily::ConstructionValues(
+		Viewport,
+		GetScene(),
+		EngineShowFlags)
+		.SetTime(FGameTime::GetTimeSinceAppStart()));
+
+	FSceneView* View = CalcSceneView(&ViewFamily);
+	if (!View)
+	{
+		return FVector::ZeroVector;
+	}
+
+	FVector RayOrigin, RayDirection;
+	View->DeprojectFVector2D(ScreenPos, RayOrigin, RayDirection);
+
+	// 레이와 본 축 사이의 최근접점 계산
+	// 두 직선 사이의 최근접점을 구하는 공식
+	FVector W0 = BoneOrigin - RayOrigin;
+	float A = FVector::DotProduct(BoneAxisDir, BoneAxisDir);  // 항상 1 (정규화됨)
+	float B = FVector::DotProduct(BoneAxisDir, RayDirection);
+	float C = FVector::DotProduct(RayDirection, RayDirection); // 항상 1 (정규화됨)
+	float D = FVector::DotProduct(BoneAxisDir, W0);
+	float E = FVector::DotProduct(RayDirection, W0);
+
+	float Denom = A * C - B * B;
+
+	float T_BoneAxis;
+	if (FMath::Abs(Denom) < SMALL_NUMBER)
+	{
+		// 두 직선이 평행한 경우 - 본 원점 사용
+		T_BoneAxis = 0.0f;
+	}
+	else
+	{
+		// 본 축 위의 최근접점 파라미터
+		T_BoneAxis = (B * E - C * D) / Denom;
+	}
+
+	// 녹색 라인 방향으로의 월드 오프셋 계산
+	// BoneAxisDir = 현재→자식 본 방향 (녹색 라인)
+	FVector WorldOffset = BoneAxisDir * T_BoneAxis;
+
+	// 월드 오프셋을 본 로컬 좌표계로 변환
+	// 이렇게 해야 RingOffset이 녹색 라인 위에 정확히 정렬됨
+	FVector LocalOffset = BoneTransform.GetRotation().UnrotateVector(WorldOffset);
+
+	// 회전 계산: 녹색 라인 방향이 Ring의 Z축이 되도록
+	if (OutLocalRotation)
+	{
+		// 녹색 라인 방향을 본 로컬 공간으로 변환
+		FVector LocalAxisDir = BoneTransform.GetRotation().UnrotateVector(BoneAxisDir);
+
+		// Z축(0,0,1)에서 녹색 라인 방향으로 회전하는 쿼터니언 계산
+		FQuat RotationQuat = FQuat::FindBetweenNormals(FVector::UpVector, LocalAxisDir);
+		*OutLocalRotation = RotationQuat.Rotator();
+	}
+
+	return LocalOffset;
+}
+
+FRotator FFleshRingEditorViewportClient::CalculateDefaultRingRotationForBone(FName BoneName)
+{
+	const FRotator DefaultRotation(-90.0f, 0.0f, 0.0f);
+
+	if (!PreviewScene || BoneName.IsNone())
+	{
+		return DefaultRotation;
+	}
+
+	UDebugSkelMeshComponent* SkeletalMeshComponent = PreviewScene->GetSkeletalMeshComponent();
+	if (!SkeletalMeshComponent)
+	{
+		return DefaultRotation;
+	}
+
+	USkeletalMesh* SkelMesh = SkeletalMeshComponent->GetSkeletalMeshAsset();
+	if (!SkelMesh)
+	{
+		return DefaultRotation;
+	}
+
+	int32 BoneIndex = SkelMesh->GetRefSkeleton().FindBoneIndex(BoneName);
+	if (BoneIndex == INDEX_NONE)
+	{
+		return DefaultRotation;
+	}
+
+	// 가중치 본 캐시가 비어있으면 빌드
+	if (WeightedBoneIndices.Num() == 0)
+	{
+		const_cast<FFleshRingEditorViewportClient*>(this)->BuildWeightedBoneCache();
+	}
+
+	// 가중치가 있는 자식 본 개수 확인
+	int32 WeightedChildCount = CountWeightedChildBones(BoneIndex);
+
+	if (WeightedChildCount == 1)
+	{
+		// 가중치가 있는 자식 본이 하나만 있을 때: 자동 방향 계산
+		int32 WeightedChildIndex = FindWeightedChildBone(BoneIndex);
+		FTransform BoneTransform = SkeletalMeshComponent->GetBoneTransform(BoneIndex);
+		FVector BoneOrigin = BoneTransform.GetLocation();
+		FVector ChildLocation = SkeletalMeshComponent->GetBoneTransform(WeightedChildIndex).GetLocation();
+		FVector BoneAxisDir = (ChildLocation - BoneOrigin).GetSafeNormal();
+
+		// 녹색 라인 방향을 본 로컬 공간으로 변환
+		FVector LocalAxisDir = BoneTransform.GetRotation().UnrotateVector(BoneAxisDir);
+
+		// Z축(0,0,1)에서 녹색 라인 방향으로 회전하는 쿼터니언 계산
+		FQuat RotationQuat = FQuat::FindBetweenNormals(FVector::UpVector, LocalAxisDir);
+		return RotationQuat.Rotator();
+	}
+
+	// 가중치가 있는 자식 본이 0개 또는 2개 이상: 기본값 사용
+	return DefaultRotation;
+}
+
+void FFleshRingEditorViewportClient::BuildWeightedBoneCache()
+{
+	WeightedBoneIndices.Empty();
+
+	if (!PreviewScene)
+	{
+		return;
+	}
+
+	UDebugSkelMeshComponent* SkeletalMeshComponent = PreviewScene->GetSkeletalMeshComponent();
+	if (!SkeletalMeshComponent)
+	{
+		return;
+	}
+
+	USkeletalMesh* SkelMesh = SkeletalMeshComponent->GetSkeletalMeshAsset();
+	if (!SkelMesh)
+	{
+		return;
+	}
+
+	// LOD 0의 렌더 데이터에서 웨이팅된 본 찾기
+	FSkeletalMeshRenderData* RenderData = SkelMesh->GetResourceForRendering();
+	if (!RenderData || RenderData->LODRenderData.Num() == 0)
+	{
+		return;
+	}
+
+	const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[0];
+
+	// 각 섹션의 BoneMap에 있는 본들이 웨이팅된 본들
+	for (const FSkelMeshRenderSection& Section : LODData.RenderSections)
+	{
+		for (FBoneIndexType BoneIndex : Section.BoneMap)
+		{
+			WeightedBoneIndices.Add(BoneIndex);
+		}
+	}
+}
+
+bool FFleshRingEditorViewportClient::IsBoneWeighted(int32 BoneIndex) const
+{
+	return WeightedBoneIndices.Contains(BoneIndex);
+}
+
+int32 FFleshRingEditorViewportClient::FindWeightedChildBone(int32 ParentBoneIndex) const
+{
+	if (!PreviewScene)
+	{
+		return INDEX_NONE;
+	}
+
+	UDebugSkelMeshComponent* SkeletalMeshComponent = PreviewScene->GetSkeletalMeshComponent();
+	if (!SkeletalMeshComponent)
+	{
+		return INDEX_NONE;
+	}
+
+	USkeletalMesh* SkelMesh = SkeletalMeshComponent->GetSkeletalMeshAsset();
+	if (!SkelMesh)
+	{
+		return INDEX_NONE;
+	}
+
+	const FReferenceSkeleton& RefSkeleton = SkelMesh->GetRefSkeleton();
+
+	// 자식 본 중에서 가중치가 있는 본 찾기
+	for (int32 i = 0; i < RefSkeleton.GetNum(); ++i)
+	{
+		if (RefSkeleton.GetParentIndex(i) == ParentBoneIndex)
+		{
+			if (IsBoneWeighted(i))
+			{
+				return i;
+			}
+		}
+	}
+
+	return INDEX_NONE;
+}
+
+int32 FFleshRingEditorViewportClient::CountWeightedChildBones(int32 ParentBoneIndex) const
+{
+	if (!PreviewScene)
+	{
+		return 0;
+	}
+
+	UDebugSkelMeshComponent* SkeletalMeshComponent = PreviewScene->GetSkeletalMeshComponent();
+	if (!SkeletalMeshComponent)
+	{
+		return 0;
+	}
+
+	USkeletalMesh* SkelMesh = SkeletalMeshComponent->GetSkeletalMeshAsset();
+	if (!SkelMesh)
+	{
+		return 0;
+	}
+
+	const FReferenceSkeleton& RefSkeleton = SkelMesh->GetRefSkeleton();
+
+	int32 Count = 0;
+	for (int32 i = 0; i < RefSkeleton.GetNum(); ++i)
+	{
+		if (RefSkeleton.GetParentIndex(i) == ParentBoneIndex)
+		{
+			if (IsBoneWeighted(i))
+			{
+				++Count;
+			}
+		}
+	}
+
+	return Count;
 }
