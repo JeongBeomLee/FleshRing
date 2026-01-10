@@ -1,5 +1,5 @@
 // ============================================================================
-// FleshRingProceduralBandSDF.usf - Mathematical SDF for ProceduralBand
+// FleshRingProceduralBandSDF.usf - Mathematical SDF for VirtualBand
 // ============================================================================
 // Purpose: Generate exact SDF using mathematical formulas instead of ray casting
 //          Ray casting 대신 수학 공식으로 정확한 SDF 생성
@@ -34,11 +34,12 @@ float3 SDFBoundsMax;
 int3 SDFResolution;
 
 // ============================================================================
-// ProceduralBand Parameters
+// VirtualBand Parameters (4 radii: Upper - MidUpper - MidLower - Lower)
 // ============================================================================
 
-// Band section (middle)
-float BandRadius;
+// Band section (middle) - now with two radii for top and bottom of band
+float MidUpperRadius;   // Band top (where Upper section meets)
+float MidLowerRadius;   // Band bottom (where Lower section meets)
 float BandThickness;
 float BandHeight;
 
@@ -53,13 +54,13 @@ float UpperHeight;
 // ============================================================================
 // Helper: Get Inner/Outer Radii at Given Z Height
 // ============================================================================
-// ProceduralBand structure (Z increases upward):
+// VirtualBand structure (Z increases upward) - 4 radii for smooth shape:
 //
 //   Z = TotalHeight  ─┬─ Upper end (UpperRadius)
 //                     │  Upper section (linear interpolation)
-//   Z = LowerH+BandH ─┼─ Band-Upper boundary (BandRadius)
-//                     │  Band section (constant BandRadius)
-//   Z = LowerHeight  ─┼─ Lower-Band boundary (BandRadius)
+//   Z = LowerH+BandH ─┼─ Band-Upper boundary (MidUpperRadius)
+//                     │  Band section (linear interpolation MidLower→MidUpper)
+//   Z = LowerHeight  ─┼─ Lower-Band boundary (MidLowerRadius)
 //                     │  Lower section (linear interpolation)
 //   Z = 0            ─┴─ Lower end (LowerRadius)
 //
@@ -69,41 +70,51 @@ void GetRadiiAtHeight(float Z, out float OuterRadius, out float InnerRadius)
 {
     float TotalHeight = LowerHeight + BandHeight + UpperHeight;
 
-    // Height가 0이면 해당 섹션 비활성화 (BandRadius 사용)
-    // LowerHeight=0 → Lower 섹션 없음, Z=0에서 BandRadius 사용
-    // UpperHeight=0 → Upper 섹션 없음, Z=TotalHeight에서 BandRadius 사용
+    // Height가 0이면 해당 섹션 비활성화 (MidRadius 사용)
+    // LowerHeight=0 → Lower 섹션 없음, Z=0에서 MidLowerRadius 사용
+    // UpperHeight=0 → Upper 섹션 없음, Z=TotalHeight에서 MidUpperRadius 사용
     const float HeightEpsilon = 0.0001f;
     const bool bHasLowerSection = (LowerHeight > HeightEpsilon);
     const bool bHasUpperSection = (UpperHeight > HeightEpsilon);
+    const bool bHasBandSection = (BandHeight > HeightEpsilon);
 
     if (Z <= 0.0f)
     {
         // At or below bottom
-        // LowerHeight가 0이면 Lower 섹션이 없음 → BandRadius 사용
-        OuterRadius = bHasLowerSection ? LowerRadius : BandRadius;
+        // LowerHeight가 0이면 Lower 섹션이 없음 → MidLowerRadius 사용
+        OuterRadius = bHasLowerSection ? LowerRadius : MidLowerRadius;
     }
     else if (bHasLowerSection && Z < LowerHeight)
     {
-        // Lower section: interpolate from LowerRadius to BandRadius
+        // Lower section: interpolate from LowerRadius to MidLowerRadius
         float t = Z / LowerHeight;
-        OuterRadius = lerp(LowerRadius, BandRadius, t);
+        OuterRadius = lerp(LowerRadius, MidLowerRadius, t);
     }
     else if (Z < LowerHeight + BandHeight)
     {
-        // Band section: constant BandRadius
-        OuterRadius = BandRadius;
+        // Band section: interpolate from MidLowerRadius to MidUpperRadius
+        if (bHasBandSection)
+        {
+            float t = (Z - LowerHeight) / BandHeight;
+            OuterRadius = lerp(MidLowerRadius, MidUpperRadius, t);
+        }
+        else
+        {
+            // BandHeight가 0이면 MidLowerRadius와 MidUpperRadius의 평균 사용
+            OuterRadius = (MidLowerRadius + MidUpperRadius) * 0.5f;
+        }
     }
     else if (bHasUpperSection && Z < TotalHeight)
     {
-        // Upper section: interpolate from BandRadius to UpperRadius
+        // Upper section: interpolate from MidUpperRadius to UpperRadius
         float t = (Z - LowerHeight - BandHeight) / UpperHeight;
-        OuterRadius = lerp(BandRadius, UpperRadius, t);
+        OuterRadius = lerp(MidUpperRadius, UpperRadius, t);
     }
     else
     {
         // At or above top
-        // UpperHeight가 0이면 Upper 섹션이 없음 → BandRadius 사용
-        OuterRadius = bHasUpperSection ? UpperRadius : BandRadius;
+        // UpperHeight가 0이면 Upper 섹션이 없음 → MidUpperRadius 사용
+        OuterRadius = bHasUpperSection ? UpperRadius : MidUpperRadius;
     }
 
     // Inner radius is always Outer - Thickness

@@ -391,9 +391,10 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 		// MemberProperty 체인을 확인하여 ProceduralBand 하위 프로퍼티인지 검사
 		bool bIsProceduralBandProperty = false;
 
-		// 직접 프로퍼티 이름 체크
+		// 직접 프로퍼티 이름 체크 (VirtualBand 관련)
 		if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, ProceduralBand) ||
-			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSettings, BandRadius) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSettings, MidUpperRadius) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSettings, MidLowerRadius) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSettings, BandHeight) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSettings, BandThickness) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSettings, Upper) ||

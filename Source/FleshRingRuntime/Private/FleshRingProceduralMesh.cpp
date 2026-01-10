@@ -16,18 +16,19 @@ void GenerateBandMesh(
 	OutIndices.Reset();
 
 	const int32 RadialSegs = Settings.RadialSegments;
-	const float BandRadius = Settings.BandRadius;
+	const float MidUpperRadius = Settings.MidUpperRadius;
+	const float MidLowerRadius = Settings.MidLowerRadius;
 	const float BandHeight = Settings.BandHeight;
 	const float Thickness = Settings.BandThickness;
 
 	// ========================================
-	// 높이 레이어 정의 (Z=0부터 위로)
+	// 높이 레이어 정의 (Z=0부터 위로) - 4개의 반경 사용
 	// ========================================
 	//
-	// Layer 3: Upper 끝        ╱──╲
-	// Layer 2: Band-Upper 경계 │  │
-	// Layer 1: Lower-Band 경계 │  │
-	// Layer 0: Lower 끝        ╲──╱
+	// Layer 3: Upper 끝        ╱──╲      ← Upper.Radius
+	// Layer 2: Band-Upper 경계 │  │      ← MidUpperRadius
+	// Layer 1: Lower-Band 경계 │  │      ← MidLowerRadius
+	// Layer 0: Lower 끝        ╲──╱      ← Lower.Radius
 	//
 
 	struct FLayerInfo
@@ -40,21 +41,32 @@ void GenerateBandMesh(
 	TArray<FLayerInfo> Layers;
 
 	float CurrentZ = 0.0f;
+	const float HeightEpsilon = 0.0001f;
+	const bool bHasLowerSection = (Settings.Lower.Height > HeightEpsilon);
+	const bool bHasUpperSection = (Settings.Upper.Height > HeightEpsilon);
 
 	// Layer 0: 하단 끝
-	Layers.Add({ CurrentZ, Settings.Lower.Radius, Settings.Lower.Radius - Thickness });
+	// Lower.Height=0이면 Lower 섹션 없음 → MidLowerRadius 사용
+	if (bHasLowerSection)
+	{
+		Layers.Add({ CurrentZ, Settings.Lower.Radius, Settings.Lower.Radius - Thickness });
+		CurrentZ += Settings.Lower.Height;
+	}
 
-	// Layer 1: 하단-밴드 경계
-	CurrentZ += Settings.Lower.Height;
-	Layers.Add({ CurrentZ, BandRadius, BandRadius - Thickness });
+	// Layer 1: 하단-밴드 경계 (MidLowerRadius)
+	Layers.Add({ CurrentZ, MidLowerRadius, MidLowerRadius - Thickness });
 
-	// Layer 2: 밴드-상단 경계
+	// Layer 2: 밴드-상단 경계 (MidUpperRadius)
 	CurrentZ += BandHeight;
-	Layers.Add({ CurrentZ, BandRadius, BandRadius - Thickness });
+	Layers.Add({ CurrentZ, MidUpperRadius, MidUpperRadius - Thickness });
 
 	// Layer 3: 상단 끝
-	CurrentZ += Settings.Upper.Height;
-	Layers.Add({ CurrentZ, Settings.Upper.Radius, Settings.Upper.Radius - Thickness });
+	// Upper.Height=0이면 Upper 섹션 없음 → MidUpperRadius 사용
+	if (bHasUpperSection)
+	{
+		CurrentZ += Settings.Upper.Height;
+		Layers.Add({ CurrentZ, Settings.Upper.Radius, Settings.Upper.Radius - Thickness });
+	}
 
 	// ========================================
 	// 버텍스 생성
@@ -66,10 +78,10 @@ void GenerateBandMesh(
 	// - 기본: Outer, Inner (각 RadialSegs개)
 	// - 추가 (다음 레이어와 반경이 다른 경우): PrevOuter, PrevInner (환형면용)
 	//
-	// 예시 (Lower.Radius > BandRadius인 경우):
-	// Layer 1 (BandRadius)에서:
-	//   - Outer: BandRadius (기본)
-	//   - Inner: BandRadius - Thickness (기본)
+	// 예시 (Lower.Radius > MidLowerRadius인 경우):
+	// Layer 1 (MidLowerRadius)에서:
+	//   - Outer: MidLowerRadius (기본)
+	//   - Inner: MidLowerRadius - Thickness (기본)
 	//   - PrevOuter: Lower.Radius (Layer 0의 외부 반경, 환형면용)
 	//   - PrevInner: Lower.Radius - Thickness (Layer 0의 내부 반경, 환형면용)
 
@@ -354,9 +366,9 @@ void GenerateBandMesh(
 	// ========================================
 	// 디버그 출력
 	// ========================================
-	UE_LOG(LogFleshRingProceduralMesh, Log, TEXT("=== ProceduralBand Mesh Generated ==="));
-	UE_LOG(LogFleshRingProceduralMesh, Log, TEXT("Settings: BandRadius=%.2f, Thickness=%.2f, Lower.Radius=%.2f, Upper.Radius=%.2f"),
-		Settings.BandRadius, Settings.BandThickness, Settings.Lower.Radius, Settings.Upper.Radius);
+	UE_LOG(LogFleshRingProceduralMesh, Log, TEXT("=== VirtualBand Mesh Generated ==="));
+	UE_LOG(LogFleshRingProceduralMesh, Log, TEXT("Settings: MidUpper=%.2f, MidLower=%.2f, Thickness=%.2f, Lower.Radius=%.2f, Upper.Radius=%.2f"),
+		Settings.MidUpperRadius, Settings.MidLowerRadius, Settings.BandThickness, Settings.Lower.Radius, Settings.Upper.Radius);
 	UE_LOG(LogFleshRingProceduralMesh, Log, TEXT("Vertices: %d, Triangles: %d"), OutVertices.Num(), OutIndices.Num() / 3);
 
 	// 각 레이어의 버텍스 정보
@@ -432,21 +444,34 @@ void GenerateWireframeLines(
 {
 	OutLines.Reset();
 
-	// 높이 레이어 정의
+	// 높이 레이어 정의 (Height=0인 섹션은 스킵하고 Mid 값 사용)
 	struct FLayerInfo { float Z; float Radius; };
 	TArray<FLayerInfo> Layers;
 
-	float CurrentZ = 0.0f;
-	Layers.Add({ CurrentZ, Settings.Lower.Radius });
+	const float HeightEpsilon = 0.0001f;
+	const bool bHasLowerSection = (Settings.Lower.Height > HeightEpsilon);
+	const bool bHasUpperSection = (Settings.Upper.Height > HeightEpsilon);
 
-	CurrentZ += Settings.Lower.Height;
-	Layers.Add({ CurrentZ, Settings.BandRadius });
+	float CurrentZ = 0.0f;
+
+	// Lower 섹션이 있는 경우에만 Lower.Radius 레이어 추가
+	if (bHasLowerSection)
+	{
+		Layers.Add({ CurrentZ, Settings.Lower.Radius });
+		CurrentZ += Settings.Lower.Height;
+	}
+
+	Layers.Add({ CurrentZ, Settings.MidLowerRadius });
 
 	CurrentZ += Settings.BandHeight;
-	Layers.Add({ CurrentZ, Settings.BandRadius });
+	Layers.Add({ CurrentZ, Settings.MidUpperRadius });
 
-	CurrentZ += Settings.Upper.Height;
-	Layers.Add({ CurrentZ, Settings.Upper.Radius });
+	// Upper 섹션이 있는 경우에만 Upper.Radius 레이어 추가
+	if (bHasUpperSection)
+	{
+		CurrentZ += Settings.Upper.Height;
+		Layers.Add({ CurrentZ, Settings.Upper.Radius });
+	}
 
 	// 각 레이어의 원형 와이어프레임
 	for (const FLayerInfo& Layer : Layers)

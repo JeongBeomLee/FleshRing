@@ -282,6 +282,15 @@ void UFleshRingComponent::ResolveTargetMesh()
 		USkeletalMeshComponent* TargetMeshComp = ResolvedTargetMesh.Get();
 		USkeletalMesh* CurrentMesh = TargetMeshComp->GetSkeletalMeshAsset();
 
+		// ★ 에디터 프리뷰 모드: PreviewSubdividedMesh가 존재하면 메시 변경 스킵
+		// SubdividedMesh보다 PreviewSubdividedMesh를 우선시
+		// (SetAsset()에서 PreviewSubdividedMesh가 나중에 적용되므로 여기서 미리 스킵)
+		if (FleshRingAsset->PreviewSubdividedMesh != nullptr)
+		{
+			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: PreviewSubdividedMesh exists, skipping mesh changes (editor preview mode)"));
+			return;
+		}
+
 		UE_LOG(LogFleshRingComponent, Log, TEXT("ResolveTargetMesh: HasSubdividedMesh=%d, SubdividedMesh=%p, CurrentMesh='%s'"),
 			FleshRingAsset->HasSubdividedMesh(),
 			FleshRingAsset->SubdividedMesh.Get(),
@@ -323,6 +332,7 @@ void UFleshRingComponent::ResolveTargetMesh()
 		else if (!FleshRingAsset->TargetSkeletalMesh.IsNull())
 		{
 			// SubdividedMesh가 없으면 원본 메시로 복원
+			// (PreviewSubdividedMesh 체크는 함수 상단에서 이미 처리됨)
 			USkeletalMesh* OriginalMesh = FleshRingAsset->TargetSkeletalMesh.LoadSynchronous();
 			if (OriginalMesh && CurrentMesh != OriginalMesh)
 			{
@@ -1907,8 +1917,8 @@ void UFleshRingComponent::DrawProceduralBandWireframe(int32 RingIndex)
 	if (GEngine)
 	{
 		GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::Magenta,
-			FString::Printf(TEXT("Ring[%d] ProceduralBand: R=%.1f H=%.1f"),
-				RingIndex, Ring.ProceduralBand.BandRadius, Ring.ProceduralBand.BandHeight));
+			FString::Printf(TEXT("Ring[%d] VirtualBand: MidU=%.1f MidL=%.1f H=%.1f"),
+				RingIndex, Ring.ProceduralBand.MidUpperRadius, Ring.ProceduralBand.MidLowerRadius, Ring.ProceduralBand.BandHeight));
 	}
 }
 

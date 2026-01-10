@@ -358,7 +358,7 @@ void FFleshRingAssetEditor::OnObjectPropertyChanged(UObject* Object, FPropertyCh
 			// MeshScale, RingRadius, Strength, Falloff 등은 경량 업데이트만 필요
 		}
 
-		// ProceduralBand 프로퍼티 체인 확인 (드래그 시 SDF만 재생성)
+		// VirtualBand 프로퍼티 체인 확인 (드래그 시 SDF만 재생성)
 		bool bIsProceduralBandProperty = false;
 		if (PropertyChangedEvent.MemberProperty)
 		{
@@ -392,7 +392,7 @@ void FFleshRingAssetEditor::OnObjectPropertyChanged(UObject* Object, FPropertyCh
 		}
 		else if (bIsProceduralBandProperty)
 		{
-			// ProceduralBand: SDF만 재생성 (Deformer 유지 = 실시간 변형)
+			// VirtualBand: SDF만 재생성 (Deformer 유지 = 실시간 변형)
 			RefreshSDFOnly();
 		}
 		else

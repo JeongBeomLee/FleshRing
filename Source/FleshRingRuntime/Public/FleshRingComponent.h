@@ -200,7 +200,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization && bShowBulgeHeatmap"))
 	bool bShowBulgeArrows = true;
 
-	/** ProceduralBand 와이어프레임 표시 */
+	/** VirtualBand 와이어프레임 표시 */
 	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
 	bool bShowProceduralBandWireframe = true;
 #endif
@@ -284,7 +284,7 @@ public:
 		return false;
 	}
 
-	/** SDF 재생성 (에디터에서 ProceduralBand 실시간 갱신용) */
+	/** SDF 재생성 (에디터에서 VirtualBand 실시간 갱신용) */
 	void RefreshSDF() { GenerateSDF(); }
 
 private:
@@ -417,7 +417,7 @@ private:
 	/** 감지된 Bulge 방향 화살표 그리기 */
 	void DrawBulgeDirectionArrow(int32 RingIndex);
 
-	/** ProceduralBand 와이어프레임 그리기 */
+	/** VirtualBand 와이어프레임 그리기 */
 	void DrawProceduralBandWireframe(int32 RingIndex);
 #endif
 };

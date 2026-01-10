@@ -1,5 +1,5 @@
 ﻿// ============================================================================
-// FleshRing ProceduralBand Mathematical SDF Generator - Implementation
+// FleshRing VirtualBand Mathematical SDF Generator - Implementation
 // ============================================================================
 
 #include "FleshRingProceduralBandSDF.h"
@@ -53,9 +53,10 @@ void DispatchFleshRingProceduralBandSDF(
 	PassParameters->SDFBoundsMax = Params.SDFBounds.Max;
 	PassParameters->SDFResolution = Params.Resolution;
 
-	// Set ProceduralBand parameters
+	// Set VirtualBand parameters (4 radii: Upper - MidUpper - MidLower - Lower)
 	const auto& Settings = Params.BandSettings;
-	PassParameters->BandRadius = Settings.BandRadius;
+	PassParameters->MidUpperRadius = Settings.MidUpperRadius;
+	PassParameters->MidLowerRadius = Settings.MidLowerRadius;
 	PassParameters->BandThickness = Settings.BandThickness;
 	PassParameters->BandHeight = Settings.BandHeight;
 	PassParameters->LowerRadius = Settings.Lower.Radius;

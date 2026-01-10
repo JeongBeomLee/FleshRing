@@ -915,7 +915,7 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 		// Manual 모드일 때만 Ring 기즈모 표시 (SDF 모드에서는 Radius가 의미 없음)
 		if (Ring.InfluenceMode != EFleshRingInfluenceMode::Manual)
 		{
-			// ProceduralBand 모드: 4-레이어 밴드 기즈모
+			// VirtualBand 모드: 4-레이어 밴드 기즈모
 			if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
 			{
 				FLinearColor GizmoColor = (i == SelectedIndex)
@@ -942,9 +942,18 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 				FTransform LocalToWorld = MeshTransform * BindPoseBoneTransform * SkelMeshComp->GetComponentTransform();
 				const FProceduralBandSettings& Band = Ring.ProceduralBand;
 				constexpr int32 Segments = 32;
+				constexpr float HeightEpsilon = 0.0001f;
+				const bool bHasLowerSection = (Band.Lower.Height > HeightEpsilon);
+				const bool bHasUpperSection = (Band.Upper.Height > HeightEpsilon);
 
-				float LowerZ = 0.0f, BandLowerZ = Band.Lower.Height;
-				float BandUpperZ = BandLowerZ + Band.BandHeight, UpperZ = BandUpperZ + Band.Upper.Height;
+				float CurrentZ = 0.0f;
+				float LowerZ = CurrentZ;
+				if (bHasLowerSection) CurrentZ += Band.Lower.Height;
+				float BandLowerZ = CurrentZ;
+				CurrentZ += Band.BandHeight;
+				float BandUpperZ = CurrentZ;
+				if (bHasUpperSection) CurrentZ += Band.Upper.Height;
+				float UpperZ = CurrentZ;
 
 				auto DrawCircle = [&](float R, float Z, float T) {
 					for (int32 s = 0; s < Segments; ++s) {
@@ -953,20 +962,37 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 							LocalToWorld.TransformPosition(FVector(FMath::Cos(A2) * R, FMath::Sin(A2) * R, Z)), GizmoColor, SDPG_Foreground, T);
 					}
 				};
-				DrawCircle(Band.Lower.Radius, LowerZ, 0.0f);
-				DrawCircle(Band.BandRadius, BandLowerZ, 0.5f);
-				DrawCircle(Band.BandRadius, BandUpperZ, 0.5f);
-				DrawCircle(Band.Upper.Radius, UpperZ, 0.0f);
+
+				// Height=0인 섹션은 스킵하고 Mid 값만 사용
+				if (bHasLowerSection)
+				{
+					DrawCircle(Band.Lower.Radius, LowerZ, 0.0f);
+				}
+				DrawCircle(Band.MidLowerRadius, BandLowerZ, 0.5f);
+				DrawCircle(Band.MidUpperRadius, BandUpperZ, 0.5f);
+				if (bHasUpperSection)
+				{
+					DrawCircle(Band.Upper.Radius, UpperZ, 0.0f);
+				}
 
 				for (int32 q = 0; q < 4; ++q) {
 					float Angle = (float)q / 4.0f * 2.0f * PI;
 					FVector Dir(FMath::Cos(Angle), FMath::Sin(Angle), 0.0f);
-					PDI->DrawLine(LocalToWorld.TransformPosition(Dir * Band.Lower.Radius + FVector(0, 0, LowerZ)),
-						LocalToWorld.TransformPosition(Dir * Band.BandRadius + FVector(0, 0, BandLowerZ)), GizmoColor, SDPG_Foreground, 0.0f);
-					PDI->DrawLine(LocalToWorld.TransformPosition(Dir * Band.BandRadius + FVector(0, 0, BandLowerZ)),
-						LocalToWorld.TransformPosition(Dir * Band.BandRadius + FVector(0, 0, BandUpperZ)), GizmoColor, SDPG_Foreground, 0.0f);
-					PDI->DrawLine(LocalToWorld.TransformPosition(Dir * Band.BandRadius + FVector(0, 0, BandUpperZ)),
-						LocalToWorld.TransformPosition(Dir * Band.Upper.Radius + FVector(0, 0, UpperZ)), GizmoColor, SDPG_Foreground, 0.0f);
+					// Lower → MidLower (Lower 섹션이 있는 경우에만)
+					if (bHasLowerSection)
+					{
+						PDI->DrawLine(LocalToWorld.TransformPosition(Dir * Band.Lower.Radius + FVector(0, 0, LowerZ)),
+							LocalToWorld.TransformPosition(Dir * Band.MidLowerRadius + FVector(0, 0, BandLowerZ)), GizmoColor, SDPG_Foreground, 0.0f);
+					}
+					// MidLower → MidUpper (항상)
+					PDI->DrawLine(LocalToWorld.TransformPosition(Dir * Band.MidLowerRadius + FVector(0, 0, BandLowerZ)),
+						LocalToWorld.TransformPosition(Dir * Band.MidUpperRadius + FVector(0, 0, BandUpperZ)), GizmoColor, SDPG_Foreground, 0.0f);
+					// MidUpper → Upper (Upper 섹션이 있는 경우에만)
+					if (bHasUpperSection)
+					{
+						PDI->DrawLine(LocalToWorld.TransformPosition(Dir * Band.MidUpperRadius + FVector(0, 0, BandUpperZ)),
+							LocalToWorld.TransformPosition(Dir * Band.Upper.Radius + FVector(0, 0, UpperZ)), GizmoColor, SDPG_Foreground, 0.0f);
+					}
 				}
 				DrawWireSphere(PDI, LocalToWorld.TransformPosition(FVector::ZeroVector), GizmoColor, 2.0f, 8, SDPG_Foreground);
 				PDI->SetHitProxy(nullptr);
@@ -1056,7 +1082,7 @@ FVector FFleshRingEditorViewportClient::GetWidgetLocation() const
 		return FVector::ZeroVector;
 	}
 
-	// ProceduralBand 모드: 바인드 포즈 사용 (SDF/변형과 일치)
+	// VirtualBand 모드: 바인드 포즈 사용 (SDF/변형과 일치)
 	if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
 	{
 		USkeletalMesh* SkelMesh = SkelMeshComp->GetSkeletalMeshAsset();
@@ -1133,7 +1159,7 @@ FMatrix FFleshRingEditorViewportClient::GetSelectedRingAlignMatrix() const
 	FTransform BoneTransform = SkelMeshComp->GetBoneTransform(BoneIndex);
 	FQuat BoneRotation = BoneTransform.GetRotation();
 
-	// ProceduralBand 모드: 바인드 포즈 사용
+	// VirtualBand 모드: 바인드 포즈 사용
 	if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
 	{
 		USkeletalMesh* SkelMesh = SkelMeshComp->GetSkeletalMeshAsset();
@@ -1168,7 +1194,7 @@ FMatrix FFleshRingEditorViewportClient::GetSelectedRingAlignMatrix() const
 			}
 			else
 			{
-				// Mesh 선택 또는 Auto/ProceduralBand는 MeshRotation 사용
+				// Mesh 선택 또는 Auto/VirtualBand는 MeshRotation 사용
 				CurrentRotation = Ring.MeshRotation;
 			}
 			TargetRotation = BoneRotation * CurrentRotation;
@@ -1252,7 +1278,7 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 	FTransform BoneTransform = SkelMeshComp->GetBoneTransform(BoneIndex);
 	FQuat BoneRotation = BoneTransform.GetRotation();
 
-	// ProceduralBand 모드: 바인드 포즈 사용
+	// VirtualBand 모드: 바인드 포즈 사용
 	if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
 	{
 		USkeletalMesh* SkelMesh = SkelMeshComp->GetSkeletalMeshAsset();
@@ -1322,7 +1348,7 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 	// 선택 타입에 따라 다른 오프셋 업데이트
 	if (SelectionType == EFleshRingSelectionType::Gizmo)
 	{
-		// Auto 또는 ProceduralBand 모드: Gizmo 선택이어도 MeshOffset/MeshRotation 사용
+		// Auto 또는 VirtualBand 모드: Gizmo 선택이어도 MeshOffset/MeshRotation 사용
 		// (Auto는 기즈모가 없으므로 여기로 오면 안 되지만 안전을 위해 처리)
 		if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand ||
 			Ring.InfluenceMode == EFleshRingInfluenceMode::Auto)
@@ -1359,9 +1385,10 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 
 				if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
 				{
-					// ProceduralBand: 전체 비례 스케일
+					// VirtualBand: 전체 비례 스케일
 					float ScaleFactor = 1.0f + ScaleDelta;
-					Ring.ProceduralBand.BandRadius = FMath::Clamp(Ring.ProceduralBand.BandRadius * ScaleFactor, 0.1f, 100.0f);
+					Ring.ProceduralBand.MidUpperRadius = FMath::Clamp(Ring.ProceduralBand.MidUpperRadius * ScaleFactor, 0.1f, 100.0f);
+					Ring.ProceduralBand.MidLowerRadius = FMath::Clamp(Ring.ProceduralBand.MidLowerRadius * ScaleFactor, 0.1f, 100.0f);
 					Ring.ProceduralBand.BandHeight = FMath::Clamp(Ring.ProceduralBand.BandHeight * ScaleFactor, 0.1f, 100.0f);
 					Ring.ProceduralBand.BandThickness = FMath::Clamp(Ring.ProceduralBand.BandThickness * ScaleFactor, 0.1f, 50.0f);
 					Ring.ProceduralBand.Upper.Radius = FMath::Clamp(Ring.ProceduralBand.Upper.Radius * ScaleFactor, 0.1f, 100.0f);
@@ -1536,7 +1563,7 @@ void FFleshRingEditorViewportClient::TrackingStarted(const FInputEventState& InI
 				{
 					FQuat BoneRotation = SkelMeshComp->GetBoneTransform(BoneIndex).GetRotation();
 
-					// ProceduralBand 모드: 바인드 포즈 사용
+					// VirtualBand 모드: 바인드 포즈 사용
 					if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
 					{
 						USkeletalMesh* SkelMesh = SkelMeshComp->GetSkeletalMeshAsset();
@@ -1560,7 +1587,7 @@ void FFleshRingEditorViewportClient::TrackingStarted(const FInputEventState& InI
 					}
 					else
 					{
-						// Mesh 선택 또는 Auto/ProceduralBand는 MeshRotation 사용
+						// Mesh 선택 또는 Auto/VirtualBand는 MeshRotation 사용
 						CurrentRotation = Ring.MeshRotation;
 					}
 

@@ -120,7 +120,7 @@ void SFleshRingEditorViewport::RefreshSDFOnly()
 		UFleshRingComponent* FleshRingComp = PreviewScene->GetFleshRingComponent();
 		if (FleshRingComp)
 		{
-			// 1. SDF 재생성 (ProceduralBand 파라미터 기반)
+			// 1. SDF 재생성 (VirtualBand 파라미터 기반)
 			FleshRingComp->RefreshSDF();
 			FlushRenderingCommands();  // GPU 작업 완료 대기
 

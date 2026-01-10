@@ -31,8 +31,8 @@ enum class EFleshRingInfluenceMode : uint8
 	/** 수동 Radius 지정 */
 	Manual	UMETA(DisplayName = "Manual"),
 
-	/** 프로시저럴 밴드 (스타킹/타이즈용 가상 틀) */
-	ProceduralBand	UMETA(DisplayName = "Procedural Band")
+	/** 가상 밴드 (스타킹/타이즈용 가상 틀) */
+	ProceduralBand	UMETA(DisplayName = "Virtual Band")
 };
 
 /** 감쇠 곡선 타입 */
@@ -47,6 +47,41 @@ enum class EFalloffType : uint8
 
 	/** Hermite S-커브 감쇠 (가장 부드러움) */
 	Hermite		UMETA(DisplayName = "Hermite (S-Curve)")
+};
+
+/** Seed 블렌딩 가중치 타입 (K-Nearest Seeds) */
+UENUM(BlueprintType)
+enum class ESeedBlendWeightType : uint8
+{
+	/** 1/(d+1) - 선형 역수, 균일한 블렌딩 */
+	InverseLinear	UMETA(DisplayName = "1/(d+1) - Inverse Linear"),
+
+	/** 1/(d+1)² - 제곱 역수, 가까운 seed 강조 */
+	InverseSquare	UMETA(DisplayName = "1/(d+1)² - Inverse Square"),
+
+	/** exp(-d/σ) - 가우시안, 부드러운 감쇠 */
+	Gaussian		UMETA(DisplayName = "exp(-d/σ) - Gaussian")
+};
+
+/** 변형 전파 모드 (Hop-based vs Heat Diffusion) */
+UENUM(BlueprintType)
+enum class EDeformPropagationMode : uint8
+{
+	/**
+	 * Hop 기반 전파 (기존 방식)
+	 * - K-Nearest Seeds 블렌딩
+	 * - 1패스, 빠름
+	 * - Seed 경계에서 약간의 불연속 가능
+	 */
+	HopBased		UMETA(DisplayName = "Hop-based (K-Nearest)"),
+
+	/**
+	 * Heat Diffusion (열 확산)
+	 * - 변형량을 열처럼 확산
+	 * - 여러 iteration, 연속적이고 부드러움
+	 * - 물리적으로 자연스러운 결과
+	 */
+	HeatDiffusion	UMETA(DisplayName = "Heat Diffusion")
 };
 
 /** Bulge 방향 모드 */
@@ -132,16 +167,16 @@ struct FLESHRINGRUNTIME_API FMaterialLayerMapping
 };
 
 // =====================================
-// 프로시저럴 밴드 설정 (스타킹/타이즈용)
+// 가상 밴드 설정 (스타킹/타이즈용)
 // =====================================
 
-/** 프로시저럴 밴드의 상단/하단 섹션 설정 */
+/** 가상 밴드의 상단/하단 섹션 설정 */
 USTRUCT(BlueprintType)
 struct FLESHRINGRUNTIME_API FProceduralBandSection
 {
 	GENERATED_BODY()
 
-	/** 해당 섹션의 끝단 반경 (BandRadius와의 차이로 경사 결정) */
+	/** 해당 섹션의 끝단 반경 (MidRadius와의 차이로 경사 결정) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.1"))
 	float Radius = 10.0f;
 
@@ -163,16 +198,16 @@ struct FLESHRINGRUNTIME_API FProceduralBandSection
 };
 
 /**
- * 프로시저럴 밴드 전체 설정 (스타킹/타이즈용 비대칭 원통)
+ * 가상 밴드 전체 설정 (스타킹/타이즈용 비대칭 원통)
  *
- * 단면도 (사다리꼴 2개가 좁은 면에서 만남):
+ * 단면도 (4개의 반경으로 형태 결정):
  *
- *       ══════════════      ← Upper.Radius (가장 큼, 살 불룩)
+ *       ══════════════      ← Upper.Radius (상단 끝, 살 불룩)
  *        ╲          ╱       ← Upper Section (경사)
- *         ╔══════╗          ← BandRadius (가장 작음, 조임)
- *         ╚══════╝
+ *         ╔══════╗          ← MidUpperRadius (밴드 상단)
+ *         ╚══════╝          ← MidLowerRadius (밴드 하단)
  *        ╱          ╲       ← Lower Section (경사)
- *       ══════════════      ← Lower.Radius (스타킹 영역)
+ *       ══════════════      ← Lower.Radius (하단 끝, 스타킹 영역)
  */
 USTRUCT(BlueprintType)
 struct FLESHRINGRUNTIME_API FProceduralBandSettings
@@ -181,9 +216,13 @@ struct FLESHRINGRUNTIME_API FProceduralBandSettings
 
 	// ===== 밴드 본체 (조임 지점) =====
 
-	/** 밴드 본체 반경 (가장 작은 반경, 살이 눌리는 부분) */
+	/** 밴드 상단 반경 (Upper Section과 만나는 지점) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Band", meta = (ClampMin = "0.1"))
-	float BandRadius = 8.0f;
+	float MidUpperRadius = 8.0f;
+
+	/** 밴드 하단 반경 (Lower Section과 만나는 지점) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Band", meta = (ClampMin = "0.1"))
+	float MidLowerRadius = 8.0f;
 
 	/** 밴드 본체 높이 (조이는 영역) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Band", meta = (ClampMin = "0.1"))
@@ -195,13 +234,13 @@ struct FLESHRINGRUNTIME_API FProceduralBandSettings
 
 	// ===== 상단 섹션 (살이 불룩해지는 영역) =====
 
-	/** Upper.Radius > BandRadius → 위로 벌어지며 살이 불룩해짐 */
+	/** Upper.Radius > MidUpperRadius → 위로 벌어지며 살이 불룩해짐 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Upper Section")
 	FProceduralBandSection Upper;
 
 	// ===== 하단 섹션 (스타킹이 덮는 영역) =====
 
-	/** Lower.Radius ≥ BandRadius → 아래로 벌어지며 스타킹이 덮음 */
+	/** Lower.Radius ≥ MidLowerRadius → 아래로 벌어지며 스타킹이 덮음 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lower Section")
 	FProceduralBandSection Lower;
 
@@ -216,7 +255,8 @@ struct FLESHRINGRUNTIME_API FProceduralBandSettings
 	int32 HeightSegments = 4;
 
 	FProceduralBandSettings()
-		: BandRadius(8.0f)            // 조임 지점 (가장 작은 반경)
+		: MidUpperRadius(8.0f)        // 밴드 상단 반경
+		, MidLowerRadius(8.0f)        // 밴드 하단 반경
 		, BandHeight(2.0f)
 		, BandThickness(1.0f)
 		, Upper(11.0f, 2.0f)          // 상단: 불룩한 살 (가장 큰 반경)
@@ -235,8 +275,9 @@ struct FLESHRINGRUNTIME_API FProceduralBandSettings
 	/** 최대 반경 계산 (바운딩용) */
 	float GetMaxRadius() const
 	{
-		return FMath::Max3(BandRadius, Upper.Radius, Lower.Radius);
+		return FMath::Max(FMath::Max(MidUpperRadius, MidLowerRadius), FMath::Max(Upper.Radius, Lower.Radius));
 	}
+
 };
 
 /** 개별 Ring 설정 */
@@ -379,17 +420,86 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	 * - 높을수록 더 넓은 영역에 스무딩 적용
 	 * - 권장: 저해상도 메시 5~10, 고해상도 메시 3~5
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing", ClampMin = "1", ClampMax = "20"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing", ClampMin = "1", ClampMax = "100"))
 	int32 MaxSmoothingHops = 5;
 
 	/**
-	 * 홉 기반 Falloff 타입
-	 * - Linear: 선형 감소 (기본)
-	 * - Quadratic: 2차 감소 (경계 더 선명)
-	 * - Hermite: S-커브 (부드러운 전환)
+	 * 홉 기반 Falloff Plateau 비율 (0.0 ~ 1.0)
+	 * - 이 비율까지는 influence = 1.0 (plateau, 감쇠 없음)
+	 * - 이후 MaxSmoothingHops까지 제곱 감쇠
+	 *
+	 * 예시 (MaxSmoothingHops=20, HopFalloffRatio=0.4):
+	 *   Hop 0-8:  influence = 1.0 (plateau)
+	 *   Hop 9-20: influence 1.0 → 0.0 (제곱 감쇠)
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing"))
-	EFalloffType HopFalloffType = EFalloffType::Hermite;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing", ClampMin = "0.0", ClampMax = "1.0"))
+	float HopFalloffRatio = 0.3f;
+
+	/**
+	 * Hop Propagation 후 Local Polish용 Laplacian 반복 횟수
+	 * - HopPropagate가 만드는 global shape 이후 local smoothing 적용
+	 * - 0 = 비활성화, 1-2 권장
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing", ClampMin = "0", ClampMax = "5", DisplayName = "Post-Hop Laplacian Iterations"))
+	int32 PostHopLaplacianIterations = 1;
+
+	/**
+	 * Hop Propagation 후 Laplacian 강도 (Lambda)
+	 * - 낮을수록 약한 스무딩 (곡선 형태 보존)
+	 * - 0.2~0.4 권장
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing && PostHopLaplacianIterations > 0", ClampMin = "0.1", ClampMax = "0.8", DisplayName = "Post-Hop Laplacian Lambda"))
+	float PostHopLaplacianLambda = 0.3f;
+
+	/**
+	 * K-Nearest Seed 블렌딩 개수
+	 * - 각 버텍스가 가장 가까운 K개 seed의 delta를 블렌딩
+	 * - 1 = 기존 방식 (nearest seed만), 4-8 권장
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing", ClampMin = "1", ClampMax = "16", DisplayName = "Seed Blend Count (K)"))
+	int32 SeedBlendCount = 4;
+
+	/**
+	 * Seed 블렌딩 가중치 함수
+	 * - InverseLinear: 1/(d+1) - 균일한 블렌딩
+	 * - InverseSquare: 1/(d+1)² - 가까운 seed 강조 (권장)
+	 * - Gaussian: exp(-d/σ) - 부드러운 감쇠
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing && SeedBlendCount > 1", DisplayName = "Seed Blend Weight Type"))
+	ESeedBlendWeightType SeedBlendWeightType = ESeedBlendWeightType::InverseSquare;
+
+	/**
+	 * Gaussian 블렌딩 시그마 (Gaussian 타입 전용)
+	 * - 낮을수록 가까운 seed에 집중, 높을수록 균일하게 블렌딩
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing && SeedBlendCount > 1 && SeedBlendWeightType == ESeedBlendWeightType::Gaussian", ClampMin = "0.5", ClampMax = "20.0", DisplayName = "Gaussian Sigma"))
+	float SeedBlendGaussianSigma = 3.0f;
+
+	/**
+	 * 변형 전파 모드
+	 * - HopBased: K-Nearest Seeds 블렌딩 (빠름, 약간의 경계 불연속)
+	 * - HeatDiffusion: 열 확산 (연속적, 물리적으로 자연스러움)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing", DisplayName = "Propagation Mode"))
+	EDeformPropagationMode DeformPropagationMode = EDeformPropagationMode::HeatDiffusion;
+
+	/**
+	 * Heat Diffusion 반복 횟수 (경계 스무딩용)
+	 * - K-Nearest 블렌딩으로 초기 분포가 이미 부드러워서 적은 횟수로 충분
+	 * - 5~15 권장 (초기 분포가 부드럽기 때문)
+	 * - 많을수록 더 부드러워지지만 성능 비용 증가
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing && DeformPropagationMode == EDeformPropagationMode::HeatDiffusion", ClampMin = "1", ClampMax = "50", DisplayName = "Heat Diffusion Iterations"))
+	int32 HeatDiffusionIterations = 10;
+
+	/**
+	 * Heat Diffusion Lambda (확산 속도)
+	 * - 높을수록 빠르게 확산 (각 iteration에서 이웃 쪽으로 많이 이동)
+	 * - 0.5 = 50% 이웃 평균 반영
+	 * - 0.3~0.6 권장
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing && DeformPropagationMode == EDeformPropagationMode::HeatDiffusion", ClampMin = "0.1", ClampMax = "0.9", DisplayName = "Heat Diffusion Lambda"))
+	float HeatDiffusionLambda = 0.5f;
 
 	/**
 	 * 스무딩 영역 상단 확장 거리 (cm)
@@ -466,8 +576,8 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
 	EFalloffType FalloffType = EFalloffType::Linear;
 
-	/** 프로시저럴 밴드 설정 (ProceduralBand 모드에서만 사용) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Band", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::ProceduralBand"))
+	/** 가상 밴드 설정 (VirtualBand 모드에서만 사용) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Virtual Band", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::ProceduralBand"))
 	FProceduralBandSettings ProceduralBand;
 
 	/** Ring 회전 (실제 적용되는 쿼터니언, 런타임에서 사용) */

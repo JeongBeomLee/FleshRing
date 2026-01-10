@@ -1,10 +1,10 @@
 ﻿// ============================================================================
-// FleshRing ProceduralBand Mathematical SDF Generator
+// FleshRing VirtualBand Mathematical SDF Generator
 // ============================================================================
-// Purpose: Generate SDF using mathematical formulas for ProceduralBand shapes
-//          ProceduralBand 형상에 대해 수학 공식으로 SDF 생성
+// Purpose: Generate SDF using mathematical formulas for VirtualBand shapes
+//          VirtualBand 형상에 대해 수학 공식으로 SDF 생성
 //
-// This replaces ray casting + flood fill for ProceduralBand mode with:
+// This replaces ray casting + flood fill for VirtualBand mode with:
 //   1. Direct mathematical SDF computation
 //   2. No mesh triangles needed (for SDF generation)
 //   3. Exact results without numerical ray casting issues
@@ -39,8 +39,9 @@ public:
 		SHADER_PARAMETER(FVector3f, SDFBoundsMax)
 		SHADER_PARAMETER(FIntVector, SDFResolution)
 
-		// ProceduralBand parameters
-		SHADER_PARAMETER(float, BandRadius)
+		// VirtualBand parameters (4 radii: Upper - MidUpper - MidLower - Lower)
+		SHADER_PARAMETER(float, MidUpperRadius)
+		SHADER_PARAMETER(float, MidLowerRadius)
 		SHADER_PARAMETER(float, BandThickness)
 		SHADER_PARAMETER(float, BandHeight)
 		SHADER_PARAMETER(float, LowerRadius)
@@ -66,7 +67,7 @@ public:
 
 struct FProceduralBandSDFDispatchParams
 {
-	/** ProceduralBand settings */
+	/** VirtualBand settings */
 	FProceduralBandSettings BandSettings;
 
 	/** SDF bounds in local space */
@@ -87,10 +88,10 @@ struct FProceduralBandSDFDispatchParams
 // ============================================================================
 
 /**
- * Dispatch mathematical SDF generation for ProceduralBand
+ * Dispatch mathematical SDF generation for VirtualBand
  *
  * @param GraphBuilder - RDG builder
- * @param Params - ProceduralBand and SDF parameters
+ * @param Params - VirtualBand and SDF parameters
  * @param OutputSDFTexture - Output 3D texture for SDF (must be pre-created)
  */
 void DispatchFleshRingProceduralBandSDF(
@@ -99,11 +100,11 @@ void DispatchFleshRingProceduralBandSDF(
 	FRDGTextureRef OutputSDFTexture);
 
 /**
- * Create and dispatch mathematical SDF generation for ProceduralBand
+ * Create and dispatch mathematical SDF generation for VirtualBand
  * Creates the output texture and returns it
  *
  * @param GraphBuilder - RDG builder
- * @param Params - ProceduralBand and SDF parameters
+ * @param Params - VirtualBand and SDF parameters
  * @return Created SDF texture
  */
 FRDGTextureRef CreateAndDispatchProceduralBandSDF(
