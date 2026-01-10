@@ -5,6 +5,7 @@
 #include "FleshRingAsset.h"
 #include "FleshRingUtils.h"
 #include "FleshRingMeshComponent.h"
+#include "FleshRingDeformerInstance.h"
 #include "Animation/DebugSkelMeshComponent.h"
 #include "Animation/MeshDeformerInstance.h"
 #include "Components/StaticMeshComponent.h"
@@ -121,10 +122,65 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	// ============================================
 	USkeletalMesh* OriginalMesh = InAsset->TargetSkeletalMesh.LoadSynchronous();
 
-	// ★ 메시 변경 전에 이전 DeformerInstance 명시적 파괴 (메모리 누수 방지)
-	// SetSkeletalMesh()가 새 DeformerInstance를 생성하기 전에 이전 것을 정리
-	if (SkeletalMeshComponent)
+	// 메시 변경 여부 확인 (TargetSkeletalMesh 기준)
+	const bool bOriginalMeshChanged = (CachedOriginalMesh.Get() != OriginalMesh);
+
+	// 현재 표시 중인 메시
+	USkeletalMesh* CurrentDisplayedMesh = SkeletalMeshComponent ? SkeletalMeshComponent->GetSkeletalMeshAsset() : nullptr;
+
+	// 표시해야 할 메시 결정 + Subdivision 재생성 필요 여부
+	USkeletalMesh* TargetDisplayMesh = OriginalMesh;
+	bool bNeedsPreviewMeshGeneration = false;
+
+#if WITH_EDITOR
+	if (InAsset->bEnableSubdivision)
 	{
+		if (InAsset->HasValidPreviewMesh() && !InAsset->NeedsPreviewMeshRegeneration())
+		{
+			// 유효한 PreviewMesh 존재 - 그것을 표시해야 함
+			TargetDisplayMesh = InAsset->PreviewSubdividedMesh;
+		}
+		else
+		{
+			// PreviewMesh 재생성 필요 - full refresh 경로 필수
+			bNeedsPreviewMeshGeneration = true;
+		}
+	}
+#endif
+
+	// 표시 메시 변경 필요 여부
+	const bool bDisplayMeshChanged = (CurrentDisplayedMesh != TargetDisplayMesh);
+
+	// 조건: 원본 동일 + 표시 메시 동일 + 재생성 필요 없음 + DeformerInstance 존재
+	// 이 모든 조건 충족 시에만 early return (Ring 파라미터 갱신만 수행)
+	if (!bOriginalMeshChanged && !bDisplayMeshChanged && !bNeedsPreviewMeshGeneration &&
+		OriginalMesh && SkeletalMeshComponent && SkeletalMeshComponent->GetMeshDeformerInstance())
+	{
+		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Mesh unchanged, skipping full refresh (preserving DeformerInstance caches)"));
+
+		// Ring 메시만 갱신 (Tightness 등 파라미터 변경 반영)
+		if (FleshRingComponent)
+		{
+			FleshRingComponent->FleshRingAsset = InAsset;
+			// ApplyAsset() 대신 가벼운 갱신만 수행
+			FleshRingComponent->UpdateRingTransforms();
+
+			// DeformerInstance의 Tightness 캐시 무효화 (파라미터 변경 반영)
+			if (UFleshRingDeformerInstance* DeformerInstance = Cast<UFleshRingDeformerInstance>(SkeletalMeshComponent->GetMeshDeformerInstance()))
+			{
+				DeformerInstance->InvalidateTightnessCache();
+			}
+		}
+
+		// Ring 메시 갱신
+		RefreshRings(InAsset->Rings);
+		return;
+	}
+
+	// 메시가 변경된 경우에만 DeformerInstance 파괴
+	if (bOriginalMeshChanged && SkeletalMeshComponent)
+	{
+		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Mesh changed, destroying DeformerInstance"));
 		if (UMeshDeformerInstance* OldInstance = SkeletalMeshComponent->GetMeshDeformerInstance())
 		{
 			FlushRenderingCommands();

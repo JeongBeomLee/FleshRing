@@ -478,27 +478,39 @@ void UFleshRingAsset::PostTransacted(const FTransactionObjectEvent& TransactionE
 		return;
 	}
 
-	// SubdividedMesh도 Undo/Redo 후 무조건 클리어
+	// SubdividedMesh는 Undo/Redo 후 무조건 클리어
 	// (Undo로 dangling pointer가 복원되거나 TargetMesh와 불일치할 수 있음)
 	// 재생성은 사용자가 GenerateSubdividedMesh 버튼으로 명시적으로 해야 함
-	// ★ 즉시 파괴하지 않고 포인터만 null로 설정 (렌더 스레드 안전)
 	if (SubdividedMesh)
 	{
 		SubdividedMesh = nullptr;
 	}
 
-	// PreviewSubdividedMesh는 Transient이므로 Undo 시 무조건 제거 후 재생성
-	// ★ 즉시 파괴하지 않고 포인터만 null로 설정 (렌더 스레드 안전)
-	if (PreviewSubdividedMesh)
+	// ★ PreviewSubdividedMesh는 Transient - Undo/Redo로 영향 없음
+	// 구조가 바뀌었는지 Hash로 판단하여 필요할 때만 재생성
+	const uint32 CurrentHash = CalculatePreviewBoneConfigHash();
+	const bool bStructureChanged = (CachedPreviewBoneConfigHash != CurrentHash);
+
+	if (bStructureChanged)
 	{
-		PreviewSubdividedMesh = nullptr;
+		// 구조 변경됨 (Ring 추가/삭제, BoneName 변경 등) - 재생성 필요
+		UE_LOG(LogFleshRingAsset, Log, TEXT("PostTransacted: Structure changed (Hash %u -> %u), will regenerate preview mesh"),
+			CachedPreviewBoneConfigHash, CurrentHash);
+
+		if (PreviewSubdividedMesh)
+		{
+			PreviewSubdividedMesh = nullptr;
+		}
+		InvalidatePreviewMeshCache();
+	}
+	else
+	{
+		// 구조 동일 (선택 상태, Tightness 등만 변경) - 기존 메시 재사용
+		UE_LOG(LogFleshRingAsset, Log, TEXT("PostTransacted: Structure unchanged (Hash %u), reusing existing preview mesh"),
+			CurrentHash);
 	}
 
-	// ★ Undo/Redo 시 캐시도 무효화 (링 추가/삭제/본 변경이 되돌려질 수 있음)
-	InvalidatePreviewMeshCache();
-
-	// 프리뷰 씬에서 재생성할 수 있도록 브로드캐스트
-	// (SetFleshRingAsset에서 HasValidPreviewMesh() 체크 후 재생성)
+	// 에셋 변경 알림 (Deformer 파라미터 갱신 등)
 	OnAssetChanged.Broadcast(this);
 }
 
