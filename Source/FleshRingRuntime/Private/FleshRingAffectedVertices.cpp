@@ -413,18 +413,17 @@ void FDistanceBasedVertexSelector::SelectVertices(
     }
     else
     {
-        // ===== Fallback: 원통형 모델 (SDFCache 없을 때) =====
-        // MeshOffset을 본 회전에 맞게 변환 후 적용
+        // ===== Fallback: 원통형 모델 (Manual 모드, SDFCache 없을 때) =====
+        // Manual 모드 전용 RingOffset/RingRotation 사용 (MeshOffset/MeshRotation 아님!)
         const FQuat BoneRotation = BoneTransform.GetRotation();
-        const FVector WorldMeshOffset = BoneRotation.RotateVector(Ring.MeshOffset);
-        const FVector RingCenter = BoneTransform.GetLocation() + WorldMeshOffset;
-        const FQuat WorldMeshRotation = BoneRotation * FQuat(Ring.MeshRotation);
-        const FVector RingAxis = WorldMeshRotation.RotateVector(FVector::ZAxisVector);
+        const FVector WorldRingOffset = BoneRotation.RotateVector(Ring.RingOffset);
+        const FVector RingCenter = BoneTransform.GetLocation() + WorldRingOffset;
+        const FQuat WorldRingRotation = BoneRotation * Ring.RingRotation;
+        const FVector RingAxis = WorldRingRotation.RotateVector(FVector::ZAxisVector);
 
-        const float RadialScale = (Ring.MeshScale.X + Ring.MeshScale.Y) * 0.5f;
-        const float AxialScale = Ring.MeshScale.Z;
-        const float MaxDistance = (Ring.RingRadius + Ring.RingThickness) * RadialScale;
-        const float HalfWidth = (Ring.RingWidth / 2.0f) * AxialScale;
+        // Manual 모드는 스케일 없음 (RingRadius/RingThickness/RingWidth가 직접 단위)
+        const float MaxDistance = Ring.RingRadius + Ring.RingThickness;
+        const float HalfWidth = Ring.RingWidth / 2.0f;
 
         for (int32 VertexIdx = 0; VertexIdx < AllVertices.Num(); ++VertexIdx)
         {
@@ -436,10 +435,8 @@ void FDistanceBasedVertexSelector::SelectVertices(
 
             if (RadialDistance <= MaxDistance && FMath::Abs(AxisDistance) <= HalfWidth)
             {
-                const float ScaledRingRadius = Ring.RingRadius * RadialScale;
-                const float ScaledRingThickness = Ring.RingThickness * RadialScale;
-                const float DistFromRingSurface = FMath::Abs(RadialDistance - ScaledRingRadius);
-                const float RadialInfluence = CalculateFalloff(DistFromRingSurface, ScaledRingThickness, Ring.FalloffType);
+                const float DistFromRingSurface = FMath::Abs(RadialDistance - Ring.RingRadius);
+                const float RadialInfluence = CalculateFalloff(DistFromRingSurface, Ring.RingThickness, Ring.FalloffType);
                 const float AxialInfluence = CalculateFalloff(FMath::Abs(AxisDistance), HalfWidth, Ring.FalloffType);
                 const float CombinedInfluence = RadialInfluence * AxialInfluence;
 
@@ -1073,27 +1070,40 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         // 링 정보 (본 트랜스폼에서 계산)
         RingData.BoneName = RingSettings.BoneName;
 
-        // [TODO] 링 위치 오프셋 지원 시 아래 코드로 교체 (Role D가 RingPositionOffset 추가 후)
-        // FVector LocalOffset = RingSettings.RingPositionOffset;
-        // FVector WorldOffset = BoneTransform.GetRotation().RotateVector(LocalOffset);
-        // RingData.RingCenter = BoneTransform.GetLocation() + WorldOffset;
-        RingData.RingCenter = BoneTransform.GetLocation();
+        const FQuat BoneRotation = BoneTransform.GetRotation();
 
-        // 링 축 계산: 메시 회전을 반영하여 실제 토러스 구멍 방향 계산
-        // BoneRotation * MeshRotation * ZAxis (MeshRotation 기본값으로 Z축이 본 X축과 일치)
-        FQuat BoneRotation = BoneTransform.GetRotation();
-        FQuat WorldMeshRotation = BoneRotation * FQuat(RingSettings.MeshRotation);
-        RingData.RingAxis = WorldMeshRotation.RotateVector(FVector::ZAxisVector);
+        // InfluenceMode에 따라 RingCenter/RingAxis/Geometry 계산 분기
+        if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Manual)
+        {
+            // ===== Manual 모드: RingOffset/RingRotation 사용 (스케일 없음) =====
+            const FVector WorldRingOffset = BoneRotation.RotateVector(RingSettings.RingOffset);
+            RingData.RingCenter = BoneTransform.GetLocation() + WorldRingOffset;
 
-        // Ring Geometry (copy from asset with MeshScale applied)
-        // 링 지오메트리 (에셋에서 복사, MeshScale 반영)
-        // 반경 방향 스케일 (X, Y 평균) 과 축 방향 스케일 (Z) 분리
-        const float RadialScale = (RingSettings.MeshScale.X + RingSettings.MeshScale.Y) * 0.5f;
-        const float AxialScale = RingSettings.MeshScale.Z;
+            const FQuat WorldRingRotation = BoneRotation * RingSettings.RingRotation;
+            RingData.RingAxis = WorldRingRotation.RotateVector(FVector::ZAxisVector);
 
-        RingData.RingRadius = RingSettings.RingRadius * RadialScale;
-        RingData.RingThickness = RingSettings.RingThickness * RadialScale;
-        RingData.RingWidth = RingSettings.RingWidth * AxialScale;
+            // Manual 모드는 스케일 없이 직접 값 사용
+            RingData.RingRadius = RingSettings.RingRadius;
+            RingData.RingThickness = RingSettings.RingThickness;
+            RingData.RingWidth = RingSettings.RingWidth;
+        }
+        else
+        {
+            // ===== Auto/ProceduralBand 모드: MeshOffset/MeshRotation + MeshScale 적용 =====
+            const FVector WorldMeshOffset = BoneRotation.RotateVector(RingSettings.MeshOffset);
+            RingData.RingCenter = BoneTransform.GetLocation() + WorldMeshOffset;
+
+            const FQuat WorldMeshRotation = BoneRotation * RingSettings.MeshRotation;
+            RingData.RingAxis = WorldMeshRotation.RotateVector(FVector::ZAxisVector);
+
+            // MeshScale 반영: 반경 방향 (X, Y 평균) 과 축 방향 (Z) 분리
+            const float RadialScale = (RingSettings.MeshScale.X + RingSettings.MeshScale.Y) * 0.5f;
+            const float AxialScale = RingSettings.MeshScale.Z;
+
+            RingData.RingRadius = RingSettings.RingRadius * RadialScale;
+            RingData.RingThickness = RingSettings.RingThickness * RadialScale;
+            RingData.RingWidth = RingSettings.RingWidth * AxialScale;
+        }
 
         // Deformation Parameters (copy from asset)
         // 변형 파라미터 (에셋에서 복사)

@@ -27,10 +27,16 @@ float FixedPointScale;
 int BulgeAxisDirection;  // -1: 음의 축, +1: 양의 축, 0: 양방향
 uint RingIndex;          // Ring 인덱스 (VolumeAccumBuffer 슬롯 지정용)
 float BulgeRadialRatio;  // Radial vs Axial 방향 비율 (0.0~1.0, 기본 0.7)
+uint bUseSDFInfluence;   // 0 = Manual (Component Space 직접), 1 = SDF 모드
 
-// Ring Center/Axis (SDF Local Space) - 바운드 확장 시에도 정확한 위치 전달
+// Ring Center/Axis (SDF Local Space) - SDF 모드용
 float3 SDFLocalRingCenter;
 float3 SDFLocalRingAxis;
+
+// Ring Center/Axis (Component Space) - Manual 모드용
+float3 RingCenter;
+float3 RingAxis;
+float RingWidth;
 
 #ifndef THREADGROUP_SIZE
 #define THREADGROUP_SIZE 64
@@ -134,6 +140,7 @@ float3 ComputeSDFGradient(float3 LocalPos)
 
 // 살이 링을 덮는 방향 계산 (Radial + Axial, 비율은 BulgeRadialRatio로 조절)
 // 리서치: 링 윗부분은 위로, 아랫부분은 아래로 밀려나는 느낌
+// SDF 모드용 (SDF Local Space)
 float3 ComputeFleshCoveringDirection(float3 LocalPos, FRingGeometry Ring)
 {
     float3 ToVertex = LocalPos - Ring.Center;
@@ -144,6 +151,37 @@ float3 ComputeFleshCoveringDirection(float3 LocalPos, FRingGeometry Ring)
 
     // 축 방향 (위/아래): 버텍스가 링 위면 위로, 아래면 아래로
     float3 AxialDir = Ring.Axis * sign(axialComponent);
+
+    // BulgeRadialRatio만큼 Radial, 나머지(1-ratio)만큼 Axial
+    float3 CombinedDir = RadialDir * BulgeRadialRatio + AxialDir * (1.0 - BulgeRadialRatio);
+
+    float len = length(CombinedDir);
+    return (len > 0.0001) ? (CombinedDir / len) : RadialDir;
+}
+
+// Manual 모드용 방향 계산 (Component Space에서 직접, SDF 변환 없음)
+float3 ComputeFleshCoveringDirection_Manual(float3 ComponentPos)
+{
+    float3 ToVertex = ComponentPos - RingCenter;
+    float axialComponent = dot(ToVertex, RingAxis);
+
+    // 방사 방향 (바깥으로)
+    float3 RadialVec = ToVertex - RingAxis * axialComponent;
+    float radialLen = length(RadialVec);
+    float3 RadialDir;
+    if (radialLen < 0.0001)
+    {
+        // 축 위에 있는 경우: 임의의 수직 방향
+        float3 arbitrary = abs(RingAxis.x) < 0.9 ? float3(1, 0, 0) : float3(0, 1, 0);
+        RadialDir = normalize(cross(RingAxis, arbitrary));
+    }
+    else
+    {
+        RadialDir = RadialVec / radialLen;
+    }
+
+    // 축 방향 (위/아래): 버텍스가 링 위면 위로, 아래면 아래로
+    float3 AxialDir = RingAxis * sign(axialComponent);
 
     // BulgeRadialRatio만큼 Radial, 나머지(1-ratio)만큼 Axial
     float3 CombinedDir = RadialDir * BulgeRadialRatio + AxialDir * (1.0 - BulgeRadialRatio);
@@ -200,35 +238,58 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
-    float3 LocalPos = TransformToSDFLocal(Pos);
-    FRingGeometry Ring = ComputeRingGeometry();
+    // ===== 방향 필터링 및 Bulge 방향 계산: SDF 모드 vs Manual 모드 분기 =====
+    float3 BulgeDirComponent;
 
-    // 축 방향 거리 계산
-    float3 ToVertex = LocalPos - Ring.Center;
-    float axialComponent = dot(ToVertex, Ring.Axis);
-
-    // 방향 필터링 (BulgeAxisDirection != 0이면 한쪽만 처리)
-    if (BulgeAxisDirection != 0)
+    if (bUseSDFInfluence != 0)
     {
-        int vertexSide = (axialComponent > 0.0) ? 1 : -1;
-        if (vertexSide != BulgeAxisDirection)
+        // ===== SDF 모드: SDF Local Space에서 계산 후 Component Space로 변환 =====
+        float3 LocalPos = TransformToSDFLocal(Pos);
+        FRingGeometry Ring = ComputeRingGeometry();
+
+        // 축 방향 거리 계산 (방향 필터링용)
+        float3 ToVertex = LocalPos - Ring.Center;
+        float axialComponent = dot(ToVertex, Ring.Axis);
+
+        // 방향 필터링 (BulgeAxisDirection != 0이면 한쪽만 처리)
+        if (BulgeAxisDirection != 0)
         {
-            WritePosition(VertexIndex, Pos);
-            return;
+            int vertexSide = (axialComponent > 0.0) ? 1 : -1;
+            if (vertexSide != BulgeAxisDirection)
+            {
+                WritePosition(VertexIndex, Pos);
+                return;
+            }
         }
+
+        // Bulge 방향: SDF Local Space에서 계산 후 Component Space로 변환
+        float3 BulgeDirLocal = ComputeFleshCoveringDirection(LocalPos, Ring);
+        BulgeDirComponent = TransformDirectionToComponent(BulgeDirLocal);
+    }
+    else
+    {
+        // ===== Manual 모드: Component Space에서 직접 계산 (SDF 변환 없음) =====
+
+        // 축 방향 거리 계산 (방향 필터링용)
+        float3 ToVertex = Pos - RingCenter;
+        float axialComponent = dot(ToVertex, RingAxis);
+
+        // 방향 필터링 (BulgeAxisDirection != 0이면 한쪽만 처리)
+        if (BulgeAxisDirection != 0)
+        {
+            int vertexSide = (axialComponent > 0.0) ? 1 : -1;
+            if (vertexSide != BulgeAxisDirection)
+            {
+                WritePosition(VertexIndex, Pos);
+                return;
+            }
+        }
+
+        // Bulge 방향: Component Space에서 직접 계산
+        BulgeDirComponent = ComputeFleshCoveringDirection_Manual(Pos);
     }
 
-
-    // CPUInfluence에 BulgeMask가 이미 포함되어 있음
-    // GPU는 방사 방향 계산 + Bulge 적용만 수행
-    // NOTE: Falloff 계산은 CPU에서 수행 (FFleshRingFalloff::Evaluate)
-    // GPU는 미리 계산된 BulgeInfluences 버퍼를 읽기만 함
-    // 이점: 버텍스당 1회 계산 + 캐싱, GPU 분기 제거, 런타임 타입 변경 가능
-
-    // Bulge 방향: Radial 70% + Axial 30% (살이 링을 덮는 방향)
-    float3 BulgeDirLocal = ComputeFleshCoveringDirection(LocalPos, Ring);
-    float3 BulgeDirComponent = TransformDirectionToComponent(BulgeDirLocal);
-
+    // 방향 벡터 정규화 및 유효성 검사
     float dirLen = length(BulgeDirComponent);
     if (dirLen < 0.0001 || isnan(dirLen) || isinf(dirLen))
     {

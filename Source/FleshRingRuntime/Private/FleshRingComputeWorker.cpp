@@ -395,14 +395,25 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				BulgeParams.RingIndex = RingIdx;      // Ring별 VolumeAccumBuffer 슬롯 지정
 				BulgeParams.BulgeRadialRatio = DispatchData.BulgeRadialRatio;  // Radial vs Axial 비율
 
-				// 이 Ring의 SDF 파라미터
-				BulgeParams.SDFBoundsMin = DispatchData.SDFBoundsMin;
-				BulgeParams.SDFBoundsMax = DispatchData.SDFBoundsMax;
-				BulgeParams.ComponentToSDFLocal = RingComponentToSDFLocal;
+				// SDF 모드 vs Manual 모드 분기
+				BulgeParams.bUseSDFInfluence = DispatchData.bHasValidSDF ? 1 : 0;
 
-				// Ring Center/Axis (SDF Local Space) - 바운드 확장 시에도 정확한 위치 전달
-				BulgeParams.SDFLocalRingCenter = DispatchData.SDFLocalRingCenter;
-				BulgeParams.SDFLocalRingAxis = DispatchData.SDFLocalRingAxis;
+				if (DispatchData.bHasValidSDF)
+				{
+					// SDF 모드: SDF 관련 파라미터 설정
+					BulgeParams.SDFBoundsMin = DispatchData.SDFBoundsMin;
+					BulgeParams.SDFBoundsMax = DispatchData.SDFBoundsMax;
+					BulgeParams.ComponentToSDFLocal = RingComponentToSDFLocal;
+					BulgeParams.SDFLocalRingCenter = DispatchData.SDFLocalRingCenter;
+					BulgeParams.SDFLocalRingAxis = DispatchData.SDFLocalRingAxis;
+				}
+				else
+				{
+					// Manual 모드: Component Space 파라미터 설정
+					BulgeParams.RingCenter = DispatchData.Params.RingCenter;
+					BulgeParams.RingAxis = DispatchData.Params.RingAxis;
+					BulgeParams.RingWidth = DispatchData.Params.RingWidth;
+				}
 
 				// [조건부 로그] 각 Ring별 첫 프레임만 출력
 				static TSet<int32> LoggedBulgeRings;

@@ -611,12 +611,6 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	{
 		FFleshRingWorkItem::FRingDispatchData& DispatchData = (*RingDispatchDataPtr)[RingIdx];
 
-		// SDF가 유효하지 않으면 Bulge 스킵
-		if (!DispatchData.bHasValidSDF)
-		{
-			continue;
-		}
-
 		// Ring별 Bulge 설정 가져오기 (OriginalRingIndex 사용)
 		const int32 OriginalIdx = DispatchData.OriginalRingIndex;
 		bool bBulgeEnabledInSettings = true;
@@ -642,16 +636,6 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			continue;
 		}
 
-		// FSDFBulgeProvider로 이 Ring의 Bulge 버텍스 계산
-		FSDFBulgeProvider BulgeProvider;
-		BulgeProvider.InitFromSDFCache(
-			DispatchData.SDFBoundsMin,
-			DispatchData.SDFBoundsMax,
-			DispatchData.SDFLocalToComponent,
-			RingBulgeAxialRange,
-			RingBulgeRadialRange);
-		BulgeProvider.FalloffType = RingBulgeFalloff;
-
 		// Bulge 영역 계산 (Spatial Hash로 O(N) → O(후보수) 최적화)
 		TArray<uint32> BulgeIndices;
 		TArray<float> BulgeInfluences;
@@ -660,12 +644,46 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		// AffectedVerticesManager에서 Spatial Hash 가져오기
 		const FVertexSpatialHash* SpatialHash = &CurrentLODData.AffectedVerticesManager.GetSpatialHash();
 
-		BulgeProvider.CalculateBulgeRegion(
-			AllVertexPositions,
-			SpatialHash,
-			BulgeIndices,
-			BulgeInfluences,
-			BulgeDirections);
+		// ===== Bulge Provider 선택: SDF 유무에 따라 분기 =====
+		if (DispatchData.bHasValidSDF)
+		{
+			// Auto/ProceduralBand 모드: SDF 바운드 기반 Bulge
+			FSDFBulgeProvider BulgeProvider;
+			BulgeProvider.InitFromSDFCache(
+				DispatchData.SDFBoundsMin,
+				DispatchData.SDFBoundsMax,
+				DispatchData.SDFLocalToComponent,
+				RingBulgeAxialRange,
+				RingBulgeRadialRange);
+			BulgeProvider.FalloffType = RingBulgeFalloff;
+
+			BulgeProvider.CalculateBulgeRegion(
+				AllVertexPositions,
+				SpatialHash,
+				BulgeIndices,
+				BulgeInfluences,
+				BulgeDirections);
+		}
+		else
+		{
+			// Manual 모드: Ring 파라미터 기반 Bulge
+			FManualBulgeProvider BulgeProvider;
+			BulgeProvider.InitFromRingParams(
+				FVector3f(DispatchData.Params.RingCenter),
+				FVector3f(DispatchData.Params.RingAxis),
+				DispatchData.Params.RingRadius,
+				DispatchData.Params.RingWidth,
+				RingBulgeAxialRange,
+				RingBulgeRadialRange);
+			BulgeProvider.FalloffType = RingBulgeFalloff;
+
+			BulgeProvider.CalculateBulgeRegion(
+				AllVertexPositions,
+				SpatialHash,
+				BulgeIndices,
+				BulgeInfluences,
+				BulgeDirections);
+		}
 
 		if (BulgeIndices.Num() > 0)
 		{

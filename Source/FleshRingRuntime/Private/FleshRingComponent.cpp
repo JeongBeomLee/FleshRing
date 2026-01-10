@@ -823,6 +823,10 @@ void UFleshRingComponent::UpdateRingTransforms()
 
 void UFleshRingComponent::RefreshRingMeshes()
 {
+#if WITH_EDITOR
+	// Ring 삭제 시 디버그 리소스(SDF 슬라이스 액터 등)도 정리
+	CleanupDebugResources();
+#endif
 	CleanupRingMeshes();
 	SetupRingMeshes();
 }
@@ -2049,36 +2053,76 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 			continue;
 		}
 
-		// SDF 캐시 가져오기
+		// ===== Ring 정보 계산: SDF 모드 vs Manual 모드 분기 =====
+		FTransform LocalToComponent = FTransform::Identity;
+		FVector3f RingCenter;
+		FVector3f RingAxis;
+		float RingWidth;
+		float RingRadius;
+		int32 DetectedDirection = 0;
+		bool bUseLocalSpace = false;  // Manual 모드는 Component Space 직접 사용
+
 		const FRingSDFCache* SDFCache = GetRingSDFCache(RingIdx);
-		if (!SDFCache || !SDFCache->IsValid())
+		const bool bHasValidSDF = SDFCache && SDFCache->IsValid();
+
+		if (bHasValidSDF)
 		{
+			// ===== Auto/ProceduralBand 모드: SDF 캐시에서 Ring 정보 가져오기 =====
+			bUseLocalSpace = true;
+			LocalToComponent = SDFCache->LocalToComponent;
+			FVector3f BoundsMin = SDFCache->BoundsMin;
+			FVector3f BoundsMax = SDFCache->BoundsMax;
+			FVector3f BoundsSize = BoundsMax - BoundsMin;
+			RingCenter = (BoundsMin + BoundsMax) * 0.5f;
+
+			// Ring 축 감지 (가장 짧은 축)
+			if (BoundsSize.X <= BoundsSize.Y && BoundsSize.X <= BoundsSize.Z)
+				RingAxis = FVector3f(1, 0, 0);
+			else if (BoundsSize.Y <= BoundsSize.X && BoundsSize.Y <= BoundsSize.Z)
+				RingAxis = FVector3f(0, 1, 0);
+			else
+				RingAxis = FVector3f(0, 0, 1);
+
+			// Ring 크기 계산 (FleshRingBulgeProviders.cpp와 동일)
+			RingWidth = FMath::Min3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z);
+			RingRadius = FMath::Max3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z) * 0.5f;
+			DetectedDirection = SDFCache->DetectedBulgeDirection;
+		}
+		else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Manual)
+		{
+			// ===== Manual 모드: Ring 파라미터에서 직접 가져오기 (Component Space) =====
+			bUseLocalSpace = false;
+
+			// Bone Transform 가져오기
+			FTransform BoneTransform = FTransform::Identity;
+			if (SkelMesh)
+			{
+				int32 BoneIndex = SkelMesh->GetBoneIndex(RingSettings.BoneName);
+				if (BoneIndex != INDEX_NONE)
+				{
+					BoneTransform = SkelMesh->GetBoneTransform(BoneIndex, FTransform::Identity);
+				}
+			}
+
+			// RingCenter = Bone Position + RingOffset (Bone 회전 적용)
+			const FQuat BoneRotation = BoneTransform.GetRotation();
+			const FVector WorldRingOffset = BoneRotation.RotateVector(RingSettings.RingOffset);
+			RingCenter = FVector3f(BoneTransform.GetLocation() + WorldRingOffset);
+
+			// RingAxis = Bone Rotation * RingRotation의 Z축
+			const FQuat WorldRingRotation = BoneRotation * RingSettings.RingRotation;
+			RingAxis = FVector3f(WorldRingRotation.RotateVector(FVector::ZAxisVector));
+
+			// Ring 크기는 직접 사용
+			RingWidth = RingSettings.RingWidth;
+			RingRadius = RingSettings.RingRadius;
+			DetectedDirection = 0;  // Manual 모드는 자동 감지 불가, 양방향
+		}
+		else
+		{
+			// SDF 없고 Manual도 아니면 스킵
 			continue;
 		}
-
-		// ===== GPU 셰이더와 동일한 로직으로 Bulge 버텍스 선택 =====
-
-		// Ring 로컬 스페이스 변환
-		// NOTE: InverseTransformPosition 사용 필수! (비균일 스케일+회전 조합 지원)
-		// Inverse().TransformPosition()은 스케일과 회전 순서가 잘못됨
-		const FTransform& LocalToComponent = SDFCache->LocalToComponent;
-		FVector3f BoundsMin = SDFCache->BoundsMin;
-		FVector3f BoundsMax = SDFCache->BoundsMax;
-		FVector3f BoundsSize = BoundsMax - BoundsMin;
-		FVector3f RingCenter = (BoundsMin + BoundsMax) * 0.5f;
-
-		// Ring 축 감지 (가장 짧은 축)
-		FVector3f RingAxis;
-		if (BoundsSize.X <= BoundsSize.Y && BoundsSize.X <= BoundsSize.Z)
-			RingAxis = FVector3f(1, 0, 0);
-		else if (BoundsSize.Y <= BoundsSize.X && BoundsSize.Y <= BoundsSize.Z)
-			RingAxis = FVector3f(0, 1, 0);
-		else
-			RingAxis = FVector3f(0, 0, 1);
-
-		// Ring 크기 계산 (FleshRingBulgeProviders.cpp와 동일)
-		const float RingWidth = FMath::Min3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z);  // 축 방향 크기
-		const float RingRadius = FMath::Max3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z) * 0.5f;  // 반경 방향 크기
 
 		// Bulge 시작 거리 (Ring 경계)
 		const float BulgeStartDist = RingWidth * 0.5f;
@@ -2088,8 +2132,7 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 		const float AxialLimit = BulgeStartDist + RingWidth * 0.5f * RingSettings.BulgeAxialRange;
 		const float RadialLimit = RingRadius * RingSettings.BulgeRadialRange;
 
-		// 방향 결정 (0 = 양방향)
-		int32 DetectedDirection = SDFCache->DetectedBulgeDirection;
+		// 방향 결정 (0 = 양방향) - DetectedDirection은 위에서 이미 계산됨
 		int32 FinalDirection = 0;
 		switch (RingSettings.BulgeDirection)
 		{
@@ -2112,14 +2155,24 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 		// 모든 버텍스 순회
 		for (int32 VertIdx = 0; VertIdx < DebugBindPoseVertices.Num(); ++VertIdx)
 		{
-			// Component Space → Ring Local Space
-			// InverseTransformPosition: (V - Trans) * Rot^-1 / Scale (올바른 순서)
 			FVector CompSpacePos = FVector(DebugBindPoseVertices[VertIdx]);
-			FVector LocalSpacePos = LocalToComponent.InverseTransformPosition(CompSpacePos);
-			FVector3f LocalPos = FVector3f(LocalSpacePos);
+			FVector3f VertexPos;
+
+			if (bUseLocalSpace)
+			{
+				// SDF 모드: Component Space → Ring Local Space 변환
+				// InverseTransformPosition: (V - Trans) * Rot^-1 / Scale (올바른 순서)
+				FVector LocalSpacePos = LocalToComponent.InverseTransformPosition(CompSpacePos);
+				VertexPos = FVector3f(LocalSpacePos);
+			}
+			else
+			{
+				// Manual 모드: Component Space 직접 사용 (RingCenter, RingAxis가 이미 Component Space)
+				VertexPos = FVector3f(CompSpacePos);
+			}
 
 			// Ring 중심으로부터의 벡터
-			FVector3f ToVertex = LocalPos - RingCenter;
+			FVector3f ToVertex = VertexPos - RingCenter;
 
 			// 1. 축 방향 거리 (위아래)
 			float AxialComponent = FVector3f::DotProduct(ToVertex, RingAxis);
@@ -2202,13 +2255,6 @@ void UFleshRingComponent::DrawBulgeDirectionArrow(int32 RingIndex)
 		return;
 	}
 
-	// SDF 캐시와 Ring 설정 가져오기
-	const FRingSDFCache* SDFCache = GetRingSDFCache(RingIndex);
-	if (!SDFCache || !SDFCache->IsValid())
-	{
-		return;
-	}
-
 	if (!FleshRingAsset || !FleshRingAsset->Rings.IsValidIndex(RingIndex))
 	{
 		return;
@@ -2222,8 +2268,74 @@ void UFleshRingComponent::DrawBulgeDirectionArrow(int32 RingIndex)
 		return;
 	}
 
-	// 감지된 방향
-	int32 DetectedDirection = SDFCache->DetectedBulgeDirection;
+	USkeletalMeshComponent* SkelMesh = ResolvedTargetMesh.Get();
+	const FRingSDFCache* SDFCache = GetRingSDFCache(RingIndex);
+	const bool bHasValidSDF = SDFCache && SDFCache->IsValid();
+
+	// ===== Ring 정보 계산: SDF 모드 vs Manual 모드 분기 =====
+	FVector WorldCenter;
+	FVector WorldZAxis;
+	float ArrowLength;
+	int32 DetectedDirection = 0;
+
+	if (bHasValidSDF)
+	{
+		// ===== Auto/ProceduralBand 모드: SDF 캐시에서 정보 가져오기 =====
+		DetectedDirection = SDFCache->DetectedBulgeDirection;
+
+		// OBB 중심 위치 (로컬 공간)
+		FVector LocalCenter = FVector(SDFCache->BoundsMin + SDFCache->BoundsMax) * 0.5f;
+
+		// Component → World 트랜스폼
+		FTransform LocalToWorld = SDFCache->LocalToComponent;
+		if (SkelMesh)
+		{
+			LocalToWorld = LocalToWorld * SkelMesh->GetComponentTransform();
+		}
+
+		WorldCenter = LocalToWorld.TransformPosition(LocalCenter);
+		FQuat WorldRotation = LocalToWorld.GetRotation();
+
+		// 로컬 Z축을 월드 공간으로 변환
+		FVector LocalZAxis = FVector(0.0f, 0.0f, 1.0f);
+		WorldZAxis = WorldRotation.RotateVector(LocalZAxis);
+
+		// 화살표 크기 (SDF 볼륨 크기에 비례)
+		ArrowLength = FVector(SDFCache->BoundsMax - SDFCache->BoundsMin).Size() * 0.05f;
+	}
+	else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Manual)
+	{
+		// ===== Manual 모드: Ring 파라미터에서 직접 가져오기 =====
+		DetectedDirection = 0;  // Manual 모드는 자동 감지 불가
+
+		// Bone Transform 가져오기
+		FTransform BoneTransform = FTransform::Identity;
+		if (SkelMesh)
+		{
+			int32 BoneIndex = SkelMesh->GetBoneIndex(RingSettings.BoneName);
+			if (BoneIndex != INDEX_NONE)
+			{
+				BoneTransform = SkelMesh->GetBoneTransform(BoneIndex);
+			}
+		}
+
+		// RingCenter (World Space)
+		const FQuat BoneRotation = BoneTransform.GetRotation();
+		const FVector WorldRingOffset = BoneRotation.RotateVector(RingSettings.RingOffset);
+		WorldCenter = BoneTransform.GetLocation() + WorldRingOffset;
+
+		// RingAxis (World Space)
+		const FQuat WorldRingRotation = BoneRotation * RingSettings.RingRotation;
+		WorldZAxis = WorldRingRotation.RotateVector(FVector::ZAxisVector);
+
+		// 화살표 크기 (Ring 반경에 비례)
+		ArrowLength = RingSettings.RingRadius * 0.1f;
+	}
+	else
+	{
+		// SDF 없고 Manual도 아니면 스킵
+		return;
+	}
 
 	// 최종 사용 방향 결정 (0 = 양방향)
 	int32 FinalDirection = 0;
@@ -2242,27 +2354,6 @@ void UFleshRingComponent::DrawBulgeDirectionArrow(int32 RingIndex)
 		FinalDirection = -1;
 		break;
 	}
-
-	// OBB 중심 위치 (월드 공간)
-	FVector LocalCenter = FVector(SDFCache->BoundsMin + SDFCache->BoundsMax) * 0.5f;
-
-	// Component → World 트랜스폼
-	USkeletalMeshComponent* SkelMesh = ResolvedTargetMesh.Get();
-	FTransform LocalToWorld = SDFCache->LocalToComponent;
-	if (SkelMesh)
-	{
-		LocalToWorld = LocalToWorld * SkelMesh->GetComponentTransform();
-	}
-
-	FVector WorldCenter = LocalToWorld.TransformPosition(LocalCenter);
-	FQuat WorldRotation = LocalToWorld.GetRotation();
-
-	// 로컬 Z축을 월드 공간으로 변환
-	FVector LocalZAxis = FVector(0.0f, 0.0f, 1.0f);
-	FVector WorldZAxis = WorldRotation.RotateVector(LocalZAxis);
-
-	// 화살표 크기 (SDF 볼륨 크기에 비례, 작게 유지)
-	float ArrowLength = FVector(SDFCache->BoundsMax - SDFCache->BoundsMin).Size() * 0.05f;
 
 	// 화살표 색상: 검은색으로 통일
 	FColor ArrowColor = FColor::White;
