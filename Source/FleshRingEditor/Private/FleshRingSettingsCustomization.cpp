@@ -792,6 +792,9 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingEulerRotation));
 
 	// Smoothing 프로퍼티 핸들 개별 획득
+	// Post Process 최상위 토글
+	TSharedPtr<IPropertyHandle> bEnablePostProcessHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnablePostProcess));
+
 	TSharedPtr<IPropertyHandle> bEnableRadialSmoothingHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableRadialSmoothing));
 	TSharedPtr<IPropertyHandle> bEnableLaplacianSmoothingHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableLaplacianSmoothing));
 	TSharedPtr<IPropertyHandle> bUseTaubinSmoothingHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bUseTaubinSmoothing));
@@ -799,7 +802,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	TSharedPtr<IPropertyHandle> TaubinMuHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, TaubinMu));
 	TSharedPtr<IPropertyHandle> SmoothingIterationsHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingIterations));
 	TSharedPtr<IPropertyHandle> VolumePreservationHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, VolumePreservation));
-	TSharedPtr<IPropertyHandle> bUseHopBasedSmoothingHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bUseHopBasedSmoothing));
+	TSharedPtr<IPropertyHandle> SmoothingVolumeModeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingVolumeMode));
 	TSharedPtr<IPropertyHandle> MaxSmoothingHopsHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MaxSmoothingHops));
 	TSharedPtr<IPropertyHandle> HopFalloffRatioHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HopFalloffRatio));
 	TSharedPtr<IPropertyHandle> HopFalloffTypeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HopFalloffType));
@@ -814,8 +817,9 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	TSharedPtr<IPropertyHandle> SmoothingBoundsZTopHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingBoundsZTop));
 	TSharedPtr<IPropertyHandle> SmoothingBoundsZBottomHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingBoundsZBottom));
 
-	// Smoothing 그룹에 들어갈 프로퍼티 이름들
+	// Post Process 그룹에 들어갈 프로퍼티 이름들
 	TSet<FName> SmoothingGroupProperties;
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnablePostProcess));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableRadialSmoothing));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableLaplacianSmoothing));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bUseTaubinSmoothing));
@@ -823,7 +827,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, TaubinMu));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingIterations));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, VolumePreservation));
-	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bUseHopBasedSmoothing));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingVolumeMode));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MaxSmoothingHops));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HopFalloffRatio));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HopFalloffType));
@@ -1259,21 +1263,95 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			);
 	}
 
-	// Smoothing 그룹 생성 (Ring Transform 그룹 뒤)
-	IDetailGroup& SmoothingGroup = ChildBuilder.AddGroup(TEXT("Smoothing"), LOCTEXT("SmoothingGroup", "Smoothing"));
-	SmoothingGroup.HeaderRow()
+	// ===== Post Process 그룹 (최상위) =====
+	IDetailGroup& PostProcessGroup = ChildBuilder.AddGroup(TEXT("PostProcess"), LOCTEXT("PostProcessGroup", "Post Process"));
+	PostProcessGroup.HeaderRow()
 		.NameContent()
 		[
 			SNew(STextBlock)
-			.Text(LOCTEXT("SmoothingHeader", "Smoothing"))
+			.Text(LOCTEXT("PostProcessHeader", "Post Process"))
 			.Font(IDetailLayoutBuilder::GetDetailFontBold())
 		];
 
-	// Smoothing 프로퍼티 명시적 순서로 추가
+	// Post Process 마스터 토글
+	if (bEnablePostProcessHandle.IsValid())
+	{
+		PostProcessGroup.AddPropertyRow(bEnablePostProcessHandle.ToSharedRef());
+	}
+
+	// ===== Smoothing Volume 서브그룹 =====
+	IDetailGroup& SmoothingVolumeGroup = PostProcessGroup.AddGroup(TEXT("SmoothingVolume"), LOCTEXT("SmoothingVolumeGroup", "Smoothing Volume"));
+
+	// 볼륨 모드 선택
+	if (SmoothingVolumeModeHandle.IsValid())
+	{
+		SmoothingVolumeGroup.AddPropertyRow(SmoothingVolumeModeHandle.ToSharedRef());
+	}
+	// HopBased 설정 (SmoothingVolumeMode == HopBased일 때만 보임)
+	if (MaxSmoothingHopsHandle.IsValid())
+	{
+		SmoothingVolumeGroup.AddPropertyRow(MaxSmoothingHopsHandle.ToSharedRef());
+	}
+	if (HopFalloffRatioHandle.IsValid())
+	{
+		SmoothingVolumeGroup.AddPropertyRow(HopFalloffRatioHandle.ToSharedRef());
+	}
+	if (HopFalloffTypeHandle.IsValid())
+	{
+		SmoothingVolumeGroup.AddPropertyRow(HopFalloffTypeHandle.ToSharedRef());
+	}
+	// Propagation 설정 (HopBased일 때)
+	if (DeformPropagationModeHandle.IsValid())
+	{
+		SmoothingVolumeGroup.AddPropertyRow(DeformPropagationModeHandle.ToSharedRef());
+	}
+	if (SeedBlendCountHandle.IsValid())
+	{
+		SmoothingVolumeGroup.AddPropertyRow(SeedBlendCountHandle.ToSharedRef());
+	}
+	if (SeedBlendWeightTypeHandle.IsValid())
+	{
+		SmoothingVolumeGroup.AddPropertyRow(SeedBlendWeightTypeHandle.ToSharedRef());
+	}
+	if (SeedBlendGaussianSigmaHandle.IsValid())
+	{
+		SmoothingVolumeGroup.AddPropertyRow(SeedBlendGaussianSigmaHandle.ToSharedRef());
+	}
+	if (HeatDiffusionIterationsHandle.IsValid())
+	{
+		SmoothingVolumeGroup.AddPropertyRow(HeatDiffusionIterationsHandle.ToSharedRef());
+	}
+	if (HeatDiffusionLambdaHandle.IsValid())
+	{
+		SmoothingVolumeGroup.AddPropertyRow(HeatDiffusionLambdaHandle.ToSharedRef());
+	}
+	if (PostHopLaplacianIterationsHandle.IsValid())
+	{
+		SmoothingVolumeGroup.AddPropertyRow(PostHopLaplacianIterationsHandle.ToSharedRef());
+	}
+	if (PostHopLaplacianLambdaHandle.IsValid())
+	{
+		SmoothingVolumeGroup.AddPropertyRow(PostHopLaplacianLambdaHandle.ToSharedRef());
+	}
+	// BoundsExpand 설정 (SmoothingVolumeMode == BoundsExpand일 때만 보임)
+	if (SmoothingBoundsZTopHandle.IsValid())
+	{
+		SmoothingVolumeGroup.AddPropertyRow(SmoothingBoundsZTopHandle.ToSharedRef());
+	}
+	if (SmoothingBoundsZBottomHandle.IsValid())
+	{
+		SmoothingVolumeGroup.AddPropertyRow(SmoothingBoundsZBottomHandle.ToSharedRef());
+	}
+
+	// ===== Smoothing 서브그룹 =====
+	IDetailGroup& SmoothingGroup = PostProcessGroup.AddGroup(TEXT("Smoothing"), LOCTEXT("SmoothingGroup", "Smoothing"));
+
+	// Radial Smoothing
 	if (bEnableRadialSmoothingHandle.IsValid())
 	{
 		SmoothingGroup.AddPropertyRow(bEnableRadialSmoothingHandle.ToSharedRef());
 	}
+	// Laplacian/Taubin Smoothing
 	if (bEnableLaplacianSmoothingHandle.IsValid())
 	{
 		SmoothingGroup.AddPropertyRow(bEnableLaplacianSmoothingHandle.ToSharedRef());
@@ -1298,74 +1376,10 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	{
 		SmoothingGroup.AddPropertyRow(VolumePreservationHandle.ToSharedRef());
 	}
-	if (bUseHopBasedSmoothingHandle.IsValid())
-	{
-		SmoothingGroup.AddPropertyRow(bUseHopBasedSmoothingHandle.ToSharedRef());
-	}
-	if (MaxSmoothingHopsHandle.IsValid())
-	{
-		SmoothingGroup.AddPropertyRow(MaxSmoothingHopsHandle.ToSharedRef());
-	}
-	if (HopFalloffRatioHandle.IsValid())
-	{
-		SmoothingGroup.AddPropertyRow(HopFalloffRatioHandle.ToSharedRef());
-	}
-	if (HopFalloffTypeHandle.IsValid())
-	{
-		SmoothingGroup.AddPropertyRow(HopFalloffTypeHandle.ToSharedRef());
-	}
-	if (PostHopLaplacianIterationsHandle.IsValid())
-	{
-		SmoothingGroup.AddPropertyRow(PostHopLaplacianIterationsHandle.ToSharedRef());
-	}
-	if (PostHopLaplacianLambdaHandle.IsValid())
-	{
-		SmoothingGroup.AddPropertyRow(PostHopLaplacianLambdaHandle.ToSharedRef());
-	}
-	if (SeedBlendCountHandle.IsValid())
-	{
-		SmoothingGroup.AddPropertyRow(SeedBlendCountHandle.ToSharedRef());
-	}
-	if (SeedBlendWeightTypeHandle.IsValid())
-	{
-		SmoothingGroup.AddPropertyRow(SeedBlendWeightTypeHandle.ToSharedRef());
-	}
-	if (SeedBlendGaussianSigmaHandle.IsValid())
-	{
-		SmoothingGroup.AddPropertyRow(SeedBlendGaussianSigmaHandle.ToSharedRef());
-	}
-	if (DeformPropagationModeHandle.IsValid())
-	{
-		SmoothingGroup.AddPropertyRow(DeformPropagationModeHandle.ToSharedRef());
-	}
-	if (HeatDiffusionIterationsHandle.IsValid())
-	{
-		SmoothingGroup.AddPropertyRow(HeatDiffusionIterationsHandle.ToSharedRef());
-	}
-	if (HeatDiffusionLambdaHandle.IsValid())
-	{
-		SmoothingGroup.AddPropertyRow(HeatDiffusionLambdaHandle.ToSharedRef());
-	}
-	if (SmoothingBoundsZTopHandle.IsValid())
-	{
-		SmoothingGroup.AddPropertyRow(SmoothingBoundsZTopHandle.ToSharedRef());
-	}
-	if (SmoothingBoundsZBottomHandle.IsValid())
-	{
-		SmoothingGroup.AddPropertyRow(SmoothingBoundsZBottomHandle.ToSharedRef());
-	}
 
-	// PBD 그룹 생성 (Smoothing 그룹 뒤)
-	IDetailGroup& PBDGroup = ChildBuilder.AddGroup(TEXT("PBDEdgeConstraint"), LOCTEXT("PBDGroup", "PBD Edge Constraint"));
-	PBDGroup.HeaderRow()
-		.NameContent()
-		[
-			SNew(STextBlock)
-			.Text(LOCTEXT("PBDHeader", "PBD Edge Constraint"))
-			.Font(IDetailLayoutBuilder::GetDetailFontBold())
-		];
+	// ===== PBD Edge Constraint 서브그룹 =====
+	IDetailGroup& PBDGroup = PostProcessGroup.AddGroup(TEXT("PBDEdgeConstraint"), LOCTEXT("PBDGroup", "PBD Edge Constraint"));
 
-	// PBD 프로퍼티 명시적 순서로 추가
 	if (bEnablePBDEdgeConstraintHandle.IsValid())
 	{
 		PBDGroup.AddPropertyRow(bEnablePBDEdgeConstraintHandle.ToSharedRef());

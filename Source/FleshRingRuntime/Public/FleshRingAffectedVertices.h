@@ -379,9 +379,9 @@ struct FRingAffectedData
 
     /**
      * Hop-based influence (calculated from HopDistances)
-     * Replaces PackedInfluences when bUseHopBasedSmoothing is true
+     * Replaces PackedInfluences when SmoothingVolumeMode == HopBased
      * 홉 기반 influence (HopDistances에서 계산됨)
-     * bUseHopBasedSmoothing이 true일 때 PackedInfluences 대신 사용
+     * SmoothingVolumeMode가 HopBased일 때 PackedInfluences 대신 사용
      */
     TArray<float> HopBasedInfluences;
 

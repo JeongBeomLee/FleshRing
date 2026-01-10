@@ -84,6 +84,17 @@ enum class EDeformPropagationMode : uint8
 	HeatDiffusion	UMETA(DisplayName = "Heat Diffusion")
 };
 
+/** 스무딩 볼륨 선택 모드 */
+UENUM(BlueprintType)
+enum class ESmoothingVolumeMode : uint8
+{
+	/** Z축 바운드 확장 (SmoothingBoundsZTop/Bottom 사용) */
+	BoundsExpand	UMETA(DisplayName = "Bounds Expand (Z)"),
+
+	/** 토폴로지 기반 홉 전파 (Seed에서 N홉까지) */
+	HopBased		UMETA(DisplayName = "Hop-Based (Topology)")
+};
+
 /** Bulge 방향 모드 */
 UENUM(BlueprintType)
 enum class EBulgeDirectionMode : uint8
@@ -406,65 +417,28 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform", meta = (ClampMin = "0.01"))
 	FVector MeshScale = FVector::OneVector;
 
-	// ===== Radial Smoothing (반경 균일화) =====
+	// ===== Post Process (후처리 전체 제어) =====
 
-	/** 반경 균일화 스무딩 활성화 (같은 높이의 버텍스들이 동일한 반경을 갖도록) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing")
-	bool bEnableRadialSmoothing = true;
+	/** 후처리 활성화 (Smoothing, PBD 등 모든 후처리 제어) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process")
+	bool bEnablePostProcess = true;
 
-	// ===== Laplacian/Taubin Smoothing 설정 =====
-
-	/** Laplacian 스무딩 활성화 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing")
-	bool bEnableLaplacianSmoothing = true;
+	// ===== Smoothing Volume (후처리 영역) =====
 
 	/**
-	 * Taubin 스무딩 사용 (수축 방지)
-	 * - true: Taubin λ-μ 스무딩 (수축 없이 부드럽게, 권장)
-	 * - false: 일반 Laplacian 스무딩 (반복 시 수축 발생)
+	 * 스무딩 영역 선택 모드
+	 * - BoundsExpand: Z축 바운드 확장 (SmoothingBoundsZTop/Bottom)
+	 * - HopBased: 토폴로지 기반 홉 전파 (Seed에서 N홉까지)
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing"))
-	bool bUseTaubinSmoothing = true;
-
-	/**
-	 * 스무딩 강도 λ (Taubin: 수축 단계 강도)
-	 * 권장: 0.3~0.7, 기본값 0.5
-	 * 경고: 0.8 초과 시 수치 불안정 (비늘 현상)
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing", ClampMin = "0.1", ClampMax = "0.8", UIMin = "0.1", UIMax = "0.8"))
-	float SmoothingLambda = 0.5f;
-
-	/**
-	 * Taubin 팽창 강도 μ (음수값)
-	 * 조건: |μ| > λ, 0이면 자동 계산
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseTaubinSmoothing", ClampMin = "-1.0", ClampMax = "0.0"))
-	float TaubinMu = -0.53f;
-
-	/** 스무딩 반복 횟수 (Taubin: 각 반복 = λ+μ 2패스) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing", ClampMin = "1", ClampMax = "10"))
-	int32 SmoothingIterations = 2;
-
-	/** 볼륨 보존 (일반 Laplacian 전용, Taubin 시 무시) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && !bUseTaubinSmoothing", ClampMin = "0.0", ClampMax = "1.0"))
-	float VolumePreservation = 0.3f;
-
-	// ===== 홉 기반 스무딩 (토폴로지 기반 전파) =====
-
-	/**
-	 * 홉 기반 스무딩 사용 (토폴로지 기반)
-	 * - false (레거시): SDF 볼륨 내 모든 버텍스를 스무딩 대상으로 선택
-	 * - true (권장): 변형된 버텍스(Seed)에서 메시 토폴로지를 따라 N홉까지만 전파
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing"))
-	bool bUseHopBasedSmoothing = false;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess"))
+	ESmoothingVolumeMode SmoothingVolumeMode = ESmoothingVolumeMode::BoundsExpand;
 
 	/**
 	 * 최대 전파 홉 수
 	 * - Seed(변형된 버텍스)에서 몇 홉까지 스무딩을 적용할지
 	 * - 권장: 저해상도 메시 5~10, 고해상도 메시 3~5
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing", ClampMin = "1", ClampMax = "100"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides, ClampMin = "1", ClampMax = "100"))
 	int32 MaxSmoothingHops = 5;
 
 	/**
@@ -472,51 +446,94 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	 * - 이 비율까지는 influence = 1.0 (plateau, 감쇠 없음)
 	 * - 이후 MaxSmoothingHops까지 제곱 감쇠
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing", ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides, ClampMin = "0.0", ClampMax = "1.0"))
 	float HopFalloffRatio = 0.3f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides))
 	EFalloffType HopFalloffType = EFalloffType::Hermite;
 
-	/** Hop Propagation 후 Local Polish용 Laplacian 반복 횟수 (0 = 비활성화) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing", ClampMin = "0", ClampMax = "5", DisplayName = "Post-Hop Laplacian Iterations"))
-	int32 PostHopLaplacianIterations = 1;
-
-	/** Hop Propagation 후 Laplacian 강도 (Lambda) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing && PostHopLaplacianIterations > 0", ClampMin = "0.1", ClampMax = "0.8", DisplayName = "Post-Hop Laplacian Lambda"))
-	float PostHopLaplacianLambda = 0.3f;
+	/** 변형 전파 모드 (HopBased vs HeatDiffusion) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides, DisplayName = "Propagation Mode"))
+	EDeformPropagationMode DeformPropagationMode = EDeformPropagationMode::HeatDiffusion;
 
 	/** K-Nearest Seed 블렌딩 개수 (1 = nearest seed만, 4-8 권장) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing", ClampMin = "1", ClampMax = "16", DisplayName = "Seed Blend Count (K)"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides, ClampMin = "1", ClampMax = "16", DisplayName = "Seed Blend Count (K)"))
 	int32 SeedBlendCount = 4;
 
 	/** Seed 블렌딩 가중치 함수 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing && SeedBlendCount > 1", DisplayName = "Seed Blend Weight Type"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && SeedBlendCount > 1", EditConditionHides, DisplayName = "Seed Blend Weight Type"))
 	ESeedBlendWeightType SeedBlendWeightType = ESeedBlendWeightType::InverseSquare;
 
 	/** Gaussian 블렌딩 시그마 (Gaussian 타입 전용) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing && SeedBlendCount > 1 && SeedBlendWeightType == ESeedBlendWeightType::Gaussian", ClampMin = "0.5", ClampMax = "20.0", DisplayName = "Gaussian Sigma"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && SeedBlendCount > 1 && SeedBlendWeightType == ESeedBlendWeightType::Gaussian", EditConditionHides, ClampMin = "0.5", ClampMax = "20.0", DisplayName = "Gaussian Sigma"))
 	float SeedBlendGaussianSigma = 3.0f;
 
-	/** 변형 전파 모드 (HopBased vs HeatDiffusion) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing", DisplayName = "Propagation Mode"))
-	EDeformPropagationMode DeformPropagationMode = EDeformPropagationMode::HeatDiffusion;
-
 	/** Heat Diffusion 반복 횟수 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing && DeformPropagationMode == EDeformPropagationMode::HeatDiffusion", ClampMin = "1", ClampMax = "50", DisplayName = "Heat Diffusion Iterations"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && DeformPropagationMode == EDeformPropagationMode::HeatDiffusion", EditConditionHides, ClampMin = "1", ClampMax = "50", DisplayName = "Heat Diffusion Iterations"))
 	int32 HeatDiffusionIterations = 10;
 
 	/** Heat Diffusion Lambda (확산 속도) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing && bUseHopBasedSmoothing && DeformPropagationMode == EDeformPropagationMode::HeatDiffusion", ClampMin = "0.1", ClampMax = "0.9", DisplayName = "Heat Diffusion Lambda"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && DeformPropagationMode == EDeformPropagationMode::HeatDiffusion", EditConditionHides, ClampMin = "0.1", ClampMax = "0.9", DisplayName = "Heat Diffusion Lambda"))
 	float HeatDiffusionLambda = 0.5f;
 
+	/** Hop Propagation 후 Local Polish용 Laplacian 반복 횟수 (0 = 비활성화) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides, ClampMin = "0", ClampMax = "5", DisplayName = "Post-Hop Laplacian Iterations"))
+	int32 PostHopLaplacianIterations = 1;
+
+	/** Hop Propagation 후 Laplacian 강도 (Lambda) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && PostHopLaplacianIterations > 0", EditConditionHides, ClampMin = "0.1", ClampMax = "0.8", DisplayName = "Post-Hop Laplacian Lambda"))
+	float PostHopLaplacianLambda = 0.3f;
+
 	/** 스무딩 영역 상단 확장 거리 (cm) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing", ClampMin = "0.0", ClampMax = "50.0", DisplayName = "Bounds Expand Top (cm)"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::BoundsExpand", EditConditionHides, ClampMin = "0.0", ClampMax = "50.0", DisplayName = "Bounds Expand Top (cm)"))
 	float SmoothingBoundsZTop = 5.0f;
 
 	/** 스무딩 영역 하단 확장 거리 (cm) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnableLaplacianSmoothing", ClampMin = "0.0", ClampMax = "50.0", DisplayName = "Bounds Expand Bottom (cm)"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::BoundsExpand", EditConditionHides, ClampMin = "0.0", ClampMax = "50.0", DisplayName = "Bounds Expand Bottom (cm)"))
 	float SmoothingBoundsZBottom = 0.0f;
+
+	// ===== Radial Smoothing (반경 균일화) =====
+
+	/** 반경 균일화 스무딩 활성화 (같은 높이의 버텍스들이 동일한 반경을 갖도록) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess"))
+	bool bEnableRadialSmoothing = true;
+
+	// ===== Laplacian/Taubin Smoothing 설정 =====
+
+	/** Laplacian 스무딩 활성화 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess"))
+	bool bEnableLaplacianSmoothing = true;
+
+	/**
+	 * Taubin 스무딩 사용 (수축 방지)
+	 * - true: Taubin λ-μ 스무딩 (수축 없이 부드럽게, 권장)
+	 * - false: 일반 Laplacian 스무딩 (반복 시 수축 발생)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableLaplacianSmoothing"))
+	bool bUseTaubinSmoothing = true;
+
+	/**
+	 * 스무딩 강도 λ (Taubin: 수축 단계 강도)
+	 * 권장: 0.3~0.7, 기본값 0.5
+	 * 경고: 0.8 초과 시 수치 불안정 (비늘 현상)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableLaplacianSmoothing", ClampMin = "0.1", ClampMax = "0.8", UIMin = "0.1", UIMax = "0.8"))
+	float SmoothingLambda = 0.5f;
+
+	/**
+	 * Taubin 팽창 강도 μ (음수값)
+	 * 조건: |μ| > λ, 0이면 자동 계산
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableLaplacianSmoothing && bUseTaubinSmoothing", ClampMin = "-1.0", ClampMax = "0.0"))
+	float TaubinMu = -0.53f;
+
+	/** 스무딩 반복 횟수 (Taubin: 각 반복 = λ+μ 2패스) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableLaplacianSmoothing", ClampMin = "1", ClampMax = "10"))
+	int32 SmoothingIterations = 2;
+
+	/** 볼륨 보존 (일반 Laplacian 전용, Taubin 시 무시) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableLaplacianSmoothing && !bUseTaubinSmoothing", ClampMin = "0.0", ClampMax = "1.0"))
+	float VolumePreservation = 0.3f;
 
 	// ===== PBD Edge Constraint 설정 =====
 
@@ -525,19 +542,19 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	 * - 조이기로 인한 변형이 스무딩 볼륨 전체로 퍼지도록 함
 	 * - "역 PBD": 변형량이 큰 버텍스는 고정, 작은 버텍스는 자유롭게 이동
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePostProcess"))
 	bool bEnablePBDEdgeConstraint = false;
 
 	/** PBD 제약 강도 (0.0 ~ 1.0), 권장: 0.5 ~ 0.9 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePBDEdgeConstraint", ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", ClampMin = "0.0", ClampMax = "1.0"))
 	float PBDStiffness = 0.8f;
 
 	/** PBD 반복 횟수, 권장: 3 ~ 10 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePBDEdgeConstraint", ClampMin = "1", ClampMax = "20"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", ClampMin = "1", ClampMax = "20"))
 	int32 PBDIterations = 5;
 
 	/** 변형량 기반 가중치 사용 (true: DeformAmount 기반, false: Influence 기반) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePBDEdgeConstraint"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint"))
 	bool bPBDUseDeformAmountWeight = true;
 
 	FFleshRingSettings()
@@ -555,6 +572,21 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		, LowerBulgeStrength(1.0f)
 		, TightnessStrength(1.0f)
 		, FalloffType(EFalloffType::Linear)
+		, bEnablePostProcess(true)
+		, SmoothingVolumeMode(ESmoothingVolumeMode::BoundsExpand)
+		, MaxSmoothingHops(5)
+		, HopFalloffRatio(0.3f)
+		, HopFalloffType(EFalloffType::Hermite)
+		, DeformPropagationMode(EDeformPropagationMode::HeatDiffusion)
+		, SeedBlendCount(4)
+		, SeedBlendWeightType(ESeedBlendWeightType::InverseSquare)
+		, SeedBlendGaussianSigma(3.0f)
+		, HeatDiffusionIterations(10)
+		, HeatDiffusionLambda(0.5f)
+		, PostHopLaplacianIterations(1)
+		, PostHopLaplacianLambda(0.3f)
+		, SmoothingBoundsZTop(5.0f)
+		, SmoothingBoundsZBottom(0.0f)
 		, bEnableRadialSmoothing(true)
 		, bEnableLaplacianSmoothing(true)
 		, bUseTaubinSmoothing(true)
@@ -562,20 +594,6 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		, TaubinMu(-0.53f)
 		, SmoothingIterations(2)
 		, VolumePreservation(0.3f)
-		, bUseHopBasedSmoothing(false)
-		, MaxSmoothingHops(5)
-		, HopFalloffRatio(0.3f)
-		, HopFalloffType(EFalloffType::Hermite)
-		, PostHopLaplacianIterations(1)
-		, PostHopLaplacianLambda(0.3f)
-		, SeedBlendCount(4)
-		, SeedBlendWeightType(ESeedBlendWeightType::InverseSquare)
-		, SeedBlendGaussianSigma(3.0f)
-		, DeformPropagationMode(EDeformPropagationMode::HeatDiffusion)
-		, HeatDiffusionIterations(10)
-		, HeatDiffusionLambda(0.5f)
-		, SmoothingBoundsZTop(5.0f)
-		, SmoothingBoundsZBottom(0.0f)
 		, bEnablePBDEdgeConstraint(false)
 		, PBDStiffness(0.8f)
 		, PBDIterations(5)

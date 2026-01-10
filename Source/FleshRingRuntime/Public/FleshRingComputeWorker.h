@@ -125,13 +125,13 @@ struct FFleshRingWorkItem
 		int32 SmoothingIterations = 2;
 		float LaplacianVolumePreservation = 0.3f;  // 일반 Laplacian 전용
 
-		// ===== 홉 기반 스무딩 파라미터 (토폴로지 기반) =====
-		bool bUseHopBasedSmoothing = false;   // true면 확장 영역 사용
+		// ===== 스무딩 볼륨 모드 파라미터 =====
+		bool bUseHopBasedSmoothing = false;   // true = HopBased, false = BoundsExpand
 		TArray<float> HopBasedInfluences;     // (legacy) 홉 거리 기반 influence
 
 		// ===== 확장된 스무딩 영역 (홉 기반) =====
 		// Seeds(Affected) + N-hop 도달 버텍스로 구성
-		// bUseHopBasedSmoothing=true일 때 LaplacianCS가 이 영역 사용
+		// SmoothingVolumeMode == HopBased일 때 LaplacianCS가 이 영역 사용
 		TArray<uint32> ExtendedSmoothingIndices;     // 확장 영역 버텍스 인덱스
 		TArray<float> ExtendedInfluences;            // 확장 영역 influence (홉 falloff)
 		TArray<uint32> ExtendedLaplacianAdjacency;   // 확장 영역 인접 데이터

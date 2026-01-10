@@ -578,9 +578,9 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				}
 
 				// ===== 스무딩 영역 선택 =====
-				// [설계] bUseHopBasedSmoothing 플래그에 따라 확장 방식 결정:
-				//   - true:  ExtendedSmoothingIndices (Hop 기반, 토폴로지 확장)
-				//   - false: PostProcessingIndices (Z 기반, BoundsZTop/Bottom 확장)
+				// [설계] SmoothingVolumeMode에 따라 확장 방식 결정:
+				//   - HopBased:     ExtendedSmoothingIndices (토폴로지 확장)
+				//   - BoundsExpand: PostProcessingIndices (Z 기반 BoundsZTop/Bottom 확장)
 				const bool bUseExtendedRegion = DispatchData.bUseHopBasedSmoothing &&
 					DispatchData.ExtendedSmoothingIndices.Num() > 0 &&
 					DispatchData.ExtendedInfluences.Num() == DispatchData.ExtendedSmoothingIndices.Num() &&

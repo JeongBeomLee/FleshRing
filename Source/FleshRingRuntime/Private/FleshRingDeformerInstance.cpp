@@ -406,14 +406,17 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		// Ring별 RadialSmoothing 설정 복사
 		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIndex))
 		{
-			DispatchData.bEnableRadialSmoothing = (*RingSettingsPtr)[RingIndex].bEnableRadialSmoothing;
+			const FFleshRingSettings& Settings = (*RingSettingsPtr)[RingIndex];
+			// bEnablePostProcess가 false면 모든 후처리 비활성화
+			DispatchData.bEnableRadialSmoothing = Settings.bEnablePostProcess && Settings.bEnableRadialSmoothing;
 		}
 
 		// Ring별 Laplacian/Taubin Smoothing 설정 복사
 		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIndex))
 		{
 			const FFleshRingSettings& Settings = (*RingSettingsPtr)[RingIndex];
-			DispatchData.bEnableLaplacianSmoothing = Settings.bEnableLaplacianSmoothing;
+			// bEnablePostProcess가 false면 모든 후처리 비활성화
+			DispatchData.bEnableLaplacianSmoothing = Settings.bEnablePostProcess && Settings.bEnableLaplacianSmoothing;
 			DispatchData.bUseTaubinSmoothing = Settings.bUseTaubinSmoothing;
 			DispatchData.SmoothingLambda = Settings.SmoothingLambda;
 			DispatchData.TaubinMu = Settings.TaubinMu;
@@ -422,7 +425,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 
 			// 홉 기반 스무딩 설정 및 데이터 복사
 			// NOTE: 데이터는 항상 복사 (런타임 토글 지원)
-			DispatchData.bUseHopBasedSmoothing = Settings.bUseHopBasedSmoothing;
+			DispatchData.bUseHopBasedSmoothing = (Settings.SmoothingVolumeMode == ESmoothingVolumeMode::HopBased);
 			DispatchData.HopBasedInfluences = RingData.HopBasedInfluences;
 
 			// 확장된 스무딩 영역 데이터 복사 (Seeds + N-hop 도달 버텍스)
@@ -435,7 +438,8 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIndex))
 		{
 			const FFleshRingSettings& Settings = (*RingSettingsPtr)[RingIndex];
-			DispatchData.bEnablePBDEdgeConstraint = Settings.bEnablePBDEdgeConstraint;
+			// bEnablePostProcess가 false면 모든 후처리 비활성화
+			DispatchData.bEnablePBDEdgeConstraint = Settings.bEnablePostProcess && Settings.bEnablePBDEdgeConstraint;
 			DispatchData.PBDStiffness = Settings.PBDStiffness;
 			DispatchData.PBDIterations = Settings.PBDIterations;
 			DispatchData.bPBDUseDeformAmountWeight = Settings.bPBDUseDeformAmountWeight;
