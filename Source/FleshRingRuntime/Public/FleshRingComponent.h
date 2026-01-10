@@ -235,6 +235,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "FleshRing|Editor")
 	void UpdateRingTransforms();
 
+	/**
+	 * Ring 메시 컴포넌트 재생성 (RingMesh 변경 시 호출)
+	 * 에디터에서 RingMesh 프로퍼티 변경 시 사용
+	 */
+	void RefreshRingMeshes();
+
 	/** 디버그 슬라이스 평면 숨기기/보이기 */
 	void SetDebugSlicePlanesVisible(bool bVisible);
 

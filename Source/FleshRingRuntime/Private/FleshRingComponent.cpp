@@ -821,6 +821,12 @@ void UFleshRingComponent::UpdateRingTransforms()
 #endif
 }
 
+void UFleshRingComponent::RefreshRingMeshes()
+{
+	CleanupRingMeshes();
+	SetupRingMeshes();
+}
+
 bool UFleshRingComponent::RefreshWithDeformerReuse()
 {
 	// Deformer 재사용 가능 여부 확인

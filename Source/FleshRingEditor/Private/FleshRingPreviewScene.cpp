@@ -164,6 +164,9 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 			FleshRingComponent->FleshRingAsset = InAsset;
 			// ApplyAsset() 대신 가벼운 갱신만 수행
 			FleshRingComponent->UpdateRingTransforms();
+			// RingMesh 변경 시에도 반영되도록 Ring 메시 재생성 + SDF 재생성
+			FleshRingComponent->RefreshRingMeshes();
+			FleshRingComponent->RefreshSDF();
 
 			// DeformerInstance의 Tightness 캐시 무효화 (파라미터 변경 반영)
 			if (UFleshRingDeformerInstance* DeformerInstance = Cast<UFleshRingDeformerInstance>(SkeletalMeshComponent->GetMeshDeformerInstance()))
