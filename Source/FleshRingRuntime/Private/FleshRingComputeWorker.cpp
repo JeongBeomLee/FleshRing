@@ -1320,16 +1320,29 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					ERDGInitialDataFlags::None
 				);
 
-				// 원본 노멀 버퍼 (SourceTangents에서 Normal만 추출하여 업로드)
-				// SourceTangents 포맷: 버텍스당 Normal(float3) + Tangent(float4) = 7 float
-				// 여기서는 원본 Position 데이터에서 Normal을 가져와야 함
-				// 실제로는 SourceTangents SRV를 사용해야 하지만, 현재 구조에서는 별도 버퍼 필요
-				// 일단 BindPose Normal을 SourceDataPtr에서 사용할 수 없으므로
-				// SourceTangentsSRV를 그대로 사용하도록 셰이더를 수정하거나
-				// 바인드포즈 노멀을 별도로 전달해야 함
+				// ===== Surface Rotation Method for Normal Recompute =====
+				// 표면 회전 방식으로 노멀 재계산
+				// 원본 Face Normal → 변형 Face Normal의 회전을 원본 버텍스 노멀에 적용
+				// 이 방식은 스무스 셰이딩을 보존합니다
 
-				// TODO: 바인드포즈 노멀 데이터 필요
-				// 현재는 기본 구현으로 각 Ring별 노멀 재계산 수행
+				// SourceTangents SRV 가져오기 (원본 노멀 포함)
+				FRHIShaderResourceView* SourceTangentsSRV = LODData.StaticVertexBuffers.StaticMeshVertexBuffer.GetTangentsSRV();
+				if (!SourceTangentsSRV)
+				{
+					UE_LOG(LogFleshRingWorker, Warning, TEXT("[NormalRecompute] SourceTangentsSRV is null, skipping"));
+				}
+
+				// 원본 위치 버퍼 생성 (바인드 포즈 - 원본 Face Normal 계산용)
+				FRDGBufferRef OriginalPositionsBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateBufferDesc(sizeof(float), ActualBufferSize),
+					TEXT("FleshRing_OriginalPositions")
+				);
+				GraphBuilder.QueueBufferUpload(
+					OriginalPositionsBuffer,
+					WorkItem.SourceDataPtr->GetData(),
+					ActualBufferSize * sizeof(float),
+					ERDGInitialDataFlags::None
+				);
 
 				// 출력 버퍼 생성 (재계산된 노멀)
 				// 0으로 초기화 - 영향받지 않는 버텍스는 0 노멀로 남아 SkinningCS에서 폴백
@@ -1410,27 +1423,19 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 						ERDGInitialDataFlags::None
 					);
 
-					// 원본 노멀 버퍼 (바인드포즈 노멀 - 0으로 초기화)
-					// 0 노멀은 SafeNormalize에서 기본값으로 대체됨
-					FRDGBufferRef OriginalNormalsBuffer = GraphBuilder.CreateBuffer(
-						FRDGBufferDesc::CreateBufferDesc(sizeof(float), ActualBufferSize),
-						*FString::Printf(TEXT("FleshRing_OriginalNormals_Ring%d"), RingIdx)
-					);
-					// RDG 버퍼는 반드시 초기화해야 읽을 수 있음
-					AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(OriginalNormalsBuffer, PF_R32_FLOAT), 0);
-
-					// NormalRecomputeCS 디스패치
+					// NormalRecomputeCS 디스패치 (표면 회전 방식)
 					FNormalRecomputeDispatchParams NormalParams(NumAffected, ActualNumVertices);
 
 					DispatchFleshRingNormalRecomputeCS(
 						GraphBuilder,
 						NormalParams,
-						TightenedBindPoseBuffer,      // 변형된 위치
+						TightenedBindPoseBuffer,       // 변형된 위치
+						OriginalPositionsBuffer,       // 원본 위치 (원본 Face Normal 계산용)
 						AffectedIndicesBuffer,         // 영향받는 버텍스 인덱스
 						AdjacencyOffsetsBuffer,        // 인접 오프셋
 						AdjacencyTrianglesBuffer,      // 인접 삼각형
 						MeshIndexBuffer,               // 메시 인덱스 버퍼
-						OriginalNormalsBuffer,         // 원본 노멀 (폴백)
+						SourceTangentsSRV,             // 원본 탄젠트 (원본 스무스 노멀 포함)
 						RecomputedNormalsBuffer        // 출력: 재계산된 노멀
 					);
 
@@ -1438,7 +1443,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					static TSet<int32> LoggedNormalRings;
 					if (!LoggedNormalRings.Contains(RingIdx))
 					{
-						UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] NormalRecomputeCS Ring[%d]: %s region (%d vertices, %d original), AdjTriangles=%d"),
+						UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] NormalRecomputeCS Ring[%d]: %s region (%d vertices, %d original), AdjTriangles=%d (SurfaceRotation)"),
 							RingIdx,
 							bUsePostProcessingRegion ? TEXT("POSTPROCESSING") : TEXT("ORIGINAL"),
 							NumAffected, DispatchData.Indices.Num(),

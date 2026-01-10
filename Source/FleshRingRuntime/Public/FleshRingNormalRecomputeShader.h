@@ -2,13 +2,18 @@
 // FleshRing Normal Recompute Shader
 // FleshRing 노멀 재계산 셰이더
 // ============================================================================
-// Purpose: Recompute vertex normals for deformed vertices using face normal averaging
-// 목적: Face Normal 평균을 사용하여 변형된 버텍스의 노멀 재계산
+// Purpose: Recompute vertex normals using surface rotation method
+// 목적: 표면 회전 방식을 사용하여 버텍스 노멀 재계산
 //
 // This shader runs AFTER TightnessCS and BulgeCS.
-// Only processes affected vertices for efficiency.
+// It calculates the rotation from original to deformed face normals
+// and applies this rotation to the original vertex normals.
+// This preserves smooth shading while accounting for surface deformation.
+//
 // TightnessCS와 BulgeCS 이후에 실행됩니다.
-// 효율성을 위해 영향받은 버텍스만 처리합니다.
+// 원본에서 변형된 Face Normal로의 회전을 계산하고
+// 이 회전을 원본 버텍스 노멀에 적용합니다.
+// 이 방식은 표면 변형을 반영하면서 스무스 셰이딩을 보존합니다.
 
 #pragma once
 
@@ -36,6 +41,10 @@ public:
 		// 입력: 변형된 버텍스 위치
 		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float>, DeformedPositions)
 
+		// Input: Original vertex positions (bind pose) - for calculating original face normals
+		// 입력: 원본 버텍스 위치 (바인드 포즈) - 원본 Face Normal 계산용
+		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float>, OriginalPositions)
+
 		// Input: Affected vertex indices to process
 		// 입력: 처리할 영향받는 버텍스 인덱스
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, AffectedVertexIndices)
@@ -52,9 +61,10 @@ public:
 		// 입력: 메시 인덱스 버퍼
 		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<uint>, IndexBuffer)
 
-		// Input: Original normals (bind pose) - fallback
-		// 입력: 원본 노멀 (바인드 포즈) - 폴백용
-		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float>, OriginalNormals)
+		// Input: Original tangents buffer (contains normals) - packed SNORM8x4 format
+		// 입력: 원본 탄젠트 버퍼 (노멀 포함) - 패킹된 SNORM8x4 포맷
+		// Format: TangentX (Index 0), TangentZ=Normal+BinormalSign (Index 1) per vertex
+		SHADER_PARAMETER_SRV(Buffer<float4>, OriginalTangents)
 
 		// ===== Output Buffer (UAV - Read/Write) =====
 		// ===== 출력 버퍼 (UAV - 읽기/쓰기) =====
@@ -112,25 +122,33 @@ struct FNormalRecomputeDispatchParams
 
 /**
  * Dispatch NormalRecomputeCS to recalculate normals for affected vertices
- * NormalRecomputeCS를 디스패치하여 영향받는 버텍스의 노멀 재계산
+ * using the surface rotation method.
+ * 표면 회전 방식을 사용하여 영향받는 버텍스의 노멀 재계산
+ *
+ * The shader calculates the rotation from original to deformed face normals
+ * and applies this rotation to the original vertex normals, preserving smooth shading.
+ * 셰이더는 원본에서 변형된 Face Normal로의 회전을 계산하고
+ * 이 회전을 원본 버텍스 노멀에 적용하여 스무스 셰이딩을 보존합니다.
  *
  * @param GraphBuilder - RDG builder for resource management
  * @param Params - Dispatch parameters
  * @param DeformedPositionsBuffer - Deformed vertex positions (TightnessCS/BulgeCS output)
+ * @param OriginalPositionsBuffer - Original bind pose vertex positions
  * @param AffectedVertexIndicesBuffer - Indices of affected vertices
  * @param AdjacencyOffsetsBuffer - Adjacency offsets for each affected vertex
  * @param AdjacencyTrianglesBuffer - Flattened list of adjacent triangle indices
  * @param IndexBuffer - Mesh index buffer (triangle indices)
- * @param OriginalNormalsBuffer - Original bind pose normals (fallback)
+ * @param SourceTangentsSRV - Original tangents buffer SRV (contains normals in TangentZ)
  * @param OutputNormalsBuffer - Output buffer for recomputed normals
  */
 void DispatchFleshRingNormalRecomputeCS(
 	FRDGBuilder& GraphBuilder,
 	const FNormalRecomputeDispatchParams& Params,
 	FRDGBufferRef DeformedPositionsBuffer,
+	FRDGBufferRef OriginalPositionsBuffer,
 	FRDGBufferRef AffectedVertexIndicesBuffer,
 	FRDGBufferRef AdjacencyOffsetsBuffer,
 	FRDGBufferRef AdjacencyTrianglesBuffer,
 	FRDGBufferRef IndexBuffer,
-	FRDGBufferRef OriginalNormalsBuffer,
+	FRHIShaderResourceView* SourceTangentsSRV,
 	FRDGBufferRef OutputNormalsBuffer);

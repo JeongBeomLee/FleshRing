@@ -30,16 +30,17 @@ void DispatchFleshRingNormalRecomputeCS(
 	FRDGBuilder& GraphBuilder,
 	const FNormalRecomputeDispatchParams& Params,
 	FRDGBufferRef DeformedPositionsBuffer,
+	FRDGBufferRef OriginalPositionsBuffer,
 	FRDGBufferRef AffectedVertexIndicesBuffer,
 	FRDGBufferRef AdjacencyOffsetsBuffer,
 	FRDGBufferRef AdjacencyTrianglesBuffer,
 	FRDGBufferRef IndexBuffer,
-	FRDGBufferRef OriginalNormalsBuffer,
+	FRHIShaderResourceView* SourceTangentsSRV,
 	FRDGBufferRef OutputNormalsBuffer)
 {
-	// Early out if no vertices to process
-	// 처리할 버텍스가 없으면 조기 반환
-	if (Params.NumAffectedVertices == 0)
+	// Early out if no vertices to process or missing SRV
+	// 처리할 버텍스가 없거나 SRV가 없으면 조기 반환
+	if (Params.NumAffectedVertices == 0 || !SourceTangentsSRV)
 	{
 		return;
 	}
@@ -52,11 +53,12 @@ void DispatchFleshRingNormalRecomputeCS(
 	// ===== Bind input buffers (SRV) =====
 	// ===== 입력 버퍼 바인딩 (SRV) =====
 	PassParameters->DeformedPositions = GraphBuilder.CreateSRV(DeformedPositionsBuffer, PF_R32_FLOAT);
+	PassParameters->OriginalPositions = GraphBuilder.CreateSRV(OriginalPositionsBuffer, PF_R32_FLOAT);
 	PassParameters->AffectedVertexIndices = GraphBuilder.CreateSRV(AffectedVertexIndicesBuffer);
 	PassParameters->AdjacencyOffsets = GraphBuilder.CreateSRV(AdjacencyOffsetsBuffer);
 	PassParameters->AdjacencyTriangles = GraphBuilder.CreateSRV(AdjacencyTrianglesBuffer);
 	PassParameters->IndexBuffer = GraphBuilder.CreateSRV(IndexBuffer, PF_R32_UINT);
-	PassParameters->OriginalNormals = GraphBuilder.CreateSRV(OriginalNormalsBuffer, PF_R32_FLOAT);
+	PassParameters->OriginalTangents = SourceTangentsSRV;
 
 	// ===== Bind output buffer (UAV) =====
 	// ===== 출력 버퍼 바인딩 (UAV) =====

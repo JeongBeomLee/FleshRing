@@ -2,22 +2,35 @@
 // FleshRing Normal Recompute Compute Shader
 // FleshRing 노멀 재계산 컴퓨트 셰이더
 // ============================================================================
-// Purpose: Recompute vertex normals for deformed vertices using face normal averaging
-// 목적: Face Normal 평균을 사용하여 변형된 버텍스의 노멀 재계산
+// Purpose: Recompute vertex normals using surface rotation method
+// 목적: 표면 회전 방식을 사용하여 버텍스 노멀 재계산
 //
 // This shader runs AFTER TightnessCS and BulgeCS, using the final deformed positions
 // to calculate accurate normals for affected vertices only.
 // TightnessCS와 BulgeCS 이후에 실행되며, 최종 변형된 위치를 사용하여
 // 영향받은 버텍스에 대해서만 정확한 노멀을 계산합니다.
 //
-// Algorithm:
+// Algorithm (Surface Rotation Method):
+// 알고리즘 (표면 회전 방식):
 // 1. For each affected vertex, find all adjacent triangles
-// 2. Compute face normal for each adjacent triangle (cross product)
-// 3. Sum all face normals (area-weighted average)
-// 4. Normalize to get final vertex normal
+//    각 영향받은 버텍스에 대해 모든 인접 삼각형 찾기
+// 2. Compute face normal for each adjacent triangle (both original and deformed)
+//    각 인접 삼각형에 대해 Face Normal 계산 (원본과 변형 모두)
+// 3. Accumulate face normals (area-weighted)
+//    Face Normal 누적 (면적 가중)
+// 4. Calculate rotation from original face normal to deformed face normal
+//    원본 Face Normal에서 변형된 Face Normal로의 회전 계산
+// 5. Apply this rotation to the original vertex normal
+//    이 회전을 원본 버텍스 노멀에 적용
+//
+// This preserves smooth shading by adjusting normals based on surface deformation,
+// rather than replacing them with flat face normal averages.
+// 이 방식은 노말을 평평한 face normal 평균으로 대체하는 대신,
+// 표면 변형에 기반하여 조정함으로써 스무스 셰이딩을 보존합니다.
 // ============================================================================
 
 #include "/Engine/Public/Platform.ush"
+#include "/Engine/Private/GpuSkinCommon.ush"
 
 // ============================================================================
 // Buffer Declarations
@@ -27,6 +40,10 @@
 // Input: Deformed vertex positions (from TightnessCS/BulgeCS)
 // 입력: 변형된 버텍스 위치 (TightnessCS/BulgeCS 결과)
 Buffer<float> DeformedPositions;
+
+// Input: Original vertex positions (bind pose) - for calculating original face normals
+// 입력: 원본 버텍스 위치 (바인드 포즈) - 원본 Face Normal 계산용
+Buffer<float> OriginalPositions;
 
 // Input: Affected vertex indices to process
 // 입력: 처리할 영향받는 버텍스 인덱스
@@ -45,9 +62,10 @@ StructuredBuffer<uint> AdjacencyTriangles;
 // 입력: 메시 인덱스 버퍼 (삼각형당 3개 인덱스)
 Buffer<uint> IndexBuffer;
 
-// Input: Original normals (bind pose) - used as fallback
-// 입력: 원본 노멀 (바인드 포즈) - 폴백용
-Buffer<float> OriginalNormals;
+// Input: Original tangent buffer (contains normals) - packed SNORM8x4 format
+// 입력: 원본 탄젠트 버퍼 (노멀 포함) - 패킹된 SNORM8x4 포맷
+// Format: TangentX (Index 0), TangentZ=Normal+BinormalSign (Index 1) per vertex
+Buffer<float4> OriginalTangents;
 
 // Output: Recomputed normals (float3 per vertex)
 // 출력: 재계산된 노멀 (버텍스당 float3)
@@ -73,9 +91,9 @@ uint NumTotalVertices;      // Total mesh vertex count (for bounds check)
 // 헬퍼 함수
 // ============================================================================
 
-// Read vertex position from buffer (3 floats per vertex)
-// 버퍼에서 버텍스 위치 읽기 (버텍스당 3 float)
-float3 ReadPosition(uint VertexIndex)
+// Read deformed vertex position from buffer (3 floats per vertex)
+// 버퍼에서 변형된 버텍스 위치 읽기 (버텍스당 3 float)
+float3 ReadDeformedPosition(uint VertexIndex)
 {
     uint BaseIndex = VertexIndex * 3;
     return float3(
@@ -85,16 +103,28 @@ float3 ReadPosition(uint VertexIndex)
     );
 }
 
-// Read original normal from buffer (3 floats per vertex)
-// 버퍼에서 원본 노멀 읽기 (버텍스당 3 float)
-float3 ReadOriginalNormal(uint VertexIndex)
+// Read original vertex position from buffer (3 floats per vertex)
+// 버퍼에서 원본 버텍스 위치 읽기 (버텍스당 3 float)
+float3 ReadOriginalPosition(uint VertexIndex)
 {
     uint BaseIndex = VertexIndex * 3;
     return float3(
-        OriginalNormals[BaseIndex + 0],
-        OriginalNormals[BaseIndex + 1],
-        OriginalNormals[BaseIndex + 2]
+        OriginalPositions[BaseIndex + 0],
+        OriginalPositions[BaseIndex + 1],
+        OriginalPositions[BaseIndex + 2]
     );
+}
+
+// Read original normal from tangent buffer (packed SNORM8x4 format)
+// 탄젠트 버퍼에서 원본 노멀 읽기 (패킹된 SNORM8x4 포맷)
+// Format: TangentX at Index 0, TangentZ (Normal + binormal sign) at Index 1
+float3 ReadOriginalNormal(uint VertexIndex)
+{
+    // TangentZ is at Index 1 (2 float4 per vertex)
+    // TangentZ는 Index 1에 있음 (버텍스당 2개의 float4)
+    uint BaseIndex = VertexIndex * 2;
+    float4 TangentZ = TangentBias_SkinCache(OriginalTangents[BaseIndex + 1]);
+    return TangentZ.xyz;  // xyz = normal, w = binormal sign
 }
 
 // Write vertex normal to buffer (3 floats per vertex)
@@ -138,6 +168,70 @@ float3 SafeNormalize(float3 V, float3 Default)
 }
 
 // ============================================================================
+// Rotation Functions (Rodrigues' Rotation Formula)
+// 회전 함수 (로드리게스 회전 공식)
+// ============================================================================
+// Given two unit vectors (From, To), rotate vector V by the same rotation
+// that would align From to To.
+// 두 단위 벡터(From, To)가 주어지면, From을 To로 정렬하는 것과 동일한
+// 회전을 벡터 V에 적용합니다.
+
+// Rotate vector V such that direction From maps to direction To
+// From 방향이 To 방향으로 매핑되도록 벡터 V를 회전
+float3 RotateVectorByNormalChange(float3 V, float3 From, float3 To)
+{
+    // Calculate cosine of angle between normals
+    // 두 노멀 사이의 각도 코사인 계산
+    float cosAngle = dot(From, To);
+
+    // If nearly parallel (no rotation needed)
+    // 거의 평행한 경우 (회전 불필요)
+    if (cosAngle > 0.9999f)
+    {
+        return V;
+    }
+
+    // If nearly anti-parallel (180 degree rotation)
+    // 거의 반대 방향인 경우 (180도 회전)
+    if (cosAngle < -0.9999f)
+    {
+        // Find a perpendicular axis for 180 degree rotation
+        // 180도 회전을 위한 수직 축 찾기
+        float3 axis = abs(From.x) < 0.9f ?
+            normalize(cross(From, float3(1, 0, 0))) :
+            normalize(cross(From, float3(0, 1, 0)));
+        // Rotate 180 degrees around axis: V -> -V + 2*(V·axis)*axis
+        // 축 주위로 180도 회전: V -> -V + 2*(V·axis)*axis
+        return 2.0f * dot(V, axis) * axis - V;
+    }
+
+    // Standard case: Rodrigues' rotation formula
+    // 일반 경우: 로드리게스 회전 공식
+    // R(v) = v*cos(θ) + (k×v)*sin(θ) + k*(k·v)*(1-cos(θ))
+    // where k is the normalized rotation axis (From × To normalized)
+
+    float3 crossProduct = cross(From, To);
+    float sinAngle = length(crossProduct);
+
+    // If sin is too small, no significant rotation
+    // sin이 너무 작으면 유의미한 회전 없음
+    if (sinAngle < 1e-6f)
+    {
+        return V;
+    }
+
+    float3 axis = crossProduct / sinAngle;  // Normalized rotation axis
+
+    // Rodrigues' formula
+    // 로드리게스 공식
+    float3 vRotated = V * cosAngle
+                    + cross(axis, V) * sinAngle
+                    + axis * dot(axis, V) * (1.0f - cosAngle);
+
+    return vRotated;
+}
+
+// ============================================================================
 // Main Compute Shader
 // 메인 컴퓨트 셰이더
 // ============================================================================
@@ -165,9 +259,19 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
-    // Get original normal as fallback
-    // 폴백용 원본 노멀 가져오기
-    float3 OriginalNormal = ReadOriginalNormal(VertexIndex);
+    // Get original smooth vertex normal (this is what we want to preserve and rotate)
+    // 원본 스무스 버텍스 노멀 가져오기 (보존하고 회전시킬 대상)
+    float3 OriginalVertexNormal = ReadOriginalNormal(VertexIndex);
+
+    // If original normal is invalid, we can't do anything
+    // 원본 노멀이 유효하지 않으면 처리 불가
+    float OriginalNormalLenSq = dot(OriginalVertexNormal, OriginalVertexNormal);
+    if (OriginalNormalLenSq < 1e-8f)
+    {
+        WriteNormal(VertexIndex, float3(0, 0, 1));  // Fallback
+        return;
+    }
+    OriginalVertexNormal = normalize(OriginalVertexNormal);
 
     // ========================================
     // Step 1: Get adjacent triangle range
@@ -180,15 +284,16 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     // 인접 삼각형 없음 - 원본 노멀 사용
     if (AdjStart >= AdjEnd)
     {
-        WriteNormal(VertexIndex, OriginalNormal);
+        WriteNormal(VertexIndex, OriginalVertexNormal);
         return;
     }
 
     // ========================================
-    // Step 2: Accumulate face normals
-    // 2단계: Face Normal 누적
+    // Step 2: Accumulate BOTH original and deformed face normals
+    // 2단계: 원본과 변형된 Face Normal 모두 누적
     // ========================================
-    float3 NormalSum = float3(0, 0, 0);
+    float3 OriginalFaceNormalSum = float3(0, 0, 0);
+    float3 DeformedFaceNormalSum = float3(0, 0, 0);
     uint ValidFaceCount = 0;
 
     for (uint i = AdjStart; i < AdjEnd; i++)
@@ -210,47 +315,74 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
             continue;
         }
 
-        // Get vertex positions
-        // 버텍스 위치 가져오기
-        float3 P0 = ReadPosition(I0);
-        float3 P1 = ReadPosition(I1);
-        float3 P2 = ReadPosition(I2);
+        // Get ORIGINAL vertex positions (bind pose)
+        // 원본 버텍스 위치 가져오기 (바인드 포즈)
+        float3 OrigP0 = ReadOriginalPosition(I0);
+        float3 OrigP1 = ReadOriginalPosition(I1);
+        float3 OrigP2 = ReadOriginalPosition(I2);
 
-        // Compute face normal (unnormalized for area weighting)
-        // Face Normal 계산 (면적 가중을 위해 정규화하지 않음)
-        float3 FaceNormal = ComputeFaceNormal(P0, P1, P2);
+        // Get DEFORMED vertex positions
+        // 변형된 버텍스 위치 가져오기
+        float3 DefP0 = ReadDeformedPosition(I0);
+        float3 DefP1 = ReadDeformedPosition(I1);
+        float3 DefP2 = ReadDeformedPosition(I2);
 
-        // Check for degenerate triangle
-        // 퇴화 삼각형 체크
-        float FaceNormalLenSq = dot(FaceNormal, FaceNormal);
-        if (FaceNormalLenSq < 1e-12f)
+        // Compute original face normal (unnormalized for area weighting)
+        // 원본 Face Normal 계산 (면적 가중을 위해 정규화하지 않음)
+        float3 OrigFaceNormal = ComputeFaceNormal(OrigP0, OrigP1, OrigP2);
+
+        // Compute deformed face normal (unnormalized for area weighting)
+        // 변형된 Face Normal 계산 (면적 가중을 위해 정규화하지 않음)
+        float3 DefFaceNormal = ComputeFaceNormal(DefP0, DefP1, DefP2);
+
+        // Check for degenerate triangles (either original or deformed)
+        // 퇴화 삼각형 체크 (원본 또는 변형 모두)
+        float OrigFaceNormalLenSq = dot(OrigFaceNormal, OrigFaceNormal);
+        float DefFaceNormalLenSq = dot(DefFaceNormal, DefFaceNormal);
+        if (OrigFaceNormalLenSq < 1e-12f || DefFaceNormalLenSq < 1e-12f)
         {
             continue;
         }
 
-        // Accumulate (area-weighted: larger triangles contribute more)
-        // 누적 (면적 가중: 큰 삼각형이 더 많이 기여)
-        NormalSum += FaceNormal;
+        // Accumulate both (area-weighted: larger triangles contribute more)
+        // 둘 다 누적 (면적 가중: 큰 삼각형이 더 많이 기여)
+        OriginalFaceNormalSum += OrigFaceNormal;
+        DeformedFaceNormalSum += DefFaceNormal;
         ValidFaceCount++;
     }
 
     // ========================================
-    // Step 3: Normalize and write output
-    // 3단계: 정규화 및 출력 쓰기
+    // Step 3: Calculate rotation and apply to original vertex normal
+    // 3단계: 회전 계산 및 원본 버텍스 노멀에 적용
     // ========================================
     if (ValidFaceCount == 0)
     {
         // No valid faces - use original normal
         // 유효한 면 없음 - 원본 노멀 사용
-        WriteNormal(VertexIndex, OriginalNormal);
+        WriteNormal(VertexIndex, OriginalVertexNormal);
         return;
     }
 
-    // Normalize the accumulated normal
-    // 누적된 노멀 정규화
-    float3 FinalNormal = SafeNormalize(NormalSum, OriginalNormal);
+    // Normalize the accumulated face normals
+    // 누적된 Face Normal 정규화
+    float3 OriginalFaceNormalAvg = SafeNormalize(OriginalFaceNormalSum, float3(0, 0, 1));
+    float3 DeformedFaceNormalAvg = SafeNormalize(DeformedFaceNormalSum, float3(0, 0, 1));
 
-    // Write the recomputed normal
-    // 재계산된 노멀 쓰기
+    // Calculate the rotation that would transform original face normal to deformed face normal
+    // And apply this same rotation to the original vertex normal
+    // 원본 Face Normal을 변형된 Face Normal로 변환하는 회전을 계산하고
+    // 이 회전을 원본 버텍스 노멀에 적용
+    float3 RotatedNormal = RotateVectorByNormalChange(
+        OriginalVertexNormal,
+        OriginalFaceNormalAvg,
+        DeformedFaceNormalAvg
+    );
+
+    // Ensure the result is normalized
+    // 결과가 정규화되었는지 확인
+    float3 FinalNormal = SafeNormalize(RotatedNormal, OriginalVertexNormal);
+
+    // Write the rotated normal
+    // 회전된 노멀 쓰기
     WriteNormal(VertexIndex, FinalNormal);
 }
