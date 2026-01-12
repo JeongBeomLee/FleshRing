@@ -136,6 +136,7 @@ void DispatchFleshRingTightnessCS(
         PassParameters->bUseSDFInfluence = 1;
         // OBB 지원: 컴포넌트 → 로컬 역변환 행렬
         PassParameters->ComponentToSDFLocal = Params.ComponentToSDFLocal;
+        PassParameters->SDFLocalToComponent = Params.SDFLocalToComponent;
         // SDF falloff 거리
         PassParameters->SDFInfluenceFalloffDistance = Params.SDFInfluenceFalloffDistance;
         // Ring Center/Axis (SDF Local Space) - 바운드 확장 시에도 정확한 위치 전달
@@ -162,6 +163,7 @@ void DispatchFleshRingTightnessCS(
         PassParameters->bUseSDFInfluence = 0;
         // Manual 모드: Identity 행렬 (사용 안함)
         PassParameters->ComponentToSDFLocal = FMatrix44f::Identity;
+        PassParameters->SDFLocalToComponent = FMatrix44f::Identity;
         // Manual 모드에서는 사용 안 하지만 바인딩 필요
         PassParameters->SDFInfluenceFalloffDistance = 5.0f;
         // Manual 모드: 기본값 바인딩 (사용 안함)
