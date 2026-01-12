@@ -56,9 +56,6 @@ public:
 		// Relaxation parameters
 		SHADER_PARAMETER(float, RelaxStrength)
 		SHADER_PARAMETER(float, DeformAmountInfluence)
-
-		// Bounds Scale (Z-direction only, for future Z falloff if needed)
-		SHADER_PARAMETER(float, BoundsScale)
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
@@ -99,16 +96,12 @@ struct FTangentRelaxDispatchParams
 	/** Number of relaxation iterations */
 	int32 NumIterations;
 
-	/** Bounds scale for this pass (Z-direction only) */
-	float BoundsScale;
-
 	FTangentRelaxDispatchParams()
 		: NumAffectedVertices(0)
 		, NumTotalVertices(0)
 		, RelaxStrength(0.5f)
 		, DeformAmountInfluence(0.8f)
 		, NumIterations(2)
-		, BoundsScale(1.5f)
 	{
 	}
 };

@@ -53,7 +53,6 @@ void DispatchFleshRingTangentRelaxCS(
 	PassParameters->NumTotalVertices = Params.NumTotalVertices;
 	PassParameters->RelaxStrength = Params.RelaxStrength;
 	PassParameters->DeformAmountInfluence = Params.DeformAmountInfluence;
-	PassParameters->BoundsScale = Params.BoundsScale;
 
 	// Get shader
 	TShaderMapRef<FFleshRingTangentRelaxCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));

@@ -123,7 +123,6 @@ struct FFleshRingWorkItem
 		float SmoothingLambda = 0.5f;         // λ (수축 강도)
 		float TaubinMu = -0.53f;              // μ (팽창 강도, 음수)
 		int32 SmoothingIterations = 2;
-		float LaplacianVolumePreservation = 0.3f;  // 일반 Laplacian 전용
 
 		// ===== 스무딩 볼륨 모드 파라미터 =====
 		bool bUseHopBasedSmoothing = false;   // true = HopBased, false = BoundsExpand

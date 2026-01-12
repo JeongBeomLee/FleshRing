@@ -90,9 +90,7 @@ void DispatchFleshRingLaplacianCS(
     PassParameters->SmoothingLambda = (Params.SmoothingLambda >= 0.0f)
         ? Params.GetEffectiveLambda()
         : Params.SmoothingLambda;  // Taubin mu pass (negative) - don't clamp
-    PassParameters->VolumePreservation = Params.VolumePreservation;
     PassParameters->BulgeSmoothingFactor = Params.BulgeSmoothingFactor;
-    PassParameters->BoundsScale = Params.BoundsScale;
 
     // Get shader
     TShaderMapRef<FFleshRingLaplacianCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
@@ -276,9 +274,6 @@ static void DispatchTaubinMultiPass(
         // Pass 1, 3, 5, ... -> mu (expand)
         const bool bShrinkPass = (Pass % 2 == 0);
         PassParams.SmoothingLambda = bShrinkPass ? Lambda : Mu;
-
-        // Disable volume preservation for Taubin (the lambda-mu alternation handles it)
-        PassParams.VolumePreservation = 0.0f;
 
         // CRITICAL: Force BulgeSmoothingFactor = 1.0 for Taubin
         // Taubin requires symmetric application of shrink/expand to all vertices

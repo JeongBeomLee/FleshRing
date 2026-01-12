@@ -66,9 +66,6 @@ public:
 
         // Height sigma for Gaussian weighting (bucket size)
         SHADER_PARAMETER(float, HeightSigma)
-
-        // Bounds Scale (Z-direction only, for future Z falloff if needed)
-        SHADER_PARAMETER(float, BoundsScale)
     END_SHADER_PARAMETER_STRUCT()
 
     static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
@@ -108,9 +105,6 @@ struct FBoneRatioDispatchParams
     /** Height sigma for Gaussian weighting (bucket size, default: 1.0cm) */
     float HeightSigma;
 
-    /** Bounds scale for this pass (Z-direction only) */
-    float BoundsScale;
-
     FBoneRatioDispatchParams()
         : NumAffectedVertices(0)
         , NumTotalVertices(0)
@@ -118,7 +112,6 @@ struct FBoneRatioDispatchParams
         , RingCenter(FVector3f::ZeroVector)
         , BlendStrength(1.0f)
         , HeightSigma(1.0f)
-        , BoundsScale(1.5f)
     {
     }
 };

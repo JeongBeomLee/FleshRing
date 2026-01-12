@@ -102,13 +102,9 @@ public:
 
         // Smoothing parameters
         SHADER_PARAMETER(float, SmoothingLambda)
-        SHADER_PARAMETER(float, VolumePreservation)
 
         // Bulge smoothing factor (0=no smoothing on bulge, 1=full smoothing)
         SHADER_PARAMETER(float, BulgeSmoothingFactor)
-
-        // Bounds Scale (Z-direction only, for future Z falloff if needed)
-        SHADER_PARAMETER(float, BoundsScale)
 
         // Per-vertex layer types (for excluding stocking from smoothing)
         SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<uint>, VertexLayerTypes)
@@ -145,17 +141,11 @@ struct FLaplacianDispatchParams
     /** Smoothing strength (0-1, typical: 0.3-0.7) */
     float SmoothingLambda;
 
-    /** Volume preservation factor (0-1) - ignored when using Taubin */
-    float VolumePreservation;
-
     /** Number of smoothing iterations */
     int32 NumIterations;
 
     /** Bulge smoothing factor (0=no smoothing on bulge, 1=full smoothing) */
     float BulgeSmoothingFactor;
-
-    /** Bounds scale for this pass (Z-direction only) */
-    float BoundsScale;
 
     /** Exclude stocking layer from smoothing */
     bool bExcludeStockingFromSmoothing;
@@ -197,10 +187,8 @@ struct FLaplacianDispatchParams
         : NumAffectedVertices(0)
         , NumTotalVertices(0)
         , SmoothingLambda(0.5f)
-        , VolumePreservation(0.3f)
         , NumIterations(2)
         , BulgeSmoothingFactor(0.0f)  // Default: no smoothing on bulge areas
-        , BoundsScale(1.5f)
         , bExcludeStockingFromSmoothing(true)  // Default: exclude stocking from smoothing
         , bUseTaubinSmoothing(true)   // Default: use Taubin for shrinkage-free smoothing
         , TaubinMu(-0.53f)            // Typical value for λ=0.5

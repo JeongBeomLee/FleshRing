@@ -111,7 +111,6 @@ void DispatchFleshRingPBDEdgeCS(
 	PassParameters->NumAffectedVertices = Params.NumAffectedVertices;
 	PassParameters->NumTotalVertices = Params.NumTotalVertices;
 	PassParameters->Stiffness = Params.Stiffness;
-	PassParameters->BoundsScale = Params.BoundsScale;
 	// 버퍼가 없으면 DeformAmount 모드 강제 비활성화 (버퍼 오버플로우 방지)
 	PassParameters->bUseDeformAmountWeight = bCanUseDeformAmountWeight ? 1 : 0;
 

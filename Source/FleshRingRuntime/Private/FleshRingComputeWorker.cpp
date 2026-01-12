@@ -735,7 +735,6 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				LaplacianParams.NumAffectedVertices = NumSmoothingVertices;
 				LaplacianParams.NumTotalVertices = ActualNumVertices;
 				LaplacianParams.SmoothingLambda = DispatchData.SmoothingLambda;
-				LaplacianParams.VolumePreservation = DispatchData.LaplacianVolumePreservation;
 				LaplacianParams.NumIterations = DispatchData.SmoothingIterations;
 				LaplacianParams.BulgeSmoothingFactor = 1.0f; // Bulge 영역에도 전체 스무딩 적용
 				// Taubin smoothing (수축 방지)

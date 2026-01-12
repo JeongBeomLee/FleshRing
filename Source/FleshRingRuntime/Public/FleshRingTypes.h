@@ -564,10 +564,6 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides, ClampMin = "1", ClampMax = "10"))
 	int32 SmoothingIterations = 2;
 
-	/** 볼륨 보존 (일반 Laplacian 전용, Taubin 시 무시) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing && LaplacianSmoothingType == ELaplacianSmoothingType::Laplacian", EditConditionHides, ClampMin = "0.0", ClampMax = "1.0"))
-	float VolumePreservation = 0.3f;
-
 	// ===== PBD Edge Constraint 설정 =====
 
 	/**
@@ -627,7 +623,6 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		, SmoothingLambda(0.5f)
 		, TaubinMu(-0.53f)
 		, SmoothingIterations(2)
-		, VolumePreservation(0.3f)
 		, bEnablePBDEdgeConstraint(false)
 		, PBDStiffness(0.8f)
 		, PBDIterations(5)

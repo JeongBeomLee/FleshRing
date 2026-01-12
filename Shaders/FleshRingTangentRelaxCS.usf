@@ -73,9 +73,6 @@ float RelaxStrength;
 // 0 = 변형량 무관하게 동일 적용, 1 = 많이 변형된 곳은 적게 적용
 float DeformAmountInfluence;
 
-// Bounds scale for Z-direction falloff (reserved for future use)
-float BoundsScale;
-
 // ============================================================================
 // Helper Functions
 // ============================================================================

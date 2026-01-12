@@ -78,9 +78,6 @@ public:
 		// PBD parameters
 		SHADER_PARAMETER(float, Stiffness)
 
-		// Bounds scale for Z-direction falloff (reserved for future use)
-		SHADER_PARAMETER(float, BoundsScale)
-
 		// Flag to use DeformAmounts instead of Influences for weight calculation
 		// 0 = Influences 사용, 1 = DeformAmounts 사용
 		SHADER_PARAMETER(uint32, bUseDeformAmountWeight)
@@ -117,9 +114,6 @@ struct FPBDEdgeDispatchParams
 	/** Number of solver iterations */
 	int32 NumIterations;
 
-	/** Bounds scale for Z-direction falloff (reserved for future use) */
-	float BoundsScale;
-
 	/** Use DeformAmounts instead of Influences for weight calculation */
 	bool bUseDeformAmountWeight;
 
@@ -128,7 +122,6 @@ struct FPBDEdgeDispatchParams
 		, NumTotalVertices(0)
 		, Stiffness(0.8f)
 		, NumIterations(3)
-		, BoundsScale(1.5f)
 		, bUseDeformAmountWeight(false)
 	{
 	}

@@ -423,7 +423,6 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			DispatchData.SmoothingLambda = Settings.SmoothingLambda;
 			DispatchData.TaubinMu = Settings.TaubinMu;
 			DispatchData.SmoothingIterations = Settings.SmoothingIterations;
-			DispatchData.LaplacianVolumePreservation = Settings.VolumePreservation;
 
 			// 홉 기반 스무딩 설정 및 데이터 복사
 			// NOTE: 데이터는 항상 복사 (런타임 토글 지원)

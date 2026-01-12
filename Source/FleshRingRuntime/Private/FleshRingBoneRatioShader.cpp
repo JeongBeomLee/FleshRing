@@ -59,7 +59,6 @@ void DispatchFleshRingBoneRatioCS(
     PassParameters->RingCenter = Params.RingCenter;
     PassParameters->BlendStrength = Params.BlendStrength;
     PassParameters->HeightSigma = Params.HeightSigma;
-    PassParameters->BoundsScale = Params.BoundsScale;
 
     // Get shader
     TShaderMapRef<FFleshRingBoneRatioCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));

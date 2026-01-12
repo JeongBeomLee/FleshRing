@@ -87,9 +87,6 @@ uint NumAffectedVertices;
 uint NumTotalVertices;
 float Stiffness;
 
-// Bounds scale for Z-direction falloff (reserved for future use)
-float BoundsScale;
-
 // Flag to use DeformAmounts instead of Influences for weight calculation
 // DeformAmounts 사용 여부 플래그 (0 = Influences 사용, 1 = DeformAmounts 사용)
 uint bUseDeformAmountWeight;

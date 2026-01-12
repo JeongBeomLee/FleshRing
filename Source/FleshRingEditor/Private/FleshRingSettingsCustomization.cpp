@@ -804,7 +804,6 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	TSharedPtr<IPropertyHandle> SmoothingLambdaHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingLambda));
 	TSharedPtr<IPropertyHandle> TaubinMuHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, TaubinMu));
 	TSharedPtr<IPropertyHandle> SmoothingIterationsHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingIterations));
-	TSharedPtr<IPropertyHandle> VolumePreservationHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, VolumePreservation));
 	TSharedPtr<IPropertyHandle> SmoothingVolumeModeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingVolumeMode));
 	TSharedPtr<IPropertyHandle> MaxSmoothingHopsHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MaxSmoothingHops));
 	TSharedPtr<IPropertyHandle> HopFalloffRatioHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HopFalloffRatio));
@@ -832,7 +831,6 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingLambda));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, TaubinMu));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingIterations));
-	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, VolumePreservation));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingVolumeMode));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MaxSmoothingHops));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HopFalloffRatio));
@@ -1397,10 +1395,6 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	if (TaubinMuHandle.IsValid())
 	{
 		LaplacianGroup.AddPropertyRow(TaubinMuHandle.ToSharedRef());
-	}
-	if (VolumePreservationHandle.IsValid())
-	{
-		LaplacianGroup.AddPropertyRow(VolumePreservationHandle.ToSharedRef());
 	}
 
 	// ===== PBD Edge Constraint 서브그룹 =====

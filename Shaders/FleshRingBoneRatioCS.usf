@@ -79,9 +79,6 @@ float BlendStrength;
 // Larger values = smoother transitions but less uniform slices
 float HeightSigma;
 
-// Bounds scale for Z-direction falloff (reserved for future use)
-float BoundsScale;
-
 // ============================================================================
 // Helper Functions
 // ============================================================================

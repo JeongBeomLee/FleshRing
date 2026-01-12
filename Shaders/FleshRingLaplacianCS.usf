@@ -87,15 +87,8 @@ uint NumTotalVertices;
 // Typical values: 0.3 - 0.7
 float SmoothingLambda;
 
-// Preserve volume: blend factor for volume preservation
-// 0 = pure Laplacian, 1 = volume-preserving (HC algorithm style)
-float VolumePreservation;
-
 // Bulge smoothing factor (0=no smoothing on bulge, 1=full smoothing)
 float BulgeSmoothingFactor;
-
-// Bounds scale (for potential Z falloff, reserved for future use)
-float BoundsScale;
 
 // Exclude stocking layer from smoothing (0 = smooth all, 1 = exclude stocking)
 uint bExcludeStockingFromSmoothing;
@@ -265,16 +258,6 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     float EffectiveLambda = SmoothingLambda * Influence * BulgeBlend;
 
     float3 SmoothedPos = CurrentPos + Laplacian * EffectiveLambda;
-
-    // Optional: Volume preservation (HC algorithm style)
-    // Pulls back toward original position to prevent shrinkage
-    // Note: For full HC, would need original bind pose positions as additional input
-    if (VolumePreservation > 0.001)
-    {
-        // Simple approximation: reduce movement magnitude
-        float3 Movement = SmoothedPos - CurrentPos;
-        SmoothedPos = CurrentPos + Movement * (1.0 - VolumePreservation * 0.5);
-    }
 
     // Write output to ACTUAL vertex (WriteIndex)
     WritePosition(WriteIndex, SmoothedPos);
