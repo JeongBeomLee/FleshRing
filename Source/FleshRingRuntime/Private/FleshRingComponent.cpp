@@ -29,6 +29,7 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogFleshRingComponent, Log, All);
 
+
 // Helper: 본의 바인드 포즈 트랜스폼 획득 (컴포넌트 스페이스)
 static FTransform GetBoneBindPoseTransform(USkeletalMeshComponent* SkelMesh, FName BoneName)
 {
@@ -531,7 +532,8 @@ void UFleshRingComponent::GenerateSDF()
 			// NOTE: SDFBoundsExpandX/Y는 SDF 텍스처 바운드에 적용하지 않음
 			// 이유 1: 에디터에서 Expand 값 조절 시 매번 SDF 재생성 → 성능/메모리 문제
 			// 이유 2: 바운드 확장 시 SDF 해상도 밀도 저하 → 링 형태 품질 저하
-			// 현재 설계: Two-Phase 레이마칭으로 외부 버텍스 처리 (SDF 품질 유지)
+			// 이유 3: 패딩 시 얇은 링에서 Flood Fill 실패 (벽이 얇아져 누출)
+			// 탄젠트 영역 문제: 셰이더에서 최소 스텝으로 해결 (FleshRingTightnessCS.usf)
 			FVector3f BoundsMin = MeshData.Bounds.Min;
 			FVector3f BoundsMax = MeshData.Bounds.Max;
 
@@ -637,7 +639,8 @@ void UFleshRingComponent::GenerateSDF()
 		// NOTE: SDFBoundsExpandX/Y는 SDF 텍스처 바운드에 적용하지 않음
 		// 이유 1: 에디터에서 Expand 값 조절 시 매번 SDF 재생성 → 성능/메모리 문제
 		// 이유 2: 바운드 확장 시 SDF 해상도 밀도 저하 → 링 형태 품질 저하
-		// 현재 설계: Two-Phase 레이마칭으로 외부 버텍스 처리 (SDF 품질 유지)
+		// 이유 3: 패딩 시 얇은 링에서 Flood Fill 실패 (벽이 얇아져 누출)
+		// 탄젠트 영역 문제: 셰이더에서 최소 스텝으로 해결 (FleshRingTightnessCS.usf)
 		FVector3f BoundsMin = MeshData.Bounds.Min;
 		FVector3f BoundsMax = MeshData.Bounds.Max;
 

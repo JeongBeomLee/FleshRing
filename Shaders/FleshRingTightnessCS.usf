@@ -306,10 +306,11 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
     }
 
     // STEP 4: 시작점의 SDF 체크 (이미 내부면 패스)
+    // < 사용: SDF == 0 (표면 정확히)일 때도 레이마칭 진행
+    // 탄젠트 영역(바운드 경계와 링 표면이 맞닿는 부분) 대응
     float3 StartUV = (RaymarchStart - SDFBoundsMin) / BoundsSize;
-    // SDF 샘플링 값 구하기
     float StartDist = SDFTexture.SampleLevel(SDFSampler, saturate(StartUV), 0).r;
-    if (StartDist <= 0.0)
+    if (StartDist < 0.0)
     {
         // 이미 SDF 내부 → 변형 불필요 (또는 진입점이 이미 표면)
         if (bOutsideBounds)  
@@ -383,9 +384,11 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
         if (CurDist < 0.0)
             break;
 
-        // SDF 거리가 작으면 스텝 크기 줄여서 구멍 관통 방지
+        // SDF 거리 기반 스텝 + 최소 스텝 보장
+        // 최소 스텝: 링 재질(SDF=0) 및 표면(SDF≈0)에서 진행 가능하도록
         float stepScale = (CurDist < 1.0) ? 1.0 : 1.3;
-        CurrentPos += dir * CurDist * stepScale;
+        float stepSize = max(CurDist * stepScale, epsilon * 0.5);
+        CurrentPos += dir * stepSize;
     }
 
     // STEP 7: 사후 검증
