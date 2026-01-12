@@ -16,7 +16,8 @@ namespace FleshRingAssetEditorToolkit
 	static const FName SkeletonTreeTabId(TEXT("FleshRingAssetEditor_SkeletonTree"));
 	static const FName ViewportTabId(TEXT("FleshRingAssetEditor_Viewport"));
 	static const FName DetailsTabId(TEXT("FleshRingAssetEditor_Details"));
+	static const FName PreviewSettingsTabId(TEXT("FleshRingAssetEditor_PreviewSettings"));
 
-	// 레이아웃 이름 (v2: Skeleton Tree 패널 추가)
-	static const FName LayoutName(TEXT("FleshRingAssetEditor_Layout_v2"));
+	// 레이아웃 이름 (v3: Preview Scene Settings 탭 추가)
+	static const FName LayoutName(TEXT("FleshRingAssetEditor_Layout_v3"));
 }

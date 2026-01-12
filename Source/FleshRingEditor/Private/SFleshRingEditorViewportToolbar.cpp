@@ -38,6 +38,37 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 
 	FMenuBuilder MenuBuilder(true, ViewportPtr->GetCommandList());
 
+	// Scene 섹션 (Grid 등 일반 뷰포트 설정)
+	MenuBuilder.BeginSection("SceneShow", LOCTEXT("SceneShowHeader", "Scene"));
+	{
+		MenuBuilder.AddMenuEntry(
+			LOCTEXT("ShowGrid", "Grid"),
+			LOCTEXT("ShowGridTooltip", "Show/Hide grid (synced with Preview Scene Settings)"),
+			FSlateIcon(),
+			FUIAction(
+				FExecuteAction::CreateLambda([WeakViewportClient]()
+				{
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+					{
+						Client->ToggleShowGrid();
+					}
+				}),
+				FCanExecuteAction(),
+				FIsActionChecked::CreateLambda([WeakViewportClient]()
+				{
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+					{
+						return Client->ShouldShowGrid();
+					}
+					return false;
+				})
+			),
+			NAME_None,
+			EUserInterfaceActionType::ToggleButton
+		);
+	}
+	MenuBuilder.EndSection();
+
 	// FleshRing 전용 Show 옵션
 	MenuBuilder.BeginSection("FleshRingShow", LOCTEXT("FleshRingShowHeader", "FleshRing"));
 	{

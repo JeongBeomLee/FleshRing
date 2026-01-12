@@ -6,6 +6,7 @@
 #include "EditorViewportClient.h"
 #include "ScopedTransaction.h"
 #include "FleshRingTypes.h"
+#include "AssetViewerSettings.h"
 
 class FFleshRingPreviewScene;
 class SFleshRingEditorViewport;
@@ -72,6 +73,7 @@ public:
 	virtual void Draw(const FSceneView* View, FPrimitiveDrawInterface* PDI) override;
 	virtual void DrawCanvas(FViewport& InViewport, FSceneView& View, FCanvas& Canvas) override;
 	virtual bool InputKey(const FInputKeyEventArgs& EventArgs) override;
+	virtual bool InputAxis(const FInputKeyEventArgs& EventArgs) override;
 	virtual void ProcessClick(FSceneView& View, HHitProxy* HitProxy, FKey Key, EInputEvent Event, uint32 HitX, uint32 HitY) override;
 
 	// Widget 관련 오버라이드
@@ -119,12 +121,14 @@ public:
 	void ToggleShowRingGizmos() { bShowRingGizmos = !bShowRingGizmos; Invalidate(); }
 	void ToggleShowRingMeshes();
 	void ToggleShowBones() { bShowBones = !bShowBones; Invalidate(); }
+	void ToggleShowGrid();
 
 	// Show 플래그 상태
 	bool ShouldShowSkeletalMesh() const { return bShowSkeletalMesh; }
 	bool ShouldShowRingGizmos() const { return bShowRingGizmos; }
 	bool ShouldShowRingMeshes() const { return bShowRingMeshes; }
 	bool ShouldShowBones() const { return bShowBones; }
+	bool ShouldShowGrid() const;
 
 	/** 현재 Show Flag를 프리뷰 씬에 적용 (리프레시 후 호출) */
 	void ApplyShowFlagsToScene();
@@ -325,4 +329,13 @@ private:
 	// 우클릭 Ring 추가용 임시 저장
 	FName PendingRingAddBoneName = NAME_None;
 	FVector2D PendingRingAddScreenPos = FVector2D::ZeroVector;
+
+	// Preview Scene Settings 변경 델리게이트 핸들
+	FDelegateHandle AssetViewerSettingsChangedHandle;
+
+	/** Preview Scene Settings 변경 시 콜백 */
+	void OnAssetViewerSettingsChanged(const FName& PropertyName);
+
+	/** Preview Scene Settings를 EngineShowFlags에 적용 */
+	void ApplyPreviewSceneShowFlags();
 };

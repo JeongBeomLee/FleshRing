@@ -88,10 +88,26 @@ FFleshRingEditorViewportClient::FFleshRingEditorViewportClient(
 
 	// 정적 인스턴스 레지스트리에 등록 (타입 안전 확인용)
 	GetAllInstances().Add(this);
+
+	// Preview Scene Settings 변경 델리게이트 구독
+	if (UAssetViewerSettings* Settings = UAssetViewerSettings::Get())
+	{
+		AssetViewerSettingsChangedHandle = Settings->OnAssetViewerSettingsChanged().AddRaw(
+			this, &FFleshRingEditorViewportClient::OnAssetViewerSettingsChanged);
+	}
+
+	// 초기 ShowFlags 적용
+	ApplyPreviewSceneShowFlags();
 }
 
 FFleshRingEditorViewportClient::~FFleshRingEditorViewportClient()
 {
+	// Preview Scene Settings 변경 델리게이트 해제
+	if (UAssetViewerSettings* Settings = UAssetViewerSettings::Get())
+	{
+		Settings->OnAssetViewerSettingsChanged().Remove(AssetViewerSettingsChangedHandle);
+	}
+
 	// 설정 저장
 	SaveSettings();
 
@@ -389,6 +405,37 @@ bool FFleshRingEditorViewportClient::InputKey(const FInputKeyEventArgs& EventArg
 	}
 
 	return FEditorViewportClient::InputKey(EventArgs);
+}
+
+bool FFleshRingEditorViewportClient::InputAxis(const FInputKeyEventArgs& Args)
+{
+	bool bResult = false;
+
+	if (!bDisableInput && PreviewScene)
+	{
+		// FAdvancedPreviewScene::HandleViewportInput 호출 (K키로 Sky Rotation 처리)
+		bResult = PreviewScene->HandleViewportInput(
+			Args.Viewport,
+			Args.InputDevice,
+			Args.Key,
+			Args.AmountDepressed,
+			Args.DeltaTime,
+			Args.NumSamples,
+			Args.IsGamepad());
+
+		if (bResult)
+		{
+			Invalidate();
+		}
+	}
+
+	// 처리되지 않았으면 기본 클래스로 전달 (L키로 Light Direction 처리 포함)
+	if (!bResult)
+	{
+		bResult = FEditorViewportClient::InputAxis(Args);
+	}
+
+	return bResult;
 }
 
 void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* HitProxy, FKey Key, EInputEvent Event, uint32 HitX, uint32 HitY)
@@ -1705,6 +1752,50 @@ void FFleshRingEditorViewportClient::ToggleShowRingMeshes()
 	InvalidateAndDraw();
 }
 
+void FFleshRingEditorViewportClient::ToggleShowGrid()
+{
+	// UAssetViewerSettings에서 현재 프로파일의 Grid 설정 토글
+	UAssetViewerSettings* Settings = UAssetViewerSettings::Get();
+	if (!Settings || !PreviewScene)
+	{
+		return;
+	}
+
+	int32 ProfileIndex = PreviewScene->GetCurrentProfileIndex();
+	if (!Settings->Profiles.IsValidIndex(ProfileIndex))
+	{
+		return;
+	}
+
+	// 프로파일의 bShowGrid 토글
+	Settings->Profiles[ProfileIndex].bShowGrid = !Settings->Profiles[ProfileIndex].bShowGrid;
+
+	// 변경 알림 (다른 리스너들에게)
+	Settings->OnAssetViewerSettingsChanged().Broadcast(GET_MEMBER_NAME_CHECKED(FPreviewSceneProfile, bShowGrid));
+
+	// 즉시 적용
+	ApplyPreviewSceneShowFlags();
+	Invalidate();
+}
+
+bool FFleshRingEditorViewportClient::ShouldShowGrid() const
+{
+	// UAssetViewerSettings에서 현재 프로파일의 Grid 설정 반환
+	UAssetViewerSettings* Settings = UAssetViewerSettings::Get();
+	if (!Settings || !PreviewScene)
+	{
+		return false;
+	}
+
+	int32 ProfileIndex = PreviewScene->GetCurrentProfileIndex();
+	if (!Settings->Profiles.IsValidIndex(ProfileIndex))
+	{
+		return false;
+	}
+
+	return Settings->Profiles[ProfileIndex].bShowGrid;
+}
+
 void FFleshRingEditorViewportClient::ApplyShowFlagsToScene()
 {
 	if (PreviewScene)
@@ -1718,6 +1809,56 @@ void FFleshRingEditorViewportClient::ApplyShowFlagsToScene()
 		// Ring 메시 가시성 적용
 		PreviewScene->SetRingMeshesVisible(bShowRingMeshes);
 	}
+}
+
+void FFleshRingEditorViewportClient::OnAssetViewerSettingsChanged(const FName& PropertyName)
+{
+	// Preview Scene Settings 변경 시 ShowFlags 적용 후 뷰포트 갱신
+	ApplyPreviewSceneShowFlags();
+	Invalidate();
+}
+
+void FFleshRingEditorViewportClient::ApplyPreviewSceneShowFlags()
+{
+	if (!PreviewScene)
+	{
+		return;
+	}
+
+	// UAssetViewerSettings에서 현재 프로파일 설정 가져오기
+	UAssetViewerSettings* Settings = UAssetViewerSettings::Get();
+	if (!Settings)
+	{
+		return;
+	}
+
+	int32 ProfileIndex = PreviewScene->GetCurrentProfileIndex();
+	if (!Settings->Profiles.IsValidIndex(ProfileIndex))
+	{
+		return;
+	}
+
+	const FPreviewSceneProfile& Profile = Settings->Profiles[ProfileIndex];
+
+	// PostProcessing 적용 (먼저 처리해야 함 - DisableAdvancedFeatures가 다른 플래그 초기화)
+	if (Profile.bPostProcessingEnabled)
+	{
+		EngineShowFlags.EnableAdvancedFeatures();
+		EngineShowFlags.SetBloom(true);
+	}
+	else
+	{
+		EngineShowFlags.DisableAdvancedFeatures();
+		EngineShowFlags.SetBloom(false);
+	}
+
+	// ShowFlags 적용
+	EngineShowFlags.SetGrid(Profile.bShowGrid);
+	EngineShowFlags.SetMeshEdges(Profile.bShowMeshEdges);
+	EngineShowFlags.SetTonemapper(Profile.bEnableToneMapping);
+
+	// DrawHelper의 Grid도 동기화
+	DrawHelper.bDrawGrid = Profile.bShowGrid;
 }
 
 FString FFleshRingEditorViewportClient::GetConfigSectionName() const
@@ -1955,6 +2096,9 @@ void FFleshRingEditorViewportClient::LoadSettings()
 
 	// 로드된 Show Flag를 PreviewScene에 적용
 	ApplyShowFlagsToScene();
+
+	// Preview Scene Settings도 적용
+	ApplyPreviewSceneShowFlags();
 }
 
 void FFleshRingEditorViewportClient::ToggleShowDebugVisualization()

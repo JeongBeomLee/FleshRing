@@ -63,6 +63,9 @@ private:
 	/** Details 탭 생성 */
 	TSharedRef<SDockTab> SpawnTab_Details(const FSpawnTabArgs& Args);
 
+	/** Preview Settings 탭 생성 */
+	TSharedRef<SDockTab> SpawnTab_PreviewSettings(const FSpawnTabArgs& Args);
+
 	/** Details View 생성 */
 	void CreateDetailsView();
 

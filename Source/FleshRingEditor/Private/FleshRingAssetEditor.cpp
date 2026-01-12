@@ -8,6 +8,7 @@
 #include "SFleshRingEditorViewport.h"
 #include "FleshRingEditorViewportClient.h"
 #include "FleshRingPreviewScene.h"
+#include "SAdvancedPreviewDetailsTab.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "Widgets/SBoxPanel.h"
 #include "PropertyEditorModule.h"
@@ -74,10 +75,12 @@ void FFleshRingAssetEditor::InitFleshRingAssetEditor(
 			)
 			->Split
 			(
-				// 우측: Details
+				// 우측: Details + Preview Settings (탭으로 전환)
 				FTabManager::NewStack()
 				->SetSizeCoefficient(0.3f)
 				->AddTab(FleshRingAssetEditorToolkit::DetailsTabId, ETabState::OpenedTab)
+				->AddTab(FleshRingAssetEditorToolkit::PreviewSettingsTabId, ETabState::OpenedTab)
+				->SetForegroundTab(FleshRingAssetEditorToolkit::DetailsTabId)
 			)
 		);
 
@@ -188,6 +191,14 @@ void FFleshRingAssetEditor::RegisterTabSpawners(const TSharedRef<FTabManager>& I
 		.SetDisplayName(LOCTEXT("DetailsTab", "Details"))
 		.SetGroup(WorkspaceMenuCategory.ToSharedRef())
 		.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), "LevelEditor.Tabs.Details"));
+
+	// Preview Scene Settings 탭 등록
+	InTabManager->RegisterTabSpawner(
+		FleshRingAssetEditorToolkit::PreviewSettingsTabId,
+		FOnSpawnTab::CreateSP(this, &FFleshRingAssetEditor::SpawnTab_PreviewSettings))
+		.SetDisplayName(LOCTEXT("PreviewSettingsTab", "Preview Scene Settings"))
+		.SetGroup(WorkspaceMenuCategory.ToSharedRef())
+		.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), "LevelEditor.Tabs.Details"));
 }
 
 void FFleshRingAssetEditor::UnregisterTabSpawners(const TSharedRef<FTabManager>& InTabManager)
@@ -197,6 +208,7 @@ void FFleshRingAssetEditor::UnregisterTabSpawners(const TSharedRef<FTabManager>&
 	InTabManager->UnregisterTabSpawner(FleshRingAssetEditorToolkit::SkeletonTreeTabId);
 	InTabManager->UnregisterTabSpawner(FleshRingAssetEditorToolkit::ViewportTabId);
 	InTabManager->UnregisterTabSpawner(FleshRingAssetEditorToolkit::DetailsTabId);
+	InTabManager->UnregisterTabSpawner(FleshRingAssetEditorToolkit::PreviewSettingsTabId);
 }
 
 TSharedRef<SDockTab> FFleshRingAssetEditor::SpawnTab_SkeletonTree(const FSpawnTabArgs& Args)
@@ -275,6 +287,27 @@ TSharedRef<SDockTab> FFleshRingAssetEditor::SpawnTab_Details(const FSpawnTabArgs
 		.Label(LOCTEXT("DetailsTabLabel", "Details"))
 		[
 			DetailsView.ToSharedRef()
+		];
+}
+
+TSharedRef<SDockTab> FFleshRingAssetEditor::SpawnTab_PreviewSettings(const FSpawnTabArgs& Args)
+{
+	TSharedPtr<FFleshRingPreviewScene> PreviewScene;
+	if (ViewportWidget.IsValid())
+	{
+		PreviewScene = ViewportWidget->GetPreviewScene();
+	}
+
+	TSharedRef<SWidget> Content = SNullWidget::NullWidget;
+	if (PreviewScene.IsValid())
+	{
+		Content = SNew(SAdvancedPreviewDetailsTab, PreviewScene.ToSharedRef());
+	}
+
+	return SNew(SDockTab)
+		.Label(LOCTEXT("PreviewSettingsTabLabel", "Preview Scene Settings"))
+		[
+			Content
 		];
 }
 
