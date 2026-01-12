@@ -1569,16 +1569,21 @@ void SFleshRingSkeletonTree::OnContextMenuDeleteRing()
 	if (Asset->Rings.IsValidIndex(RingIndex))
 	{
 		// Undo/Redo 지원
-		FScopedTransaction Transaction(FText::FromString(TEXT("Delete Ring")));
-		Asset->Modify();
+		// 트랜잭션 범위를 제한하여 RefreshPreview()가 트랜잭션 밖에서 호출되도록 함
+		// (트랜잭션 중 PreviewSubdividedMesh 생성 시 Undo 크래시 방지)
+		{
+			FScopedTransaction Transaction(FText::FromString(TEXT("Delete Ring")));
+			Asset->Modify();
 
-		Asset->Rings.RemoveAt(RingIndex);
+			Asset->Rings.RemoveAt(RingIndex);
 
-		// 선택 해제 (Undo 시 정상 복원됨)
-		Asset->EditorSelectedRingIndex = -1;
-		Asset->EditorSelectionType = EFleshRingSelectionType::None;
+			// 선택 해제 (Undo 시 정상 복원됨)
+			Asset->EditorSelectedRingIndex = -1;
+			Asset->EditorSelectionType = EFleshRingSelectionType::None;
+		}
 
 		// 델리게이트 호출 (HandleRingDeleted에서 RefreshPreview + RefreshTree 처리)
+		// 트랜잭션 종료 후 호출하여 메시 생성이 Undo 히스토리에 포함되지 않도록 함
 		OnRingDeleted.ExecuteIfBound();
 	}
 }
