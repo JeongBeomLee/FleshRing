@@ -425,7 +425,36 @@ void FDistanceBasedVertexSelector::SelectVertices(
         const float MaxDistance = Ring.RingRadius + Ring.RingThickness;
         const float HalfWidth = Ring.RingWidth / 2.0f;
 
-        for (int32 VertexIdx = 0; VertexIdx < AllVertices.Num(); ++VertexIdx)
+        // ===== Spatial Hash OBB 쿼리로 후보 축소 (O(N) → O(K)) =====
+        TArray<int32> CandidateIndices;
+        if (Context.SpatialHash && Context.SpatialHash->IsBuilt())
+        {
+            // Ring 회전을 반영한 OBB 트랜스폼
+            FTransform RingLocalToComponent;
+            RingLocalToComponent.SetLocation(RingCenter);
+            RingLocalToComponent.SetRotation(WorldRingRotation);
+            RingLocalToComponent.SetScale3D(FVector::OneVector);
+
+            const FVector LocalMin(-MaxDistance, -MaxDistance, -HalfWidth);
+            const FVector LocalMax(MaxDistance, MaxDistance, HalfWidth);
+            Context.SpatialHash->QueryOBB(RingLocalToComponent, LocalMin, LocalMax, CandidateIndices);
+
+            UE_LOG(LogFleshRingVertices, Log,
+                TEXT("Manual Ring[%d]: SpatialHash OBB query returned %d candidates (from %d total)"),
+                Context.RingIndex, CandidateIndices.Num(), AllVertices.Num());
+        }
+        else
+        {
+            // 폴백: 전체 순회
+            CandidateIndices.Reserve(AllVertices.Num());
+            for (int32 i = 0; i < AllVertices.Num(); ++i)
+            {
+                CandidateIndices.Add(i);
+            }
+        }
+
+        // 후보만 순회 (기존: 전체 순회)
+        for (int32 VertexIdx : CandidateIndices)
         {
             const FVector VertexPos = FVector(AllVertices[VertexIdx]);
             const FVector ToVertex = VertexPos - RingCenter;

@@ -379,6 +379,9 @@ private:
 	/** 바인드 포즈 버텍스 위치 (컴포넌트 스페이스) */
 	TArray<FVector3f> DebugBindPoseVertices;
 
+	/** 디버그용 Spatial Hash (O(1) 버텍스 쿼리용) */
+	FVertexSpatialHash DebugSpatialHash;
+
 	/** 디버그 데이터 캐싱 완료 여부 */
 	bool bDebugAffectedVerticesCached = false;
 

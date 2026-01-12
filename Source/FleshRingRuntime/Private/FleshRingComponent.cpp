@@ -1797,6 +1797,7 @@ void UFleshRingComponent::CleanupDebugResources()
 	// 디버그 영향 버텍스 데이터 정리
 	DebugAffectedData.Empty();
 	DebugBindPoseVertices.Empty();
+	DebugSpatialHash.Clear();
 	bDebugAffectedVerticesCached = false;
 
 	// 디버그 Bulge 버텍스 데이터 정리
@@ -1825,30 +1826,54 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 		return;
 	}
 
-	// ===== 1. 바인드 포즈 버텍스 추출 =====
-	const FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
-	if (!RenderData || RenderData->LODRenderData.Num() == 0)
+	// ===== 1. 바인드 포즈 버텍스 추출 (없을 때만 - Bulge와 동일 패턴) =====
+	// 바인드 포즈는 메시가 바뀌지 않는 한 동일하므로 캐시 재사용
+	if (DebugBindPoseVertices.Num() == 0)
 	{
-		return;
+		const FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
+		if (!RenderData || RenderData->LODRenderData.Num() == 0)
+		{
+			return;
+		}
+
+		// LOD 0 사용
+		const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[0];
+		const uint32 NumVertices = LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
+
+		if (NumVertices == 0)
+		{
+			return;
+		}
+
+		DebugBindPoseVertices.Reset(NumVertices);
+		for (uint32 VertexIdx = 0; VertexIdx < NumVertices; ++VertexIdx)
+		{
+			const FVector3f& Position = LODData.StaticVertexBuffers.PositionVertexBuffer.VertexPosition(VertexIdx);
+			DebugBindPoseVertices.Add(Position);
+		}
+
+		// Spatial Hash 빌드 (O(1) 쿼리용)
+		DebugSpatialHash.Build(DebugBindPoseVertices);
 	}
 
-	// LOD 0 사용
-	const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[0];
-	const uint32 NumVertices = LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
-
-	if (NumVertices == 0)
+	// ===== 2. 실제 변형 데이터 재사용 시도 =====
+	// Deformer가 활성화되어 있으면 이미 계산된 데이터 재사용
+	if (UFleshRingDeformerInstance* DeformerInstance =
+		Cast<UFleshRingDeformerInstance>(SkelMesh->GetMeshDeformerInstance()))
 	{
-		return;
+		const TArray<FRingAffectedData>* ActualData =
+			DeformerInstance->GetAffectedRingDataForDebug(0);  // LOD0
+
+		if (ActualData && ActualData->Num() == FleshRingAsset->Rings.Num())
+		{
+			// 실제 데이터 복사 (중복 계산 제거)
+			DebugAffectedData = *ActualData;
+			bDebugAffectedVerticesCached = true;
+			return;
+		}
 	}
 
-	DebugBindPoseVertices.Reset(NumVertices);
-	for (uint32 VertexIdx = 0; VertexIdx < NumVertices; ++VertexIdx)
-	{
-		const FVector3f& Position = LODData.StaticVertexBuffers.PositionVertexBuffer.VertexPosition(VertexIdx);
-		DebugBindPoseVertices.Add(Position);
-	}
-
-	// ===== 2. Ring별 영향받는 버텍스 계산 =====
+	// ===== 3. 폴백: Ring별 영향받는 버텍스 직접 계산 =====
 	DebugAffectedData.Reset();
 	DebugAffectedData.SetNum(FleshRingAsset->Rings.Num());
 
@@ -1878,58 +1903,138 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 		// SDF 캐시 가져오기
 		const FRingSDFCache* SDFCache = GetRingSDFCache(RingIdx);
 
-		// Context 생성
-		FVertexSelectionContext Context(
-			RingSettings,
-			RingIdx,
-			BoneTransform,
-			DebugBindPoseVertices,
-			SDFCache
-		);
-
 		// 영향받는 버텍스 선택
 		FRingAffectedData& RingData = DebugAffectedData[RingIdx];
 		RingData.BoneName = RingSettings.BoneName;
 		RingData.RingCenter = BoneTransform.GetLocation();
 
-		// Ring별 InfluenceMode에 따라 Selector 결정 (RegisterAffectedVertices와 동일 로직)
-		// Auto 또는 ProceduralBand 모드 + SDF 유효 → SDFBoundsBasedSelector
-		TSharedPtr<IVertexSelector> RingSelector;
+		// Ring별 InfluenceMode에 따라 인라인 계산 (SelectVertices 호출 대신 직접 계산 - 성능 최적화)
 		const bool bUseSDFForThisRing =
 			(RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto ||
 			 RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand) &&
 			(SDFCache && SDFCache->IsValid());
 
+		// Falloff 계산 람다 (CalculateFalloff 인라인 버전)
+		auto CalcFalloff = [](float Distance, float MaxDistance, EFalloffType Type) -> float
+		{
+			const float NormalizedDist = FMath::Clamp(Distance / MaxDistance, 0.0f, 1.0f);
+			const float T = 1.0f - NormalizedDist;
+			switch (Type)
+			{
+			case EFalloffType::Quadratic:
+				return T * T;
+			case EFalloffType::Hermite:
+				return T * T * (3.0f - 2.0f * T);
+			case EFalloffType::Linear:
+			default:
+				return T;
+			}
+		};
+
 		if (bUseSDFForThisRing)
 		{
-			RingSelector = MakeShared<FSDFBoundsBasedVertexSelector>();
+			// ===== SDF 모드: OBB 기반 Spatial Hash 쿼리 =====
+			// SDF 모드에서는 Influence = 1.0 (최대값) - GPU 셰이더가 SDF로 정제함
+			// 디버그 시각화에서는 모든 선택된 버텍스가 빨간색으로 표시됨
+			const FTransform& LocalToComponent = SDFCache->LocalToComponent;
+			const FVector BoundsMin = FVector(SDFCache->BoundsMin);
+			const FVector BoundsMax = FVector(SDFCache->BoundsMax);
+
+			// Spatial Hash로 OBB 내 후보만 추출 - O(1)
+			TArray<int32> CandidateIndices;
+			if (DebugSpatialHash.IsBuilt())
+			{
+				DebugSpatialHash.QueryOBB(LocalToComponent, BoundsMin, BoundsMax, CandidateIndices);
+			}
+			else
+			{
+				// 폴백: 전체 순회
+				CandidateIndices.Reserve(DebugBindPoseVertices.Num());
+				for (int32 i = 0; i < DebugBindPoseVertices.Num(); ++i)
+				{
+					CandidateIndices.Add(i);
+				}
+			}
+
+			for (int32 VertexIdx : CandidateIndices)
+			{
+				// SDF 모드: OBB 안에 있으면 Influence = 1.0 (빨간색)
+				FAffectedVertex AffectedVert;
+				AffectedVert.VertexIndex = static_cast<uint32>(VertexIdx);
+				AffectedVert.Influence = 1.0f;
+				RingData.Vertices.Add(AffectedVert);
+			}
 		}
 		else
 		{
-			RingSelector = MakeShared<FDistanceBasedVertexSelector>();
-		}
-		RingSelector->SelectVertices(Context, RingData.Vertices);
+			// ===== Manual 모드: 원통형 거리 기반 Spatial Hash 쿼리 =====
+			const FQuat BoneRotation = BoneTransform.GetRotation();
+			const FVector WorldRingOffset = BoneRotation.RotateVector(RingSettings.RingOffset);
+			const FVector RingCenter = BoneTransform.GetLocation() + WorldRingOffset;
+			const FQuat WorldRingRotation = BoneRotation * RingSettings.RingRotation;
+			const FVector RingAxis = WorldRingRotation.RotateVector(FVector::ZAxisVector);
 
-		// InfluenceMode 이름 결정
-		const TCHAR* InfluenceModeStr = TEXT("Manual");
-		if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto)
-		{
-			InfluenceModeStr = TEXT("Auto");
-		}
-		else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
-		{
-			InfluenceModeStr = TEXT("ProceduralBand");
+			const float MaxDistance = RingSettings.RingRadius + RingSettings.RingThickness;
+			const float HalfWidth = RingSettings.RingWidth / 2.0f;
+
+			// Spatial Hash로 원통을 포함하는 OBB 내 후보만 추출 - O(1)
+			TArray<int32> CandidateIndices;
+			if (DebugSpatialHash.IsBuilt())
+			{
+				// Ring 회전을 반영한 OBB 쿼리
+				FTransform RingLocalToComponent;
+				RingLocalToComponent.SetLocation(RingCenter);
+				RingLocalToComponent.SetRotation(WorldRingRotation);
+				RingLocalToComponent.SetScale3D(FVector::OneVector);
+
+				const FVector LocalMin(-MaxDistance, -MaxDistance, -HalfWidth);
+				const FVector LocalMax(MaxDistance, MaxDistance, HalfWidth);
+				DebugSpatialHash.QueryOBB(RingLocalToComponent, LocalMin, LocalMax, CandidateIndices);
+			}
+			else
+			{
+				// 폴백: 전체 순회
+				CandidateIndices.Reserve(DebugBindPoseVertices.Num());
+				for (int32 i = 0; i < DebugBindPoseVertices.Num(); ++i)
+				{
+					CandidateIndices.Add(i);
+				}
+			}
+
+			for (int32 VertexIdx : CandidateIndices)
+			{
+				const FVector VertexPos = FVector(DebugBindPoseVertices[VertexIdx]);
+				const FVector ToVertex = VertexPos - RingCenter;
+				const float AxisDistance = FVector::DotProduct(ToVertex, RingAxis);
+				const FVector RadialVec = ToVertex - RingAxis * AxisDistance;
+				const float RadialDistance = RadialVec.Size();
+
+				if (RadialDistance <= MaxDistance && FMath::Abs(AxisDistance) <= HalfWidth)
+				{
+					const float DistFromRingSurface = FMath::Abs(RadialDistance - RingSettings.RingRadius);
+					const float RadialInfluence = CalcFalloff(DistFromRingSurface, RingSettings.RingThickness, RingSettings.FalloffType);
+					const float AxialInfluence = CalcFalloff(FMath::Abs(AxisDistance), HalfWidth, RingSettings.FalloffType);
+					const float CombinedInfluence = RadialInfluence * AxialInfluence;
+
+					if (CombinedInfluence > KINDA_SMALL_NUMBER)
+					{
+						FAffectedVertex AffectedVert;
+						AffectedVert.VertexIndex = static_cast<uint32>(VertexIdx);
+						AffectedVert.Influence = CombinedInfluence;
+						RingData.Vertices.Add(AffectedVert);
+					}
+				}
+			}
 		}
 
-		UE_LOG(LogFleshRingComponent, Log, TEXT("CacheAffectedVerticesForDebug: Ring[%d] '%s' - %d affected vertices, Mode=%s, Selector=%s"),
+		UE_LOG(LogFleshRingComponent, Verbose, TEXT("CacheAffectedVerticesForDebug: Ring[%d] '%s' - %d affected vertices, Mode=%s"),
 			RingIdx, *RingSettings.BoneName.ToString(), RingData.Vertices.Num(),
-			InfluenceModeStr,
-			bUseSDFForThisRing ? TEXT("SDFBounds") : TEXT("Distance"));
+			bUseSDFForThisRing ? TEXT("SDF") : TEXT("Manual"));
 	}
 
 	bDebugAffectedVerticesCached = true;
 
-	UE_LOG(LogFleshRingComponent, Log, TEXT("CacheAffectedVerticesForDebug: Cached %d rings, %d total vertices"),
+	UE_LOG(LogFleshRingComponent, Verbose, TEXT("CacheAffectedVerticesForDebug: Cached %d rings, %d total vertices"),
 		DebugAffectedData.Num(), DebugBindPoseVertices.Num());
 }
 
@@ -2131,6 +2236,7 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 		float RingRadius;
 		int32 DetectedDirection = 0;
 		bool bUseLocalSpace = false;  // Manual 모드는 Component Space 직접 사용
+		FQuat ManualRingRotation = FQuat::Identity;  // Manual 모드 OBB 쿼리용
 
 		const FRingSDFCache* SDFCache = GetRingSDFCache(RingIdx);
 		const bool bHasValidSDF = SDFCache && SDFCache->IsValid();
@@ -2182,6 +2288,7 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 			// RingAxis = Bone Rotation * RingRotation의 Z축
 			const FQuat WorldRingRotation = BoneRotation * RingSettings.RingRotation;
 			RingAxis = FVector3f(WorldRingRotation.RotateVector(FVector::ZAxisVector));
+			ManualRingRotation = WorldRingRotation;  // OBB 쿼리용 저장
 
 			// Ring 크기는 직접 사용
 			RingWidth = RingSettings.RingWidth;
@@ -2222,8 +2329,47 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 
 		BulgeData.RingCenter = FVector(RingCenter);
 
-		// 모든 버텍스 순회
-		for (int32 VertIdx = 0; VertIdx < DebugBindPoseVertices.Num(); ++VertIdx)
+		// Spatial Hash로 후보 버텍스만 추출 - O(1)
+		TArray<int32> CandidateIndices;
+		if (DebugSpatialHash.IsBuilt())
+		{
+			if (bUseLocalSpace)
+			{
+				// SDF 모드: OBB 쿼리 (Bulge 영역 확장 고려)
+				const FVector3f& BoundsMin = SDFCache->BoundsMin;
+				const FVector3f& BoundsMax = SDFCache->BoundsMax;
+				// Bulge 영역은 축 방향으로 확장됨 (AxialLimit)
+				const float AxialExtend = AxialLimit - BulgeStartDist;
+				FVector ExpandedMin = FVector(BoundsMin) - FVector(0, 0, AxialExtend);
+				FVector ExpandedMax = FVector(BoundsMax) + FVector(0, 0, AxialExtend);
+				DebugSpatialHash.QueryOBB(LocalToComponent, ExpandedMin, ExpandedMax, CandidateIndices);
+			}
+			else
+			{
+				// Manual 모드: OBB 쿼리 (Ring 회전 반영, Bulge 영역 포함)
+				FTransform RingLocalToComponent;
+				RingLocalToComponent.SetLocation(FVector(RingCenter));
+				RingLocalToComponent.SetRotation(ManualRingRotation);
+				RingLocalToComponent.SetScale3D(FVector::OneVector);
+
+				const float MaxExtent = FMath::Max(RadialLimit * 1.5f, AxialLimit);
+				const FVector LocalMin(-MaxExtent, -MaxExtent, -AxialLimit);
+				const FVector LocalMax(MaxExtent, MaxExtent, AxialLimit);
+				DebugSpatialHash.QueryOBB(RingLocalToComponent, LocalMin, LocalMax, CandidateIndices);
+			}
+		}
+		else
+		{
+			// 폴백: 전체 순회
+			CandidateIndices.Reserve(DebugBindPoseVertices.Num());
+			for (int32 i = 0; i < DebugBindPoseVertices.Num(); ++i)
+			{
+				CandidateIndices.Add(i);
+			}
+		}
+
+		// 후보 버텍스만 순회
+		for (int32 VertIdx : CandidateIndices)
 		{
 			FVector CompSpacePos = FVector(DebugBindPoseVertices[VertIdx]);
 			FVector3f VertexPos;

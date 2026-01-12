@@ -42,6 +42,20 @@ public:
 	 */
 	void InvalidateTightnessCache(int32 DirtyRingIndex = INDEX_NONE);
 
+	/**
+	 * 디버그용: LOD별 AffectedVertices 데이터 반환
+	 * @param LODIndex - LOD 인덱스 (0 = 최고 품질)
+	 * @return 해당 LOD의 Ring별 Affected 데이터 배열, 없으면 nullptr
+	 */
+	const TArray<FRingAffectedData>* GetAffectedRingDataForDebug(int32 LODIndex = 0) const
+	{
+		if (LODData.IsValidIndex(LODIndex) && LODData[LODIndex].bAffectedVerticesRegistered)
+		{
+			return &LODData[LODIndex].AffectedVerticesManager.GetAllRingData();
+		}
+		return nullptr;
+	}
+
 #if WITH_EDITORONLY_DATA
 	virtual bool RequestReadbackDeformerGeometry(TUniquePtr<FMeshDeformerGeometryReadbackRequest> InRequest) override { return false; }
 #endif
