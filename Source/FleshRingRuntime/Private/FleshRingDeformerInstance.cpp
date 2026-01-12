@@ -407,17 +407,17 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIndex))
 		{
 			const FFleshRingSettings& Settings = (*RingSettingsPtr)[RingIndex];
-			// bEnablePostProcess가 false면 모든 후처리 비활성화
-			DispatchData.bEnableRadialSmoothing = Settings.bEnablePostProcess && Settings.bEnableRadialSmoothing;
+			// bEnablePostProcess/bEnableSmoothing가 false면 모든 스무딩 비활성화
+			DispatchData.bEnableRadialSmoothing = Settings.bEnablePostProcess && Settings.bEnableSmoothing && Settings.bEnableRadialSmoothing;
 		}
 
 		// Ring별 Laplacian/Taubin Smoothing 설정 복사
 		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIndex))
 		{
 			const FFleshRingSettings& Settings = (*RingSettingsPtr)[RingIndex];
-			// bEnablePostProcess가 false면 모든 후처리 비활성화
-			DispatchData.bEnableLaplacianSmoothing = Settings.bEnablePostProcess && Settings.bEnableLaplacianSmoothing;
-			DispatchData.bUseTaubinSmoothing = Settings.bUseTaubinSmoothing;
+			// bEnablePostProcess/bEnableSmoothing가 false면 모든 스무딩 비활성화
+			DispatchData.bEnableLaplacianSmoothing = Settings.bEnablePostProcess && Settings.bEnableSmoothing && Settings.bEnableLaplacianSmoothing;
+			DispatchData.bUseTaubinSmoothing = (Settings.LaplacianSmoothingType == ELaplacianSmoothingType::Taubin);
 			DispatchData.SmoothingLambda = Settings.SmoothingLambda;
 			DispatchData.TaubinMu = Settings.TaubinMu;
 			DispatchData.SmoothingIterations = Settings.SmoothingIterations;

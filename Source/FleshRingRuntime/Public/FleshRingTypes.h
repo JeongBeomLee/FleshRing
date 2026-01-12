@@ -95,6 +95,17 @@ enum class ESmoothingVolumeMode : uint8
 	HopBased		UMETA(DisplayName = "Hop-Based (Topology)")
 };
 
+/** Laplacian 스무딩 알고리즘 타입 */
+UENUM(BlueprintType)
+enum class ELaplacianSmoothingType : uint8
+{
+	/** 일반 Laplacian (반복 시 수축 발생) */
+	Laplacian	UMETA(DisplayName = "Laplacian"),
+
+	/** Taubin λ-μ 스무딩 (수축 방지) */
+	Taubin		UMETA(DisplayName = "Taubin (No Shrink)")
+};
+
 /** Bulge 방향 모드 */
 UENUM(BlueprintType)
 enum class EBulgeDirectionMode : uint8
@@ -492,47 +503,53 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::BoundsExpand", EditConditionHides, ClampMin = "0.0", ClampMax = "50.0", DisplayName = "Bounds Expand Bottom (cm)"))
 	float SmoothingBoundsZBottom = 0.0f;
 
+	// ===== Smoothing (스무딩 전체 제어) =====
+
+	/** 스무딩 활성화 (Radial, Laplacian/Taubin 모든 스무딩 제어) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess"))
+	bool bEnableSmoothing = true;
+
 	// ===== Radial Smoothing (반경 균일화) =====
 
 	/** 반경 균일화 스무딩 활성화 (같은 높이의 버텍스들이 동일한 반경을 갖도록) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing", EditConditionHides))
 	bool bEnableRadialSmoothing = true;
 
 	// ===== Laplacian/Taubin Smoothing 설정 =====
 
 	/** Laplacian 스무딩 활성화 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing", EditConditionHides))
 	bool bEnableLaplacianSmoothing = true;
 
 	/**
-	 * Taubin 스무딩 사용 (수축 방지)
-	 * - true: Taubin λ-μ 스무딩 (수축 없이 부드럽게, 권장)
-	 * - false: 일반 Laplacian 스무딩 (반복 시 수축 발생)
+	 * Laplacian 스무딩 알고리즘 선택
+	 * - Laplacian: 일반 Laplacian (반복 시 수축 발생)
+	 * - Taubin: λ-μ 스무딩 (수축 없이 부드럽게, 권장)
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableLaplacianSmoothing"))
-	bool bUseTaubinSmoothing = true;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides))
+	ELaplacianSmoothingType LaplacianSmoothingType = ELaplacianSmoothingType::Taubin;
 
 	/**
 	 * 스무딩 강도 λ (Taubin: 수축 단계 강도)
 	 * 권장: 0.3~0.7, 기본값 0.5
 	 * 경고: 0.8 초과 시 수치 불안정 (비늘 현상)
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableLaplacianSmoothing", ClampMin = "0.1", ClampMax = "0.8", UIMin = "0.1", UIMax = "0.8"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides, ClampMin = "0.1", ClampMax = "0.8", UIMin = "0.1", UIMax = "0.8"))
 	float SmoothingLambda = 0.5f;
 
 	/**
 	 * Taubin 팽창 강도 μ (음수값)
 	 * 조건: |μ| > λ, 0이면 자동 계산
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableLaplacianSmoothing && bUseTaubinSmoothing", ClampMin = "-1.0", ClampMax = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing && LaplacianSmoothingType == ELaplacianSmoothingType::Taubin", EditConditionHides, ClampMin = "-1.0", ClampMax = "0.0"))
 	float TaubinMu = -0.53f;
 
 	/** 스무딩 반복 횟수 (Taubin: 각 반복 = λ+μ 2패스) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableLaplacianSmoothing", ClampMin = "1", ClampMax = "10"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides, ClampMin = "1", ClampMax = "10"))
 	int32 SmoothingIterations = 2;
 
 	/** 볼륨 보존 (일반 Laplacian 전용, Taubin 시 무시) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableLaplacianSmoothing && !bUseTaubinSmoothing", ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing && LaplacianSmoothingType == ELaplacianSmoothingType::Laplacian", EditConditionHides, ClampMin = "0.0", ClampMax = "1.0"))
 	float VolumePreservation = 0.3f;
 
 	// ===== PBD Edge Constraint 설정 =====
@@ -546,15 +563,15 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	bool bEnablePBDEdgeConstraint = false;
 
 	/** PBD 제약 강도 (0.0 ~ 1.0), 권장: 0.5 ~ 0.9 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", EditConditionHides, ClampMin = "0.0", ClampMax = "1.0"))
 	float PBDStiffness = 0.8f;
 
 	/** PBD 반복 횟수, 권장: 3 ~ 10 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", ClampMin = "1", ClampMax = "20"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", EditConditionHides, ClampMin = "1", ClampMax = "20"))
 	int32 PBDIterations = 5;
 
 	/** 변형량 기반 가중치 사용 (true: DeformAmount 기반, false: Influence 기반) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", EditConditionHides))
 	bool bPBDUseDeformAmountWeight = true;
 
 	FFleshRingSettings()
@@ -587,9 +604,10 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		, PostHopLaplacianLambda(0.3f)
 		, SmoothingBoundsZTop(5.0f)
 		, SmoothingBoundsZBottom(0.0f)
+		, bEnableSmoothing(true)
 		, bEnableRadialSmoothing(true)
 		, bEnableLaplacianSmoothing(true)
-		, bUseTaubinSmoothing(true)
+		, LaplacianSmoothingType(ELaplacianSmoothingType::Taubin)
 		, SmoothingLambda(0.5f)
 		, TaubinMu(-0.53f)
 		, SmoothingIterations(2)
