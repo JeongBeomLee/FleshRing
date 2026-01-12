@@ -516,25 +516,43 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				// 본 위치는 링 메시 중심과 다를 수 있음 (MeshOffset 등)
 				DispatchData.SDFLocalRingCenter = (SDFCache->BoundsMin + SDFCache->BoundsMax) * 0.5f;
 
-				// Ring Axis: SDF 바운드에서 가장 짧은 축 = 링 구멍 방향
-				// GPU Depot 버전과 동일한 로직 (본 기반 대신 메시 형상 기반)
-				if (SDFExtent.Z < SDFExtent.X && SDFExtent.Z < SDFExtent.Y)
-					DispatchData.SDFLocalRingAxis = FVector3f(0, 0, 1);
-				else if (SDFExtent.Y < SDFExtent.X)
-					DispatchData.SDFLocalRingAxis = FVector3f(0, 1, 0);
-				else
-					DispatchData.SDFLocalRingAxis = FVector3f(1, 0, 0);
+				// Ring Axis: SDF Local Space에서 링 메시의 구멍 방향
+				// SDF Local = 링 메시의 로컬 좌표계이므로, 회전과 무관하게 항상 동일한 축
+				// 링 메시 제작 시 Z축이 구멍 방향이 되도록 표준화되어 있다고 가정
+				// (만약 링 메시가 다른 방향으로 제작되었다면, 해당 축으로 변경 필요)
+				// NOTE: 원래 Version이랑 현재 0,0,1로 고정하는 것중에 뭐가 확실한지 검증 필요
+				//if (SDFExtent.Z < SDFExtent.X && SDFExtent.Z < SDFExtent.Y)
+				//	DispatchData.SDFLocalRingAxis = FVector3f(0, 0, 1);
+				//else if (SDFExtent.Y < SDFExtent.X)
+				//	DispatchData.SDFLocalRingAxis = FVector3f(0, 1, 0);
+				//else
+				//	DispatchData.SDFLocalRingAxis = FVector3f(1, 0, 0);
+				DispatchData.SDFLocalRingAxis = FVector3f(0, 0, 1);  // Z축 고정 (메시 로컬)
 
 				// [조건부 로그] 첫 프레임만 출력
 				static bool bLoggedSDFMode = false;
 				if (!bLoggedSDFMode)
 				{
-					UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] SDF Mode (Auto): Bounds=(%.1f,%.1f,%.1f)~(%.1f,%.1f,%.1f), RingCenter=(%.1f,%.1f,%.1f), RingRadius=%.2f"),
+					//// [DEBUG] SDFExtent로 링 메시의 실제 방향 확인
+					UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] SDFExtent=(%.2f, %.2f, %.2f) -> MinAxis=%s"),
 						RingIndex,
-						SDFCache->BoundsMin.X, SDFCache->BoundsMin.Y, SDFCache->BoundsMin.Z,
-						SDFCache->BoundsMax.X, SDFCache->BoundsMax.Y, SDFCache->BoundsMax.Z,
-						DispatchData.Params.RingCenter.X, DispatchData.Params.RingCenter.Y, DispatchData.Params.RingCenter.Z,
-						DispatchData.Params.RingRadius);
+						SDFExtent.X, SDFExtent.Y, SDFExtent.Z,
+						(SDFExtent.Z < SDFExtent.X && SDFExtent.Z < SDFExtent.Y) ? TEXT("Z") :
+						(SDFExtent.Y < SDFExtent.X) ? TEXT("Y") : TEXT("X"));
+
+					// LocalToComponent 회전 확인
+					FQuat Rot = SDFCache->LocalToComponent.GetRotation();
+					FVector Euler = Rot.Euler();
+					UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] LocalToComponent: Rot=(%.1f, %.1f, %.1f)deg, Scale=%s"),
+						RingIndex,
+						Euler.X, Euler.Y, Euler.Z,
+						*SDFCache->LocalToComponent.GetScale3D().ToString());
+
+					UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] SDFLocalRingAxis=(%.2f, %.2f, %.2f), SDFLocalRingCenter=(%.1f, %.1f, %.1f)"),
+						RingIndex,
+						DispatchData.SDFLocalRingAxis.X, DispatchData.SDFLocalRingAxis.Y, DispatchData.SDFLocalRingAxis.Z,
+						DispatchData.SDFLocalRingCenter.X, DispatchData.SDFLocalRingCenter.Y, DispatchData.SDFLocalRingCenter.Z);
+
 					bLoggedSDFMode = true;
 				}
 			}

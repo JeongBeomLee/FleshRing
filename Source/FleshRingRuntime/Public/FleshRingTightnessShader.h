@@ -139,6 +139,10 @@ public:
         // BindPos를 로컬로 역변환 후 SDF 샘플링에 사용
         SHADER_PARAMETER(FMatrix44f, ComponentToSDFLocal)
 
+        // SDF 로컬 스페이스 → 컴포넌트 스페이스 변환 행렬
+        // Local 변위를 Component로 변환할 때 사용 (스케일 포함 정확한 역변환)
+        SHADER_PARAMETER(FMatrix44f, SDFLocalToComponent)
+
         // SDF 모드 falloff 거리 (이 거리에서 Influence가 0이 됨)
         // SDF mode falloff distance (Influence becomes 0 at this distance)
         SHADER_PARAMETER(float, SDFInfluenceFalloffDistance)
@@ -310,6 +314,13 @@ struct FTightnessDispatchParams
     FMatrix44f ComponentToSDFLocal;
 
     /**
+     * SDF local space → Component space transform matrix
+     * SDF 로컬 스페이스 → 컴포넌트 스페이스 변환 행렬
+     * Local 변위를 Component로 변환할 때 사용 (스케일 포함 정확한 역변환)
+     */
+    FMatrix44f SDFLocalToComponent;
+
+    /**
      * SDF falloff distance - Influence goes from 1.0 to 0.0 over this distance
      * SDF falloff 거리 - 이 거리에 걸쳐 Influence가 1.0에서 0.0으로 감소
      * Default: 5.0 (Ring 근처에서 부드러운 전환)
@@ -383,6 +394,7 @@ struct FTightnessDispatchParams
         , SDFBoundsMax(FVector3f::ZeroVector)
         , bUseSDFInfluence(0)
         , ComponentToSDFLocal(FMatrix44f::Identity)
+        , SDFLocalToComponent(FMatrix44f::Identity)
         , SDFInfluenceFalloffDistance(5.0f)
         , BoundsZTop(5.0f)
         , BoundsZBottom(0.0f)

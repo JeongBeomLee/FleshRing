@@ -276,8 +276,51 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 
 					// OBB 지원: LocalToComponent의 역변환 계산
 					// 셰이더에서 버텍스(컴포넌트 스페이스)를 로컬 스페이스로 변환할 때 사용
-					FMatrix InverseMatrix = DispatchData.SDFLocalToComponent.Inverse().ToMatrixWithScale();
+					// 주의: FTransform::Inverse()는 비균일 스케일+회전 시 Shear 손실 발생
+					// 해결: FMatrix로 변환 후 FMatrix::Inverse() 사용 (Shear 보존)
+					FMatrix ForwardMatrix = DispatchData.SDFLocalToComponent.ToMatrixWithScale();
+					FMatrix InverseMatrix = ForwardMatrix.Inverse();
 					Params.ComponentToSDFLocal = FMatrix44f(InverseMatrix);
+
+					// Local → Component 변환 행렬 (스케일 포함 정확한 역변환용)
+					Params.SDFLocalToComponent = FMatrix44f(DispatchData.SDFLocalToComponent.ToMatrixWithScale());
+
+					// [DEBUG] 역행렬 검증: M × M^-1 = Identity 확인
+					//{
+					//	FMatrix VerifyIdentity = ForwardMatrix * InverseMatrix;
+					//	float MaxError = 0.0f;
+					//	for (int32 Row = 0; Row < 4; ++Row)
+					//	{
+					//		for (int32 Col = 0; Col < 4; ++Col)
+					//		{
+					//			float Expected = (Row == Col) ? 1.0f : 0.0f;
+					//			float Actual = VerifyIdentity.M[Row][Col];
+					//			MaxError = FMath::Max(MaxError, FMath::Abs(Actual - Expected));
+					//		}
+					//	}
+					//
+					//	bool bLoggedMatrixVerify = false;
+					//	if (!bLoggedMatrixVerify)
+					//	{
+					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX] Inverse Verification - MaxError: %e"), MaxError);
+					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX] ForwardMatrix (SDFLocalToComponent):"));
+					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX]   [%.4f, %.4f, %.4f, %.4f]"), ForwardMatrix.M[0][0], ForwardMatrix.M[0][1], ForwardMatrix.M[0][2], ForwardMatrix.M[0][3]);
+					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX]   [%.4f, %.4f, %.4f, %.4f]"), ForwardMatrix.M[1][0], ForwardMatrix.M[1][1], ForwardMatrix.M[1][2], ForwardMatrix.M[1][3]);
+					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX]   [%.4f, %.4f, %.4f, %.4f]"), ForwardMatrix.M[2][0], ForwardMatrix.M[2][1], ForwardMatrix.M[2][2], ForwardMatrix.M[2][3]);
+					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX]   [%.4f, %.4f, %.4f, %.4f]"), ForwardMatrix.M[3][0], ForwardMatrix.M[3][1], ForwardMatrix.M[3][2], ForwardMatrix.M[3][3]);
+					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX] InverseMatrix (ComponentToSDFLocal):"));
+					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX]   [%.4f, %.4f, %.4f, %.4f]"), InverseMatrix.M[0][0], InverseMatrix.M[0][1], InverseMatrix.M[0][2], InverseMatrix.M[0][3]);
+					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX]   [%.4f, %.4f, %.4f, %.4f]"), InverseMatrix.M[1][0], InverseMatrix.M[1][1], InverseMatrix.M[1][2], InverseMatrix.M[1][3]);
+					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX]   [%.4f, %.4f, %.4f, %.4f]"), InverseMatrix.M[2][0], InverseMatrix.M[2][1], InverseMatrix.M[2][2], InverseMatrix.M[2][3]);
+					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX]   [%.4f, %.4f, %.4f, %.4f]"), InverseMatrix.M[3][0], InverseMatrix.M[3][1], InverseMatrix.M[3][2], InverseMatrix.M[3][3]);
+					//
+					//		if (MaxError > 1e-5f)
+					//		{
+					//			UE_LOG(LogFleshRingWorker, Warning, TEXT("[MATRIX] WARNING: Large inverse error detected!"));
+					//		}
+					//		bLoggedMatrixVerify = true;
+					//	}
+					//}
 
 					// Ring Center/Axis (SDF Local Space) - 바운드 확장 시에도 정확한 위치 전달
 					Params.SDFLocalRingCenter = DispatchData.SDFLocalRingCenter;
@@ -380,6 +423,10 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				if (DispatchData.bHasValidSDF && DispatchData.SDFPooledTexture.IsValid())
 				{
 					RingSDFTextureRDG = GraphBuilder.RegisterExternalTexture(DispatchData.SDFPooledTexture);
+					// TODO: Tight에서 행렬 변환 잘 되어서 들어가게 되면 Bulge도 밑 코드로 교체!
+					// FTransform::Inverse() 대신 FMatrix::Inverse() 사용 (비균일 스케일+회전 시 Shear 보존)
+					//FMatrix ForwardMatrix = DispatchData.SDFLocalToComponent.ToMatrixWithScale();
+					//FMatrix InverseMatrix = ForwardMatrix.Inverse();
 					FMatrix InverseMatrix = DispatchData.SDFLocalToComponent.Inverse().ToMatrixWithScale();
 					RingComponentToSDFLocal = FMatrix44f(InverseMatrix);
 				}

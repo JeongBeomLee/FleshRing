@@ -61,6 +61,7 @@ float3 SDFBoundsMin;
 float3 SDFBoundsMax;
 uint bUseSDFInfluence;              // 0 = Manual, 1 = SDF
 float4x4 ComponentToSDFLocal;       // Component → SDF Local (row vector 곱셈 사용)
+float4x4 SDFLocalToComponent;       // SDF Local → Component (스케일 포함 정확한 역변환)
 
 // Ring Center/Axis (SDF Local Space) - 바운드 확장 시에도 정확한 위치 전달
 float3 SDFLocalRingCenter;
@@ -253,7 +254,7 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
     float3 LocalPos = mul(float4(BindPos, 1.0), ComponentToSDFLocal).xyz;
     float3 BoundsSize = SDFBoundsMax - SDFBoundsMin;
 
-    // CPU에서 전달받은 Ring Center/Axis
+    // CPU에서 전달받은 Ring Center/Axis (SDF Local Space)
     float3 LocalRingCenter = SDFLocalRingCenter;
     float3 LocalRingAxis = SDFLocalRingAxis;
 
@@ -280,10 +281,22 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
 
         if (!bHit)
         {
-            // Ray가 바운드를 빗나감 → 변형 포기
-            return Pos;
-        }
+            // Fallback: 방사형 방향이 빗나가면 바운드 중심 방향으로 재시도
+            // 회전된 Ring의 경우, 정점이 Z 범위 밖에 있으면 순수 방사형(XY) 방향이 AABB를 못 맞춤
+            // 바운드 중심 방향은 Z 성분을 포함하므로 항상 AABB와 교차
+            float3 boundsCenter = (SDFBoundsMin + SDFBoundsMax) * 0.5;
+            float3 fallbackDir = normalize(boundsCenter - LocalPos);
+            bHit = RayAABBIntersection(LocalPos, fallbackDir, SDFBoundsMin, SDFBoundsMax, EntryPoint);
 
+            if (!bHit)
+            {
+                // 그래도 실패 → 변형 포기
+                return Pos;
+            }
+            // Fallback 성공 시 inwardDir 업데이트 (레이마칭에서 사용)
+            inwardDir = fallbackDir;
+        }
+        // EntryPoint 찾았으면 레이마칭 시작점으로 삼기
         RaymarchStart = EntryPoint;
     }
     else
@@ -294,15 +307,29 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
 
     // STEP 4: 시작점의 SDF 체크 (이미 내부면 패스)
     float3 StartUV = (RaymarchStart - SDFBoundsMin) / BoundsSize;
+    // SDF 샘플링 값 구하기
     float StartDist = SDFTexture.SampleLevel(SDFSampler, saturate(StartUV), 0).r;
     if (StartDist <= 0.0)
     {
         // 이미 SDF 내부 → 변형 불필요 (또는 진입점이 이미 표면)
-        if (bOutsideBounds)
+        if (bOutsideBounds)  
         {
             // 바운드 외부였는데 진입점이 이미 내부 = 진입점까지만 이동
             float3 DisplacementLocal = RaymarchStart - LocalPos;
-            float3 DisplacementComponent = mul(DisplacementLocal, (float3x3)transpose(ComponentToSDFLocal));
+
+            // SDF Local → Component Space 변환
+            // [기존 방식 - 주석 처리: transpose + 스케일 보정은 Shear 미대응]
+            // float3 DisplacementComponent = mul(DisplacementLocal, (float3x3)transpose(ComponentToSDFLocal));
+            // float3 invScaleSq = float3(
+            //     dot(ComponentToSDFLocal[0].xyz, ComponentToSDFLocal[0].xyz),
+            //     dot(ComponentToSDFLocal[1].xyz, ComponentToSDFLocal[1].xyz),
+            //     dot(ComponentToSDFLocal[2].xyz, ComponentToSDFLocal[2].xyz)
+            // );
+            // DisplacementComponent /= max(invScaleSq, 0.0001);
+
+            // [신규 방식] SDFLocalToComponent 직접 사용 (C++에서 FMatrix::Inverse로 정확한 역행렬 전달)
+            float3 DisplacementComponent = mul(DisplacementLocal, (float3x3)SDFLocalToComponent);
+
             return Pos + DisplacementComponent * Strength;
         }
         return Pos;
@@ -320,13 +347,16 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
 
     // 방사형 레이마칭: 축을 향해 이동하며 구멍(SDF < 0) 찾기
     // Gradient 방식 대신 방사형 사용 이유: 링 바깥면에 붙는 현상 방지
+    bool bEnteredBounds = false;  // 바운드 진입 여부 추적
     for (int i = 0; i < 47; i++)
     {
-        float3 CurUV = saturate((CurrentPos - SDFBoundsMin) / BoundsSize);
-        float CurDist = SDFTexture.SampleLevel(SDFSampler, CurUV, 0).r;
+        float3 CurUV = (CurrentPos - SDFBoundsMin) / BoundsSize;
+        bool bInsideBounds = all(CurUV >= 0.0) && all(CurUV <= 1.0);
 
-        if (CurDist < 0.0)
-            break;
+        if (bInsideBounds)
+            bEnteredBounds = true;
+        else if (bEnteredBounds)
+            break;  // 바운드 안에 있다가 밖으로 나감 = 관통, 멈춤
 
         // 방사형 방향 재계산 (현재 위치 기준)
         float3 curFromCenter = CurrentPos - LocalRingCenter;
@@ -340,10 +370,22 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
         float3 dir = -curOutwardRadial / curRadialLen;
         lastDir = dir;
 
-        // omega ∈ [1, 2): over-relaxation factor로 수렴 속도 향상
-        // Reference: Keinert et al. 2014, Bálint & Valasek 2018
-        // Over-relaxation (omega=1.3)으로 수렴 가속
-        CurrentPos += dir * CurDist * 1.3;
+        // 바운드 밖이면 SDF 샘플링 건너뛰고 방향만 진행
+        if (!bInsideBounds)
+        {
+            CurrentPos += dir * epsilon * 2.0;  // 고정 스텝으로 바운드 쪽으로 이동
+            continue;
+        }
+
+        float CurDist = SDFTexture.SampleLevel(SDFSampler, CurUV, 0).r;
+
+        // 링 구멍안으로 들어오면 더 이상 전진하지 않는다.
+        if (CurDist < 0.0)
+            break;
+
+        // SDF 거리가 작으면 스텝 크기 줄여서 구멍 관통 방지
+        float stepScale = (CurDist < 1.0) ? 1.0 : 1.3;
+        CurrentPos += dir * CurDist * stepScale;
     }
 
     // STEP 7: 사후 검증
@@ -362,12 +404,44 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
     // STEP 8: 변위 계산 및 적용
     float3 DisplacementLocal = CurrentPos - LocalPos;
 
+    // 안전 검증: 변위 방향이 안쪽(inward)인지 확인
+    float dispLen = length(DisplacementLocal);
+    if (dispLen > 0.001)
+    {
+        float3 dispDir = DisplacementLocal / dispLen;
+        float alignment = dot(dispDir, inwardDir);  // 시작 시점의 inward 방향과 비교
+
+        // 변위가 바깥쪽(outward)이면 잘못된 것 → 변형 포기
+        if (alignment < 0.0)
+            return Pos;
+
+        // 이동 거리 제한: 초기 radialLen의 90%까지만 허용 (링 중심 통과 방지)
+        float maxDispLen = radialLen * 0.9;
+        if (dispLen > maxDispLen)
+        {
+            DisplacementLocal = dispDir * maxDispLen;
+        }
+    }
+
     // Z축 변위 제한 (링 위/아래 버텍스가 구멍으로 들어가는 것 방지)
     if (abs(DisplacementLocal.z) > BoundsSize.z * 0.5)
         return Pos;
 
-    // Local → Component 변환 (transpose = 역행렬)
-    float3 DisplacementComponent = mul(DisplacementLocal, (float3x3)transpose(ComponentToSDFLocal));
+    // SDF Local → Component Space 변환
+    // [기존 방식 - 주석 처리: transpose + 스케일 보정은 Shear 미대응]
+    // transpose(ComponentToSDFLocal)은 R × S^-1 (스케일 역수 적용됨)
+    // 올바른 변환(R × S)을 위해 S^2 보정 필요
+    // float3 DisplacementComponent = mul(DisplacementLocal, (float3x3)transpose(ComponentToSDFLocal));
+    // float3 invScaleSq = float3(
+    //     dot(ComponentToSDFLocal[0].xyz, ComponentToSDFLocal[0].xyz),
+    //     dot(ComponentToSDFLocal[1].xyz, ComponentToSDFLocal[1].xyz),
+    //     dot(ComponentToSDFLocal[2].xyz, ComponentToSDFLocal[2].xyz)
+    // );
+    // DisplacementComponent /= max(invScaleSq, 0.0001);
+
+    // [신규 방식] SDFLocalToComponent 직접 사용 (C++에서 FMatrix::Inverse로 정확한 역행렬 전달)
+    float3 DisplacementComponent = mul(DisplacementLocal, (float3x3)SDFLocalToComponent);
+
     return Pos + DisplacementComponent * Strength;
 }
 

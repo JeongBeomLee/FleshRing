@@ -786,6 +786,14 @@ void UFleshRingComponent::UpdateRingTransforms()
 		if (RingSDFCaches.IsValidIndex(RingIndex))
 		{
 			RingSDFCaches[RingIndex].LocalToComponent = LocalToComponentTransform;
+
+			//// [DEBUG] MeshRotation 업데이트 확인
+			//FQuat FinalRot = LocalToComponentTransform.GetRotation();
+			//UE_LOG(LogFleshRingComponent, Log, TEXT("[DEBUG] UpdateRingTransforms Ring[%d]: MeshRot=(%f,%f,%f,%f), FinalRot=(%f,%f,%f,%f) [Component=%p]"),
+			//	RingIndex,
+			//	Ring.MeshRotation.X, Ring.MeshRotation.Y, Ring.MeshRotation.Z, Ring.MeshRotation.W,
+			//	FinalRot.X, FinalRot.Y, FinalRot.Z, FinalRot.W,
+			//	this);
 		}
 
 		// 2. Ring 메시 컴포넌트의 트랜스폼 업데이트
