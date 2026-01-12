@@ -797,6 +797,8 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 
 	TSharedPtr<IPropertyHandle> bEnableSmoothingHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableSmoothing));
 	TSharedPtr<IPropertyHandle> bEnableRadialSmoothingHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableRadialSmoothing));
+	TSharedPtr<IPropertyHandle> RadialBlendStrengthHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RadialBlendStrength));
+	TSharedPtr<IPropertyHandle> RadialSliceHeightHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RadialSliceHeight));
 	TSharedPtr<IPropertyHandle> bEnableLaplacianSmoothingHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableLaplacianSmoothing));
 	TSharedPtr<IPropertyHandle> LaplacianSmoothingTypeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, LaplacianSmoothingType));
 	TSharedPtr<IPropertyHandle> SmoothingLambdaHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingLambda));
@@ -823,6 +825,8 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnablePostProcess));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableSmoothing));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableRadialSmoothing));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RadialBlendStrength));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RadialSliceHeight));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableLaplacianSmoothing));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, LaplacianSmoothingType));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingLambda));
@@ -1359,6 +1363,14 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	if (bEnableRadialSmoothingHandle.IsValid())
 	{
 		RadialGroup.AddPropertyRow(bEnableRadialSmoothingHandle.ToSharedRef());
+	}
+	if (RadialBlendStrengthHandle.IsValid())
+	{
+		RadialGroup.AddPropertyRow(RadialBlendStrengthHandle.ToSharedRef());
+	}
+	if (RadialSliceHeightHandle.IsValid())
+	{
+		RadialGroup.AddPropertyRow(RadialSliceHeightHandle.ToSharedRef());
 	}
 
 	// ===== Laplacian 서브그룹 =====

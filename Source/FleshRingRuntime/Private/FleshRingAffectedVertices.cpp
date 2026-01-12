@@ -1389,7 +1389,7 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             // Build slice data for bone ratio preservation (Radial Smoothing용)
             // 본 거리 비율 보존용 슬라이스 데이터 빌드
             // GPU 디스패치에서 bEnableRadialSmoothing 체크하므로 여기선 무조건 빌드
-            BuildSliceData(RingData, MeshVertices, 1.0f);
+            BuildSliceData(RingData, MeshVertices, RingSettings.RadialSliceHeight);
 
             // Build hop distance data for topology-based smoothing
             // 홉 기반 스무딩용 확장 영역 데이터 빌드
@@ -2560,10 +2560,12 @@ void FFleshRingAffectedVerticesManager::BuildSliceData(
         const int32 BucketIdx = FMath::FloorToInt(RingData.AxisHeights[AffIdx] / BucketSize);
 
         // 인접 버킷(±1) 포함하여 버텍스 수집
+        // 순서: 현재 버킷(0) 우선 → 오버플로우 시에도 자신의 슬라이스 버텍스 보장
         TArray<int32> AdjacentVertices;
         AdjacentVertices.Reserve(FRingAffectedData::MAX_SLICE_VERTICES);
 
-        for (int32 Delta = -1; Delta <= 1; ++Delta)
+        static const int32 BucketDeltas[] = {0, -1, 1};
+        for (int32 Delta : BucketDeltas)
         {
             const int32 NeighborBucket = BucketIdx + Delta;
             if (const TArray<int32>* NeighborVertices = BucketToVertices.Find(NeighborBucket))

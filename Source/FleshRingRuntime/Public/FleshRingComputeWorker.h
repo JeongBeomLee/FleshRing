@@ -139,6 +139,10 @@ struct FFleshRingWorkItem
 		// ===== Bone Ratio Preserve용 슬라이스 데이터 =====
 		// 반경 균일화 스무딩 활성화 여부
 		bool bEnableRadialSmoothing = true;
+		// 반경 균일화 강도 (0.0 = 효과 없음, 1.0 = 완전 균일화)
+		float RadialBlendStrength = 1.0f;
+		// 반경 균일화 슬라이스 높이 (cm)
+		float RadialSliceHeight = 1.0f;
 		// 원본 본 거리 (바인드 포즈)
 		TArray<float> OriginalBoneDistances;
 		// 축 높이 (가우시안 가중치용)

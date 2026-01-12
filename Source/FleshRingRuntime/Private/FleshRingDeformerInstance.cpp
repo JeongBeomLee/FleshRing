@@ -409,6 +409,8 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			const FFleshRingSettings& Settings = (*RingSettingsPtr)[RingIndex];
 			// bEnablePostProcess/bEnableSmoothing가 false면 모든 스무딩 비활성화
 			DispatchData.bEnableRadialSmoothing = Settings.bEnablePostProcess && Settings.bEnableSmoothing && Settings.bEnableRadialSmoothing;
+			DispatchData.RadialBlendStrength = Settings.RadialBlendStrength;
+			DispatchData.RadialSliceHeight = Settings.RadialSliceHeight;
 		}
 
 		// Ring별 Laplacian/Taubin Smoothing 설정 복사

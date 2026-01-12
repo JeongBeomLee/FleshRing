@@ -515,6 +515,22 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing", EditConditionHides))
 	bool bEnableRadialSmoothing = true;
 
+	/**
+	 * 반경 균일화 강도
+	 * - 0.0: 효과 없음 (원본 유지)
+	 * - 1.0: 완전 균일화 (같은 높이의 버텍스들이 동일한 반경)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableRadialSmoothing", EditConditionHides, ClampMin = "0.0", ClampMax = "1.0"))
+	float RadialBlendStrength = 1.0f;
+
+	/**
+	 * 반경 균일화 슬라이스 높이 (cm)
+	 * - 같은 슬라이스 내 버텍스들이 동일 반경으로 처리됨
+	 * - 고밀도 메시: 작은 값 (0.5cm), 저밀도 메시: 큰 값 (2cm)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableRadialSmoothing", EditConditionHides, ClampMin = "0.1", ClampMax = "10.0"))
+	float RadialSliceHeight = 1.0f;
+
 	// ===== Laplacian/Taubin Smoothing 설정 =====
 
 	/** Laplacian 스무딩 활성화 */

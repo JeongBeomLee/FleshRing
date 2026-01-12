@@ -591,8 +591,8 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				BoneRatioParams.NumTotalVertices = ActualNumVertices;
 				BoneRatioParams.RingAxis = FVector3f(DispatchData.Params.RingAxis);
 				BoneRatioParams.RingCenter = FVector3f(DispatchData.Params.RingCenter);
-				BoneRatioParams.BlendStrength = 1.0f;  // 완전 균일화
-				BoneRatioParams.HeightSigma = 1.0f;    // 1cm sigma (버킷 크기와 동일)
+				BoneRatioParams.BlendStrength = DispatchData.RadialBlendStrength;
+				BoneRatioParams.HeightSigma = DispatchData.RadialSliceHeight;  // 슬라이스 높이와 동일한 시그마
 
 				// BoneRatio 디스패치
 				DispatchFleshRingBoneRatioCS(
