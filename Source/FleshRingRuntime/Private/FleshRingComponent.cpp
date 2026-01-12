@@ -1174,12 +1174,11 @@ void UFleshRingComponent::DrawDebugVisualization()
 
 	// Ring 개수가 변경되면 디버그 리소스 정리 후 재생성
 	// (중간 Ring 삭제 시 인덱스 어긋남 방지)
-	// NOTE: Ring당 전면/후면 2개씩 생성되므로 * 2
-	const int32 ExpectedSlicePlaneCount = NumValidSDFRings * 2;
-	if (DebugSlicePlaneActors.Num() != ExpectedSlicePlaneCount)
+	// NOTE: DebugSlicePlaneActors는 Ring 인덱스 기반 배열이므로 NumRings와 비교
+	if (DebugSlicePlaneActors.Num() != NumRings)
 	{
-		UE_LOG(LogFleshRingComponent, Warning, TEXT("[DEBUG] SlicePlane RECREATE: DebugSlicePlaneActors=%d, Expected=%d (ValidSDFRings=%d)"),
-			DebugSlicePlaneActors.Num(), ExpectedSlicePlaneCount, NumValidSDFRings);
+		UE_LOG(LogFleshRingComponent, Warning, TEXT("[DEBUG] SlicePlane RECREATE: DebugSlicePlaneActors=%d, NumRings=%d"),
+			DebugSlicePlaneActors.Num(), NumRings);
 
 		for (AActor* PlaneActor : DebugSlicePlaneActors)
 		{
@@ -1191,6 +1190,17 @@ void UFleshRingComponent::DrawDebugVisualization()
 		DebugSlicePlaneActors.Empty();
 		DebugSliceRenderTargets.Empty();
 	}
+
+	// 배열 크기를 NumRings로 미리 확보 (Manual 모드 Ring 슬롯도 nullptr로 유지)
+	if (DebugSlicePlaneActors.Num() < NumRings)
+	{
+		DebugSlicePlaneActors.SetNum(NumRings);
+	}
+	if (DebugSliceRenderTargets.Num() < NumRings)
+	{
+		DebugSliceRenderTargets.SetNum(NumRings);
+	}
+
 	if (DebugAffectedData.Num() != NumRings)
 	{
 		bDebugAffectedVerticesCached = false;
@@ -1518,6 +1528,12 @@ void UFleshRingComponent::DrawSDFSlice(int32 RingIndex)
 	const FRingSDFCache* SDFCache = GetRingSDFCache(RingIndex);
 	if (!SDFCache || !SDFCache->IsValid())
 	{
+		// SDF가 무효화된 Ring의 Actor 정리 (Ring Mesh 삭제 시)
+		if (DebugSlicePlaneActors.IsValidIndex(RingIndex) && DebugSlicePlaneActors[RingIndex])
+		{
+			DebugSlicePlaneActors[RingIndex]->Destroy();
+			DebugSlicePlaneActors[RingIndex] = nullptr;
+		}
 		return;
 	}
 
