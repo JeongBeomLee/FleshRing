@@ -744,37 +744,19 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				LaplacianParams.bExcludeStockingFromSmoothing = true;
 
 				// ===== VertexLayerTypes 버퍼 생성 (스타킹 스무딩 제외용) =====
-				const TArray<uint32>& LayerTypesSource = DispatchData.PostProcessingLayerTypes.Num() > 0
-					? DispatchData.PostProcessingLayerTypes
-					: DispatchData.LayerTypes;
-				const TArray<uint32>& LayerIndicesSource = DispatchData.PostProcessingIndices.Num() > 0
-					? DispatchData.PostProcessingIndices
-					: DispatchData.Indices;
-
+				// [최적화] FullMeshLayerTypes 직접 사용 - 축소→확대 변환 제거
+				// 전체 메시 크기 배열이므로 VertexIndex로 직접 조회 가능
 				FRDGBufferRef LaplacianLayerTypesBuffer = nullptr;
-				if (LayerTypesSource.Num() > 0 && LayerIndicesSource.Num() > 0)
+				if (DispatchData.FullMeshLayerTypes.Num() > 0)
 				{
-					TArray<uint32> FullVertexLayerTypes;
-					FullVertexLayerTypes.Init(4, static_cast<int32>(ActualNumVertices));  // 4 = LAYER_UNKNOWN
-
-					const int32 NumLayerEntries = FMath::Min(LayerIndicesSource.Num(), LayerTypesSource.Num());
-					for (int32 i = 0; i < NumLayerEntries; ++i)
-					{
-						const int32 VertIdx = static_cast<int32>(LayerIndicesSource[i]);
-						if (VertIdx >= 0 && VertIdx < static_cast<int32>(ActualNumVertices))
-						{
-							FullVertexLayerTypes[VertIdx] = LayerTypesSource[i];
-						}
-					}
-
 					LaplacianLayerTypesBuffer = GraphBuilder.CreateBuffer(
-						FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), ActualNumVertices),
+						FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), DispatchData.FullMeshLayerTypes.Num()),
 						*FString::Printf(TEXT("FleshRing_LaplacianLayerTypes_Ring%d"), RingIdx)
 					);
 					GraphBuilder.QueueBufferUpload(
 						LaplacianLayerTypesBuffer,
-						FullVertexLayerTypes.GetData(),
-						ActualNumVertices * sizeof(uint32),
+						DispatchData.FullMeshLayerTypes.GetData(),
+						DispatchData.FullMeshLayerTypes.Num() * sizeof(uint32),
 						ERDGInitialDataFlags::None
 					);
 				}
@@ -1164,14 +1146,11 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 						bAnySmoothingEnabled &&
 						!bUseExtendedRegion &&
 						DispatchData.PostProcessingIndices.Num() > 0 &&
-						DispatchData.PostProcessingLayerTypes.Num() > 0;
+						DispatchData.FullMeshLayerTypes.Num() > 0;
 
 					const TArray<uint32>& PPIndices = bUseExtendedRegion
 						? DispatchData.ExtendedSmoothingIndices
 						: (bUsePostProcessingRegion ? DispatchData.PostProcessingIndices : DispatchData.Indices);
-					const TArray<uint32>& PPLayerTypes = bUsePostProcessingRegion
-						? DispatchData.PostProcessingLayerTypes
-						: DispatchData.LayerTypes;
 
 					const uint32 NumAffected = PPIndices.Num();
 					if (NumAffected == 0) continue;
@@ -1188,26 +1167,16 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 						ERDGInitialDataFlags::None
 					);
 
-					// 전체 버텍스 레이어 타입 버퍼 (후처리 버텍스에서 구축)
-					TArray<uint32> FullVertexLayerTypes;
-					FullVertexLayerTypes.SetNumZeroed(static_cast<int32>(ActualNumVertices));
-					for (int32 i = 0; i < static_cast<int32>(NumAffected); ++i)
-					{
-						const int32 VertIdx = static_cast<int32>(PPIndices[i]);
-						if (VertIdx < static_cast<int32>(ActualNumVertices) && i < static_cast<int32>(PPLayerTypes.Num()))
-						{
-							FullVertexLayerTypes[VertIdx] = PPLayerTypes[i];
-						}
-					}
-
+					// [최적화] FullMeshLayerTypes 직접 사용 - 축소→확대 변환 제거
+					// 전체 메시 크기 배열이므로 VertexIndex로 직접 조회 가능
 					FRDGBufferRef VertexLayerTypesBuffer = GraphBuilder.CreateBuffer(
-						FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), ActualNumVertices),
+						FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), DispatchData.FullMeshLayerTypes.Num()),
 						*FString::Printf(TEXT("FleshRing_VertexLayerTypes_Ring%d"), RingIdx)
 					);
 					GraphBuilder.QueueBufferUpload(
 						VertexLayerTypesBuffer,
-						FullVertexLayerTypes.GetData(),
-						ActualNumVertices * sizeof(uint32),
+						DispatchData.FullMeshLayerTypes.GetData(),
+						DispatchData.FullMeshLayerTypes.Num() * sizeof(uint32),
 						ERDGInitialDataFlags::None
 					);
 

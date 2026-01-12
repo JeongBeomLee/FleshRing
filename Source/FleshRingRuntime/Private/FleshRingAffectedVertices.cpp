@@ -504,7 +504,7 @@ void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
 {
     OutRingData.PostProcessingIndices.Reset();
     OutRingData.PostProcessingInfluences.Reset();
-    OutRingData.PostProcessingLayerTypes.Reset();
+    // Note: PostProcessingLayerTypes는 FullMeshLayerTypes로 대체됨 (deprecated/removed)
 
     // ★ 모든 Smoothing이 꺼져있으면 원본 Affected Vertices만 복사
     const bool bAnySmoothingEnabled =
@@ -516,13 +516,11 @@ void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
     {
         OutRingData.PostProcessingIndices.Reserve(AffectedVertices.Num());
         OutRingData.PostProcessingInfluences.Reserve(AffectedVertices.Num());
-        OutRingData.PostProcessingLayerTypes.Reserve(AffectedVertices.Num());
 
         for (const FAffectedVertex& V : AffectedVertices)
         {
             OutRingData.PostProcessingIndices.Add(V.VertexIndex);
             OutRingData.PostProcessingInfluences.Add(1.0f);
-            OutRingData.PostProcessingLayerTypes.Add(static_cast<uint32>(V.LayerType));
         }
 
         UE_LOG(LogFleshRingVertices, Log,
@@ -541,13 +539,11 @@ void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
     {
         OutRingData.PostProcessingIndices.Reserve(AffectedVertices.Num());
         OutRingData.PostProcessingInfluences.Reserve(AffectedVertices.Num());
-        OutRingData.PostProcessingLayerTypes.Reserve(AffectedVertices.Num());
 
         for (const FAffectedVertex& V : AffectedVertices)
         {
             OutRingData.PostProcessingIndices.Add(V.VertexIndex);
             OutRingData.PostProcessingInfluences.Add(1.0f);
-            OutRingData.PostProcessingLayerTypes.Add(static_cast<uint32>(V.LayerType));
         }
 
         UE_LOG(LogFleshRingVertices, Log,
@@ -574,7 +570,6 @@ void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
 
     OutRingData.PostProcessingIndices.Reserve(AllVertices.Num() / 4);
     OutRingData.PostProcessingInfluences.Reserve(AllVertices.Num() / 4);
-    OutRingData.PostProcessingLayerTypes.Reserve(AllVertices.Num() / 4);
 
     int32 CoreCount = 0;
     int32 ExtendedCount = 0;
@@ -617,7 +612,6 @@ void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
 
             OutRingData.PostProcessingIndices.Add(static_cast<uint32>(VertexIdx));
             OutRingData.PostProcessingInfluences.Add(Influence);
-            OutRingData.PostProcessingLayerTypes.Add(static_cast<uint32>(EFleshRingLayerType::Unknown));
         }
     }
 
@@ -802,7 +796,7 @@ void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
 {
     OutRingData.PostProcessingIndices.Reset();
     OutRingData.PostProcessingInfluences.Reset();
-    OutRingData.PostProcessingLayerTypes.Reset();
+    // Note: PostProcessingLayerTypes는 FullMeshLayerTypes로 대체됨 (deprecated/removed)
 
     if (!Context.SDFCache || !Context.SDFCache->IsValid())
     {
@@ -821,13 +815,11 @@ void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
     {
         OutRingData.PostProcessingIndices.Reserve(AffectedVertices.Num());
         OutRingData.PostProcessingInfluences.Reserve(AffectedVertices.Num());
-        OutRingData.PostProcessingLayerTypes.Reserve(AffectedVertices.Num());
 
         for (const FAffectedVertex& V : AffectedVertices)
         {
             OutRingData.PostProcessingIndices.Add(V.VertexIndex);
             OutRingData.PostProcessingInfluences.Add(1.0f);
-            OutRingData.PostProcessingLayerTypes.Add(static_cast<uint32>(V.LayerType));
         }
 
         UE_LOG(LogFleshRingVertices, Log,
@@ -845,13 +837,11 @@ void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
         // 원본 복사
         OutRingData.PostProcessingIndices.Reserve(AffectedVertices.Num());
         OutRingData.PostProcessingInfluences.Reserve(AffectedVertices.Num());
-        OutRingData.PostProcessingLayerTypes.Reserve(AffectedVertices.Num());
 
         for (const FAffectedVertex& V : AffectedVertices)
         {
             OutRingData.PostProcessingIndices.Add(V.VertexIndex);
             OutRingData.PostProcessingInfluences.Add(1.0f);  // 코어 버텍스는 1.0
-            OutRingData.PostProcessingLayerTypes.Add(static_cast<uint32>(V.LayerType));
         }
 
         UE_LOG(LogFleshRingVertices, Log,
@@ -886,7 +876,7 @@ void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
 
     OutRingData.PostProcessingIndices.Reserve(AllVertices.Num() / 4);
     OutRingData.PostProcessingInfluences.Reserve(AllVertices.Num() / 4);
-    OutRingData.PostProcessingLayerTypes.Reserve(AllVertices.Num() / 4);
+    // Note: PostProcessingLayerTypes removed - using FullMeshLayerTypes for GPU direct lookup
 
     int32 CoreCount = 0;
     int32 ExtendedCount = 0;
@@ -928,9 +918,7 @@ void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
             }
 
             OutRingData.PostProcessingInfluences.Add(Influence);
-
-            // Layer type은 OutRingData.Vertices에서 찾거나 Unknown으로 설정
-            OutRingData.PostProcessingLayerTypes.Add(static_cast<uint32>(EFleshRingLayerType::Unknown));
+            // Note: LayerTypes는 FullMeshLayerTypes에서 GPU가 직접 조회
         }
     }
 
@@ -1310,32 +1298,14 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             // SDF 모드: SDF 바운드 기반 Z 확장
             FSDFBoundsBasedVertexSelector* SDFSelector = static_cast<FSDFBoundsBasedVertexSelector*>(RingSelector.Get());
             SDFSelector->SelectPostProcessingVertices(Context, RingData.Vertices, RingData);
-
-            // 후처리 버텍스에 레이어 타입 할당
-            for (int32 PPIdx = 0; PPIdx < RingData.PostProcessingIndices.Num(); ++PPIdx)
-            {
-                const uint32 VertIdx = RingData.PostProcessingIndices[PPIdx];
-                if (VertexLayerTypes.IsValidIndex(static_cast<int32>(VertIdx)))
-                {
-                    RingData.PostProcessingLayerTypes[PPIdx] = static_cast<uint32>(VertexLayerTypes[static_cast<int32>(VertIdx)]);
-                }
-            }
+            // Note: LayerTypes는 FullMeshLayerTypes에서 GPU가 직접 조회
         }
         else
         {
             // Manual 모드: Ring 파라미터 기반 Z 확장
             FDistanceBasedVertexSelector* DistSelector = static_cast<FDistanceBasedVertexSelector*>(RingSelector.Get());
             DistSelector->SelectPostProcessingVertices(Context, RingData.Vertices, RingData);
-
-            // 후처리 버텍스에 레이어 타입 할당
-            for (int32 PPIdx = 0; PPIdx < RingData.PostProcessingIndices.Num(); ++PPIdx)
-            {
-                const uint32 VertIdx = RingData.PostProcessingIndices[PPIdx];
-                if (VertexLayerTypes.IsValidIndex(static_cast<int32>(VertIdx)))
-                {
-                    RingData.PostProcessingLayerTypes[PPIdx] = static_cast<uint32>(VertexLayerTypes[static_cast<int32>(VertIdx)]);
-                }
-            }
+            // Note: LayerTypes는 FullMeshLayerTypes에서 GPU가 직접 조회
         }
 
         // Pack for GPU (convert to flat arrays)
@@ -2137,11 +2107,12 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingLaplacianAdjacencyDat
         const uint32 VertIdx = RingData.PostProcessingIndices[PPIdx];
         const int32 BaseOffset = PPIdx * PACKED_SIZE;
 
-        // Get my layer type
+        // Get my layer type (전역 캐시에서 직접 조회 - Extended와 동일)
+        // [최적화] PostProcessingLayerTypes 대신 전역 캐시 사용
         EFleshRingLayerType MyLayerType = EFleshRingLayerType::Unknown;
-        if (PPIdx < RingData.PostProcessingLayerTypes.Num())
+        if (VertexLayerTypes.IsValidIndex(static_cast<int32>(VertIdx)))
         {
-            MyLayerType = static_cast<EFleshRingLayerType>(RingData.PostProcessingLayerTypes[PPIdx]);
+            MyLayerType = VertexLayerTypes[static_cast<int32>(VertIdx)];
         }
 
         // Get my position key from cache
@@ -2822,13 +2793,19 @@ void FFleshRingAffectedVerticesManager::BuildFullMeshAdjacency(
 // ============================================================================
 // BuildExtendedLaplacianAdjacency - 확장된 스무딩 영역용 인접 데이터 구축
 // ============================================================================
+// [수정] BuildPostProcessingLaplacianAdjacencyData와 동일한 welding 로직 사용
+// 기존: CachedFullAdjacencyMap 사용 (UV welding 안됨)
+// 수정: CachedWeldedNeighborPositions 사용 (UV welding 적용)
+//
+// 핵심: 같은 위치의 모든 버텍스가 동일한 이웃 위치 집합을 사용
+//       -> 동일한 Laplacian 계산 -> 동일한 이동 -> UV seam crack 방지
 
 void FFleshRingAffectedVerticesManager::BuildExtendedLaplacianAdjacency(
     FRingAffectedData& RingData,
-    const TMap<uint32, TArray<uint32>>& FullAdjacencyMap)
+    const TArray<EFleshRingLayerType>& VertexLayerTypes)
 {
     constexpr int32 MAX_NEIGHBORS = 12;
-    constexpr int32 PACKED_SIZE = 1 + MAX_NEIGHBORS;
+    constexpr int32 PACKED_SIZE = 1 + MAX_NEIGHBORS;  // Count + 12 indices = 13
 
     const int32 NumExtended = RingData.ExtendedSmoothingIndices.Num();
     if (NumExtended == 0)
@@ -2837,49 +2814,110 @@ void FFleshRingAffectedVerticesManager::BuildExtendedLaplacianAdjacency(
         return;
     }
 
-    // ExtendedSmoothingIndices의 버텍스 인덱스 → 확장 영역 내 ThreadIndex 매핑
-    TMap<uint32, int32> VertexToExtendedIdx;
-    VertexToExtendedIdx.Reserve(NumExtended);
-    for (int32 ExtIdx = 0; ExtIdx < NumExtended; ++ExtIdx)
+    // ================================================================
+    // Step 1: Build Extended vertex lookup set
+    // 1단계: Extended 버텍스 조회용 Set 빌드
+    // ================================================================
+    TSet<uint32> ExtendedVertexSet;
+    ExtendedVertexSet.Reserve(NumExtended);
+    for (int32 i = 0; i < NumExtended; ++i)
     {
-        VertexToExtendedIdx.Add(RingData.ExtendedSmoothingIndices[ExtIdx], ExtIdx);
+        ExtendedVertexSet.Add(RingData.ExtendedSmoothingIndices[i]);
     }
 
-    // 패킹된 인접 데이터 구축
+    // ================================================================
+    // Step 2: Build adjacency for each extended vertex using cached topology
+    // 2단계: 캐시된 토폴로지를 사용하여 확장 버텍스의 인접 데이터 빌드
+    //
+    // 핵심: CachedWeldedNeighborPositions 사용 (UV duplicate 이웃 병합)
+    // ================================================================
     RingData.ExtendedLaplacianAdjacency.Reset(NumExtended * PACKED_SIZE);
     RingData.ExtendedLaplacianAdjacency.AddZeroed(NumExtended * PACKED_SIZE);
 
+    int32 CrossLayerSkipped = 0;
+
     for (int32 ExtIdx = 0; ExtIdx < NumExtended; ++ExtIdx)
     {
-        const uint32 VertexIdx = RingData.ExtendedSmoothingIndices[ExtIdx];
+        const uint32 VertIdx = RingData.ExtendedSmoothingIndices[ExtIdx];
         const int32 BaseOffset = ExtIdx * PACKED_SIZE;
 
-        const TArray<uint32>* NeighborsPtr = FullAdjacencyMap.Find(VertexIdx);
-        if (!NeighborsPtr)
+        // Get my layer type (Extended는 별도 LayerTypes 배열이 없으므로 전역 사용)
+        EFleshRingLayerType MyLayerType = EFleshRingLayerType::Unknown;
+        if (VertexLayerTypes.IsValidIndex(static_cast<int32>(VertIdx)))
+        {
+            MyLayerType = VertexLayerTypes[static_cast<int32>(VertIdx)];
+        }
+
+        // Get my position key from cache
+        const FIntVector* MyPosKey = CachedVertexToPosition.Find(VertIdx);
+        if (!MyPosKey)
         {
             RingData.ExtendedLaplacianAdjacency[BaseOffset] = 0;
             continue;
         }
 
-        // 확장 영역 내의 이웃만 포함
-        // 중요: 셰이더가 ReadPosition(InputPositions, NeighborIndex)로 사용하므로
-        //       raw VertexIndex를 저장해야 함 (ThreadIndex가 아님!)
-        int32 ValidNeighborCount = 0;
-        for (uint32 NeighborVertIdx : *NeighborsPtr)
+        // Get welded neighbors from cache (UV duplicate들의 이웃 병합됨!)
+        const TSet<FIntVector>* WeldedNeighborPositions = CachedWeldedNeighborPositions.Find(*MyPosKey);
+        if (!WeldedNeighborPositions)
         {
-            if (ValidNeighborCount >= MAX_NEIGHBORS) break;
+            RingData.ExtendedLaplacianAdjacency[BaseOffset] = 0;
+            continue;
+        }
 
-            // 확장 영역에 속하는지만 확인 (존재 여부 체크용)
-            if (VertexToExtendedIdx.Contains(NeighborVertIdx))
+        uint32 NeighborCount = 0;
+        uint32 NeighborIndices[MAX_NEIGHBORS] = {0};
+
+        for (const FIntVector& NeighborPosKey : *WeldedNeighborPositions)
+        {
+            if (NeighborCount >= MAX_NEIGHBORS) break;
+
+            // Get vertices at that position from cache
+            const TArray<uint32>* VerticesAtNeighborPos = CachedPositionToVertices.Find(NeighborPosKey);
+            if (!VerticesAtNeighborPos || VerticesAtNeighborPos->Num() == 0) continue;
+
+            // Extended 영역 버텍스 우선 선택
+            uint32 NeighborIdx = (*VerticesAtNeighborPos)[0];
+            for (uint32 CandidateIdx : *VerticesAtNeighborPos)
             {
-                // raw VertexIndex를 저장 (셰이더가 InputPositions에서 읽을 때 사용)
-                RingData.ExtendedLaplacianAdjacency[BaseOffset + 1 + ValidNeighborCount] = NeighborVertIdx;
-                ++ValidNeighborCount;
+                if (ExtendedVertexSet.Contains(CandidateIdx))
+                {
+                    NeighborIdx = CandidateIdx;
+                    break;
+                }
+            }
+
+            // Layer type filtering
+            EFleshRingLayerType NeighborLayerType = EFleshRingLayerType::Unknown;
+            if (VertexLayerTypes.IsValidIndex(static_cast<int32>(NeighborIdx)))
+            {
+                NeighborLayerType = VertexLayerTypes[static_cast<int32>(NeighborIdx)];
+            }
+
+            const bool bSameLayer = (MyLayerType == NeighborLayerType);
+            const bool bBothUnknown = (MyLayerType == EFleshRingLayerType::Unknown &&
+                                      NeighborLayerType == EFleshRingLayerType::Unknown);
+
+            if (bSameLayer || bBothUnknown)
+            {
+                NeighborIndices[NeighborCount++] = NeighborIdx;
+            }
+            else
+            {
+                CrossLayerSkipped++;
             }
         }
 
-        RingData.ExtendedLaplacianAdjacency[BaseOffset] = static_cast<uint32>(ValidNeighborCount);
+        // Pack: [NeighborCount, N0, N1, ..., N11]
+        RingData.ExtendedLaplacianAdjacency[BaseOffset] = NeighborCount;
+        for (int32 i = 0; i < MAX_NEIGHBORS; ++i)
+        {
+            RingData.ExtendedLaplacianAdjacency[BaseOffset + 1 + i] = NeighborIndices[i];
+        }
     }
+
+    UE_LOG(LogFleshRingVertices, Verbose,
+        TEXT("BuildExtendedLaplacianAdjacency (Welded): %d vertices, %d packed uints, %d cross-layer skipped"),
+        NumExtended, RingData.ExtendedLaplacianAdjacency.Num(), CrossLayerSkipped);
 }
 
 // ============================================================================
@@ -3238,7 +3276,9 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
     }
 
     // ===== Step 4: 확장된 영역의 Laplacian 인접 데이터 구축 (캐시 사용) =====
-    BuildExtendedLaplacianAdjacency(RingData, CachedFullAdjacencyMap);
+    // [수정] CachedFullAdjacencyMap 대신 CachedVertexLayerTypes 전달
+    // BuildExtendedLaplacianAdjacency가 내부적으로 CachedWeldedNeighborPositions 사용
+    BuildExtendedLaplacianAdjacency(RingData, CachedVertexLayerTypes);
 
     // ===== Step 6: 기존 HopBasedInfluences도 업데이트 (기존 Affected 영역용) =====
     // 이건 기존 코드와의 호환성을 위해 유지

@@ -160,14 +160,20 @@ struct FFleshRingWorkItem
 		// 머티리얼 이름에서 자동 감지됨
 		TArray<uint32> LayerTypes;
 
+		// ===== 전체 메시 레이어 타입 (GPU 직접 업로드용) =====
+		// Full mesh vertex layer types - index by VertexIndex directly
+		// 전체 메시 버텍스 레이어 타입 - VertexIndex로 직접 조회 가능
+		// 축소(PostProcessingLayerTypes) → 확대(FullVertexLayerTypes) 변환 불필요
+		TArray<uint32> FullMeshLayerTypes;
+
 		// ===== Z 확장 후처리 버텍스 데이터 =====
 		// [설계]
 		// - Indices/Influences = 원본 SDF AABB → Tightness 변형 대상
 		// - PostProcessing* = 원본 AABB + BoundsZTop/Bottom → 스무딩/침투해결 등
 		// 경계에서 날카로운 크랙 방지를 위해 후처리 패스는 확장된 범위에서 수행
+		// Note: PostProcessingLayerTypes는 FullMeshLayerTypes로 대체됨 (deprecated/removed)
 		TArray<uint32> PostProcessingIndices;
 		TArray<float> PostProcessingInfluences;
-		TArray<uint32> PostProcessingLayerTypes;
 		TArray<uint32> PostProcessingRepresentativeIndices;  // 후처리 버텍스용 UV seam 대표 인덱스
 		TArray<uint32> PostProcessingLaplacianAdjacencyData;  // 후처리 버텍스용 라플라시안 인접 데이터
 		TArray<uint32> PostProcessingPBDAdjacencyWithRestLengths;  // 후처리 버텍스용 PBD 인접 데이터

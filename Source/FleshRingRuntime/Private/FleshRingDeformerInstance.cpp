@@ -322,6 +322,19 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		RingSettingsPtr = &FleshRingComponent->FleshRingAsset->Rings;
 	}
 
+	// ===== 전체 메시 LayerTypes 변환 (한 번만, 모든 Ring 공유) =====
+	// EFleshRingLayerType -> uint32 변환
+	// GPU에서 VertexIndex로 직접 조회 가능한 lookup 테이블
+	TArray<uint32> FullMeshLayerTypes;
+	{
+		const TArray<EFleshRingLayerType>& CachedLayerTypes = CurrentLODData.AffectedVerticesManager.GetCachedVertexLayerTypes();
+		FullMeshLayerTypes.SetNum(CachedLayerTypes.Num());
+		for (int32 i = 0; i < CachedLayerTypes.Num(); ++i)
+		{
+			FullMeshLayerTypes[i] = static_cast<uint32>(CachedLayerTypes[i]);
+		}
+	}
+
 	for (int32 RingIndex = 0; RingIndex < AllRingData.Num(); ++RingIndex)
 	{
 		const FRingAffectedData& RingData = AllRingData[RingIndex];
@@ -345,14 +358,15 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		DispatchData.Indices = RingData.PackedIndices;
 		DispatchData.Influences = RingData.PackedInfluences;
 		DispatchData.LayerTypes = RingData.PackedLayerTypes;
+		DispatchData.FullMeshLayerTypes = FullMeshLayerTypes;  // 전체 메시 LayerTypes (GPU 직접 업로드용)
 		DispatchData.RepresentativeIndices = RingData.RepresentativeIndices;  // UV seam welding용
 
 		// Z 확장 후처리 버텍스 데이터 복사
 		// 설계: Indices = Tightness용 (원본 SDF AABB)
 		//       PostProcessing* = 스무딩/침투해결용 (원본 + BoundsZTop/Bottom)
+		// Note: PostProcessingLayerTypes는 FullMeshLayerTypes로 대체됨 (deprecated)
 		DispatchData.PostProcessingIndices = RingData.PostProcessingIndices;
 		DispatchData.PostProcessingInfluences = RingData.PostProcessingInfluences;
-		DispatchData.PostProcessingLayerTypes = RingData.PostProcessingLayerTypes;
 		DispatchData.PostProcessingRepresentativeIndices = RingData.PostProcessingRepresentativeIndices;  // UV seam welding용
 		DispatchData.PostProcessingLaplacianAdjacencyData = RingData.PostProcessingLaplacianAdjacencyData;
 		DispatchData.PostProcessingPBDAdjacencyWithRestLengths = RingData.PostProcessingPBDAdjacencyWithRestLengths;

@@ -205,11 +205,8 @@ struct FRingAffectedData
      */
     TArray<float> PostProcessingInfluences;
 
-    /**
-     * GPU buffer: Post-processing vertex layer types
-     * GPU 버퍼: 후처리용 버텍스 레이어 타입
-     */
-    TArray<uint32> PostProcessingLayerTypes;
+    // Note: PostProcessingLayerTypes는 CachedVertexLayerTypes/FullMeshLayerTypes로 대체됨 (deprecated/removed)
+    // 전체 메시 크기의 lookup 테이블을 직접 사용하여 축소→확대 변환 제거
 
     /**
      * GPU buffer: Laplacian adjacency data for post-processing vertices
@@ -649,7 +646,7 @@ public:
      *
      * @param Context - Vertex selection context
      * @param AffectedVertices - Already selected affected vertices
-     * @param OutRingData - Output: fills PostProcessingIndices, PostProcessingInfluences, PostProcessingLayerTypes
+     * @param OutRingData - Output: fills PostProcessingIndices, PostProcessingInfluences
      */
     void SelectPostProcessingVertices(
         const FVertexSelectionContext& Context,
@@ -695,7 +692,7 @@ public:
      *
      * @param Context - Vertex selection context with SDF cache
      * @param AffectedVertices - Already selected affected vertices (for quick lookup)
-     * @param OutRingData - Output: fills PostProcessingIndices, PostProcessingInfluences, PostProcessingLayerTypes
+     * @param OutRingData - Output: fills PostProcessingIndices, PostProcessingInfluences
      */
     void SelectPostProcessingVertices(
         const FVertexSelectionContext& Context,
@@ -844,6 +841,14 @@ public:
      * SDFBoundsBasedSelector에서 매 프레임 O(N) 재빌드 방지에 사용
      */
     const TMap<FIntVector, TArray<uint32>>& GetCachedPositionToVertices() const { return CachedPositionToVertices; }
+
+    /**
+     * Get cached vertex layer types for GPU upload
+     * GPU 업로드용 캐시된 버텍스 레이어 타입 반환
+     * Full mesh size array - can be directly uploaded to GPU
+     * 전체 메시 크기 배열 - GPU에 직접 업로드 가능
+     */
+    const TArray<EFleshRingLayerType>& GetCachedVertexLayerTypes() const { return CachedVertexLayerTypes; }
 
 private:
     /**
@@ -1167,12 +1172,16 @@ private:
      * Build Laplacian adjacency for extended smoothing region
      * 확장된 스무딩 영역용 라플라시안 인접 데이터 구축
      *
+     * [수정] BuildPostProcessingLaplacianAdjacencyData와 동일한 welding 로직 사용
+     * 기존: CachedFullAdjacencyMap 사용 (UV welding 안됨)
+     * 수정: CachedWeldedNeighborPositions 사용 (UV welding 적용)
+     *
      * @param RingData - Ring data with ExtendedSmoothingIndices populated
-     * @param FullAdjacencyMap - Full mesh adjacency map
+     * @param VertexLayerTypes - Per-vertex layer types (for same-layer filtering)
      */
     void BuildExtendedLaplacianAdjacency(
         FRingAffectedData& RingData,
-        const TMap<uint32, TArray<uint32>>& FullAdjacencyMap);
+        const TArray<EFleshRingLayerType>& VertexLayerTypes);
 
     /**
      * Build representative indices for UV seam welding
