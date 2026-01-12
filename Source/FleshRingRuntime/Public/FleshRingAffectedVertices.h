@@ -640,6 +640,22 @@ public:
         return TEXT("DistanceBased");
     }
 
+    /**
+     * Select post-processing vertices for Manual mode (Z-extended range)
+     * Manual 모드용 후처리 버텍스 선택 (Z 확장 범위)
+     *
+     * Ring 파라미터(RingCenter, RingAxis, RingWidth) 기반으로 후처리 버텍스 선택.
+     * SDF 없이 Component Space에서 직접 계산.
+     *
+     * @param Context - Vertex selection context
+     * @param AffectedVertices - Already selected affected vertices
+     * @param OutRingData - Output: fills PostProcessingIndices, PostProcessingInfluences, PostProcessingLayerTypes
+     */
+    void SelectPostProcessingVertices(
+        const FVertexSelectionContext& Context,
+        const TArray<FAffectedVertex>& AffectedVertices,
+        FRingAffectedData& OutRingData);
+
 protected:
     float CalculateFalloff(float Distance, float MaxDistance, EFalloffType InFalloffType) const;
 };

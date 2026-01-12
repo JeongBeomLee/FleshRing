@@ -290,6 +290,9 @@ public:
 		return false;
 	}
 
+	/** 하나 이상의 Manual 모드 Ring이 있는지 확인 (SDF 없이도 Deformer 설정 허용) */
+	bool HasAnyManualModeRings() const;
+
 	/** SDF 재생성 (에디터에서 VirtualBand 실시간 갱신용) */
 	void RefreshSDF() { GenerateSDF(); }
 

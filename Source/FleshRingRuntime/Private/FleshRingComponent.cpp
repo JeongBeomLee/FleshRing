@@ -73,6 +73,22 @@ static bool IsSkeletalMeshSkeletonValid(USkeletalMesh* Mesh)
 	return FleshRingUtils::IsSkeletalMeshValid(Mesh, /*bLogWarnings=*/ true);
 }
 
+bool UFleshRingComponent::HasAnyManualModeRings() const
+{
+	if (!FleshRingAsset)
+	{
+		return false;
+	}
+	for (const FFleshRingSettings& RingSettings : FleshRingAsset->Rings)
+	{
+		if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Manual)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 UFleshRingComponent::UFleshRingComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
@@ -91,8 +107,9 @@ void UFleshRingComponent::BeginPlay()
 		GenerateSDF();
 		FlushRenderingCommands();  // SDF 생성 완료 대기
 
-		// 유효한 SDF 캐시가 하나라도 있으면 Deformer 설정 (메시 없는 Ring은 개별 스킵)
-		if (HasAnyValidSDFCaches())
+		// 유효한 SDF 캐시가 있거나 Manual 모드 Ring이 있으면 Deformer 설정
+		// (Auto 모드 SDF 실패는 여전히 개별 스킵, Manual 모드는 SDF 없이 작동)
+		if (HasAnyValidSDFCaches() || HasAnyManualModeRings())
 		{
 			SetupDeformer();
 		}
@@ -734,10 +751,11 @@ void UFleshRingComponent::InitializeForEditorPreview()
 	GenerateSDF();
 	FlushRenderingCommands();
 
-	// 유효한 SDF 캐시가 하나라도 있어야 Deformer 설정 (메시 없는 Ring은 개별 스킵)
-	if (!HasAnyValidSDFCaches())
+	// 유효한 SDF 캐시가 있거나 Manual 모드 Ring이 있어야 Deformer 설정
+	// (Auto 모드 SDF 실패는 여전히 개별 스킵, Manual 모드는 SDF 없이 작동)
+	if (!HasAnyValidSDFCaches() && !HasAnyManualModeRings())
 	{
-		UE_LOG(LogFleshRingComponent, Warning, TEXT("InitializeForEditorPreview: No valid SDF caches, skipping Deformer setup"));
+		UE_LOG(LogFleshRingComponent, Warning, TEXT("InitializeForEditorPreview: No valid SDF caches and no Manual mode rings, skipping Deformer setup"));
 		bEditorPreviewInitialized = true;
 		return;
 	}

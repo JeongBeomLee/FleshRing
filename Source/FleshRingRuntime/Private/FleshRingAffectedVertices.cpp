@@ -495,6 +495,139 @@ float FDistanceBasedVertexSelector::CalculateFalloff(
 }
 
 // ============================================================================
+// SelectPostProcessingVertices - Manual 모드용 후처리 버텍스 선택
+// ============================================================================
+void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
+    const FVertexSelectionContext& Context,
+    const TArray<FAffectedVertex>& AffectedVertices,
+    FRingAffectedData& OutRingData)
+{
+    OutRingData.PostProcessingIndices.Reset();
+    OutRingData.PostProcessingInfluences.Reset();
+    OutRingData.PostProcessingLayerTypes.Reset();
+
+    // ★ 모든 Smoothing이 꺼져있으면 원본 Affected Vertices만 복사
+    const bool bAnySmoothingEnabled =
+        Context.RingSettings.bEnableRadialSmoothing ||
+        Context.RingSettings.bEnableLaplacianSmoothing ||
+        Context.RingSettings.bEnablePBDEdgeConstraint;
+
+    if (!bAnySmoothingEnabled)
+    {
+        OutRingData.PostProcessingIndices.Reserve(AffectedVertices.Num());
+        OutRingData.PostProcessingInfluences.Reserve(AffectedVertices.Num());
+        OutRingData.PostProcessingLayerTypes.Reserve(AffectedVertices.Num());
+
+        for (const FAffectedVertex& V : AffectedVertices)
+        {
+            OutRingData.PostProcessingIndices.Add(V.VertexIndex);
+            OutRingData.PostProcessingInfluences.Add(1.0f);
+            OutRingData.PostProcessingLayerTypes.Add(static_cast<uint32>(V.LayerType));
+        }
+
+        UE_LOG(LogFleshRingVertices, Log,
+            TEXT("PostProcessing (Manual): Smoothing disabled, using %d affected vertices"),
+            OutRingData.PostProcessingIndices.Num());
+        return;
+    }
+
+    const float BoundsZTop = Context.RingSettings.SmoothingBoundsZTop;
+    const float BoundsZBottom = Context.RingSettings.SmoothingBoundsZBottom;
+    const FFleshRingSettings& Ring = Context.RingSettings;
+    const TArray<FVector3f>& AllVertices = Context.AllVertices;
+
+    // Z 확장이 없으면 원본 Affected Vertices를 그대로 사용
+    if (BoundsZTop < 0.01f && BoundsZBottom < 0.01f)
+    {
+        OutRingData.PostProcessingIndices.Reserve(AffectedVertices.Num());
+        OutRingData.PostProcessingInfluences.Reserve(AffectedVertices.Num());
+        OutRingData.PostProcessingLayerTypes.Reserve(AffectedVertices.Num());
+
+        for (const FAffectedVertex& V : AffectedVertices)
+        {
+            OutRingData.PostProcessingIndices.Add(V.VertexIndex);
+            OutRingData.PostProcessingInfluences.Add(1.0f);
+            OutRingData.PostProcessingLayerTypes.Add(static_cast<uint32>(V.LayerType));
+        }
+
+        UE_LOG(LogFleshRingVertices, Log,
+            TEXT("PostProcessing (Manual): No Z extension, using %d affected vertices"),
+            OutRingData.PostProcessingIndices.Num());
+        return;
+    }
+
+    // Manual 모드: Ring 파라미터로 직접 계산 (Component Space)
+    const FQuat BoneRotation = Context.BoneTransform.GetRotation();
+    const FVector WorldRingOffset = BoneRotation.RotateVector(Ring.RingOffset);
+    const FVector RingCenter = Context.BoneTransform.GetLocation() + WorldRingOffset;
+    const FQuat WorldRingRotation = BoneRotation * Ring.RingRotation;
+    const FVector RingAxis = WorldRingRotation.RotateVector(FVector::ZAxisVector);
+
+    const float HalfWidth = Ring.RingWidth / 2.0f;
+    const float MaxRadialDistance = Ring.RingRadius + Ring.RingThickness;
+
+    // Z 확장된 축 방향 범위
+    const float OriginalZMin = -HalfWidth;
+    const float OriginalZMax = HalfWidth;
+    const float ExtendedZMin = OriginalZMin - BoundsZBottom;
+    const float ExtendedZMax = OriginalZMax + BoundsZTop;
+
+    OutRingData.PostProcessingIndices.Reserve(AllVertices.Num() / 4);
+    OutRingData.PostProcessingInfluences.Reserve(AllVertices.Num() / 4);
+    OutRingData.PostProcessingLayerTypes.Reserve(AllVertices.Num() / 4);
+
+    int32 CoreCount = 0;
+    int32 ExtendedCount = 0;
+
+    for (int32 VertexIdx = 0; VertexIdx < AllVertices.Num(); ++VertexIdx)
+    {
+        const FVector VertexPos = FVector(AllVertices[VertexIdx]);
+        const FVector ToVertex = VertexPos - RingCenter;
+        const float AxisDistance = FVector::DotProduct(ToVertex, RingAxis);
+        const FVector RadialVec = ToVertex - RingAxis * AxisDistance;
+        const float RadialDistance = RadialVec.Size();
+
+        // 반경 방향은 원본 범위, 축 방향은 확장 범위
+        if (RadialDistance <= MaxRadialDistance &&
+            AxisDistance >= ExtendedZMin && AxisDistance <= ExtendedZMax)
+        {
+            // Influence 계산: 원본 Z 범위 내 = 1.0, 확장 영역 = falloff
+            float Influence = 1.0f;
+
+            if (AxisDistance < OriginalZMin)
+            {
+                // 하단 확장 영역: 거리에 따라 falloff
+                float Dist = OriginalZMin - AxisDistance;
+                Influence = 1.0f - FMath::Clamp(Dist / BoundsZBottom, 0.0f, 1.0f);
+                Influence = FMath::InterpEaseInOut(0.0f, 1.0f, Influence, 2.0f);
+                ExtendedCount++;
+            }
+            else if (AxisDistance > OriginalZMax)
+            {
+                // 상단 확장 영역: 거리에 따라 falloff
+                float Dist = AxisDistance - OriginalZMax;
+                Influence = 1.0f - FMath::Clamp(Dist / BoundsZTop, 0.0f, 1.0f);
+                Influence = FMath::InterpEaseInOut(0.0f, 1.0f, Influence, 2.0f);
+                ExtendedCount++;
+            }
+            else
+            {
+                CoreCount++;
+            }
+
+            OutRingData.PostProcessingIndices.Add(static_cast<uint32>(VertexIdx));
+            OutRingData.PostProcessingInfluences.Add(Influence);
+            OutRingData.PostProcessingLayerTypes.Add(static_cast<uint32>(EFleshRingLayerType::Unknown));
+        }
+    }
+
+    UE_LOG(LogFleshRingVertices, Log,
+        TEXT("PostProcessing (Manual): Selected %d vertices (Core=%d, ZExtended=%d) for Ring[%d], ZExtend=[%.1f, %.1f]"),
+        OutRingData.PostProcessingIndices.Num(), CoreCount, ExtendedCount,
+        Context.RingIndex, BoundsZBottom, BoundsZTop);
+}
+
+// ============================================================================
 // SDF Bounds-Based Vertex Selector Implementation
 // SDF 바운드 기반 버텍스 선택기 구현
 // ============================================================================
@@ -1169,14 +1302,30 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         // 후처리용 버텍스 선택 (Z 확장 범위)
         // Select post-processing vertices (Z-extended range)
         // ================================================================
-        // SDF 기반 선택기일 때만 Z 확장 범위의 후처리 버텍스 선택
         // 설계:
-        // - Affected Vertices (PackedIndices) = 원본 SDF AABB → Tightness 변형 대상
+        // - Affected Vertices (PackedIndices) = 원본 AABB → Tightness 변형 대상
         // - Post-Processing Vertices = 원본 AABB + SmoothingBoundsZTop/Bottom → 스무딩/침투해결 등
         if (bUseSDFForThisRing)
         {
+            // SDF 모드: SDF 바운드 기반 Z 확장
             FSDFBoundsBasedVertexSelector* SDFSelector = static_cast<FSDFBoundsBasedVertexSelector*>(RingSelector.Get());
             SDFSelector->SelectPostProcessingVertices(Context, RingData.Vertices, RingData);
+
+            // 후처리 버텍스에 레이어 타입 할당
+            for (int32 PPIdx = 0; PPIdx < RingData.PostProcessingIndices.Num(); ++PPIdx)
+            {
+                const uint32 VertIdx = RingData.PostProcessingIndices[PPIdx];
+                if (VertexLayerTypes.IsValidIndex(static_cast<int32>(VertIdx)))
+                {
+                    RingData.PostProcessingLayerTypes[PPIdx] = static_cast<uint32>(VertexLayerTypes[static_cast<int32>(VertIdx)]);
+                }
+            }
+        }
+        else
+        {
+            // Manual 모드: Ring 파라미터 기반 Z 확장
+            FDistanceBasedVertexSelector* DistSelector = static_cast<FDistanceBasedVertexSelector*>(RingSelector.Get());
+            DistSelector->SelectPostProcessingVertices(Context, RingData.Vertices, RingData);
 
             // 후처리 버텍스에 레이어 타입 할당
             for (int32 PPIdx = 0; PPIdx < RingData.PostProcessingIndices.Num(); ++PPIdx)
