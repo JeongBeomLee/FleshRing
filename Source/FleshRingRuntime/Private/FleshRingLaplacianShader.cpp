@@ -29,7 +29,6 @@ void DispatchFleshRingLaplacianCS(
     FRDGBufferRef OutputPositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
-    FRDGBufferRef DeformAmountsBuffer,
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef AdjacencyDataBuffer,
     FRDGBufferRef VertexLayerTypesBuffer)
@@ -49,7 +48,6 @@ void DispatchFleshRingLaplacianCS(
     PassParameters->OutputPositions = GraphBuilder.CreateUAV(OutputPositionsBuffer, PF_R32_FLOAT);
     PassParameters->AffectedIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
     PassParameters->Influences = GraphBuilder.CreateSRV(InfluencesBuffer);
-    PassParameters->DeformAmounts = GraphBuilder.CreateSRV(DeformAmountsBuffer);
 
     // UV Seam Welding: RepresentativeIndices 바인딩
     // nullptr이면 AffectedIndices를 fallback으로 사용
@@ -90,7 +88,6 @@ void DispatchFleshRingLaplacianCS(
     PassParameters->SmoothingLambda = (Params.SmoothingLambda >= 0.0f)
         ? Params.GetEffectiveLambda()
         : Params.SmoothingLambda;  // Taubin mu pass (negative) - don't clamp
-    PassParameters->BulgeSmoothingFactor = Params.BulgeSmoothingFactor;
 
     // Get shader
     TShaderMapRef<FFleshRingLaplacianCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
@@ -119,7 +116,6 @@ static void DispatchStandardLaplacianMultiPass(
     FRDGBufferRef PositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
-    FRDGBufferRef DeformAmountsBuffer,
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef AdjacencyDataBuffer,
     FRDGBufferRef VertexLayerTypesBuffer)
@@ -144,7 +140,6 @@ static void DispatchStandardLaplacianMultiPass(
             PositionsBuffer,
             AffectedIndicesBuffer,
             InfluencesBuffer,
-            DeformAmountsBuffer,
             RepresentativeIndicesBuffer,
             AdjacencyDataBuffer,
             VertexLayerTypesBuffer
@@ -183,7 +178,6 @@ static void DispatchStandardLaplacianMultiPass(
             WriteBuffer,
             AffectedIndicesBuffer,
             InfluencesBuffer,
-            DeformAmountsBuffer,
             RepresentativeIndicesBuffer,
             AdjacencyDataBuffer,
             VertexLayerTypesBuffer
@@ -216,7 +210,6 @@ static void DispatchTaubinMultiPass(
     FRDGBufferRef PositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
-    FRDGBufferRef DeformAmountsBuffer,
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef AdjacencyDataBuffer,
     FRDGBufferRef VertexLayerTypesBuffer)
@@ -225,18 +218,23 @@ static void DispatchTaubinMultiPass(
     const float Lambda = Params.GetEffectiveLambda();
     const float Mu = Params.GetEffectiveTaubinMu();
 
-    // Warn if Lambda was clamped (user set value outside safe range)
-    if (Params.NeedsLambdaClamping())
+    // [조건부 로그] 첫 호출 시에만 출력 (매 프레임 스팸 방지)
+    static bool bTaubinLoggedOnce = false;
+    if (!bTaubinLoggedOnce)
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("Taubin Smoothing: Lambda %.2f clamped to [%.1f, %.1f] for stability! Using lambda=%.3f, mu=%.3f"),
-            Params.SmoothingLambda, FLaplacianDispatchParams::MinSafeLambda, FLaplacianDispatchParams::MaxSafeLambda,
-            Lambda, Mu);
-    }
-    else
-    {
-        UE_LOG(LogTemp, Log, TEXT("Taubin Smoothing: lambda=%.3f, mu=%.3f, Iterations=%d (BulgeSmoothingFactor forced to 1.0)"),
-            Lambda, Mu, Params.NumIterations);
+        if (Params.NeedsLambdaClamping())
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("Taubin Smoothing: Lambda %.2f clamped to [%.1f, %.1f] for stability! Using lambda=%.3f, mu=%.3f"),
+                Params.SmoothingLambda, FLaplacianDispatchParams::MinSafeLambda, FLaplacianDispatchParams::MaxSafeLambda,
+                Lambda, Mu);
+        }
+        else
+        {
+            UE_LOG(LogTemp, Log, TEXT("Taubin Smoothing: lambda=%.3f, mu=%.3f, Iterations=%d"),
+                Lambda, Mu, Params.NumIterations);
+        }
+        bTaubinLoggedOnce = true;
     }
 
     // Each Taubin iteration = 2 passes (lambda shrink + mu expand)
@@ -275,13 +273,6 @@ static void DispatchTaubinMultiPass(
         const bool bShrinkPass = (Pass % 2 == 0);
         PassParams.SmoothingLambda = bShrinkPass ? Lambda : Mu;
 
-        // CRITICAL: Force BulgeSmoothingFactor = 1.0 for Taubin
-        // Taubin requires symmetric application of shrink/expand to all vertices
-        // If BulgeSmoothingFactor < 1.0, bulge vertices get asymmetric smoothing
-        // (less shrink, less expand) which breaks the band-pass filter balance
-        // This causes spikes at tightness-bulge boundaries!
-        PassParams.BulgeSmoothingFactor = 1.0f;
-
         DispatchFleshRingLaplacianCS(
             GraphBuilder,
             PassParams,
@@ -289,7 +280,6 @@ static void DispatchTaubinMultiPass(
             WriteBuffer,
             AffectedIndicesBuffer,
             InfluencesBuffer,
-            DeformAmountsBuffer,
             RepresentativeIndicesBuffer,
             AdjacencyDataBuffer,
             VertexLayerTypesBuffer
@@ -315,7 +305,6 @@ void DispatchFleshRingLaplacianCS_MultiPass(
     FRDGBufferRef PositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
-    FRDGBufferRef DeformAmountsBuffer,
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef AdjacencyDataBuffer,
     FRDGBufferRef VertexLayerTypesBuffer)
@@ -334,7 +323,6 @@ void DispatchFleshRingLaplacianCS_MultiPass(
             PositionsBuffer,
             AffectedIndicesBuffer,
             InfluencesBuffer,
-            DeformAmountsBuffer,
             RepresentativeIndicesBuffer,
             AdjacencyDataBuffer,
             VertexLayerTypesBuffer
@@ -349,7 +337,6 @@ void DispatchFleshRingLaplacianCS_MultiPass(
             PositionsBuffer,
             AffectedIndicesBuffer,
             InfluencesBuffer,
-            DeformAmountsBuffer,
             RepresentativeIndicesBuffer,
             AdjacencyDataBuffer,
             VertexLayerTypesBuffer

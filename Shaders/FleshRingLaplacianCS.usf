@@ -49,9 +49,6 @@ StructuredBuffer<uint> RepresentativeIndices;
 // Used to blend between original and smoothed position
 StructuredBuffer<float> Influences;
 
-// Per-vertex deform amounts (negative=tightness, positive=bulge)
-StructuredBuffer<float> DeformAmounts;
-
 // Input: Per-vertex layer types (optional, for excluding stocking from smoothing)
 // 0=Skin, 1=Stocking, 2=Underwear, 3=Outerwear, 4=Unknown
 Buffer<uint> VertexLayerTypes;
@@ -86,9 +83,6 @@ uint NumTotalVertices;
 // Smoothing strength (lambda): 0 = no smoothing, 1 = full average
 // Typical values: 0.3 - 0.7
 float SmoothingLambda;
-
-// Bulge smoothing factor (0=no smoothing on bulge, 1=full smoothing)
-float BulgeSmoothingFactor;
 
 // Exclude stocking layer from smoothing (0 = smooth all, 1 = exclude stocking)
 uint bExcludeStockingFromSmoothing;
@@ -238,24 +232,13 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
-    // ===== Bulge smoothing reduction =====
-    // DeformAmounts > 0 means bulge area, reduce smoothing there
-    float DeformAmount = DeformAmounts[ThreadIndex];
-    float BulgeBlend = 1.0;
-    if (DeformAmount > 0.0 && BulgeSmoothingFactor < 1.0)
-    {
-        // Linear blend: full bulge -> BulgeSmoothingFactor, zero bulge -> 1.0
-        BulgeBlend = lerp(1.0, BulgeSmoothingFactor, saturate(DeformAmount));
-    }
-
     // Compute Laplacian (direction toward neighbor average)
     float3 Laplacian = ComputeLaplacian(ThreadIndex, ReadIndex, CurrentPos);
 
     // Apply weighted Laplacian smoothing
     // Lambda controls overall smoothing strength
     // Influence modulates per-vertex (stronger near tightness boundaries)
-    // BulgeBlend reduces smoothing in bulge areas
-    float EffectiveLambda = SmoothingLambda * Influence * BulgeBlend;
+    float EffectiveLambda = SmoothingLambda * Influence;
 
     float3 SmoothedPos = CurrentPos + Laplacian * EffectiveLambda;
 

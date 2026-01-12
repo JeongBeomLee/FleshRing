@@ -86,9 +86,6 @@ public:
         // Per-vertex influences
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float>, Influences)
 
-        // Per-vertex deform amounts (negative=tightness, positive=bulge)
-        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float>, DeformAmounts)
-
         // Representative vertex indices for UV seam welding
         // 대표 버텍스 인덱스 (UV seam 용접용)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, RepresentativeIndices)
@@ -102,9 +99,6 @@ public:
 
         // Smoothing parameters
         SHADER_PARAMETER(float, SmoothingLambda)
-
-        // Bulge smoothing factor (0=no smoothing on bulge, 1=full smoothing)
-        SHADER_PARAMETER(float, BulgeSmoothingFactor)
 
         // Per-vertex layer types (for excluding stocking from smoothing)
         SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<uint>, VertexLayerTypes)
@@ -143,9 +137,6 @@ struct FLaplacianDispatchParams
 
     /** Number of smoothing iterations */
     int32 NumIterations;
-
-    /** Bulge smoothing factor (0=no smoothing on bulge, 1=full smoothing) */
-    float BulgeSmoothingFactor;
 
     /** Exclude stocking layer from smoothing */
     bool bExcludeStockingFromSmoothing;
@@ -188,7 +179,6 @@ struct FLaplacianDispatchParams
         , NumTotalVertices(0)
         , SmoothingLambda(0.5f)
         , NumIterations(2)
-        , BulgeSmoothingFactor(0.0f)  // Default: no smoothing on bulge areas
         , bExcludeStockingFromSmoothing(true)  // Default: exclude stocking from smoothing
         , bUseTaubinSmoothing(true)   // Default: use Taubin for shrinkage-free smoothing
         , TaubinMu(-0.53f)            // Typical value for λ=0.5
@@ -243,7 +233,6 @@ struct FLaplacianDispatchParams
  * @param OutputPositionsBuffer - Destination positions
  * @param AffectedIndicesBuffer - Affected vertex indices
  * @param InfluencesBuffer - Per-vertex influence weights
- * @param DeformAmountsBuffer - Per-vertex deform amounts (negative=tightness, positive=bulge)
  * @param RepresentativeIndicesBuffer - Representative vertex indices for UV seam welding (nullptr = use AffectedIndices)
  * @param AdjacencyDataBuffer - Packed adjacency data
  */
@@ -254,7 +243,6 @@ void DispatchFleshRingLaplacianCS(
     FRDGBufferRef OutputPositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
-    FRDGBufferRef DeformAmountsBuffer,
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef AdjacencyDataBuffer,
     FRDGBufferRef VertexLayerTypesBuffer);  // Optional: nullptr if not excluding stocking
@@ -268,7 +256,6 @@ void DispatchFleshRingLaplacianCS(
  * @param PositionsBuffer - Position buffer (in-place smoothing)
  * @param AffectedIndicesBuffer - Affected vertex indices
  * @param InfluencesBuffer - Per-vertex influence weights
- * @param DeformAmountsBuffer - Per-vertex deform amounts (negative=tightness, positive=bulge)
  * @param RepresentativeIndicesBuffer - Representative vertex indices for UV seam welding (nullptr = use AffectedIndices)
  * @param AdjacencyDataBuffer - Packed adjacency data
  * @param VertexLayerTypesBuffer - Per-vertex layer types (optional)
@@ -279,7 +266,6 @@ void DispatchFleshRingLaplacianCS_MultiPass(
     FRDGBufferRef PositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
     FRDGBufferRef InfluencesBuffer,
-    FRDGBufferRef DeformAmountsBuffer,
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef AdjacencyDataBuffer,
     FRDGBufferRef VertexLayerTypesBuffer);  // Optional: nullptr if not excluding stocking

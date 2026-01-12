@@ -736,7 +736,6 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				LaplacianParams.NumTotalVertices = ActualNumVertices;
 				LaplacianParams.SmoothingLambda = DispatchData.SmoothingLambda;
 				LaplacianParams.NumIterations = DispatchData.SmoothingIterations;
-				LaplacianParams.BulgeSmoothingFactor = 1.0f; // Bulge 영역에도 전체 스무딩 적용
 				// Taubin smoothing (수축 방지)
 				LaplacianParams.bUseTaubinSmoothing = DispatchData.bUseTaubinSmoothing;
 				LaplacianParams.TaubinMu = DispatchData.TaubinMu;
@@ -760,15 +759,6 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 						ERDGInitialDataFlags::None
 					);
 				}
-
-				// ===== DeformAmounts 버퍼 생성 (Taubin BulgeSmoothingFactor용) =====
-				// Per-vertex deform amounts: negative=tightness, positive=bulge
-				// 현재는 0으로 초기화 (neutral - 모든 버텍스에 동일한 스무딩 적용)
-				FRDGBufferRef LaplacianDeformAmountsBuffer = GraphBuilder.CreateBuffer(
-					FRDGBufferDesc::CreateStructuredDesc(sizeof(float), NumSmoothingVertices),
-					*FString::Printf(TEXT("FleshRing_LaplacianDeformAmounts_Ring%d"), RingIdx)
-				);
-				AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(LaplacianDeformAmountsBuffer), 0);
 
 				// ===== UV Seam Welding: RepresentativeIndices 버퍼 생성 (LaplacianCS용) =====
 				// 영역에 따라 적절한 RepresentativeIndices 선택
@@ -798,7 +788,6 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					TightenedBindPoseBuffer,
 					LaplacianIndicesBuffer,
 					LaplacianInfluencesBuffer,
-					LaplacianDeformAmountsBuffer,  // Taubin BulgeSmoothingFactor용
 					LaplacianRepresentativeIndicesBuffer,  // UV seam welding용 대표 버텍스 인덱스
 					LaplacianAdjacencyBuffer,
 					LaplacianLayerTypesBuffer  // 스타킹 스무딩 제외용
