@@ -1367,21 +1367,24 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	{
 		LaplacianGroup.AddPropertyRow(bEnableLaplacianSmoothingHandle.ToSharedRef());
 	}
-	if (LaplacianSmoothingTypeHandle.IsValid())
+	// 공통 파라미터 (Iterations → Lambda 순서)
+	if (SmoothingIterationsHandle.IsValid())
 	{
-		LaplacianGroup.AddPropertyRow(LaplacianSmoothingTypeHandle.ToSharedRef());
+		LaplacianGroup.AddPropertyRow(SmoothingIterationsHandle.ToSharedRef());
 	}
 	if (SmoothingLambdaHandle.IsValid())
 	{
 		LaplacianGroup.AddPropertyRow(SmoothingLambdaHandle.ToSharedRef());
 	}
+	// 알고리즘 선택
+	if (LaplacianSmoothingTypeHandle.IsValid())
+	{
+		LaplacianGroup.AddPropertyRow(LaplacianSmoothingTypeHandle.ToSharedRef());
+	}
+	// 알고리즘별 전용 파라미터
 	if (TaubinMuHandle.IsValid())
 	{
 		LaplacianGroup.AddPropertyRow(TaubinMuHandle.ToSharedRef());
-	}
-	if (SmoothingIterationsHandle.IsValid())
-	{
-		LaplacianGroup.AddPropertyRow(SmoothingIterationsHandle.ToSharedRef());
 	}
 	if (VolumePreservationHandle.IsValid())
 	{
