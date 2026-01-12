@@ -577,7 +577,16 @@ void UFleshRingComponent::GenerateSDF()
 			continue;  // ProceduralBand 처리 완료, 다음 Ring으로
 		}
 
-		// ===== Auto/Manual 모드: StaticMesh에서 SDF 생성 (기존 depot 코드) =====
+		// ===== Manual 모드: SDF 불필요, 스킵 =====
+		// Manual 모드는 Ring 파라미터(RingOffset/RingRotation/RingRadius 등)만 사용
+		// Ring Mesh가 있어도 SDF를 생성하면 안 됨 (시각화용 메시일 뿐)
+		if (Ring.InfluenceMode == EFleshRingInfluenceMode::Manual)
+		{
+			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] is Manual mode, SDF generation skipped"), RingIndex);
+			continue;
+		}
+
+		// ===== Auto 모드: StaticMesh에서 SDF 생성 =====
 		UStaticMesh* RingMesh = Ring.RingMesh.LoadSynchronous();
 		if (!RingMesh)
 		{
@@ -1150,12 +1159,28 @@ void UFleshRingComponent::DrawDebugVisualization()
 		return;
 	}
 
-	const int32 NumRings = RingSDFCaches.Num();
+	// Ring 개수는 Asset 기준
+	const int32 NumRings = FleshRingAsset ? FleshRingAsset->Rings.Num() : 0;
+
+	// 유효한 SDF Ring 개수 계산 (DebugSlicePlaneActors는 SDF가 있는 Ring에만 생성됨)
+	int32 NumValidSDFRings = 0;
+	for (const FRingSDFCache& Cache : RingSDFCaches)
+	{
+		if (Cache.IsValid())
+		{
+			NumValidSDFRings++;
+		}
+	}
 
 	// Ring 개수가 변경되면 디버그 리소스 정리 후 재생성
 	// (중간 Ring 삭제 시 인덱스 어긋남 방지)
-	if (DebugSlicePlaneActors.Num() != NumRings)
+	// NOTE: Ring당 전면/후면 2개씩 생성되므로 * 2
+	const int32 ExpectedSlicePlaneCount = NumValidSDFRings * 2;
+	if (DebugSlicePlaneActors.Num() != ExpectedSlicePlaneCount)
 	{
+		UE_LOG(LogFleshRingComponent, Warning, TEXT("[DEBUG] SlicePlane RECREATE: DebugSlicePlaneActors=%d, Expected=%d (ValidSDFRings=%d)"),
+			DebugSlicePlaneActors.Num(), ExpectedSlicePlaneCount, NumValidSDFRings);
+
 		for (AActor* PlaneActor : DebugSlicePlaneActors)
 		{
 			if (PlaneActor)
