@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include <atomic>
 #include "Animation/MeshDeformerInstance.h"
 #include "RenderGraphResources.h"
 #include "FleshRingAffectedVertices.h"
@@ -52,6 +53,80 @@ public:
 		if (LODData.IsValidIndex(LODIndex) && LODData[LODIndex].bAffectedVerticesRegistered)
 		{
 			return &LODData[LODIndex].AffectedVerticesManager.GetAllRingData();
+		}
+		return nullptr;
+	}
+
+	/**
+	 * GPU Influence Readback 완료 여부 확인
+	 * @param LODIndex - LOD 인덱스
+	 * @return Readback 완료 시 true
+	 */
+	bool IsDebugInfluenceReadbackComplete(int32 LODIndex = 0) const
+	{
+		if (LODData.IsValidIndex(LODIndex) &&
+			LODData[LODIndex].bDebugInfluenceReadbackComplete.IsValid())
+		{
+			return LODData[LODIndex].bDebugInfluenceReadbackComplete->load();
+		}
+		return false;
+	}
+
+	/**
+	 * GPU Influence Readback 결과 반환
+	 * @param LODIndex - LOD 인덱스
+	 * @return Readback된 Influence 배열 포인터, 없으면 nullptr
+	 */
+	const TArray<float>* GetDebugInfluenceReadbackResult(int32 LODIndex = 0) const
+	{
+		if (LODData.IsValidIndex(LODIndex) &&
+			LODData[LODIndex].DebugInfluenceReadbackResult.IsValid() &&
+			IsDebugInfluenceReadbackComplete(LODIndex))
+		{
+			return LODData[LODIndex].DebugInfluenceReadbackResult.Get();
+		}
+		return nullptr;
+	}
+
+	/**
+	 * GPU Influence Readback 완료 플래그 리셋 (다음 Readback 준비용)
+	 * @param LODIndex - LOD 인덱스
+	 */
+	void ResetDebugInfluenceReadback(int32 LODIndex = 0)
+	{
+		if (LODData.IsValidIndex(LODIndex) &&
+			LODData[LODIndex].bDebugInfluenceReadbackComplete.IsValid())
+		{
+			LODData[LODIndex].bDebugInfluenceReadbackComplete->store(false);
+		}
+	}
+
+	/**
+	 * GPU 디버그 렌더링용 캐시된 포인트 버퍼 가져오기
+	 * @param LODIndex - LOD 인덱스
+	 * @return 캐시된 DebugPointBuffer, 없으면 빈 포인터
+	 */
+	TRefCountPtr<FRDGPooledBuffer> GetCachedDebugPointBuffer(int32 LODIndex = 0) const
+	{
+		if (LODData.IsValidIndex(LODIndex) &&
+			LODData[LODIndex].CachedDebugPointBufferShared.IsValid() &&
+			LODData[LODIndex].CachedDebugPointBufferShared->IsValid())
+		{
+			return *LODData[LODIndex].CachedDebugPointBufferShared;
+		}
+		return nullptr;
+	}
+
+	/**
+	 * GPU 디버그 렌더링용 캐시된 포인트 버퍼 SharedPtr 가져오기
+	 * @param LODIndex - LOD 인덱스
+	 * @return CachedDebugPointBufferShared의 SharedPtr, 없으면 nullptr
+	 */
+	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> GetCachedDebugPointBufferSharedPtr(int32 LODIndex = 0) const
+	{
+		if (LODData.IsValidIndex(LODIndex))
+		{
+			return LODData[LODIndex].CachedDebugPointBufferShared;
 		}
 		return nullptr;
 	}
@@ -110,6 +185,23 @@ private:
 		// 재계산된 탄젠트 캐싱 (TangentRecomputeCS 결과)
 		// Gram-Schmidt 정규직교화된 탄젠트를 캐싱
 		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedTangentsShared;
+
+		// 디버그 Influence 캐싱 (TightnessCS에서 출력)
+		// DrawAffectedVertices에서 GPU 계산 Influence 시각화용
+		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedDebugInfluencesShared;
+
+		// 디버그 포인트 버퍼 캐싱 (WorldPosition + Influence)
+		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedDebugPointBufferShared;
+
+		// ===== GPU Readback 관련 =====
+		// Readback 결과 저장 (스레드 안전 공유용)
+		TSharedPtr<TArray<float>> DebugInfluenceReadbackResult;
+
+		// Readback 완료 플래그 (스레드 안전)
+		TSharedPtr<std::atomic<bool>> bDebugInfluenceReadbackComplete;
+
+		// Readback할 버텍스 수
+		uint32 DebugInfluenceCount = 0;
 	};
 
 	// LOD별 데이터 배열 (인덱스 = LOD 번호)

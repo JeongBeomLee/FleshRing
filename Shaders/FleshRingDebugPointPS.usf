@@ -1,0 +1,80 @@
+// FleshRing Debug Point Pixel Shader
+// GPU 원형 디버그 포인트 렌더링
+//
+// Purpose: Render circular points with influence-based color gradient
+// 목적: Influence 기반 색상 그라데이션으로 원형 포인트 렌더링
+
+#include "/Engine/Private/Common.ush"
+
+// Pixel shader input (from vertex shader)
+// 픽셀 셰이더 입력 (버텍스 셰이더에서)
+struct FPSInput
+{
+    float4 Position : SV_POSITION;
+    float2 UV : TEXCOORD0;
+    float Influence : TEXCOORD1;
+};
+
+// Main pixel shader
+// 메인 픽셀 셰이더
+void MainPS(
+    FPSInput Input,
+    out float4 OutColor : SV_Target0)
+{
+    // ========================================
+    // Step 1: Circular mask
+    // 1단계: 원형 마스크
+    // ========================================
+    // UV is 0~1, center is (0.5, 0.5)
+    // UV는 0~1, 중심은 (0.5, 0.5)
+    float2 Center = float2(0.5, 0.5);
+    float Dist = length(Input.UV - Center);
+
+    // Discard pixels outside the circle
+    // 원 밖의 픽셀 버림
+    if (Dist > 0.5)
+    {
+        discard;
+    }
+
+    // ========================================
+    // Step 2: Influence-based color gradient
+    // 2단계: Influence 기반 색상 그라데이션
+    // ========================================
+    // Blue (0) → Green (0.5) → Red (1)
+    // 파랑 (0) → 초록 (0.5) → 빨강 (1)
+    float3 FillColor;
+    float Influence = saturate(Input.Influence);
+
+    if (Influence < 0.5)
+    {
+        // Blue → Green (0.0 ~ 0.5)
+        // 파랑 → 초록
+        float T = Influence * 2.0;  // 0~1 range
+        FillColor = lerp(float3(0.0, 0.0, 1.0), float3(0.0, 1.0, 0.0), T);
+    }
+    else
+    {
+        // Green → Red (0.5 ~ 1.0)
+        // 초록 → 빨강
+        float T = (Influence - 0.5) * 2.0;  // 0~1 range
+        FillColor = lerp(float3(0.0, 1.0, 0.0), float3(1.0, 0.0, 0.0), T);
+    }
+
+    // ========================================
+    // Step 3: Black outline (outer edge)
+    // 3단계: 검정 테두리 (바깥 가장자리)
+    // ========================================
+    // Outline at outer edge (0.38 ~ 0.48 radius)
+    // 바깥 가장자리에 테두리
+    float3 OutlineColor = float3(0.0, 0.0, 0.0);
+    float OutlineStart = 0.38;
+
+    // Fill color inside, outline color at edge
+    float OutlineFactor = smoothstep(OutlineStart, OutlineStart + 0.03, Dist);
+    float3 Color = lerp(FillColor, OutlineColor, OutlineFactor);
+
+    // Output final color (solid edge, no fade)
+    // 최종 색상 출력 (페이드 없이 선명한 가장자리)
+    OutColor = float4(Color, 1.0);
+}

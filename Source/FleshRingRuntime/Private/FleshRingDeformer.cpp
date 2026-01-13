@@ -27,5 +27,9 @@ UMeshDeformerInstance* UFleshRingDeformer::CreateInstance(UMeshComponent* InMesh
 
 	UFleshRingDeformerInstance* Instance = NewObject<UFleshRingDeformerInstance>(InMeshComponent);
 	Instance->SetupFromDeformer(this, InMeshComponent);
+
+	// 생성된 Instance 캐싱 (FleshRingComponent에서 접근용)
+	ActiveInstance = Instance;
+
 	return Instance;
 }

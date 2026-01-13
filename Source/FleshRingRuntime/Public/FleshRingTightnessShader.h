@@ -13,6 +13,7 @@
 #include "RenderGraphResources.h"
 #include "RenderGraphUtils.h"
 #include "FleshRingAffectedVertices.h"
+#include "FleshRingDebugTypes.h"
 
 // ============================================================================
 // FFleshRingTightnessCS - Tightness Compute Shader
@@ -70,6 +71,31 @@ public:
         // 출력: Bulge 패스용 부피 누적 버퍼 (Atomic 연산)
         SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<uint>, VolumeAccumBuffer)
 
+        // Output: Debug Influence values for visualization (ThreadIndex당 1 float)
+        // 출력: 시각화용 디버그 Influence 값
+        SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float>, DebugInfluences)
+
+        // Flag to enable debug influence output (0 = disabled, 1 = enabled)
+        // 디버그 Influence 출력 활성화 플래그
+        SHADER_PARAMETER(uint32, bOutputDebugInfluences)
+
+        // Output: Debug point buffer for GPU rendering
+        // 출력: GPU 렌더링용 디버그 포인트 버퍼
+        // WorldPosition + Influence per point (16 bytes each)
+        SHADER_PARAMETER_RDG_BUFFER_UAV(RWStructuredBuffer<FFleshRingDebugPoint>, DebugPointBuffer)
+
+        // Flag to enable debug point output (0 = disabled, 1 = enabled)
+        // 디버그 포인트 출력 활성화 플래그
+        SHADER_PARAMETER(uint32, bOutputDebugPoints)
+
+        // Base offset for debug point buffer (multi-ring support)
+        // 디버그 포인트 버퍼 기본 오프셋 (다중 링 지원)
+        SHADER_PARAMETER(uint32, DebugPointBaseOffset)
+
+        // LocalToWorld matrix for DebugPointBuffer world space conversion
+        // DebugPointBuffer 월드 공간 변환용 LocalToWorld 행렬
+        SHADER_PARAMETER(FMatrix44f, LocalToWorld)
+
         // ===== Skinning Buffers (SRV - Read Only) =====
         // ===== 스키닝 버퍼 (SRV - 읽기 전용) =====
 
@@ -101,6 +127,8 @@ public:
         SHADER_PARAMETER(float, TightnessStrength)    // 조이기 강도
         SHADER_PARAMETER(float, RingRadius)           // 링 내부 반지름
         SHADER_PARAMETER(float, RingHeight)            // 링 높이 (축 방향)
+        SHADER_PARAMETER(float, RingThickness)        // 링 두께 (Radial falloff 범위) - Manual 모드 GPU Influence 계산용
+        SHADER_PARAMETER(uint32, FalloffType)         // Falloff 타입 (0=Linear, 1=Quadratic, 2=Hermite) - Manual 모드 GPU Influence 계산용
 
         // ===== Counts =====
         // ===== 버텍스 수 =====
@@ -226,9 +254,20 @@ struct FTightnessDispatchParams
     /**
      * Ring height along axis direction (for GPU reference only)
      * 링 높이 - 축 방향 (GPU 참조용, 실제 변형에는 사용 안함)
-     * Note: RingThickness는 CPU에서 버텍스 선택 시에만 사용됨
      */
     float RingHeight;
+
+    /**
+     * Ring thickness (radial falloff range) - Manual mode GPU Influence calculation
+     * 링 두께 (Radial falloff 범위) - Manual 모드 GPU Influence 계산용
+     */
+    float RingThickness;
+
+    /**
+     * Falloff type (0=Linear, 1=Quadratic, 2=Hermite) - Manual mode GPU Influence calculation
+     * Falloff 타입 - Manual 모드 GPU Influence 계산용
+     */
+    uint32 FalloffType;
 
     // =========== Deformation Parameters ===========
 
@@ -378,11 +417,42 @@ struct FTightnessDispatchParams
      */
     uint32 RingIndex;
 
+    // =========== Debug Parameters ===========
+    // =========== 디버그 파라미터 ===========
+
+    /**
+     * Enable debug influence output for visualization
+     * 시각화를 위한 디버그 Influence 출력 활성화 (0 = 비활성, 1 = 활성)
+     */
+    uint32 bOutputDebugInfluences;
+
+    /**
+     * Enable debug point output for GPU rendering
+     * GPU 렌더링을 위한 디버그 포인트 출력 활성화 (0 = 비활성, 1 = 활성)
+     */
+    uint32 bOutputDebugPoints;
+
+    /**
+     * Base offset for debug point buffer (multi-ring support)
+     * 디버그 포인트 버퍼 기본 오프셋 (다중 링 지원)
+     * Ring 0: offset 0, Ring 1: offset = Ring0.NumAffectedVertices, etc.
+     */
+    uint32 DebugPointBaseOffset;
+
+    /**
+     * LocalToWorld matrix for converting deformed positions to world space
+     * 변형된 위치를 월드 스페이스로 변환하기 위한 LocalToWorld 행렬
+     * Used by DebugPointBuffer output
+     */
+    FMatrix44f LocalToWorld;
+
     FTightnessDispatchParams()
         : RingCenter(FVector3f::ZeroVector)
         , RingAxis(FVector3f::UpVector)
         , RingRadius(5.0f)
         , RingHeight(2.0f)
+        , RingThickness(2.0f)
+        , FalloffType(0)
         , TightnessStrength(1.0f)
         , NumAffectedVertices(0)
         , NumTotalVertices(0)
@@ -403,6 +473,10 @@ struct FTightnessDispatchParams
         , bAccumulateVolume(0)
         , FixedPointScale(1000.0f)
         , RingIndex(0)
+        , bOutputDebugInfluences(0)
+        , bOutputDebugPoints(0)
+        , DebugPointBaseOffset(0)
+        , LocalToWorld(FMatrix44f::Identity)
     {
     }
 };
@@ -433,6 +507,8 @@ inline FTightnessDispatchParams CreateTightnessParams(
     // Ring 지오메트리 정보
     Params.RingRadius = AffectedData.RingRadius;
     Params.RingHeight = AffectedData.RingHeight;
+    Params.RingThickness = AffectedData.RingThickness;
+    Params.FalloffType = static_cast<uint32>(AffectedData.FalloffType);
 
     // 변형 강도 (FFleshRingSettings에서 복사된 값)
     Params.TightnessStrength = AffectedData.TightnessStrength;
@@ -531,6 +607,12 @@ inline FTightnessDispatchParams CreateTightnessParamsWithSkinning_Deprecated(
  * @param VolumeAccumBuffer - (Optional) Volume accumulation buffer for Bulge pass
  *                            (옵션) Bulge 패스용 부피 누적 버퍼
  *                            nullptr이면 부피 누적 비활성화
+ * @param DebugInfluencesBuffer - (Optional) Debug influence output buffer
+ *                                (옵션) 디버그 Influence 출력 버퍼
+ *                                Params.bOutputDebugInfluences=1일 때 사용
+ * @param DebugPointBuffer - (Optional) Debug point buffer for GPU rendering
+ *                           (옵션) GPU 렌더링용 디버그 포인트 버퍼
+ *                           Params.bOutputDebugPoints=1일 때 사용
  */
 void DispatchFleshRingTightnessCS(
     FRDGBuilder& GraphBuilder,
@@ -541,7 +623,9 @@ void DispatchFleshRingTightnessCS(
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRDGTextureRef SDFTexture = nullptr,
-    FRDGBufferRef VolumeAccumBuffer = nullptr);
+    FRDGBufferRef VolumeAccumBuffer = nullptr,
+    FRDGBufferRef DebugInfluencesBuffer = nullptr,
+    FRDGBufferRef DebugPointBuffer = nullptr);
 
 /**
  * [DEPRECATED] Dispatch TightnessCS with GPU skinning (animated mode)
@@ -605,6 +689,10 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
  *                     (옵션) SDF 자동 영향 모드용 3D 텍스처
  * @param VolumeAccumBuffer - (Optional) Volume accumulation buffer for Bulge pass
  *                            (옵션) Bulge 패스용 부피 누적 버퍼
+ * @param DebugInfluencesBuffer - (Optional) Debug influence output buffer
+ *                                (옵션) 디버그 Influence 출력 버퍼
+ * @param DebugPointBuffer - (Optional) Debug point buffer for GPU rendering
+ *                           (옵션) GPU 렌더링용 디버그 포인트 버퍼
  */
 void DispatchFleshRingTightnessCS_WithReadback(
     FRDGBuilder& GraphBuilder,
@@ -616,4 +704,6 @@ void DispatchFleshRingTightnessCS_WithReadback(
     FRDGBufferRef OutputPositionsBuffer,
     FRHIGPUBufferReadback* Readback,
     FRDGTextureRef SDFTexture = nullptr,
-    FRDGBufferRef VolumeAccumBuffer = nullptr);
+    FRDGBufferRef VolumeAccumBuffer = nullptr,
+    FRDGBufferRef DebugInfluencesBuffer = nullptr,
+    FRDGBufferRef DebugPointBuffer = nullptr);

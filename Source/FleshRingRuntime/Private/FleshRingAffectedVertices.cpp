@@ -464,19 +464,13 @@ void FDistanceBasedVertexSelector::SelectVertices(
 
             if (RadialDistance <= MaxDistance && FMath::Abs(AxisDistance) <= HalfWidth)
             {
-                const float DistFromRingSurface = FMath::Abs(RadialDistance - Ring.RingRadius);
-                const float RadialInfluence = CalculateFalloff(DistFromRingSurface, Ring.RingThickness, Ring.FalloffType);
-                const float AxialInfluence = CalculateFalloff(FMath::Abs(AxisDistance), HalfWidth, Ring.FalloffType);
-                const float CombinedInfluence = RadialInfluence * AxialInfluence;
-
-                if (CombinedInfluence > KINDA_SMALL_NUMBER)
-                {
-                    OutAffected.Add(FAffectedVertex(
-                        static_cast<uint32>(VertexIdx),
-                        RadialDistance,
-                        CombinedInfluence
-                    ));
-                }
+                // GPU가 Influence를 재계산하므로 CPU에서는 1.0으로 고정 (placeholder)
+                // GPU: CalculateManualInfluence() in FleshRingTightnessCS.usf
+                OutAffected.Add(FAffectedVertex(
+                    static_cast<uint32>(VertexIdx),
+                    RadialDistance,
+                    1.0f  // GPU가 재계산
+                ));
             }
         }
     }

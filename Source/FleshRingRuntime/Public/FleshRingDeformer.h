@@ -16,6 +16,9 @@ class FLESHRINGRUNTIME_API UFleshRingDeformer : public UMeshDeformer
 public:
 	UFleshRingDeformer();
 
+	/** 현재 활성화된 DeformerInstance 반환 (없으면 nullptr) */
+	UFleshRingDeformerInstance* GetActiveInstance() const { return ActiveInstance.Get(); }
+
 	// Wave deformation parameters for feasibility test
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wave Settings")
 	float WaveAmplitude = 10.0f;
@@ -33,4 +36,9 @@ public:
 	// UMeshDeformer interface
 	virtual UMeshDeformerInstanceSettings* CreateSettingsInstance(UMeshComponent* InMeshComponent) override;
 	virtual UMeshDeformerInstance* CreateInstance(UMeshComponent* InMeshComponent, UMeshDeformerInstanceSettings* InSettings) override;
+
+private:
+	/** 생성된 DeformerInstance 캐싱 (GetActiveInstance()로 접근) */
+	UPROPERTY(Transient)
+	TWeakObjectPtr<UFleshRingDeformerInstance> ActiveInstance;
 };

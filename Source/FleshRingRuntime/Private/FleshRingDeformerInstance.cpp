@@ -149,6 +149,20 @@ void UFleshRingDeformerInstance::ReleaseResources()
 			Data.CachedTangentsShared.Reset();  // ★ TSharedPtr도 Reset (메모리 누수 방지)
 		}
 
+		// 디버그 Influence 버퍼 해제
+		if (Data.CachedDebugInfluencesShared.IsValid())
+		{
+			Data.CachedDebugInfluencesShared->SafeRelease();
+			Data.CachedDebugInfluencesShared.Reset();  // ★ TSharedPtr도 Reset (메모리 누수 방지)
+		}
+
+		// 디버그 포인트 버퍼 해제
+		if (Data.CachedDebugPointBufferShared.IsValid())
+		{
+			Data.CachedDebugPointBufferShared->SafeRelease();
+			Data.CachedDebugPointBufferShared.Reset();
+		}
+
 		// 소스 위치 해제
 		Data.CachedSourcePositions.Empty();
 		Data.bSourcePositionsCached = false;
@@ -820,6 +834,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 
 	// TightenedBindPose 캐싱 여부 결정
 	bool bNeedTightnessCaching = !CurrentLODData.bTightenedBindPoseCached;
+
 	// [조건부 로그] 첫 프레임만 출력
 	static bool bLoggedCaching = false;
 	if (!bLoggedCaching)
@@ -851,6 +866,66 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		{
 			CurrentLODData.CachedTangentsShared = MakeShared<TRefCountPtr<FRDGPooledBuffer>>();
 		}
+
+		// 디버그 Influence 버퍼 TSharedPtr 생성 (첫 캐싱 시)
+		if (!CurrentLODData.CachedDebugInfluencesShared.IsValid())
+		{
+			CurrentLODData.CachedDebugInfluencesShared = MakeShared<TRefCountPtr<FRDGPooledBuffer>>();
+		}
+
+		// 디버그 포인트 버퍼 TSharedPtr 생성 (첫 캐싱 시)
+		if (!CurrentLODData.CachedDebugPointBufferShared.IsValid())
+		{
+			CurrentLODData.CachedDebugPointBufferShared = MakeShared<TRefCountPtr<FRDGPooledBuffer>>();
+		}
+	}
+
+	// 디버그 Influence 출력 필요 여부 결정
+	// 에디터에서 bShowDebugVisualization && bShowAffectedVertices가 활성화되어 있을 때만 출력
+	bool bOutputDebugInfluences = false;
+	bool bOutputDebugPoints = false;  // GPU 렌더링용 디버그 포인트 출력
+	uint32 MaxAffectedVertexCount = 0;
+#if WITH_EDITORONLY_DATA
+	if (FleshRingComponent.IsValid() && FleshRingComponent->bShowDebugVisualization && FleshRingComponent->bShowAffectedVertices)
+	{
+		bOutputDebugInfluences = true;
+
+		// GPU 렌더링 모드에서는 DebugPointBuffer도 출력
+		if (FleshRingComponent->IsGPUDebugRenderingEnabled())
+		{
+			bOutputDebugPoints = true;
+		}
+
+		// Readback을 위한 최대 영향받는 버텍스 수 계산
+		if (RingDispatchDataPtr.IsValid())
+		{
+			for (const auto& RingData : *RingDispatchDataPtr)
+			{
+				MaxAffectedVertexCount = FMath::Max(MaxAffectedVertexCount, RingData.Params.NumAffectedVertices);
+			}
+		}
+
+		// Readback 관련 포인터 초기화 (첫 사용 시)
+		if (MaxAffectedVertexCount > 0)
+		{
+			if (!CurrentLODData.DebugInfluenceReadbackResult.IsValid())
+			{
+				CurrentLODData.DebugInfluenceReadbackResult = MakeShared<TArray<float>>();
+			}
+			if (!CurrentLODData.bDebugInfluenceReadbackComplete.IsValid())
+			{
+				CurrentLODData.bDebugInfluenceReadbackComplete = MakeShared<std::atomic<bool>>(false);
+			}
+			CurrentLODData.DebugInfluenceCount = MaxAffectedVertexCount;
+		}
+	}
+#endif
+
+	// GPU 디버그 렌더링 활성화 시 TightnessCS 강제 실행
+	// DebugPointBuffer에 매 프레임 월드 좌표를 쓰기 위해 캐싱 무효화
+	if (bOutputDebugPoints)
+	{
+		bNeedTightnessCaching = true;
 	}
 
 	// 작업 아이템 생성
@@ -874,6 +949,40 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	WorkItem.CachedBufferSharedPtr = CurrentLODData.CachedTightenedBindPoseShared;  // TSharedPtr 복사 (ref count 증가)
 	WorkItem.CachedNormalsBufferSharedPtr = CurrentLODData.CachedNormalsShared;  // 노멀 캐시 버퍼 (ref count 증가)
 	WorkItem.CachedTangentsBufferSharedPtr = CurrentLODData.CachedTangentsShared;  // 탄젠트 캐시 버퍼 (ref count 증가)
+	WorkItem.CachedDebugInfluencesBufferSharedPtr = CurrentLODData.CachedDebugInfluencesShared;  // 디버그 Influence 캐시 버퍼
+	WorkItem.bOutputDebugInfluences = bOutputDebugInfluences;  // 디버그 Influence 출력 활성화
+	WorkItem.DebugInfluenceReadbackResultPtr = CurrentLODData.DebugInfluenceReadbackResult;  // Readback 결과 저장 배열
+	WorkItem.bDebugInfluenceReadbackComplete = CurrentLODData.bDebugInfluenceReadbackComplete;  // Readback 완료 플래그
+	WorkItem.DebugInfluenceCount = CurrentLODData.DebugInfluenceCount;  // Readback할 버텍스 수
+
+	// GPU 디버그 렌더링용 DebugPointBuffer 관련 필드
+	WorkItem.CachedDebugPointBufferSharedPtr = CurrentLODData.CachedDebugPointBufferShared;
+	WorkItem.bOutputDebugPoints = bOutputDebugPoints;
+
+	// ViewExtension과 PointCount 설정 (렌더 스레드에서 직접 버퍼 전달용)
+	if (bOutputDebugPoints && FleshRingComponent.IsValid())
+	{
+		WorkItem.DebugViewExtension = FleshRingComponent->GetDebugViewExtension();
+		WorkItem.DebugPointCount = FleshRingComponent->GetDebugPointCount();
+	}
+
+	// LocalToWorld 매트릭스 설정 - ResolvedTargetMesh 우선 사용
+	USkeletalMeshComponent* TargetMeshComp = nullptr;
+	if (FleshRingComponent.IsValid())
+	{
+		TargetMeshComp = FleshRingComponent->GetResolvedTargetMesh();
+	}
+	if (!TargetMeshComp && MeshComponent.IsValid())
+	{
+		TargetMeshComp = Cast<USkeletalMeshComponent>(MeshComponent.Get());
+	}
+
+	if (TargetMeshComp)
+	{
+		FTransform WorldTransform = TargetMeshComp->GetComponentTransform();
+		WorkItem.LocalToWorldMatrix = FMatrix44f(WorldTransform.ToMatrixWithScale());
+	}
+
 	WorkItem.FallbackDelegate = InDesc.FallbackDelegate;
 
 	// Bulge 전역 플래그 설정 (VolumeAccumBuffer 생성 여부 결정용)
@@ -944,6 +1053,17 @@ void UFleshRingDeformerInstance::InvalidateTightnessCache(int32 DirtyRingIndex)
     for (FLODDeformationData& Data : LODData)
     {
         Data.bTightenedBindPoseCached = false;
+
+        // 3. GPU Influence Readback 캐시도 무효화
+        // 새 TightnessCS 결과가 Readback될 때까지 CPU fallback 사용
+        if (Data.bDebugInfluenceReadbackComplete.IsValid())
+        {
+            Data.bDebugInfluenceReadbackComplete->store(false);
+        }
+        if (Data.DebugInfluenceReadbackResult.IsValid())
+        {
+            Data.DebugInfluenceReadbackResult->Empty();
+        }
     }
 
     if (DirtyRingIndex == INDEX_NONE)

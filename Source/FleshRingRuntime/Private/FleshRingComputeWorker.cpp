@@ -11,6 +11,9 @@
 #include "Rendering/SkeletalMeshRenderData.h"
 #include "Rendering/SkeletalMeshLODRenderData.h"
 #include "Rendering/SkinWeightVertexBuffer.h"
+#include "RHIGPUReadback.h"
+#include "FleshRingDebugTypes.h"
+#include "FleshRingDebugViewExtension.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogFleshRingWorker, Log, All);
 
@@ -178,6 +181,9 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 	// TangentRecomputeCS 출력 버퍼 (SkinningCS에서 사용)
 	FRDGBufferRef RecomputedTangentsBuffer = nullptr;
 
+	// DebugPointBuffer (GPU 디버그 렌더링용)
+	FRDGBufferRef DebugPointBuffer = nullptr;
+
 	if (WorkItem.bNeedTightnessCaching)
 	{
 		// 소스 버퍼 생성
@@ -218,9 +224,61 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 			AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(VolumeAccumBuffer, PF_R32_UINT), 0u);
 		}
 
+		// ===== DebugInfluencesBuffer 생성 (디버그 Influence 출력 활성화 시) =====
+		// GPU에서 계산된 Influence 값을 캐싱하여 DrawDebugPoint에서 시각화
+		FRDGBufferRef DebugInfluencesBuffer = nullptr;
+		uint32 MaxAffectedVertices = 0;
+
+		if (WorkItem.bOutputDebugInfluences && NumRings > 0)
+		{
+			// 모든 Ring 중 가장 큰 NumAffectedVertices 계산
+			for (int32 RingIdx = 0; RingIdx < NumRings; ++RingIdx)
+			{
+				const FFleshRingWorkItem::FRingDispatchData& Data = (*WorkItem.RingDispatchDataPtr)[RingIdx];
+				MaxAffectedVertices = FMath::Max(MaxAffectedVertices, Data.Params.NumAffectedVertices);
+			}
+
+			if (MaxAffectedVertices > 0)
+			{
+				DebugInfluencesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateBufferDesc(sizeof(float), MaxAffectedVertices),
+					TEXT("FleshRing_DebugInfluences")
+				);
+				// 0으로 초기화
+				AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DebugInfluencesBuffer, PF_R32_FLOAT), 0.0f);
+			}
+		}
+
+		// ===== DebugPointBuffer 생성 (GPU 렌더링용) =====
+		if (WorkItem.bOutputDebugPoints && NumRings > 0)
+		{
+			// MaxAffectedVertices가 이미 계산되어 있지 않다면 다시 계산
+			if (MaxAffectedVertices == 0)
+			{
+				for (int32 RingIdx = 0; RingIdx < NumRings; ++RingIdx)
+				{
+					const FFleshRingWorkItem::FRingDispatchData& Data = (*WorkItem.RingDispatchDataPtr)[RingIdx];
+					MaxAffectedVertices = FMath::Max(MaxAffectedVertices, Data.Params.NumAffectedVertices);
+				}
+			}
+
+			if (MaxAffectedVertices > 0)
+			{
+				DebugPointBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(FFleshRingDebugPoint), MaxAffectedVertices),
+					TEXT("FleshRing_DebugPointBuffer")
+				);
+				// 0으로 초기화
+				AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DebugPointBuffer), 0u);
+			}
+		}
+
 		// TightnessCS 적용
 		if (WorkItem.RingDispatchDataPtr.IsValid())
 		{
+			// 디버그 포인트 버퍼 오프셋 (다중 링 지원)
+			uint32 DebugPointCumulativeOffset = 0;
+
 			for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
 			{
 				const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
@@ -355,6 +413,20 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					Params.RingIndex = RingIdx;       // Ring별 VolumeAccumBuffer 슬롯 지정
 				}
 
+				// 디버그 Influence 출력 활성화
+				if (WorkItem.bOutputDebugInfluences && DebugInfluencesBuffer)
+				{
+					Params.bOutputDebugInfluences = 1;
+				}
+
+				// 디버그 포인트 출력 활성화 (GPU 렌더링)
+				if (WorkItem.bOutputDebugPoints && DebugPointBuffer)
+				{
+					Params.bOutputDebugPoints = 1;
+					Params.DebugPointBaseOffset = DebugPointCumulativeOffset;
+					Params.LocalToWorld = WorkItem.LocalToWorldMatrix;
+				}
+
 				DispatchFleshRingTightnessCS(
 					GraphBuilder,
 					Params,
@@ -364,8 +436,13 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					RepresentativeIndicesBuffer,  // UV seam welding용 대표 버텍스 인덱스
 					TightenedBindPoseBuffer,
 					SDFTextureRDG,
-					VolumeAccumBuffer
+					VolumeAccumBuffer,
+					DebugInfluencesBuffer,
+					DebugPointBuffer
 				);
+
+				// 다음 링을 위해 오프셋 누적
+				DebugPointCumulativeOffset += Params.NumAffectedVertices;
 			}
 		}
 
@@ -1596,6 +1673,76 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 		{
 			*WorkItem.CachedTangentsBufferSharedPtr = GraphBuilder.ConvertToExternalBuffer(RecomputedTangentsBuffer);
 		}
+
+		// 디버그 Influence 버퍼 캐싱 (DrawDebugPoint에서 GPU 값 시각화용)
+		if (WorkItem.CachedDebugInfluencesBufferSharedPtr.IsValid() && DebugInfluencesBuffer)
+		{
+			TRefCountPtr<FRDGPooledBuffer> ExternalDebugBuffer = GraphBuilder.ConvertToExternalBuffer(DebugInfluencesBuffer);
+			*WorkItem.CachedDebugInfluencesBufferSharedPtr = ExternalDebugBuffer;
+
+			// ===== GPU Readback 예약 =====
+			// 외부 버퍼로 변환 후 FRHIGPUBufferReadback으로 비동기 Readback
+			if (WorkItem.DebugInfluenceReadbackResultPtr.IsValid() &&
+				WorkItem.bDebugInfluenceReadbackComplete.IsValid() &&
+				WorkItem.DebugInfluenceCount > 0 &&
+				ExternalDebugBuffer.IsValid())
+			{
+				// Readback 시작 전 완료 플래그 초기화
+				WorkItem.bDebugInfluenceReadbackComplete->store(false);
+
+				// Readback 완료 처리를 위한 캡처 데이터
+				TSharedPtr<TArray<float>> ResultPtr = WorkItem.DebugInfluenceReadbackResultPtr;
+				TSharedPtr<std::atomic<bool>> CompleteFlag = WorkItem.bDebugInfluenceReadbackComplete;
+				uint32 Count = WorkItem.DebugInfluenceCount;
+				TRefCountPtr<FRDGPooledBuffer> CapturedBuffer = ExternalDebugBuffer;
+
+				// RDG 실행 후 렌더 스레드에서 Readback 수행
+				ENQUEUE_RENDER_COMMAND(FleshRingDebugInfluenceReadback)(
+					[ResultPtr, CompleteFlag, Count, CapturedBuffer](FRHICommandListImmediate& RHICmdList)
+					{
+						if (!CapturedBuffer.IsValid() || !CapturedBuffer->GetRHI())
+						{
+							UE_LOG(LogFleshRingWorker, Warning, TEXT("FleshRing: Readback 버퍼가 유효하지 않음"));
+							return;
+						}
+
+						FRHIBuffer* SrcBuffer = CapturedBuffer->GetRHI();
+						const uint32 BufferSize = Count * sizeof(float);
+
+						// FRHIGPUBufferReadback을 사용한 비동기 Readback
+						FRHIGPUBufferReadback* Readback = new FRHIGPUBufferReadback(TEXT("FleshRing_DebugInfluenceReadback"));
+						Readback->EnqueueCopy(RHICmdList, SrcBuffer, BufferSize);
+
+						// GPU 동기화 대기 후 데이터 읽기
+						RHICmdList.BlockUntilGPUIdle();
+
+						if (Readback->IsReady())
+						{
+							const float* SrcData = static_cast<const float*>(Readback->Lock(BufferSize));
+							if (SrcData && ResultPtr.IsValid())
+							{
+								ResultPtr->SetNum(Count);
+								FMemory::Memcpy(ResultPtr->GetData(), SrcData, BufferSize);
+							}
+							Readback->Unlock();
+
+							// 완료 플래그 설정
+							if (CompleteFlag.IsValid())
+							{
+								CompleteFlag->store(true);
+							}
+						}
+
+						delete Readback;
+					});
+			}
+		}
+
+		// 디버그 포인트 버퍼 캐싱
+		if (WorkItem.CachedDebugPointBufferSharedPtr.IsValid() && DebugPointBuffer)
+		{
+			*WorkItem.CachedDebugPointBufferSharedPtr = GraphBuilder.ConvertToExternalBuffer(DebugPointBuffer);
+		}
 	}
 	else
 	{
@@ -1622,6 +1769,12 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 		if (WorkItem.CachedTangentsBufferSharedPtr.IsValid() && WorkItem.CachedTangentsBufferSharedPtr->IsValid())
 		{
 			RecomputedTangentsBuffer = GraphBuilder.RegisterExternalBuffer(*WorkItem.CachedTangentsBufferSharedPtr);
+		}
+
+		// 캐싱 모드에서 DebugPointBuffer 복구
+		if (WorkItem.CachedDebugPointBufferSharedPtr.IsValid() && WorkItem.CachedDebugPointBufferSharedPtr->IsValid())
+		{
+			DebugPointBuffer = GraphBuilder.RegisterExternalBuffer(*WorkItem.CachedDebugPointBufferSharedPtr);
 		}
 	}
 

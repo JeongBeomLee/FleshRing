@@ -16,6 +16,16 @@ StructuredBuffer<float> Influences;         // 정점별 영향도 (0~1, 감쇠 
 StructuredBuffer<uint> RepresentativeIndices; // UV seam 용접용 대표 정점 인덱스 (입력용)
 RWBuffer<float> OutputPositions;            // 출력: 변형된 정점 위치
 RWBuffer<uint> VolumeAccumBuffer;           // 출력: Bulge 패스용 부피 누적 버퍼 (Atomic 연산)
+RWBuffer<float> DebugInfluences;            // 출력: 디버그용 Influence 값 (ThreadIndex당 1 float)
+
+// GPU 디버그 렌더링용 포인트 버퍼
+// Debug point structure: WorldPosition (float3) + Influence (float) = 16 bytes
+struct FDebugPoint
+{
+    float3 WorldPosition;   // 월드 공간 위치
+    float Influence;        // Influence 값 (0~1)
+};
+RWStructuredBuffer<FDebugPoint> DebugPointBuffer;  // 출력: GPU 렌더링용 디버그 포인트
 
 // ============================================================================
 // Skinning Data (from GpuSkinCommon.ush pattern)
@@ -51,6 +61,12 @@ float3 RingAxis;            // Ring axis direction (normalized)
                             // 링 축 방향 (정규화됨)
 float TightnessStrength;    // 조이기 변형 강도
 
+// Manual 모드 GPU Influence 계산용 파라미터
+float RingRadius;           // 링 내부 반지름
+float RingHeight;            // 링 높이 (축 방향)
+float RingThickness;        // 링 두께 (Radial falloff 범위)
+uint FalloffType;           // Falloff 타입 (0=Linear, 1=Quadratic, 2=Hermite)
+
 // ============================================================================
 // SDF Parameters
 // ============================================================================
@@ -76,6 +92,10 @@ uint NumTotalVertices;
 uint bAccumulateVolume;     // Bulge용 부피 누적 활성화
 float FixedPointScale;      // float → uint 변환 스케일
 uint RingIndex;             // VolumeAccumBuffer 슬롯
+uint bOutputDebugInfluences; // 디버그 Influence 출력 활성화
+uint bOutputDebugPoints;     // 디버그 포인트 버퍼 출력 활성화
+uint DebugPointBaseOffset;   // 디버그 포인트 버퍼 오프셋 (다중 링 지원)
+float4x4 LocalToWorld;       // 로컬 → 월드 변환 행렬 (DebugPointBuffer용)
 
 // Z축 상단 확장 거리 (절대값, cm) - 스무딩 영역 확장용
 float BoundsZTop;
@@ -175,6 +195,59 @@ void WritePosition(uint VertexIndex, float3 Pos)
     OutputPositions[BaseIndex + 0] = Pos.x;
     OutputPositions[BaseIndex + 1] = Pos.y;
     OutputPositions[BaseIndex + 2] = Pos.z;
+}
+
+// ============================================================================
+// Manual Mode GPU Influence Calculation Functions
+// Manual 모드 GPU Influence 계산 함수
+// ============================================================================
+
+// CPU의 CalculateFalloff() 동일 로직
+// Falloff 계산: 거리에 따라 0~1 사이의 가중치 반환
+float CalculateFalloff(float Distance, float MaxDistance, uint InFalloffType)
+{
+    if (MaxDistance <= 0.0)
+        return 1.0;
+
+    float NormalizedDist = saturate(Distance / MaxDistance);
+    float T = 1.0 - NormalizedDist;  // 가까울수록 높은 influence
+
+    switch (InFalloffType)
+    {
+    case 1:  // Quadratic
+        return T * T;
+    case 2:  // Hermite (Smoothstep)
+        return T * T * (3.0 - 2.0 * T);
+    case 0:  // Linear
+    default:
+        return T;
+    }
+}
+
+// Manual 모드용 GPU Influence 계산
+// CPU의 FDistanceBasedVertexSelector::SelectVertices() Manual 분기와 동일 로직
+float CalculateManualInfluence(float3 VertexPos)
+{
+    float3 ToVertex = VertexPos - RingCenter;
+    float AxisDist = dot(ToVertex, RingAxis);
+    float3 RadialVec = ToVertex - RingAxis * AxisDist;
+    float RadialDist = length(RadialVec);
+
+    float MaxDistance = RingRadius + RingThickness;
+    float HalfWidth = RingHeight * 0.5;
+
+    // 범위 밖 체크 (early out)
+    if (RadialDist > MaxDistance || abs(AxisDist) > HalfWidth)
+        return 0.0;
+
+    // 링 표면으로부터의 거리
+    float DistFromSurface = abs(RadialDist - RingRadius);
+
+    // Radial × Axial falloff 조합
+    float RadialInfluence = CalculateFalloff(DistFromSurface, RingThickness, FalloffType);
+    float AxialInfluence = CalculateFalloff(abs(AxisDist), HalfWidth, FalloffType);
+
+    return RadialInfluence * AxialInfluence;
 }
 
 // ============================================================================
@@ -590,25 +663,48 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
     // Step 2: Apply Tightness Deformation
     float3 NewPos;
-    
+    float Influence = 0.0;  // Influence 값 (디버그 출력용)
+
     if(bUseSDFInfluence != 0)
     {
         // SDF 모드 : Gradient 기반 변형
         //float3 LocalPos = TransformToSDFLocal(BindPos);
         NewPos = ApplyTightnessDeformation_SDF(Pos, BindPos, TightnessStrength);
+
+        // SDF 모드에서는 변위 크기로 Influence 추정 (디버그용)
+        // Influence ≈ displacement / TightnessStrength (0~1 범위로 클램프)
+        float displacement = length(NewPos - Pos);
+        Influence = (TightnessStrength > 0.001) ? saturate(displacement / TightnessStrength) : 0.0;
     }
     else
     {
-        // ===== Manual 모드: 기존 로직 =====
-        float Influence = Influences[ThreadIndex];
-        
+        // ===== Manual 모드: GPU에서 Influence 직접 계산 =====
+        // 기존: CPU에서 미리 계산된 Influences[ThreadIndex] 사용
+        // 변경: GPU에서 BindPos 기준으로 Influence 직접 계산
+        Influence = CalculateManualInfluence(BindPos);
+
         // Skip if influence is negligible
         if (Influence < 0.001)
         {
+            // 디버그 출력: 영향 없는 버텍스도 0 기록
+            if (bOutputDebugInfluences != 0)
+            {
+                DebugInfluences[ThreadIndex] = 0.0;
+            }
+            // 영향 없는 버텍스도 포인트 출력 (Influence=0)
+            if (bOutputDebugPoints != 0)
+            {
+                // 로컬 위치를 월드 공간으로 변환
+                float3 WorldPos = mul(float4(Pos, 1.0), LocalToWorld).xyz;
+                FDebugPoint DebugPoint;
+                DebugPoint.WorldPosition = WorldPos;
+                DebugPoint.Influence = 0.0;
+                DebugPointBuffer[DebugPointBaseOffset + ThreadIndex] = DebugPoint;
+            }
             WritePosition(WriteIndex, Pos);
             return;
         }
-        
+
         NewPos = ApplyTightnessDeformation(
             Pos,
             RingCenter,
@@ -616,6 +712,14 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
             Influence,
             TightnessStrength
         );
+    }
+
+    // ========================================
+    // Debug Output: Influence 값 기록
+    // ========================================
+    if (bOutputDebugInfluences != 0)
+    {
+        DebugInfluences[ThreadIndex] = Influence;
     }
     
     // ========================================
@@ -648,4 +752,20 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     // UV seam welding: 대표에서 계산한 결과를 자신의 인덱스에 기록
     // 모든 UV 중복 버텍스가 동일한 결과를 각자의 위치에 기록함
     WritePosition(WriteIndex, NewPos);
+
+    // ========================================
+    // Step 5: Debug Point Buffer Output
+    // 5단계: 디버그 포인트 버퍼 출력
+    // ========================================
+    // GPU 렌더링용 디버그 포인트: 월드 공간 위치 + Influence 값
+    // SceneViewExtension에서 직접 렌더링 (CPU Readback 불필요)
+    if (bOutputDebugPoints != 0)
+    {
+        // 변형된 위치를 월드 공간으로 변환
+        float3 WorldPos = mul(float4(NewPos, 1.0), LocalToWorld).xyz;
+        FDebugPoint DebugPoint;
+        DebugPoint.WorldPosition = WorldPos;
+        DebugPoint.Influence = Influence;
+        DebugPointBuffer[DebugPointBaseOffset + ThreadIndex] = DebugPoint;
+    }
 }

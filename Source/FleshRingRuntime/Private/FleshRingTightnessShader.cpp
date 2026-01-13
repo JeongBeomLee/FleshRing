@@ -6,6 +6,7 @@
 // 목적: 버텍스를 링 중심축 방향으로 안쪽으로 당김 (조이기 효과)
 
 #include "FleshRingTightnessShader.h"
+#include "FleshRingDebugTypes.h"
 
 #include "CoreMinimal.h"
 #include "RenderGraphBuilder.h"
@@ -48,14 +49,21 @@ void DispatchFleshRingTightnessCS(
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRDGTextureRef SDFTexture,
-    FRDGBufferRef VolumeAccumBuffer)
+    FRDGBufferRef VolumeAccumBuffer,
+    FRDGBufferRef DebugInfluencesBuffer,
+    FRDGBufferRef DebugPointBuffer)
 {
     // Early out if no vertices to process
     // 처리할 버텍스가 없으면 조기 반환
     if (Params.NumAffectedVertices == 0)
     {
+        UE_LOG(LogTemp, Warning, TEXT("[TightnessShader] Early return: NumAffectedVertices=0"));
         return;
     }
+
+    // [디버그] NumAffectedVertices 로그
+    UE_LOG(LogTemp, Log, TEXT("[TightnessShader] Dispatching with NumAffectedVertices=%u, bOutputDebugPoints=%d"),
+        Params.NumAffectedVertices, Params.bOutputDebugPoints);
 
     // Allocate shader parameters
     // 셰이더 파라미터 할당
@@ -118,6 +126,8 @@ void DispatchFleshRingTightnessCS(
     PassParameters->TightnessStrength = Params.TightnessStrength;
     PassParameters->RingRadius = Params.RingRadius;
     PassParameters->RingHeight = Params.RingHeight;
+    PassParameters->RingThickness = Params.RingThickness;
+    PassParameters->FalloffType = Params.FalloffType;
 
     // ===== Counts =====
     // ===== 버텍스 수 =====
@@ -201,6 +211,69 @@ void DispatchFleshRingTightnessCS(
         PassParameters->bAccumulateVolume = 0;
     }
 
+    // ===== Debug Influence Output Parameters =====
+    // ===== 디버그 Influence 출력 파라미터 =====
+    PassParameters->bOutputDebugInfluences = Params.bOutputDebugInfluences;
+
+    if (DebugInfluencesBuffer && Params.bOutputDebugInfluences)
+    {
+        // DebugInfluencesBuffer가 제공되고 출력이 활성화되면 바인딩
+        PassParameters->DebugInfluences = GraphBuilder.CreateUAV(DebugInfluencesBuffer, PF_R32_FLOAT);
+    }
+    else
+    {
+        // DebugInfluences가 없거나 비활성화면 Dummy 생성 (RDG 요구사항)
+        FRDGBufferRef DummyDebugInfluencesBuffer = GraphBuilder.CreateBuffer(
+            FRDGBufferDesc::CreateBufferDesc(sizeof(float), 1),
+            TEXT("FleshRingTightness_DummyDebugInfluences")
+        );
+        // Dummy 버퍼 초기화 (RDG Producer 필요)
+        AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DummyDebugInfluencesBuffer, PF_R32_FLOAT), 0.0f);
+        PassParameters->DebugInfluences = GraphBuilder.CreateUAV(DummyDebugInfluencesBuffer, PF_R32_FLOAT);
+        // Dummy일 때는 출력 비활성화 강제
+        PassParameters->bOutputDebugInfluences = 0;
+    }
+
+    // ===== Debug Point Buffer Parameters =====
+    // ===== 디버그 포인트 버퍼 파라미터 =====
+    PassParameters->bOutputDebugPoints = Params.bOutputDebugPoints;
+    PassParameters->DebugPointBaseOffset = Params.DebugPointBaseOffset;
+    PassParameters->LocalToWorld = Params.LocalToWorld;
+
+    if (DebugPointBuffer && Params.bOutputDebugPoints)
+    {
+        // DebugPointBuffer가 제공되고 출력이 활성화되면 바인딩
+        PassParameters->DebugPointBuffer = GraphBuilder.CreateUAV(DebugPointBuffer);
+
+        static bool bLoggedReal = false;
+        if (!bLoggedReal)
+        {
+            UE_LOG(LogTemp, Log, TEXT("[TightnessShader] Using REAL DebugPointBuffer"));
+            bLoggedReal = true;
+        }
+    }
+    else
+    {
+        // DebugPointBuffer가 없거나 비활성화면 Dummy 생성 (RDG 요구사항)
+        FRDGBufferRef DummyDebugPointBuffer = GraphBuilder.CreateBuffer(
+            FRDGBufferDesc::CreateStructuredDesc(sizeof(FFleshRingDebugPoint), 1),
+            TEXT("FleshRingTightness_DummyDebugPointBuffer")
+        );
+        // Dummy 버퍼 초기화 (RDG Producer 필요)
+        AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DummyDebugPointBuffer), 0u);
+        PassParameters->DebugPointBuffer = GraphBuilder.CreateUAV(DummyDebugPointBuffer);
+        // Dummy일 때는 출력 비활성화 강제
+        PassParameters->bOutputDebugPoints = 0;
+
+        static bool bLoggedDummy = false;
+        if (!bLoggedDummy)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[TightnessShader] Using DUMMY DebugPointBuffer! DebugPointBuffer=%p, bOutputDebugPoints=%d"),
+                DebugPointBuffer, Params.bOutputDebugPoints);
+            bLoggedDummy = true;
+        }
+    }
+
     // Get shader reference
     // 셰이더 참조 가져오기
     TShaderMapRef<FFleshRingTightnessCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
@@ -256,6 +329,9 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
     PassParameters->AffectedIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
     PassParameters->Influences = GraphBuilder.CreateSRV(InfluencesBuffer);
 
+    // RepresentativeIndices fallback: AffectedIndices 사용 (각 버텍스가 자기 자신이 대표)
+    PassParameters->RepresentativeIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
+
     // ===== Bind output buffer (UAV) =====
     // ===== 출력 버퍼 바인딩 (UAV) =====
     PassParameters->OutputPositions = GraphBuilder.CreateUAV(OutputPositionsBuffer, PF_R32_FLOAT);
@@ -281,6 +357,8 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
     PassParameters->TightnessStrength = Params.TightnessStrength;
     PassParameters->RingRadius = Params.RingRadius;
     PassParameters->RingHeight = Params.RingHeight;
+    PassParameters->RingThickness = Params.RingThickness;
+    PassParameters->FalloffType = Params.FalloffType;
 
     // ===== Counts =====
     // ===== 버텍스 수 =====
@@ -298,6 +376,7 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
         PassParameters->SDFBoundsMax = Params.SDFBoundsMax;
         PassParameters->bUseSDFInfluence = 1;
         PassParameters->ComponentToSDFLocal = Params.ComponentToSDFLocal;
+        PassParameters->SDFLocalToComponent = Params.SDFLocalToComponent;
         PassParameters->SDFInfluenceFalloffDistance = Params.SDFInfluenceFalloffDistance;
         // Ring Center/Axis (SDF Local Space) - 바운드 확장 시에도 정확한 위치 전달
         PassParameters->SDFLocalRingCenter = Params.SDFLocalRingCenter;
@@ -322,6 +401,7 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
         PassParameters->SDFBoundsMax = FVector3f::OneVector;
         PassParameters->bUseSDFInfluence = 0;
         PassParameters->ComponentToSDFLocal = FMatrix44f::Identity;
+        PassParameters->SDFLocalToComponent = FMatrix44f::Identity;
         PassParameters->SDFInfluenceFalloffDistance = 5.0f;
         // Manual 모드: 기본값 바인딩 (사용 안함)
         PassParameters->SDFLocalRingCenter = FVector3f::ZeroVector;
@@ -332,6 +412,39 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
     // ===== 스무딩 영역 Z 확장 파라미터 =====
     PassParameters->BoundsZTop = Params.BoundsZTop;
     PassParameters->BoundsZBottom = Params.BoundsZBottom;
+
+    // ===== Volume Accumulation (Dummy for deprecated function) =====
+    // ===== 부피 누적 (Deprecated 함수용 Dummy) =====
+    FRDGBufferRef DummyVolumeBuffer = GraphBuilder.CreateBuffer(
+        FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), 1),
+        TEXT("FleshRingTightness_DummyVolumeAccum_Deprecated")
+    );
+    AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DummyVolumeBuffer, PF_R32_UINT), 0u);
+    PassParameters->VolumeAccumBuffer = GraphBuilder.CreateUAV(DummyVolumeBuffer, PF_R32_UINT);
+    PassParameters->bAccumulateVolume = 0;
+    PassParameters->FixedPointScale = 1000.0f;
+    PassParameters->RingIndex = 0;
+
+    // ===== Debug Influence Output (Dummy for deprecated function) =====
+    // ===== 디버그 Influence 출력 (Deprecated 함수용 Dummy) =====
+    FRDGBufferRef DummyDebugInfluencesBuffer = GraphBuilder.CreateBuffer(
+        FRDGBufferDesc::CreateBufferDesc(sizeof(float), 1),
+        TEXT("FleshRingTightness_DummyDebugInfluences_Deprecated")
+    );
+    AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DummyDebugInfluencesBuffer, PF_R32_FLOAT), 0.0f);
+    PassParameters->DebugInfluences = GraphBuilder.CreateUAV(DummyDebugInfluencesBuffer, PF_R32_FLOAT);
+    PassParameters->bOutputDebugInfluences = 0;
+
+    // ===== Debug Point Buffer (Dummy for deprecated function) =====
+    // ===== 디버그 포인트 버퍼 (Deprecated 함수용 Dummy) =====
+    FRDGBufferRef DummyDebugPointBuffer = GraphBuilder.CreateBuffer(
+        FRDGBufferDesc::CreateStructuredDesc(sizeof(FFleshRingDebugPoint), 1),
+        TEXT("FleshRingTightness_DummyDebugPointBuffer_Deprecated")
+    );
+    AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DummyDebugPointBuffer), 0u);
+    PassParameters->DebugPointBuffer = GraphBuilder.CreateUAV(DummyDebugPointBuffer);
+    PassParameters->bOutputDebugPoints = 0;
+    PassParameters->LocalToWorld = FMatrix44f::Identity;
 
     // Get shader reference
     // 셰이더 참조 가져오기
@@ -368,7 +481,9 @@ void DispatchFleshRingTightnessCS_WithReadback(
     FRDGBufferRef OutputPositionsBuffer,
     FRHIGPUBufferReadback* Readback,
     FRDGTextureRef SDFTexture,
-    FRDGBufferRef VolumeAccumBuffer)
+    FRDGBufferRef VolumeAccumBuffer,
+    FRDGBufferRef DebugInfluencesBuffer,
+    FRDGBufferRef DebugPointBuffer)
 {
     // Dispatch the compute shader
     // 컴퓨트 셰이더 디스패치
@@ -381,7 +496,9 @@ void DispatchFleshRingTightnessCS_WithReadback(
         RepresentativeIndicesBuffer,
         OutputPositionsBuffer,
         SDFTexture,
-        VolumeAccumBuffer
+        VolumeAccumBuffer,
+        DebugInfluencesBuffer,
+        DebugPointBuffer
     );
 
     // Add readback pass (GPU → CPU data transfer)

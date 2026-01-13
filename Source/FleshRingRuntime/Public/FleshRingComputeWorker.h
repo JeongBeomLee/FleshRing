@@ -3,11 +3,13 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include <atomic>
 #include "ComputeWorkerInterface.h"
 #include "ComputeSystemInterface.h"
 #include "RenderGraphResources.h"
 #include "RendererInterface.h"
 #include "FleshRingTightnessShader.h"
+#include "FleshRingDebugTypes.h"
 #include "FleshRingBulgeShader.h"
 #include "FleshRingNormalRecomputeShader.h"
 #include "FleshRingTangentRecomputeShader.h"
@@ -20,6 +22,7 @@
 
 class FSkeletalMeshObject;
 class UFleshRingDeformerInstance;
+class FFleshRingDebugViewExtension;
 struct IPooledRenderTarget;
 
 // ============================================================================
@@ -249,6 +252,41 @@ struct FFleshRingWorkItem
 	// 재계산된 탄젠트 캐시 버퍼 (TightenedBindPose와 함께 캐싱)
 	// TangentRecomputeCS 결과를 캐싱하여 캐싱된 프레임에서도 올바른 탄젠트 사용
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedTangentsBufferSharedPtr;
+
+	// ===== 디버그 Influence 캐시 버퍼 =====
+	// TightnessCS에서 출력된 Influence 값 캐싱
+	// DrawDebugPoint에서 GPU 계산된 Influence 시각화용
+	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedDebugInfluencesBufferSharedPtr;
+
+	// 디버그 Influence 출력 활성화 플래그
+	bool bOutputDebugInfluences = false;
+
+	// ===== 디버그 포인트 버퍼 (GPU 렌더링) =====
+	// TightnessCS에서 출력된 디버그 포인트 (WorldPosition + Influence)
+	// SceneViewExtension에서 직접 GPU 렌더링 (CPU Readback 불필요)
+	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedDebugPointBufferSharedPtr;
+
+	// 디버그 포인트 출력 활성화 플래그
+	bool bOutputDebugPoints = false;
+
+	// LocalToWorld 행렬 (디버그 포인트 월드 변환용)
+	FMatrix44f LocalToWorldMatrix = FMatrix44f::Identity;
+
+	// ViewExtension 참조 (렌더 스레드에서 직접 버퍼 전달용)
+	TSharedPtr<FFleshRingDebugViewExtension, ESPMode::ThreadSafe> DebugViewExtension;
+
+	// 디버그 포인트 수 (ViewExtension에 전달)
+	uint32 DebugPointCount = 0;
+
+	// ===== GPU Readback 관련 =====
+	// Readback 결과를 저장할 배열 (게임 스레드에서 접근)
+	TSharedPtr<TArray<float>> DebugInfluenceReadbackResultPtr;
+
+	// Readback 완료 플래그 (스레드 안전)
+	TSharedPtr<std::atomic<bool>> bDebugInfluenceReadbackComplete;
+
+	// Readback할 버텍스 수
+	uint32 DebugInfluenceCount = 0;
 
 	// Fallback 델리게이트
 	FSimpleDelegate FallbackDelegate;

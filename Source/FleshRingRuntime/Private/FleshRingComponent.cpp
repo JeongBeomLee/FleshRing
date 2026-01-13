@@ -25,6 +25,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Rendering/SkeletalMeshRenderData.h"
 #include "Rendering/SkeletalMeshLODRenderData.h"
+#include "SceneViewExtension.h"
 #endif
 
 DEFINE_LOG_CATEGORY_STATIC(LogFleshRingComponent, Log, All);
@@ -652,6 +653,11 @@ void UFleshRingComponent::GenerateSDF()
 			});
 	}
 
+	// SDF 생성 렌더 커맨드가 완료될 때까지 대기
+	// 이렇게 해야 GenerateSDF() 반환 후 SDFCache->IsValid()가 true가 됨
+	// (비동기 생성 시 모드 전환 후 첫 프레임에서 SDF가 아직 없는 문제 해결)
+	FlushRenderingCommands();
+
 	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: GenerateSDF completed for %d rings"), FleshRingAsset->Rings.Num());
 }
 
@@ -848,6 +854,13 @@ bool UFleshRingComponent::RefreshWithDeformerReuse()
 			DeformerInstance->InvalidateTightnessCache();
 		}
 	}
+
+#if WITH_EDITORONLY_DATA
+	// 디버그 캐시 무효화 (Thickness 등 변경 시 AffectedVertices 재계산 필요)
+	// GetDebugPointCount()가 옛날 값을 반환하면 버퍼 크기 불일치로 크래시 발생
+	bDebugAffectedVerticesCached = false;
+	bDebugBulgeVerticesCached = false;
+#endif
 
 	return true;
 }
@@ -1085,6 +1098,11 @@ void UFleshRingComponent::DrawDebugVisualization()
 
 	if (!bShowDebugVisualization)
 	{
+		// GPU 디버그 렌더링 ViewExtension도 비활성화
+		if (bUseGPUDebugRendering && DebugViewExtension.IsValid())
+		{
+			DebugViewExtension->ClearDebugPointBuffer();
+		}
 		return;
 	}
 
@@ -1139,6 +1157,19 @@ void UFleshRingComponent::DrawDebugVisualization()
 		bDebugBulgeVerticesCached = false;
 	}
 
+	// GPU 디버그 렌더링 모드: ViewExtension + 셰이더로 원형 포인트 렌더링
+	if (bUseGPUDebugRendering)
+	{
+		// GPU 렌더링 모드에서도 DebugAffectedData 캐싱 필요 (PointCount 계산용)
+		if (bShowAffectedVertices && !bDebugAffectedVerticesCached)
+		{
+			CacheAffectedVerticesForDebug();
+		}
+		// UpdateDebugPointBuffer() 내부에서 bShowAffectedVertices 체크하여
+		// 꺼져 있으면 ClearDebugPointBuffer() 호출
+		UpdateDebugPointBuffer();
+	}
+
 	for (int32 RingIndex = 0; RingIndex < NumRings; ++RingIndex)
 	{
 		if (bShowSdfVolume)
@@ -1146,7 +1177,8 @@ void UFleshRingComponent::DrawDebugVisualization()
 			DrawSdfVolume(RingIndex);
 		}
 
-		if (bShowAffectedVertices)
+		// GPU 렌더링 모드가 아닐 때만 CPU DrawDebugPoint 사용
+		if (bShowAffectedVertices && !bUseGPUDebugRendering)
 		{
 			DrawAffectedVertices(RingIndex);
 		}
@@ -1394,9 +1426,57 @@ void UFleshRingComponent::DrawAffectedVertices(int32 RingIndex)
 	// 컴포넌트 → 월드 트랜스폼
 	FTransform CompTransform = SkelMesh->GetComponentTransform();
 
-	// 각 영향받는 버텍스에 대해
-	for (const FAffectedVertex& AffectedVert : RingData.Vertices)
+	// ===== DeformerInstance에서 GPU Influence Readback 결과 가져오기 =====
+	// NOTE: 현재는 단일 Ring(RingIndex == 0)만 지원, 멀티 Ring은 향후 확장
+	if (RingIndex == 0 && InternalDeformer)
 	{
+		UFleshRingDeformerInstance* DeformerInstance = InternalDeformer->GetActiveInstance();
+		if (DeformerInstance)
+		{
+			if (DeformerInstance->IsDebugInfluenceReadbackComplete(0))
+			{
+				const TArray<float>* ReadbackResult = DeformerInstance->GetDebugInfluenceReadbackResult(0);
+				if (ReadbackResult && ReadbackResult->Num() > 0)
+				{
+					// GPU Influence 캐시 배열 초기화 (필요 시)
+					if (!CachedGPUInfluences.IsValidIndex(RingIndex))
+					{
+						CachedGPUInfluences.SetNum(RingIndex + 1);
+						bGPUInfluenceReady.SetNum(RingIndex + 1);
+					}
+
+					// Readback 결과 복사
+					CachedGPUInfluences[RingIndex] = *ReadbackResult;
+					bGPUInfluenceReady[RingIndex] = true;
+
+					// Readback 완료 플래그 리셋 (다음 Readback 준비)
+					DeformerInstance->ResetDebugInfluenceReadback(0);
+				}
+			}
+			else
+			{
+				// Readback 미완료 시 기존 캐시 무효화 (CPU fallback으로 전환)
+				// 드래그 중 캐시 무효화 시 이전 데이터가 잘못 표시되는 것 방지
+				if (bGPUInfluenceReady.IsValidIndex(RingIndex))
+				{
+					bGPUInfluenceReady[RingIndex] = false;
+				}
+			}
+		}
+	}
+
+	// GPU Influence 사용 가능 여부 확인
+	bool bUseGPUInfluence = false;
+	if (bGPUInfluenceReady.IsValidIndex(RingIndex) && bGPUInfluenceReady[RingIndex] &&
+		CachedGPUInfluences.IsValidIndex(RingIndex) && CachedGPUInfluences[RingIndex].Num() > 0)
+	{
+		bUseGPUInfluence = true;
+	}
+
+	// 각 영향받는 버텍스에 대해
+	for (int32 i = 0; i < RingData.Vertices.Num(); ++i)
+	{
+		const FAffectedVertex& AffectedVert = RingData.Vertices[i];
 		if (!DebugBindPoseVertices.IsValidIndex(AffectedVert.VertexIndex))
 		{
 			continue;
@@ -1408,8 +1488,20 @@ void UFleshRingComponent::DrawAffectedVertices(int32 RingIndex)
 		// 월드 공간으로 변환 (바인드 포즈 기준 - 애니메이션 미반영)
 		FVector WorldPos = CompTransform.TransformPosition(FVector(BindPosePos));
 
+		// Influence 값 결정: GPU 값 우선, 없으면 CPU 값 사용
+		float Influence;
+		if (bUseGPUInfluence && CachedGPUInfluences[RingIndex].IsValidIndex(i))
+		{
+			// GPU에서 계산된 Influence 사용
+			Influence = CachedGPUInfluences[RingIndex][i];
+		}
+		else
+		{
+			// CPU에서 계산된 Influence 사용 (fallback)
+			Influence = AffectedVert.Influence;
+		}
+
 		// Influence에 따른 색상 (0=파랑, 0.5=초록, 1=빨강)
-		float Influence = AffectedVert.Influence;
 		FColor PointColor;
 		if (Influence < 0.5f)
 		{
@@ -1440,9 +1532,10 @@ void UFleshRingComponent::DrawAffectedVertices(int32 RingIndex)
 	// 화면에 정보 표시
 	if (GEngine)
 	{
+		FString SourceStr = bUseGPUInfluence ? TEXT("GPU") : TEXT("CPU");
 		GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::Green,
-			FString::Printf(TEXT("Ring[%d] Affected: %d vertices"),
-				RingIndex, RingData.Vertices.Num()));
+			FString::Printf(TEXT("Ring[%d] Affected: %d vertices (Source: %s)"),
+				RingIndex, RingData.Vertices.Num(), *SourceStr));
 	}
 }
 
@@ -2672,6 +2765,89 @@ void UFleshRingComponent::DrawBulgeDirectionArrow(int32 RingIndex)
 			FString::Printf(TEXT("Ring[%d] Bulge Dir: %s (Detected: %d, Final: %d)"),
 				RingIndex, *ModeStr, DetectedDirection, FinalDirection));
 	}
+}
+
+// ============================================================================
+// GPU 디버그 렌더링 함수
+// ============================================================================
+
+void UFleshRingComponent::InitializeDebugViewExtension()
+{
+	// 이미 초기화되어 있으면 스킵
+	if (DebugViewExtension.IsValid())
+	{
+		return;
+	}
+
+	// SceneViewExtension 생성 및 등록
+	// FSceneViewExtensions::NewExtension을 통해 자동 등록됨
+	// FWorldSceneViewExtension을 상속하므로 특정 World에서만 활성화됨
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	DebugViewExtension = FSceneViewExtensions::NewExtension<FFleshRingDebugViewExtension>(World);
+
+	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: GPU 디버그 렌더링 ViewExtension 초기화 완료 (World: %s)"), *World->GetName());
+}
+
+void UFleshRingComponent::UpdateDebugPointBuffer()
+{
+	// ViewExtension이 없으면 초기화
+	if (!DebugViewExtension.IsValid())
+	{
+		InitializeDebugViewExtension();
+	}
+
+	if (!DebugViewExtension.IsValid())
+	{
+		return;
+	}
+
+	// bShowAffectedVertices가 비활성화되면 렌더링 비활성화
+	if (!bShowAffectedVertices || !bShowDebugVisualization)
+	{
+		DebugViewExtension->ClearDebugPointBuffer();
+		return;
+	}
+
+	// DeformerInstance에서 캐싱된 DebugPointBuffer 가져오기
+	if (!InternalDeformer)
+	{
+		return;
+	}
+
+	UFleshRingDeformerInstance* DeformerInstance = InternalDeformer->GetActiveInstance();
+	if (!DeformerInstance)
+	{
+		return;
+	}
+
+	// CachedDebugPointBufferSharedPtr 가져오기
+	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> DebugPointBufferSharedPtr = DeformerInstance->GetCachedDebugPointBufferSharedPtr();
+	if (!DebugPointBufferSharedPtr.IsValid())
+	{
+		DebugViewExtension->ClearDebugPointBuffer();
+		return;
+	}
+
+	// 버텍스 수 가져오기 (모든 Ring의 AffectedVertices 합계)
+	uint32 PointCount = 0;
+	for (const FRingAffectedData& AffectedData : DebugAffectedData)
+	{
+		PointCount += AffectedData.Vertices.Num();
+	}
+
+	if (PointCount == 0)
+	{
+		DebugViewExtension->ClearDebugPointBuffer();
+		return;
+	}
+
+	// ViewExtension에 SharedPtr 전달
+	DebugViewExtension->SetDebugPointBufferShared(DebugPointBufferSharedPtr, PointCount);
 }
 
 #endif // WITH_EDITOR

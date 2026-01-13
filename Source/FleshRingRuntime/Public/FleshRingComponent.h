@@ -9,6 +9,7 @@
 #include "FleshRingTypes.h"
 #include "FleshRingDeformer.h"
 #include "FleshRingAffectedVertices.h"
+#include "FleshRingDebugViewExtension.h"
 #include "RenderGraphResources.h"
 #include "FleshRingComponent.generated.h"
 
@@ -393,6 +394,54 @@ private:
 
 	/** Bulge 디버그 데이터 캐싱 완료 여부 */
 	bool bDebugBulgeVerticesCached = false;
+
+	// ===== GPU Influence Readback 캐시 =====
+	// TightnessCS에서 계산된 Influence 값을 CPU로 Readback하여 시각화용 캐싱
+	// DrawAffectedVertices에서 사용
+
+	/** GPU에서 계산된 Influence 캐시 (Ring별) */
+	TArray<TArray<float>> CachedGPUInfluences;
+
+	/** GPU Influence Readback 준비 완료 플래그 (Ring별) */
+	TArray<bool> bGPUInfluenceReady;
+
+	/** GPU Influence Readback 객체 (Ring별) */
+	TArray<TSharedPtr<class FRHIGPUBufferReadback>> GPUInfluenceReadbacks;
+
+	// ===== GPU 디버그 렌더링 =====
+
+	/** GPU 디버그 포인트 렌더링용 SceneViewExtension */
+	TSharedPtr<FFleshRingDebugViewExtension> DebugViewExtension;
+
+	/** GPU 디버그 렌더링 활성화 (DrawDebugPoint 대체) */
+	bool bUseGPUDebugRendering = true;
+
+public:
+	/** GPU 디버그 렌더링 활성화 여부 반환 */
+	bool IsGPUDebugRenderingEnabled() const { return bUseGPUDebugRendering; }
+
+	/** GPU 디버그 렌더링용 ViewExtension 반환 (렌더 스레드에서 직접 버퍼 전달용) */
+	TSharedPtr<FFleshRingDebugViewExtension, ESPMode::ThreadSafe> GetDebugViewExtension() const
+	{
+		return StaticCastSharedPtr<FFleshRingDebugViewExtension, FFleshRingDebugViewExtension, ESPMode::ThreadSafe>(DebugViewExtension);
+	}
+
+	/** 디버그 포인트 수 반환 (첫 번째 Ring의 AffectedVertices 수) */
+	uint32 GetDebugPointCount() const
+	{
+		if (DebugAffectedData.Num() > 0)
+		{
+			return DebugAffectedData[0].Vertices.Num();
+		}
+		return 0;
+	}
+
+private:
+	/** GPU 디버그 렌더링용 ViewExtension 초기화 */
+	void InitializeDebugViewExtension();
+
+	/** GPU 디버그 렌더링용 포인트 버퍼 업데이트 */
+	void UpdateDebugPointBuffer();
 #endif
 
 #if WITH_EDITOR

@@ -1,0 +1,77 @@
+// FleshRing Debug Point Vertex Shader
+// GPU 원형 디버그 포인트 렌더링
+//
+// Purpose: Transform debug points to screen-space billboards
+// 목적: 디버그 포인트를 스크린 스페이스 빌보드로 변환
+
+#include "/Engine/Private/Common.ush"
+
+// Debug point structure (matches FFleshRingDebugPoint in C++)
+// 디버그 포인트 구조체 (C++의 FFleshRingDebugPoint와 일치)
+struct FDebugPoint
+{
+    float3 WorldPosition;   // 월드 공간 위치
+    float Influence;        // Influence 값 (0~1)
+};
+
+// Input: Debug points from TightnessCS
+// 입력: TightnessCS에서 생성된 디버그 포인트
+StructuredBuffer<FDebugPoint> DebugPoints;
+
+// Shader parameters
+// 셰이더 파라미터
+float4x4 ViewProjectionMatrix;  // 뷰프로젝션 행렬
+float2 InvViewportSize;         // 1/ViewportSize (픽셀 → NDC 변환용)
+float PointSizeBase;            // 기본 포인트 크기 (픽셀)
+float PointSizeInfluence;       // Influence에 따른 추가 크기
+
+// Vertex shader output / input to pixel shader
+// 버텍스 셰이더 출력 / 픽셀 셰이더 입력
+struct FVSOutput
+{
+    float4 Position : SV_POSITION;
+    float2 UV : TEXCOORD0;
+    float Influence : TEXCOORD1;
+};
+
+// Main vertex shader
+// 메인 버텍스 셰이더
+// Uses instanced rendering: 4 vertices per instance (quad), N instances (points)
+// 인스턴스드 렌더링 사용: 인스턴스당 4개 버텍스 (쿼드), N개 인스턴스 (포인트)
+void MainVS(
+    uint VertexId : SV_VertexID,
+    uint InstanceId : SV_InstanceID,
+    out FVSOutput Output)
+{
+    // 버퍼에서 디버그 포인트 읽기
+    FDebugPoint Point = DebugPoints[InstanceId];
+
+    // Quad vertex offsets (Triangle Strip order: 0=TL, 1=TR, 2=BL, 3=BR)
+    // 쿼드 버텍스 오프셋 (트라이앵글 스트립 순서)
+    // Produces 2 triangles: (0,1,2) and (1,3,2)
+    static const float2 QuadOffsets[4] = {
+        float2(-1.0, -1.0),  // 0: Top-Left
+        float2( 1.0, -1.0),  // 1: Top-Right
+        float2(-1.0,  1.0),  // 2: Bottom-Left
+        float2( 1.0,  1.0)   // 3: Bottom-Right
+    };
+    float2 Offset = QuadOffsets[VertexId];
+
+    // 월드 위치를 클립 스페이스로 변환
+    float4 ClipPos = mul(float4(Point.WorldPosition, 1.0), ViewProjectionMatrix);
+
+    // Calculate billboard size in pixels based on influence
+    // Influence 기반 빌보드 크기 계산 (픽셀 단위)
+    float Size = PointSizeBase + Point.Influence * PointSizeInfluence;
+
+    // Apply billboard offset in screen space (maintains constant pixel size)
+    // 스크린 스페이스에서 빌보드 오프셋 적용 (일정한 픽셀 크기 유지)
+    // Multiply by ClipPos.w to account for perspective divide
+    // ClipPos.w를 곱해서 원근 나누기 보정
+    ClipPos.xy += Offset * Size * InvViewportSize * ClipPos.w;
+
+    // Output
+    Output.Position = ClipPos;
+    Output.UV = Offset * 0.5 + 0.5;  // Convert -1~1 to 0~1
+    Output.Influence = Point.Influence;
+}
