@@ -804,6 +804,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	TSharedPtr<IPropertyHandle> SmoothingLambdaHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingLambda));
 	TSharedPtr<IPropertyHandle> TaubinMuHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, TaubinMu));
 	TSharedPtr<IPropertyHandle> SmoothingIterationsHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingIterations));
+	TSharedPtr<IPropertyHandle> bAnchorDeformedVerticesHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bAnchorDeformedVertices));
 	TSharedPtr<IPropertyHandle> SmoothingVolumeModeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingVolumeMode));
 	TSharedPtr<IPropertyHandle> MaxSmoothingHopsHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MaxSmoothingHops));
 	TSharedPtr<IPropertyHandle> HopFalloffRatioHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HopFalloffRatio));
@@ -831,6 +832,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingLambda));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, TaubinMu));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingIterations));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bAnchorDeformedVertices));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingVolumeMode));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MaxSmoothingHops));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HopFalloffRatio));
@@ -1395,6 +1397,11 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	if (TaubinMuHandle.IsValid())
 	{
 		LaplacianGroup.AddPropertyRow(TaubinMuHandle.ToSharedRef());
+	}
+	// 앵커 모드 (직접 변형된 버텍스 고정)
+	if (bAnchorDeformedVerticesHandle.IsValid())
+	{
+		LaplacianGroup.AddPropertyRow(bAnchorDeformedVerticesHandle.ToSharedRef());
 	}
 
 	// ===== PBD Edge Constraint 서브그룹 =====

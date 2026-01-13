@@ -53,6 +53,11 @@ StructuredBuffer<float> Influences;
 // 0=Skin, 1=Stocking, 2=Underwear, 3=Outerwear, 4=Unknown
 Buffer<uint> VertexLayerTypes;
 
+// Input: Per-vertex anchor flags (optional, for anchor mode)
+// 1 = anchor vertex (skip smoothing), 0 = normal vertex (apply smoothing)
+// Used when bAnchorDeformedVertices is enabled
+StructuredBuffer<uint> IsAnchorFlags;
+
 // Layer type constants (must match EFleshRingLayerType in C++)
 #define LAYER_SKIN       0
 #define LAYER_STOCKING   1
@@ -86,6 +91,10 @@ float SmoothingLambda;
 
 // Exclude stocking layer from smoothing (0 = smooth all, 1 = exclude stocking)
 uint bExcludeStockingFromSmoothing;
+
+// Anchor mode: skip smoothing for original affected (directly deformed) vertices
+// 0 = smooth all, 1 = anchor original affected vertices (use IsAnchorFlags)
+uint bAnchorDeformedVertices;
 
 // ============================================================================
 // Helper Functions
@@ -227,6 +236,16 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
     // Skip if influence is negligible
     if (Influence < 0.001)
+    {
+        WritePosition(WriteIndex, CurrentPos);
+        return;
+    }
+
+    // ===== Anchor Mode =====
+    // If anchor mode is enabled and this vertex is marked as anchor (original affected vertex),
+    // skip smoothing to preserve the intended deformation shape.
+    // Only extended region vertices (non-anchors) get smoothed.
+    if (bAnchorDeformedVertices != 0 && IsAnchorFlags[ThreadIndex] != 0)
     {
         WritePosition(WriteIndex, CurrentPos);
         return;

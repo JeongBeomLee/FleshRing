@@ -564,6 +564,18 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides, ClampMin = "1", ClampMax = "10"))
 	int32 SmoothingIterations = 2;
 
+	/**
+	 * 변형된 버텍스 앵커 모드
+	 * - true: Tightness로 직접 변형된 버텍스(원본 Affected)는 고정, 확장 영역만 스무딩
+	 * - false: 모든 버텍스에 Influence 비례 스무딩 (기존 동작)
+	 *
+	 * 앵커 판정 기준: 원본 Affected Vertices 멤버십
+	 * - Hop-based: Seed 버텍스 (Hop=0) → 앵커
+	 * - Z-based: 원본 SDF AABB 내 버텍스 → 앵커
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing|Anchor", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides))
+	bool bAnchorDeformedVertices = false;
+
 	// ===== PBD Edge Constraint 설정 =====
 
 	/**

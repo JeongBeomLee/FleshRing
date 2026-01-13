@@ -741,6 +741,8 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				LaplacianParams.TaubinMu = DispatchData.TaubinMu;
 				// 스타킹 레이어 스무딩 제외 활성화 - 분리된 메시에서 크랙 방지
 				LaplacianParams.bExcludeStockingFromSmoothing = true;
+				// Anchor Mode: 원본 Affected Vertices 고정 (IsAnchorFlags 버퍼 사용)
+				LaplacianParams.bAnchorDeformedVertices = DispatchData.bAnchorDeformedVertices;
 
 				// ===== VertexLayerTypes 버퍼 생성 (스타킹 스무딩 제외용) =====
 				// [최적화] FullMeshLayerTypes 직접 사용 - 축소→확대 변환 제거
@@ -781,6 +783,28 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					);
 				}
 
+				// ===== IsAnchor 버퍼 생성 (앵커 모드용) =====
+				// 원본 Affected Vertices (Seeds) = 앵커 (스무딩 건너뜀)
+				// 확장 영역 = 스무딩 적용
+				const TArray<uint32>& IsAnchorSource = bUseExtendedRegion
+					? DispatchData.ExtendedIsAnchor
+					: (bUsePostProcessingRegion ? DispatchData.PostProcessingIsAnchor : TArray<uint32>());
+
+				FRDGBufferRef LaplacianIsAnchorBuffer = nullptr;
+				if (LaplacianParams.bAnchorDeformedVertices && IsAnchorSource.Num() == static_cast<int32>(NumSmoothingVertices))
+				{
+					LaplacianIsAnchorBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumSmoothingVertices),
+						*FString::Printf(TEXT("FleshRing_LaplacianIsAnchor_Ring%d"), RingIdx)
+					);
+					GraphBuilder.QueueBufferUpload(
+						LaplacianIsAnchorBuffer,
+						IsAnchorSource.GetData(),
+						NumSmoothingVertices * sizeof(uint32),
+						ERDGInitialDataFlags::None
+					);
+				}
+
 				// Laplacian MultiPass 디스패치 (in-place smoothing)
 				DispatchFleshRingLaplacianCS_MultiPass(
 					GraphBuilder,
@@ -790,7 +814,8 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					LaplacianInfluencesBuffer,
 					LaplacianRepresentativeIndicesBuffer,  // UV seam welding용 대표 버텍스 인덱스
 					LaplacianAdjacencyBuffer,
-					LaplacianLayerTypesBuffer  // 스타킹 스무딩 제외용
+					LaplacianLayerTypesBuffer,  // 스타킹 스무딩 제외용
+					LaplacianIsAnchorBuffer     // 앵커 모드용 (nullptr이면 비활성화)
 				);
 
 				// [조건부 로그] 첫 프레임만

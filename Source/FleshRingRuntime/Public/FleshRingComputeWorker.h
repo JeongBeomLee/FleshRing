@@ -124,6 +124,10 @@ struct FFleshRingWorkItem
 		float TaubinMu = -0.53f;              // μ (팽창 강도, 음수)
 		int32 SmoothingIterations = 2;
 
+		// ===== Anchor Mode (Laplacian) =====
+		// true: 원본 Affected Vertices는 앵커로 고정, 확장 영역만 스무딩
+		bool bAnchorDeformedVertices = false;
+
 		// ===== 스무딩 볼륨 모드 파라미터 =====
 		bool bUseHopBasedSmoothing = false;   // true = HopBased, false = BoundsExpand
 		TArray<float> HopBasedInfluences;     // (legacy) 홉 거리 기반 influence
@@ -133,6 +137,7 @@ struct FFleshRingWorkItem
 		// SmoothingVolumeMode == HopBased일 때 LaplacianCS가 이 영역 사용
 		TArray<uint32> ExtendedSmoothingIndices;     // 확장 영역 버텍스 인덱스
 		TArray<float> ExtendedInfluences;            // 확장 영역 influence (홉 falloff)
+		TArray<uint32> ExtendedIsAnchor;             // 확장 영역 앵커 플래그 (1=Seed, 0=확장)
 		TArray<uint32> ExtendedLaplacianAdjacency;   // 확장 영역 인접 데이터
 
 		// ===== Bone Ratio Preserve용 슬라이스 데이터 =====
@@ -174,6 +179,7 @@ struct FFleshRingWorkItem
 		// Note: PostProcessingLayerTypes는 FullMeshLayerTypes로 대체됨 (deprecated/removed)
 		TArray<uint32> PostProcessingIndices;
 		TArray<float> PostProcessingInfluences;
+		TArray<uint32> PostProcessingIsAnchor;  // 앵커 플래그 (1=원본Affected, 0=확장영역)
 		TArray<uint32> PostProcessingRepresentativeIndices;  // 후처리 버텍스용 UV seam 대표 인덱스
 		TArray<uint32> PostProcessingLaplacianAdjacencyData;  // 후처리 버텍스용 라플라시안 인접 데이터
 		TArray<uint32> PostProcessingPBDAdjacencyWithRestLengths;  // 후처리 버텍스용 PBD 인접 데이터

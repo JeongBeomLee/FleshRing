@@ -31,7 +31,8 @@ void DispatchFleshRingLaplacianCS(
     FRDGBufferRef InfluencesBuffer,
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef AdjacencyDataBuffer,
-    FRDGBufferRef VertexLayerTypesBuffer)
+    FRDGBufferRef VertexLayerTypesBuffer,
+    FRDGBufferRef IsAnchorFlagsBuffer)
 {
     // Early out if no vertices to process
     if (Params.NumAffectedVertices == 0)
@@ -89,6 +90,25 @@ void DispatchFleshRingLaplacianCS(
         ? Params.GetEffectiveLambda()
         : Params.SmoothingLambda;  // Taubin mu pass (negative) - don't clamp
 
+    // Anchor mode parameters - use IsAnchorFlags buffer if available
+    if (IsAnchorFlagsBuffer && Params.bAnchorDeformedVertices)
+    {
+        PassParameters->bAnchorDeformedVertices = 1;
+        PassParameters->IsAnchorFlags = GraphBuilder.CreateSRV(IsAnchorFlagsBuffer);
+    }
+    else
+    {
+        PassParameters->bAnchorDeformedVertices = 0;
+        // Create dummy buffer (shader parameter binding required)
+        uint32 DummyAnchorData = 0;
+        FRDGBufferRef DummyAnchorBuffer = GraphBuilder.CreateBuffer(
+            FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), 1),
+            TEXT("FleshRingLaplacian_DummyAnchor")
+        );
+        GraphBuilder.QueueBufferUpload(DummyAnchorBuffer, &DummyAnchorData, sizeof(DummyAnchorData), ERDGInitialDataFlags::None);
+        PassParameters->IsAnchorFlags = GraphBuilder.CreateSRV(DummyAnchorBuffer);
+    }
+
     // Get shader
     TShaderMapRef<FFleshRingLaplacianCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
 
@@ -118,7 +138,8 @@ static void DispatchStandardLaplacianMultiPass(
     FRDGBufferRef InfluencesBuffer,
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef AdjacencyDataBuffer,
-    FRDGBufferRef VertexLayerTypesBuffer)
+    FRDGBufferRef VertexLayerTypesBuffer,
+    FRDGBufferRef IsAnchorFlagsBuffer)
 {
     // For single iteration, dispatch directly
     if (Params.NumIterations == 1)
@@ -142,7 +163,8 @@ static void DispatchStandardLaplacianMultiPass(
             InfluencesBuffer,
             RepresentativeIndicesBuffer,
             AdjacencyDataBuffer,
-            VertexLayerTypesBuffer
+            VertexLayerTypesBuffer,
+            IsAnchorFlagsBuffer
         );
         return;
     }
@@ -180,7 +202,8 @@ static void DispatchStandardLaplacianMultiPass(
             InfluencesBuffer,
             RepresentativeIndicesBuffer,
             AdjacencyDataBuffer,
-            VertexLayerTypesBuffer
+            VertexLayerTypesBuffer,
+            IsAnchorFlagsBuffer
         );
     }
 
@@ -212,7 +235,8 @@ static void DispatchTaubinMultiPass(
     FRDGBufferRef InfluencesBuffer,
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef AdjacencyDataBuffer,
-    FRDGBufferRef VertexLayerTypesBuffer)
+    FRDGBufferRef VertexLayerTypesBuffer,
+    FRDGBufferRef IsAnchorFlagsBuffer)
 {
     // Use clamped Lambda for stability (max 0.8)
     const float Lambda = Params.GetEffectiveLambda();
@@ -282,7 +306,8 @@ static void DispatchTaubinMultiPass(
             InfluencesBuffer,
             RepresentativeIndicesBuffer,
             AdjacencyDataBuffer,
-            VertexLayerTypesBuffer
+            VertexLayerTypesBuffer,
+            IsAnchorFlagsBuffer
         );
     }
 
@@ -307,7 +332,8 @@ void DispatchFleshRingLaplacianCS_MultiPass(
     FRDGBufferRef InfluencesBuffer,
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef AdjacencyDataBuffer,
-    FRDGBufferRef VertexLayerTypesBuffer)
+    FRDGBufferRef VertexLayerTypesBuffer,
+    FRDGBufferRef IsAnchorFlagsBuffer)
 {
     if (Params.NumAffectedVertices == 0 || Params.NumIterations <= 0)
     {
@@ -325,7 +351,8 @@ void DispatchFleshRingLaplacianCS_MultiPass(
             InfluencesBuffer,
             RepresentativeIndicesBuffer,
             AdjacencyDataBuffer,
-            VertexLayerTypesBuffer
+            VertexLayerTypesBuffer,
+            IsAnchorFlagsBuffer
         );
     }
     else
@@ -339,7 +366,8 @@ void DispatchFleshRingLaplacianCS_MultiPass(
             InfluencesBuffer,
             RepresentativeIndicesBuffer,
             AdjacencyDataBuffer,
-            VertexLayerTypesBuffer
+            VertexLayerTypesBuffer,
+            IsAnchorFlagsBuffer
         );
     }
 }

@@ -105,6 +105,13 @@ public:
 
         // Exclude stocking layer from smoothing (0 = smooth all, 1 = exclude)
         SHADER_PARAMETER(uint32, bExcludeStockingFromSmoothing)
+
+        // Anchor mode: skip smoothing for original affected (directly deformed) vertices
+        SHADER_PARAMETER(uint32, bAnchorDeformedVertices)
+
+        // Per-vertex anchor flags (1 = anchor/skip smoothing, 0 = apply smoothing)
+        // Used when bAnchorDeformedVertices is enabled
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, IsAnchorFlags)
     END_SHADER_PARAMETER_STRUCT()
 
     static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
@@ -140,6 +147,18 @@ struct FLaplacianDispatchParams
 
     /** Exclude stocking layer from smoothing */
     bool bExcludeStockingFromSmoothing;
+
+    // ========================================
+    // Anchor Mode Parameters
+    // ========================================
+    // Anchor mode makes original affected vertices (directly deformed by tightness)
+    // act as fixed anchors, while only extended region vertices get smoothed.
+    // Anchor determination: IsAnchorFlags buffer (1=anchor, 0=smooth)
+    // - Hop-based: Seed vertices (hop=0) are anchors
+    // - Z-based: Original SDF AABB vertices are anchors
+
+    /** Enable anchor mode (original affected vertices skip smoothing) */
+    bool bAnchorDeformedVertices;
 
     // ========================================
     // Taubin Smoothing Parameters
@@ -180,6 +199,7 @@ struct FLaplacianDispatchParams
         , SmoothingLambda(0.5f)
         , NumIterations(2)
         , bExcludeStockingFromSmoothing(true)  // Default: exclude stocking from smoothing
+        , bAnchorDeformedVertices(false)      // Default: smooth all vertices (original behavior)
         , bUseTaubinSmoothing(true)   // Default: use Taubin for shrinkage-free smoothing
         , TaubinMu(-0.53f)            // Typical value for λ=0.5
     {
@@ -235,6 +255,8 @@ struct FLaplacianDispatchParams
  * @param InfluencesBuffer - Per-vertex influence weights
  * @param RepresentativeIndicesBuffer - Representative vertex indices for UV seam welding (nullptr = use AffectedIndices)
  * @param AdjacencyDataBuffer - Packed adjacency data
+ * @param VertexLayerTypesBuffer - Per-vertex layer types (optional, nullptr if not excluding stocking)
+ * @param IsAnchorFlagsBuffer - Per-vertex anchor flags (optional, nullptr disables anchor mode)
  */
 void DispatchFleshRingLaplacianCS(
     FRDGBuilder& GraphBuilder,
@@ -245,7 +267,8 @@ void DispatchFleshRingLaplacianCS(
     FRDGBufferRef InfluencesBuffer,
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef AdjacencyDataBuffer,
-    FRDGBufferRef VertexLayerTypesBuffer);  // Optional: nullptr if not excluding stocking
+    FRDGBufferRef VertexLayerTypesBuffer,
+    FRDGBufferRef IsAnchorFlagsBuffer);  // Optional: nullptr disables anchor mode
 
 /**
  * Dispatch multiple iterations of Laplacian smoothing
@@ -259,6 +282,7 @@ void DispatchFleshRingLaplacianCS(
  * @param RepresentativeIndicesBuffer - Representative vertex indices for UV seam welding (nullptr = use AffectedIndices)
  * @param AdjacencyDataBuffer - Packed adjacency data
  * @param VertexLayerTypesBuffer - Per-vertex layer types (optional)
+ * @param IsAnchorFlagsBuffer - Per-vertex anchor flags (optional, nullptr disables anchor mode)
  */
 void DispatchFleshRingLaplacianCS_MultiPass(
     FRDGBuilder& GraphBuilder,
@@ -268,4 +292,5 @@ void DispatchFleshRingLaplacianCS_MultiPass(
     FRDGBufferRef InfluencesBuffer,
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef AdjacencyDataBuffer,
-    FRDGBufferRef VertexLayerTypesBuffer);  // Optional: nullptr if not excluding stocking
+    FRDGBufferRef VertexLayerTypesBuffer,
+    FRDGBufferRef IsAnchorFlagsBuffer);  // Optional: nullptr disables anchor mode

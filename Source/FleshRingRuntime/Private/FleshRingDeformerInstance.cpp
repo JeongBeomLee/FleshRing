@@ -367,6 +367,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		// Note: PostProcessingLayerTypes는 FullMeshLayerTypes로 대체됨 (deprecated)
 		DispatchData.PostProcessingIndices = RingData.PostProcessingIndices;
 		DispatchData.PostProcessingInfluences = RingData.PostProcessingInfluences;
+		DispatchData.PostProcessingIsAnchor = RingData.PostProcessingIsAnchor;  // 앵커 플래그
 		DispatchData.PostProcessingRepresentativeIndices = RingData.PostProcessingRepresentativeIndices;  // UV seam welding용
 		DispatchData.PostProcessingLaplacianAdjacencyData = RingData.PostProcessingLaplacianAdjacencyData;
 		DispatchData.PostProcessingPBDAdjacencyWithRestLengths = RingData.PostProcessingPBDAdjacencyWithRestLengths;
@@ -438,6 +439,9 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			DispatchData.TaubinMu = Settings.TaubinMu;
 			DispatchData.SmoothingIterations = Settings.SmoothingIterations;
 
+			// Anchor Mode: 원본 Affected Vertices를 앵커로 고정
+			DispatchData.bAnchorDeformedVertices = Settings.bAnchorDeformedVertices;
+
 			// 홉 기반 스무딩 설정 및 데이터 복사
 			// NOTE: 데이터는 항상 복사 (런타임 토글 지원)
 			DispatchData.bUseHopBasedSmoothing = (Settings.SmoothingVolumeMode == ESmoothingVolumeMode::HopBased);
@@ -446,6 +450,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			// 확장된 스무딩 영역 데이터 복사 (Seeds + N-hop 도달 버텍스)
 			DispatchData.ExtendedSmoothingIndices = RingData.ExtendedSmoothingIndices;
 			DispatchData.ExtendedInfluences = RingData.ExtendedInfluences;
+			DispatchData.ExtendedIsAnchor = RingData.ExtendedIsAnchor;  // 앵커 플래그 (1=Seed, 0=확장)
 			DispatchData.ExtendedLaplacianAdjacency = RingData.ExtendedLaplacianAdjacency;
 		}
 

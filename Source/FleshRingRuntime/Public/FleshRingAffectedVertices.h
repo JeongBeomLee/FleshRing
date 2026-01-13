@@ -205,6 +205,16 @@ struct FRingAffectedData
      */
     TArray<float> PostProcessingInfluences;
 
+    /**
+     * GPU buffer: Anchor flags for post-processing vertices
+     * 1 = original affected vertex (anchor, skip smoothing)
+     * 0 = extended region vertex (apply smoothing)
+     * GPU 버퍼: 후처리 버텍스의 앵커 플래그
+     * 1 = 원본 영향 버텍스 (앵커, 스무딩 건너뜀)
+     * 0 = 확장 영역 버텍스 (스무딩 적용)
+     */
+    TArray<uint32> PostProcessingIsAnchor;
+
     // Note: PostProcessingLayerTypes는 CachedVertexLayerTypes/FullMeshLayerTypes로 대체됨 (deprecated/removed)
     // 전체 메시 크기의 lookup 테이블을 직접 사용하여 축소→확대 변환 제거
 
@@ -420,6 +430,16 @@ struct FRingAffectedData
      * 홉 거리에서 falloff로 계산됨
      */
     TArray<float> ExtendedInfluences;
+
+    /**
+     * Anchor flags for each vertex in ExtendedSmoothingIndices
+     * 1 = Seed vertex (hop distance 0, original affected) → anchor, skip smoothing
+     * 0 = Extended vertex (hop distance > 0) → apply smoothing
+     * ExtendedSmoothingIndices 각 버텍스의 앵커 플래그
+     * 1 = Seed 버텍스 (홉 거리 0, 원본 affected) → 앵커, 스무딩 건너뜀
+     * 0 = 확장 버텍스 (홉 거리 > 0) → 스무딩 적용
+     */
+    TArray<uint32> ExtendedIsAnchor;
 
     /**
      * Laplacian adjacency data for extended smoothing region

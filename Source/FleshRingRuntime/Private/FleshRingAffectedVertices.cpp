@@ -533,7 +533,16 @@ void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
 {
     OutRingData.PostProcessingIndices.Reset();
     OutRingData.PostProcessingInfluences.Reset();
+    OutRingData.PostProcessingIsAnchor.Reset();
     // Note: PostProcessingLayerTypes는 FullMeshLayerTypes로 대체됨 (deprecated/removed)
+
+    // 원본 Affected Vertices를 빠르게 조회하기 위한 Set (앵커 판정용)
+    TSet<uint32> AffectedSet;
+    AffectedSet.Reserve(AffectedVertices.Num());
+    for (const FAffectedVertex& V : AffectedVertices)
+    {
+        AffectedSet.Add(V.VertexIndex);
+    }
 
     // ★ 모든 Smoothing이 꺼져있으면 원본 Affected Vertices만 복사
     const bool bAnySmoothingEnabled =
@@ -545,11 +554,13 @@ void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
     {
         OutRingData.PostProcessingIndices.Reserve(AffectedVertices.Num());
         OutRingData.PostProcessingInfluences.Reserve(AffectedVertices.Num());
+        OutRingData.PostProcessingIsAnchor.Reserve(AffectedVertices.Num());
 
         for (const FAffectedVertex& V : AffectedVertices)
         {
             OutRingData.PostProcessingIndices.Add(V.VertexIndex);
             OutRingData.PostProcessingInfluences.Add(1.0f);
+            OutRingData.PostProcessingIsAnchor.Add(1);  // 원본 Affected = 앵커
         }
 
         UE_LOG(LogFleshRingVertices, Log,
@@ -568,11 +579,13 @@ void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
     {
         OutRingData.PostProcessingIndices.Reserve(AffectedVertices.Num());
         OutRingData.PostProcessingInfluences.Reserve(AffectedVertices.Num());
+        OutRingData.PostProcessingIsAnchor.Reserve(AffectedVertices.Num());
 
         for (const FAffectedVertex& V : AffectedVertices)
         {
             OutRingData.PostProcessingIndices.Add(V.VertexIndex);
             OutRingData.PostProcessingInfluences.Add(1.0f);
+            OutRingData.PostProcessingIsAnchor.Add(1);  // 원본 Affected = 앵커
         }
 
         UE_LOG(LogFleshRingVertices, Log,
@@ -599,9 +612,11 @@ void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
 
     OutRingData.PostProcessingIndices.Reserve(AllVertices.Num() / 4);
     OutRingData.PostProcessingInfluences.Reserve(AllVertices.Num() / 4);
+    OutRingData.PostProcessingIsAnchor.Reserve(AllVertices.Num() / 4);
 
     int32 CoreCount = 0;
     int32 ExtendedCount = 0;
+    int32 AnchorCount = 0;
 
     for (int32 VertexIdx = 0; VertexIdx < AllVertices.Num(); ++VertexIdx)
     {
@@ -639,14 +654,19 @@ void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
                 CoreCount++;
             }
 
+            // 앵커 판정: 원본 AffectedVertices에 포함된 버텍스만 앵커
+            const bool bIsAnchor = AffectedSet.Contains(static_cast<uint32>(VertexIdx));
+            if (bIsAnchor) AnchorCount++;
+
             OutRingData.PostProcessingIndices.Add(static_cast<uint32>(VertexIdx));
             OutRingData.PostProcessingInfluences.Add(Influence);
+            OutRingData.PostProcessingIsAnchor.Add(bIsAnchor ? 1 : 0);
         }
     }
 
     UE_LOG(LogFleshRingVertices, Log,
-        TEXT("PostProcessing (Manual): Selected %d vertices (Core=%d, ZExtended=%d) for Ring[%d], ZExtend=[%.1f, %.1f]"),
-        OutRingData.PostProcessingIndices.Num(), CoreCount, ExtendedCount,
+        TEXT("PostProcessing (Manual): Selected %d vertices (Core=%d, ZExtended=%d, Anchors=%d) for Ring[%d], ZExtend=[%.1f, %.1f]"),
+        OutRingData.PostProcessingIndices.Num(), CoreCount, ExtendedCount, AnchorCount,
         Context.RingIndex, BoundsZBottom, BoundsZTop);
 }
 
@@ -825,11 +845,20 @@ void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
 {
     OutRingData.PostProcessingIndices.Reset();
     OutRingData.PostProcessingInfluences.Reset();
+    OutRingData.PostProcessingIsAnchor.Reset();
     // Note: PostProcessingLayerTypes는 FullMeshLayerTypes로 대체됨 (deprecated/removed)
 
     if (!Context.SDFCache || !Context.SDFCache->IsValid())
     {
         return;
+    }
+
+    // 원본 Affected Vertices를 빠르게 조회하기 위한 Set (앵커 판정용)
+    TSet<uint32> AffectedSet;
+    AffectedSet.Reserve(AffectedVertices.Num());
+    for (const FAffectedVertex& V : AffectedVertices)
+    {
+        AffectedSet.Add(V.VertexIndex);
     }
 
     // ★ 모든 Smoothing이 꺼져있으면 Z 확장 없이 원본 Affected Vertices만 복사
@@ -844,11 +873,13 @@ void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
     {
         OutRingData.PostProcessingIndices.Reserve(AffectedVertices.Num());
         OutRingData.PostProcessingInfluences.Reserve(AffectedVertices.Num());
+        OutRingData.PostProcessingIsAnchor.Reserve(AffectedVertices.Num());
 
         for (const FAffectedVertex& V : AffectedVertices)
         {
             OutRingData.PostProcessingIndices.Add(V.VertexIndex);
             OutRingData.PostProcessingInfluences.Add(1.0f);
+            OutRingData.PostProcessingIsAnchor.Add(1);  // 원본 Affected = 앵커
         }
 
         UE_LOG(LogFleshRingVertices, Log,
@@ -866,11 +897,13 @@ void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
         // 원본 복사
         OutRingData.PostProcessingIndices.Reserve(AffectedVertices.Num());
         OutRingData.PostProcessingInfluences.Reserve(AffectedVertices.Num());
+        OutRingData.PostProcessingIsAnchor.Reserve(AffectedVertices.Num());
 
         for (const FAffectedVertex& V : AffectedVertices)
         {
             OutRingData.PostProcessingIndices.Add(V.VertexIndex);
             OutRingData.PostProcessingInfluences.Add(1.0f);  // 코어 버텍스는 1.0
+            OutRingData.PostProcessingIsAnchor.Add(1);  // 원본 Affected = 앵커
         }
 
         UE_LOG(LogFleshRingVertices, Log,
@@ -895,20 +928,14 @@ void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
 
     const float OriginalZSize = OriginalBoundsMax.Z - OriginalBoundsMin.Z;
 
-    // Affected vertices를 빠르게 조회하기 위한 Set
-    TSet<uint32> AffectedSet;
-    AffectedSet.Reserve(AffectedVertices.Num());
-    for (const FAffectedVertex& V : AffectedVertices)
-    {
-        AffectedSet.Add(V.VertexIndex);
-    }
-
     OutRingData.PostProcessingIndices.Reserve(AllVertices.Num() / 4);
     OutRingData.PostProcessingInfluences.Reserve(AllVertices.Num() / 4);
+    OutRingData.PostProcessingIsAnchor.Reserve(AllVertices.Num() / 4);
     // Note: PostProcessingLayerTypes removed - using FullMeshLayerTypes for GPU direct lookup
 
     int32 CoreCount = 0;
     int32 ExtendedCount = 0;
+    int32 AnchorCount = 0;
 
     for (int32 VertexIdx = 0; VertexIdx < AllVertices.Num(); ++VertexIdx)
     {
@@ -920,8 +947,6 @@ void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
             LocalPos.Y >= OriginalBoundsMin.Y && LocalPos.Y <= OriginalBoundsMax.Y &&
             LocalPos.Z >= ExtendedBoundsMin.Z && LocalPos.Z <= ExtendedBoundsMax.Z)
         {
-            OutRingData.PostProcessingIndices.Add(static_cast<uint32>(VertexIdx));
-
             // Influence 계산: 코어(원본 범위) = 1.0, Z 확장 영역 = falloff
             float Influence = 1.0f;
 
@@ -946,14 +971,20 @@ void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
                 CoreCount++;
             }
 
+            // 앵커 판정: 원본 AffectedVertices에 포함된 버텍스만 앵커
+            const bool bIsAnchor = AffectedSet.Contains(static_cast<uint32>(VertexIdx));
+            if (bIsAnchor) AnchorCount++;
+
+            OutRingData.PostProcessingIndices.Add(static_cast<uint32>(VertexIdx));
             OutRingData.PostProcessingInfluences.Add(Influence);
+            OutRingData.PostProcessingIsAnchor.Add(bIsAnchor ? 1 : 0);
             // Note: LayerTypes는 FullMeshLayerTypes에서 GPU가 직접 조회
         }
     }
 
     UE_LOG(LogFleshRingVertices, Log,
-        TEXT("PostProcessing: Selected %d vertices (Core=%d, ZExtended=%d) for Ring[%d], ZExtend=[%.1f, %.1f]"),
-        OutRingData.PostProcessingIndices.Num(), CoreCount, ExtendedCount,
+        TEXT("PostProcessing: Selected %d vertices (Core=%d, ZExtended=%d, Anchors=%d) for Ring[%d], ZExtend=[%.1f, %.1f]"),
+        OutRingData.PostProcessingIndices.Num(), CoreCount, ExtendedCount, AnchorCount,
         Context.RingIndex, BoundsZBottom, BoundsZTop);
 }
 
@@ -3252,6 +3283,7 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
     RingData.ExtendedSmoothingIndices.Reset(NumExtended);
     RingData.ExtendedHopDistances.Reset(NumExtended);
     RingData.ExtendedInfluences.Reset(NumExtended);
+    RingData.ExtendedIsAnchor.Reset(NumExtended);
 
     const float MaxHopsFloat = static_cast<float>(MaxHops);
 
@@ -3261,6 +3293,7 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
         RingData.ExtendedSmoothingIndices.Add(AffVert.VertexIndex);
         RingData.ExtendedHopDistances.Add(0);
         RingData.ExtendedInfluences.Add(1.0f);  // Seeds는 influence 1.0
+        RingData.ExtendedIsAnchor.Add(1);       // Seeds는 앵커 (스무딩 건너뜀)
     }
 
     // Seeds가 아닌 도달 버텍스 추가 (Hop 1+)
@@ -3277,6 +3310,7 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
 
         RingData.ExtendedSmoothingIndices.Add(VertIdx);
         RingData.ExtendedHopDistances.Add(Hop);
+        RingData.ExtendedIsAnchor.Add(0);  // Extended 버텍스는 스무딩 적용
 
         // t = 정규화된 홉 거리 (0 = seed, 1 = maxHops)
         const float t = static_cast<float>(Hop) / MaxHopsFloat;
