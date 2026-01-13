@@ -2338,10 +2338,11 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 				// SDF 모드: OBB 쿼리 (Bulge 영역 확장 고려)
 				const FVector3f& BoundsMin = SDFCache->BoundsMin;
 				const FVector3f& BoundsMax = SDFCache->BoundsMax;
-				// Bulge 영역은 축 방향으로 확장됨 (AxialLimit)
+				// Bulge 영역 확장: Axial(Z) + Radial(X/Y) 모두 고려
 				const float AxialExtend = AxialLimit - BulgeStartDist;
-				FVector ExpandedMin = FVector(BoundsMin) - FVector(0, 0, AxialExtend);
-				FVector ExpandedMax = FVector(BoundsMax) + FVector(0, 0, AxialExtend);
+				const float RadialExtend = FMath::Max(0.0f, RadialLimit - RingRadius);
+				FVector ExpandedMin = FVector(BoundsMin) - FVector(RadialExtend, RadialExtend, AxialExtend);
+				FVector ExpandedMax = FVector(BoundsMax) + FVector(RadialExtend, RadialExtend, AxialExtend);
 				DebugSpatialHash.QueryOBB(LocalToComponent, ExpandedMin, ExpandedMax, CandidateIndices);
 			}
 			else
