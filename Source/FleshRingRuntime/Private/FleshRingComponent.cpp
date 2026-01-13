@@ -74,7 +74,7 @@ static bool IsSkeletalMeshSkeletonValid(USkeletalMesh* Mesh)
 	return FleshRingUtils::IsSkeletalMeshValid(Mesh, /*bLogWarnings=*/ true);
 }
 
-bool UFleshRingComponent::HasAnyManualModeRings() const
+bool UFleshRingComponent::HasAnyNonSDFRings() const
 {
 	if (!FleshRingAsset)
 	{
@@ -82,7 +82,9 @@ bool UFleshRingComponent::HasAnyManualModeRings() const
 	}
 	for (const FFleshRingSettings& RingSettings : FleshRingAsset->Rings)
 	{
-		if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Manual)
+		// Manual 또는 ProceduralBand 모드는 SDF 없이 동작 (거리 기반 로직)
+		if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Manual ||
+			RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
 		{
 			return true;
 		}
@@ -110,7 +112,7 @@ void UFleshRingComponent::BeginPlay()
 
 		// 유효한 SDF 캐시가 있거나 Manual 모드 Ring이 있으면 Deformer 설정
 		// (Auto 모드 SDF 실패는 여전히 개별 스킵, Manual 모드는 SDF 없이 작동)
-		if (HasAnyValidSDFCaches() || HasAnyManualModeRings())
+		if (HasAnyValidSDFCaches() || HasAnyNonSDFRings())
 		{
 			SetupDeformer();
 		}
@@ -493,90 +495,14 @@ void UFleshRingComponent::GenerateSDF()
 	{
 		const FFleshRingSettings& Ring = FleshRingAsset->Rings[RingIndex];
 
-		// ===== ProceduralBand 모드: 수학적 SDF 생성 =====
+		// ===== ProceduralBand 모드: SDF 불필요, 스킵 (거리 기반 로직 사용) =====
+		// ProceduralBand 모드는 FVirtualBandVertexSelector/FVirtualBandInfluenceProvider로
+		// BandSettings 파라미터를 직접 사용하여 거리 기반 Tight/Bulge 계산
+		// SDF 텍스처 없이 동작하므로 생성 스킵
 		if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
 		{
-			// 1. ProceduralBand 파라미터에서 메시 생성
-			FFleshRingMeshData MeshData;
-			FleshRingProceduralMesh::GenerateBandMesh(
-				Ring.ProceduralBand,
-				MeshData.Vertices,
-				MeshData.Indices);
-			MeshData.Bounds = FleshRingProceduralMesh::CalculateBandBounds(Ring.ProceduralBand);
-
-			if (!MeshData.IsValid())
-			{
-				UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: Ring[%d] failed to generate procedural band mesh"), RingIndex);
-				continue;
-			}
-
-			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] generated procedural band: %d vertices, %d triangles"),
-				RingIndex, MeshData.GetVertexCount(), MeshData.GetTriangleCount());
-
-			// 2. OBB Transform 계산
-			FTransform LocalToComponentTransform;
-			{
-				FTransform MeshTransform;
-				MeshTransform.SetLocation(Ring.MeshOffset);
-				MeshTransform.SetRotation(FQuat(Ring.MeshRotation));
-				MeshTransform.SetScale3D(Ring.MeshScale);
-				FTransform BoneTransform = GetBoneBindPoseTransform(ResolvedTargetMesh.Get(), Ring.BoneName);
-				LocalToComponentTransform = MeshTransform * BoneTransform;
-			}
-
-			// 3. SDF 해상도 결정
-			const int32 Resolution = 64;
-			const FIntVector SDFResolution(Resolution, Resolution, Resolution);
-
-			// 4. Bounds 계산 (SDF 텍스처용 - 원래 바운드 유지)
-			// NOTE: SDFBoundsExpandX/Y는 SDF 텍스처 바운드에 적용하지 않음
-			// 이유 1: 에디터에서 Expand 값 조절 시 매번 SDF 재생성 → 성능/메모리 문제
-			// 이유 2: 바운드 확장 시 SDF 해상도 밀도 저하 → 링 형태 품질 저하
-			// 이유 3: 패딩 시 얇은 링에서 Flood Fill 실패 (벽이 얇아져 누출)
-			// 탄젠트 영역 문제: 셰이더에서 최소 스텝으로 해결 (FleshRingTightnessCS.usf)
-			FVector3f BoundsMin = MeshData.Bounds.Min;
-			FVector3f BoundsMax = MeshData.Bounds.Max;
-
-			// 5. 캐시 메타데이터 설정
-			FRingSDFCache* CachePtr = &RingSDFCaches[RingIndex];
-			CachePtr->BoundsMin = BoundsMin;
-			CachePtr->BoundsMax = BoundsMax;
-			CachePtr->Resolution = SDFResolution;
-			CachePtr->LocalToComponent = LocalToComponentTransform;
-
-			// 6. 수학적 SDF 생성 (렌더 스레드)
-			FProceduralBandSettings CapturedBandSettings = Ring.ProceduralBand;
-			FIntVector CapturedResolution = SDFResolution;
-			FVector3f CapturedBoundsMin = BoundsMin;
-			FVector3f CapturedBoundsMax = BoundsMax;
-
-			ENQUEUE_RENDER_COMMAND(GenerateFleshRingProceduralBandSDF)(
-				[CapturedBandSettings,
-				 CapturedResolution,
-				 CapturedBoundsMin,
-				 CapturedBoundsMax,
-				 RingIndex,
-				 CachePtr](FRHICommandListImmediate& RHICmdList)
-				{
-					FRDGBuilder GraphBuilder(RHICmdList);
-
-					FProceduralBandSDFDispatchParams Params;
-					Params.BandSettings = CapturedBandSettings;
-					Params.SDFBounds = FBox3f(CapturedBoundsMin, CapturedBoundsMax);
-					Params.Resolution = CapturedResolution;
-
-					FRDGTextureRef SDFTexture = CreateAndDispatchProceduralBandSDF(GraphBuilder, Params);
-
-					CachePtr->PooledTexture = GraphBuilder.ConvertToExternalTexture(SDFTexture);
-					CachePtr->bCached = true;
-
-					GraphBuilder.Execute();
-
-					UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Mathematical SDF cached for Ring[%d] (ProceduralBand), Resolution=%d"),
-						RingIndex, CapturedResolution.X);
-				});
-
-			continue;  // ProceduralBand 처리 완료, 다음 Ring으로
+			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] is ProceduralBand mode, SDF generation skipped (using distance-based logic)"), RingIndex);
+			continue;
 		}
 
 		// ===== Manual 모드: SDF 불필요, 스킵 =====
@@ -765,7 +691,7 @@ void UFleshRingComponent::InitializeForEditorPreview()
 
 	// 유효한 SDF 캐시가 있거나 Manual 모드 Ring이 있어야 Deformer 설정
 	// (Auto 모드 SDF 실패는 여전히 개별 스킵, Manual 모드는 SDF 없이 작동)
-	if (!HasAnyValidSDFCaches() && !HasAnyManualModeRings())
+	if (!HasAnyValidSDFCaches() && !HasAnyNonSDFRings())
 	{
 		UE_LOG(LogFleshRingComponent, Warning, TEXT("InitializeForEditorPreview: No valid SDF caches and no Manual mode rings, skipping Deformer setup"));
 		bEditorPreviewInitialized = true;
@@ -1908,10 +1834,12 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 		RingData.BoneName = RingSettings.BoneName;
 		RingData.RingCenter = BoneTransform.GetLocation();
 
-		// Ring별 InfluenceMode에 따라 인라인 계산 (SelectVertices 호출 대신 직접 계산 - 성능 최적화)
+		// Ring별 InfluenceMode에 따라 분기
+		// - Auto: SDF 유효할 때만 SDF 기반
+		// - ProceduralBand: 항상 거리 기반 (가변 반경)
+		// - Manual: 항상 거리 기반 (고정 반경)
 		const bool bUseSDFForThisRing =
-			(RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto ||
-			 RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand) &&
+			(RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto) &&
 			(SDFCache && SDFCache->IsValid());
 
 		// Falloff 계산 람다 (CalculateFalloff 인라인 버전)
@@ -1963,6 +1891,137 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 				AffectedVert.VertexIndex = static_cast<uint32>(VertexIdx);
 				AffectedVert.Influence = 1.0f;
 				RingData.Vertices.Add(AffectedVert);
+			}
+		}
+		else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+		{
+			// ===== ProceduralBand 모드 (SDF 무효): 가변 반경 거리 기반 =====
+			const FProceduralBandSettings& BandSettings = RingSettings.ProceduralBand;
+			const FQuat BoneRotation = BoneTransform.GetRotation();
+			const FVector WorldMeshOffset = BoneRotation.RotateVector(RingSettings.MeshOffset);
+			const FVector BandCenter = BoneTransform.GetLocation() + WorldMeshOffset;
+			const FQuat WorldMeshRotation = BoneRotation * RingSettings.MeshRotation;
+			const FVector BandAxis = WorldMeshRotation.RotateVector(FVector::ZAxisVector);
+
+			// 높이 파라미터
+			const float LowerHeight = BandSettings.Lower.Height;
+			const float BandHeight = BandSettings.BandHeight;
+			const float UpperHeight = BandSettings.Upper.Height;
+			const float TotalHeight = LowerHeight + BandHeight + UpperHeight;
+
+			// Tightness 영역: Band Section만
+			const float TightnessZMin = LowerHeight;
+			const float TightnessZMax = LowerHeight + BandHeight;
+
+			// Tightness Falloff 범위: 밴드가 조이면서 밀어내는 거리
+			// Upper/Lower 반경 차이 = 불룩한 정도 = 조여야 할 거리
+			const float UpperBulge = BandSettings.Upper.Radius - BandSettings.MidUpperRadius;
+			const float LowerBulge = BandSettings.Lower.Radius - BandSettings.MidLowerRadius;
+			const float TightnessFalloffRange = FMath::Max(FMath::Max(UpperBulge, LowerBulge), 1.0f);
+
+			// 최대 반경 계산 (AABB 쿼리용)
+			const float MaxRadius = FMath::Max(
+				FMath::Max(BandSettings.Lower.Radius, BandSettings.Upper.Radius),
+				FMath::Max(BandSettings.MidLowerRadius, BandSettings.MidUpperRadius)
+			) + TightnessFalloffRange;
+
+			// 높이별 가변 반경 계산 람다
+			auto GetRadiusAtHeight = [&BandSettings](float LocalZ) -> float
+			{
+				const float LH = BandSettings.Lower.Height;
+				const float BH = BandSettings.BandHeight;
+				const float UH = BandSettings.Upper.Height;
+
+				if (LocalZ < LH)
+				{
+					const float t = (LH > KINDA_SMALL_NUMBER) ? LocalZ / LH : 0.0f;
+					return FMath::Lerp(BandSettings.Lower.Radius, BandSettings.MidLowerRadius, FMath::Clamp(t, 0.0f, 1.0f));
+				}
+				if (LocalZ < LH + BH)
+				{
+					const float t = (BH > KINDA_SMALL_NUMBER) ? (LocalZ - LH) / BH : 0.0f;
+					return FMath::Lerp(BandSettings.MidLowerRadius, BandSettings.MidUpperRadius, FMath::Clamp(t, 0.0f, 1.0f));
+				}
+				const float t = (UH > KINDA_SMALL_NUMBER) ? (LocalZ - LH - BH) / UH : 0.0f;
+				return FMath::Lerp(BandSettings.MidUpperRadius, BandSettings.Upper.Radius, FMath::Clamp(t, 0.0f, 1.0f));
+			};
+
+			// Spatial Hash로 후보 추출
+			TArray<int32> CandidateIndices;
+			if (DebugSpatialHash.IsBuilt())
+			{
+				FTransform BandLocalToComponent;
+				BandLocalToComponent.SetLocation(BandCenter);
+				BandLocalToComponent.SetRotation(WorldMeshRotation);
+				BandLocalToComponent.SetScale3D(FVector::OneVector);
+
+				const FVector LocalMin(-MaxRadius, -MaxRadius, 0.0f);
+				const FVector LocalMax(MaxRadius, MaxRadius, TotalHeight);
+				DebugSpatialHash.QueryOBB(BandLocalToComponent, LocalMin, LocalMax, CandidateIndices);
+			}
+			else
+			{
+				CandidateIndices.Reserve(DebugBindPoseVertices.Num());
+				for (int32 i = 0; i < DebugBindPoseVertices.Num(); ++i)
+				{
+					CandidateIndices.Add(i);
+				}
+			}
+
+			for (int32 VertexIdx : CandidateIndices)
+			{
+				const FVector VertexPos = FVector(DebugBindPoseVertices[VertexIdx]);
+				const FVector ToVertex = VertexPos - BandCenter;
+				const float AxisDistance = FVector::DotProduct(ToVertex, BandAxis);
+				const float LocalZ = AxisDistance;
+
+				// Band Section 범위 체크 (Tightness 영역)
+				if (LocalZ < TightnessZMin || LocalZ > TightnessZMax)
+				{
+					continue;
+				}
+
+				const FVector RadialVec = ToVertex - BandAxis * AxisDistance;
+				const float RadialDistance = RadialVec.Size();
+				const float BandRadius = GetRadiusAtHeight(LocalZ);
+
+				// 밴드 표면보다 바깥에 있어야 Tightness 영향
+				if (RadialDistance <= BandRadius)
+				{
+					continue;
+				}
+
+				const float DistanceOutside = RadialDistance - BandRadius;
+				if (DistanceOutside > TightnessFalloffRange)
+				{
+					continue;
+				}
+
+				const float RadialInfluence = CalcFalloff(DistanceOutside, TightnessFalloffRange, RingSettings.FalloffType);
+
+				// Axial Influence (Band 경계에서 거리에 따른 falloff)
+				float AxialInfluence = 1.0f;
+				const float AxialFalloffRange = BandHeight * 0.2f;
+				if (LocalZ < TightnessZMin + AxialFalloffRange)
+				{
+					const float Dist = TightnessZMin + AxialFalloffRange - LocalZ;
+					AxialInfluence = CalcFalloff(Dist, AxialFalloffRange, RingSettings.FalloffType);
+				}
+				else if (LocalZ > TightnessZMax - AxialFalloffRange)
+				{
+					const float Dist = LocalZ - (TightnessZMax - AxialFalloffRange);
+					AxialInfluence = CalcFalloff(Dist, AxialFalloffRange, RingSettings.FalloffType);
+				}
+
+				const float CombinedInfluence = RadialInfluence * AxialInfluence;
+
+				if (CombinedInfluence > KINDA_SMALL_NUMBER)
+				{
+					FAffectedVertex AffectedVert;
+					AffectedVert.VertexIndex = static_cast<uint32>(VertexIdx);
+					AffectedVert.Influence = CombinedInfluence;
+					RingData.Vertices.Add(AffectedVert);
+				}
 			}
 		}
 		else

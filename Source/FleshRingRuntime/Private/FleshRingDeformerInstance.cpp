@@ -682,10 +682,17 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		// AffectedVerticesManager에서 Spatial Hash 가져오기
 		const FVertexSpatialHash* SpatialHash = &CurrentLODData.AffectedVerticesManager.GetSpatialHash();
 
-		// ===== Bulge Provider 선택: SDF 유무에 따라 분기 =====
+		// ===== Bulge Provider 선택: SDF 유무 및 InfluenceMode에 따라 분기 =====
+		// Ring InfluenceMode 가져오기
+		EFleshRingInfluenceMode BulgeRingInfluenceMode = EFleshRingInfluenceMode::Auto;
+		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(OriginalIdx))
+		{
+			BulgeRingInfluenceMode = (*RingSettingsPtr)[OriginalIdx].InfluenceMode;
+		}
+
 		if (DispatchData.bHasValidSDF)
 		{
-			// Auto/ProceduralBand 모드: SDF 바운드 기반 Bulge
+			// Auto/ProceduralBand 모드 + SDF 유효: SDF 바운드 기반 Bulge
 			FSDFBulgeProvider BulgeProvider;
 			BulgeProvider.InitFromSDFCache(
 				DispatchData.SDFBoundsMin,
@@ -702,9 +709,41 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				BulgeInfluences,
 				BulgeDirections);
 		}
+		else if (BulgeRingInfluenceMode == EFleshRingInfluenceMode::ProceduralBand &&
+				 RingSettingsPtr && RingSettingsPtr->IsValidIndex(OriginalIdx))
+		{
+			// ProceduralBand 모드 + SDF 무효: 가변 반경 기반 Bulge
+			const FProceduralBandSettings& BandSettings = (*RingSettingsPtr)[OriginalIdx].ProceduralBand;
+
+			// Band 중심/축 계산 (DispatchData에서 가져옴)
+			FVector3f BandCenter = FVector3f(DispatchData.Params.RingCenter);
+			FVector3f BandAxis = FVector3f(DispatchData.Params.RingAxis);
+
+			FVirtualBandInfluenceProvider BulgeProvider;
+			BulgeProvider.InitFromBandSettings(
+				BandSettings.Lower.Radius,
+				BandSettings.MidLowerRadius,
+				BandSettings.MidUpperRadius,
+				BandSettings.Upper.Radius,
+				BandSettings.Lower.Height,
+				BandSettings.BandHeight,
+				BandSettings.Upper.Height,
+				BandCenter,
+				BandAxis,
+				RingBulgeAxialRange,
+				RingBulgeRadialRange);
+			BulgeProvider.FalloffType = RingBulgeFalloff;
+
+			BulgeProvider.CalculateBulgeRegion(
+				AllVertexPositions,
+				SpatialHash,
+				BulgeIndices,
+				BulgeInfluences,
+				BulgeDirections);
+		}
 		else
 		{
-			// Manual 모드: Ring 파라미터 기반 Bulge
+			// Manual 모드: 고정 반경 기반 Bulge
 			FManualBulgeProvider BulgeProvider;
 			BulgeProvider.InitFromRingParams(
 				FVector3f(DispatchData.Params.RingCenter),

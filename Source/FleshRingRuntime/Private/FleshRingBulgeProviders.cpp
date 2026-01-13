@@ -355,3 +355,221 @@ void FManualBulgeProvider::CalculateExpandedBulgeAABB(FVector& OutMin, FVector& 
 	OutMin = FVector(RingCenter) - FVector(MaxExpansion);
 	OutMax = FVector(RingCenter) + FVector(MaxExpansion);
 }
+
+// ============================================================================
+// FVirtualBandInfluenceProvider - Virtual Band(ProceduralBand) 모드용 Bulge 영역 계산
+// ============================================================================
+
+void FVirtualBandInfluenceProvider::InitFromBandSettings(
+	float InLowerRadius, float InMidLowerRadius,
+	float InMidUpperRadius, float InUpperRadius,
+	float InLowerHeight, float InBandHeight, float InUpperHeight,
+	const FVector3f& InCenter, const FVector3f& InAxis,
+	float InAxialRange, float InRadialRange)
+{
+	LowerRadius = InLowerRadius;
+	MidLowerRadius = InMidLowerRadius;
+	MidUpperRadius = InMidUpperRadius;
+	UpperRadius = InUpperRadius;
+	LowerHeight = InLowerHeight;
+	BandHeight = InBandHeight;
+	UpperHeight = InUpperHeight;
+	BandCenter = InCenter;
+	BandAxis = InAxis.GetSafeNormal();
+	AxialRange = InAxialRange;
+	RadialRange = InRadialRange;
+}
+
+float FVirtualBandInfluenceProvider::GetRadiusAtHeight(float LocalZ) const
+{
+	// Lower Section: LowerRadius → MidLowerRadius
+	if (LocalZ < LowerHeight)
+	{
+		float t = (LowerHeight > 0.0f) ? LocalZ / LowerHeight : 0.0f;
+		return FMath::Lerp(LowerRadius, MidLowerRadius, t);
+	}
+
+	// Band Section: MidLowerRadius → MidUpperRadius
+	if (LocalZ < LowerHeight + BandHeight)
+	{
+		float t = (BandHeight > 0.0f) ? (LocalZ - LowerHeight) / BandHeight : 0.0f;
+		return FMath::Lerp(MidLowerRadius, MidUpperRadius, t);
+	}
+
+	// Upper Section: MidUpperRadius → UpperRadius
+	float t = (UpperHeight > 0.0f) ? (LocalZ - LowerHeight - BandHeight) / UpperHeight : 0.0f;
+	return FMath::Lerp(MidUpperRadius, UpperRadius, FMath::Clamp(t, 0.0f, 1.0f));
+}
+
+float FVirtualBandInfluenceProvider::CalculateFalloff(float Distance, float MaxDistance) const
+{
+	if (MaxDistance <= KINDA_SMALL_NUMBER)
+	{
+		return 1.0f;
+	}
+
+	const float NormalizedDist = FMath::Clamp(Distance / MaxDistance, 0.0f, 1.0f);
+	return FFleshRingFalloff::Evaluate(NormalizedDist, FalloffType);
+}
+
+void FVirtualBandInfluenceProvider::CalculateBulgeRegion(
+	const TArrayView<const FVector3f>& AllVertexPositions,
+	const FVertexSpatialHash* SpatialHash,
+	TArray<uint32>& OutBulgeVertexIndices,
+	TArray<float>& OutBulgeInfluences,
+	TArray<FVector3f>& OutBulgeDirections) const
+{
+	OutBulgeVertexIndices.Reset();
+	OutBulgeInfluences.Reset();
+	OutBulgeDirections.Reset();  // GPU에서 계산
+
+	const float TotalHeight = GetTotalHeight();
+
+	// 유효성 검사
+	if (TotalHeight <= KINDA_SMALL_NUMBER)
+	{
+		UE_LOG(LogFleshRingBulge, Warning, TEXT("VirtualBand Bulge: 높이가 유효하지 않음 (TotalHeight=%.2f)"),
+			TotalHeight);
+		return;
+	}
+
+	// Band Section 경계
+	const float BandZMin = LowerHeight;
+	const float BandZMax = LowerHeight + BandHeight;
+
+	// Bulge 범위 (축 방향)
+	// Lower Section: 0에서 LowerHeight까지, 확장은 아래로
+	// Upper Section: BandZMax에서 TotalHeight까지, 확장은 위로
+	const float BulgeAxialLimit = FMath::Max(LowerHeight, UpperHeight) * AxialRange;
+
+	// Bulge 범위 (반경 방향) - 최대 반경 기준
+	const float MaxRadius = FMath::Max(FMath::Max(LowerRadius, MidLowerRadius), FMath::Max(MidUpperRadius, UpperRadius));
+	const float BulgeRadialLimit = MaxRadius * RadialRange;
+
+	// ================================================================
+	// Spatial Hash 최적화
+	// ================================================================
+	TArray<int32> CandidateIndices;
+	const int32 TotalVertexCount = AllVertexPositions.Num();
+
+	if (SpatialHash && SpatialHash->IsBuilt())
+	{
+		FVector ExpandedMin, ExpandedMax;
+		CalculateExpandedBulgeAABB(ExpandedMin, ExpandedMax);
+		SpatialHash->QueryOBB(FTransform::Identity, ExpandedMin, ExpandedMax, CandidateIndices);
+
+		UE_LOG(LogFleshRingBulge, Verbose, TEXT("VirtualBand Bulge SpatialHash: %d 후보 (전체 %d 중, %.1f%%)"),
+			CandidateIndices.Num(), TotalVertexCount,
+			TotalVertexCount > 0 ? (100.0f * CandidateIndices.Num() / TotalVertexCount) : 0.0f);
+	}
+	else
+	{
+		CandidateIndices.Reserve(TotalVertexCount);
+		for (int32 i = 0; i < TotalVertexCount; ++i)
+		{
+			CandidateIndices.Add(i);
+		}
+		UE_LOG(LogFleshRingBulge, Verbose, TEXT("VirtualBand Bulge 브루트포스: SpatialHash 없음, 전체 %d 버텍스 순회"), TotalVertexCount);
+	}
+
+	OutBulgeVertexIndices.Reserve(CandidateIndices.Num() / 5);
+	OutBulgeInfluences.Reserve(CandidateIndices.Num() / 5);
+
+	int32 LowerSectionCount = 0;
+	int32 UpperSectionCount = 0;
+
+	for (int32 VertexIdx : CandidateIndices)
+	{
+		const FVector3f& VertexPos = AllVertexPositions[VertexIdx];
+
+		// Band 중심으로부터의 벡터
+		const FVector3f ToVertex = VertexPos - BandCenter;
+
+		// 축 방향 성분 (Local Z)
+		const float LocalZ = FVector3f::DotProduct(ToVertex, BandAxis);
+
+		// Band Section 내부는 Bulge 제외 (Tightness만 적용)
+		if (LocalZ >= BandZMin && LocalZ <= BandZMax)
+		{
+			continue;
+		}
+
+		// 반경 방향 벡터와 거리
+		const FVector3f RadialVec = ToVertex - BandAxis * LocalZ;
+		const float RadialDist = RadialVec.Size();
+
+		// 해당 높이에서의 밴드 반경 (클램핑된 Z 사용)
+		const float ClampedZ = FMath::Clamp(LocalZ, 0.0f, TotalHeight);
+		const float BandRadiusAtZ = GetRadiusAtHeight(ClampedZ);
+
+		// 반경 범위 제한: 밴드 반경 근처에만 적용
+		const float RadialMargin = BandRadiusAtZ * (RadialRange - 1.0f);
+		if (RadialDist > BandRadiusAtZ + RadialMargin || RadialDist < BandRadiusAtZ * 0.3f)
+		{
+			continue;
+		}
+
+		// Bulge 영향도 계산
+		float BulgeInfluence = 0.0f;
+
+		if (LocalZ < BandZMin)
+		{
+			// Lower Section: Band 하단 경계에서 멀어질수록 감소
+			const float AxialFromBand = BandZMin - LocalZ;
+			const float AxialLimit = LowerHeight * AxialRange;
+
+			if (AxialFromBand > AxialLimit)
+			{
+				continue;
+			}
+
+			BulgeInfluence = CalculateFalloff(AxialFromBand, AxialLimit);
+			LowerSectionCount++;
+		}
+		else // LocalZ > BandZMax
+		{
+			// Upper Section: Band 상단 경계에서 멀어질수록 감소
+			const float AxialFromBand = LocalZ - BandZMax;
+			const float AxialLimit = UpperHeight * AxialRange;
+
+			if (AxialFromBand > AxialLimit)
+			{
+				continue;
+			}
+
+			BulgeInfluence = CalculateFalloff(AxialFromBand, AxialLimit);
+			UpperSectionCount++;
+		}
+
+		if (BulgeInfluence > KINDA_SMALL_NUMBER)
+		{
+			OutBulgeVertexIndices.Add(static_cast<uint32>(VertexIdx));
+			OutBulgeInfluences.Add(BulgeInfluence);
+		}
+	}
+
+	UE_LOG(LogFleshRingBulge, Verbose, TEXT("VirtualBand Bulge 필터링: 후보=%d, Lower=%d, Upper=%d, 최종=%d"),
+		CandidateIndices.Num(),
+		LowerSectionCount,
+		UpperSectionCount,
+		OutBulgeVertexIndices.Num());
+}
+
+void FVirtualBandInfluenceProvider::CalculateExpandedBulgeAABB(FVector& OutMin, FVector& OutMax) const
+{
+	const float TotalHeight = GetTotalHeight();
+
+	// 최대 반경
+	const float MaxRadius = FMath::Max(FMath::Max(LowerRadius, MidLowerRadius), FMath::Max(MidUpperRadius, UpperRadius));
+
+	// 확장량
+	const float AxialExpansion = FMath::Max(LowerHeight, UpperHeight) * AxialRange;
+	const float RadialExpansion = MaxRadius * RadialRange;
+	const float MaxExpansion = FMath::Max(AxialExpansion, RadialExpansion);
+
+	// Band 중심 기준 AABB
+	// Z 방향: Band 전체 높이 + 확장
+	// XY 방향: 최대 반경 + 확장
+	OutMin = FVector(BandCenter) - FVector(MaxExpansion, MaxExpansion, MaxExpansion);
+	OutMax = FVector(BandCenter) + FVector(MaxExpansion, MaxExpansion, TotalHeight + MaxExpansion);
+}

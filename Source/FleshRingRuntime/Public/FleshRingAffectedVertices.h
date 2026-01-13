@@ -720,6 +720,62 @@ public:
         FRingAffectedData& OutRingData);
 };
 
+// ============================================================================
+// FVirtualBandVertexSelector - Virtual Band(ProceduralBand) 모드용 선택
+// ============================================================================
+// Uses: Context.RingSettings.ProceduralBand (4반경, 3높이)
+//
+// Design: SDF 없이 4-반경 가변 형상으로 Tightness 버텍스 선택
+// Manual Mode와의 차이점:
+// - 고정 반경 대신 GetRadiusAtHeight()로 가변 반경 사용
+// - Band Section(중간)만 Tightness 적용, Upper/Lower는 Bulge용
+
+class FVirtualBandVertexSelector : public IVertexSelector
+{
+public:
+    virtual void SelectVertices(
+        const FVertexSelectionContext& Context,
+        TArray<FAffectedVertex>& OutAffected) override;
+
+    virtual FString GetStrategyName() const override
+    {
+        return TEXT("VirtualBandBased");
+    }
+
+    /**
+     * Select post-processing vertices for Virtual Band mode (Z-extended range)
+     * Virtual Band 모드용 후처리 버텍스 선택 (Z 확장 범위)
+     *
+     * 전체 Virtual Band 높이 + BoundsZTop/Bottom 확장 범위에서 버텍스 선택.
+     * Manual Mode 패턴과 동일한 로직 사용.
+     *
+     * @param Context - Vertex selection context
+     * @param AffectedVertices - Already selected affected vertices
+     * @param OutRingData - Output: fills PostProcessingIndices, PostProcessingInfluences
+     */
+    void SelectPostProcessingVertices(
+        const FVertexSelectionContext& Context,
+        const TArray<FAffectedVertex>& AffectedVertices,
+        FRingAffectedData& OutRingData);
+
+private:
+    /**
+     * Calculate band radius at given height (variable radius)
+     * 주어진 높이에서의 밴드 반경 계산 (가변 반경)
+     *
+     * Lower Section: LowerRadius → MidLowerRadius
+     * Band Section: MidLowerRadius → MidUpperRadius
+     * Upper Section: MidUpperRadius → UpperRadius
+     */
+    float GetRadiusAtHeight(float LocalZ, const struct FProceduralBandSettings& BandSettings) const;
+
+    /**
+     * Calculate falloff influence based on distance
+     * 거리에 따른 Falloff 영향도 계산
+     */
+    float CalculateFalloff(float Distance, float MaxDistance, EFalloffType InFalloffType) const;
+};
+
 // Affected Vertices Manager
 // 영향받는 버텍스 관리자
 // Central manager for affected vertex registration and updates

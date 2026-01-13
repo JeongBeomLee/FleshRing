@@ -989,6 +989,321 @@ void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
 }
 
 // ============================================================================
+// FVirtualBandVertexSelector Implementation
+// Virtual Band(ProceduralBand) 모드용 버텍스 선택 구현
+// ============================================================================
+
+float FVirtualBandVertexSelector::GetRadiusAtHeight(float LocalZ, const FProceduralBandSettings& BandSettings) const
+{
+    const float LowerHeight = BandSettings.Lower.Height;
+    const float BandHeight = BandSettings.BandHeight;
+    const float UpperHeight = BandSettings.Upper.Height;
+
+    // Lower Section: LowerRadius → MidLowerRadius
+    if (LocalZ < LowerHeight)
+    {
+        const float t = (LowerHeight > KINDA_SMALL_NUMBER) ? LocalZ / LowerHeight : 0.0f;
+        return FMath::Lerp(BandSettings.Lower.Radius, BandSettings.MidLowerRadius, FMath::Clamp(t, 0.0f, 1.0f));
+    }
+
+    // Band Section: MidLowerRadius → MidUpperRadius
+    if (LocalZ < LowerHeight + BandHeight)
+    {
+        const float t = (BandHeight > KINDA_SMALL_NUMBER) ? (LocalZ - LowerHeight) / BandHeight : 0.0f;
+        return FMath::Lerp(BandSettings.MidLowerRadius, BandSettings.MidUpperRadius, FMath::Clamp(t, 0.0f, 1.0f));
+    }
+
+    // Upper Section: MidUpperRadius → UpperRadius
+    const float t = (UpperHeight > KINDA_SMALL_NUMBER) ? (LocalZ - LowerHeight - BandHeight) / UpperHeight : 0.0f;
+    return FMath::Lerp(BandSettings.MidUpperRadius, BandSettings.Upper.Radius, FMath::Clamp(t, 0.0f, 1.0f));
+}
+
+float FVirtualBandVertexSelector::CalculateFalloff(float Distance, float MaxDistance, EFalloffType InFalloffType) const
+{
+    if (MaxDistance < KINDA_SMALL_NUMBER)
+    {
+        return 1.0f;
+    }
+
+    const float NormalizedDist = FMath::Clamp(Distance / MaxDistance, 0.0f, 1.0f);
+
+    switch (InFalloffType)
+    {
+    case EFalloffType::Linear:
+        return 1.0f - NormalizedDist;
+    case EFalloffType::Quadratic:
+        return 1.0f - NormalizedDist * NormalizedDist;
+    case EFalloffType::Hermite:
+        // Hermite S-curve: 3t² - 2t³
+        return 1.0f - (3.0f * NormalizedDist * NormalizedDist - 2.0f * NormalizedDist * NormalizedDist * NormalizedDist);
+    default:
+        return 1.0f - NormalizedDist;
+    }
+}
+
+void FVirtualBandVertexSelector::SelectVertices(
+    const FVertexSelectionContext& Context,
+    TArray<FAffectedVertex>& OutAffected)
+{
+    OutAffected.Reset();
+
+    const FFleshRingSettings& Ring = Context.RingSettings;
+    const TArray<FVector3f>& AllVertices = Context.AllVertices;
+
+    // ProceduralBand 설정 가져오기
+    const FProceduralBandSettings& BandSettings = Ring.ProceduralBand;
+
+    // 밴드 트랜스폼 계산 (MeshOffset/MeshRotation 사용)
+    const FTransform& BoneTransform = Context.BoneTransform;
+    const FQuat BoneRotation = BoneTransform.GetRotation();
+    const FVector WorldMeshOffset = BoneRotation.RotateVector(Ring.MeshOffset);
+    const FVector BandCenter = BoneTransform.GetLocation() + WorldMeshOffset;
+    const FQuat WorldMeshRotation = BoneRotation * Ring.MeshRotation;
+    const FVector BandAxis = WorldMeshRotation.RotateVector(FVector::ZAxisVector);
+
+    // 높이 파라미터
+    const float LowerHeight = BandSettings.Lower.Height;
+    const float BandHeight = BandSettings.BandHeight;
+    const float UpperHeight = BandSettings.Upper.Height;
+    const float TotalHeight = LowerHeight + BandHeight + UpperHeight;
+
+    // Tightness 영역: Band Section만 (LowerHeight ~ LowerHeight+BandHeight)
+    const float TightnessZMin = LowerHeight;
+    const float TightnessZMax = LowerHeight + BandHeight;
+
+    // Tightness Falloff 범위: 밴드가 조이면서 밀어내는 거리
+    // Upper/Lower 반경 차이 = 불룩한 정도 = 조여야 할 거리
+    const float UpperBulge = BandSettings.Upper.Radius - BandSettings.MidUpperRadius;
+    const float LowerBulge = BandSettings.Lower.Radius - BandSettings.MidLowerRadius;
+    const float TightnessFalloffRange = FMath::Max(FMath::Max(UpperBulge, LowerBulge), 1.0f);  // 최소 1.0 보장
+
+    OutAffected.Reserve(AllVertices.Num() / 4);
+
+    for (int32 VertexIdx = 0; VertexIdx < AllVertices.Num(); ++VertexIdx)
+    {
+        const FVector VertexPos = FVector(AllVertices[VertexIdx]);
+        const FVector ToVertex = VertexPos - BandCenter;
+
+        // 축 방향 거리
+        const float AxisDistance = FVector::DotProduct(ToVertex, BandAxis);
+        const float LocalZ = AxisDistance;
+
+        // Band Section 범위 체크 (Tightness 영역)
+        if (LocalZ < TightnessZMin || LocalZ > TightnessZMax)
+        {
+            continue;
+        }
+
+        // 반경 방향 거리
+        const FVector RadialVec = ToVertex - BandAxis * AxisDistance;
+        const float RadialDistance = RadialVec.Size();
+
+        // 해당 높이에서의 밴드 반경 (가변 반경)
+        const float BandRadius = GetRadiusAtHeight(LocalZ, BandSettings);
+
+        // 밴드 표면보다 바깥에 있어야 Tightness 영향
+        if (RadialDistance <= BandRadius)
+        {
+            continue;
+        }
+
+        // 밴드 표면과의 거리
+        const float DistanceOutside = RadialDistance - BandRadius;
+
+        // Falloff 범위 체크
+        if (DistanceOutside > TightnessFalloffRange)
+        {
+            continue;
+        }
+
+        // Radial Influence (표면에 가까울수록 높음)
+        const float RadialInfluence = CalculateFalloff(DistanceOutside, TightnessFalloffRange, Ring.FalloffType);
+
+        // Axial Influence (Band 경계에서 거리에 따른 falloff)
+        float AxialInfluence = 1.0f;
+        const float AxialFalloffRange = BandHeight * 0.2f;
+        if (LocalZ < TightnessZMin + AxialFalloffRange)
+        {
+            const float Dist = TightnessZMin + AxialFalloffRange - LocalZ;
+            AxialInfluence = CalculateFalloff(Dist, AxialFalloffRange, Ring.FalloffType);
+        }
+        else if (LocalZ > TightnessZMax - AxialFalloffRange)
+        {
+            const float Dist = LocalZ - (TightnessZMax - AxialFalloffRange);
+            AxialInfluence = CalculateFalloff(Dist, AxialFalloffRange, Ring.FalloffType);
+        }
+
+        const float CombinedInfluence = RadialInfluence * AxialInfluence;
+
+        if (CombinedInfluence > KINDA_SMALL_NUMBER)
+        {
+            OutAffected.Add(FAffectedVertex(
+                static_cast<uint32>(VertexIdx),
+                RadialDistance,
+                CombinedInfluence
+            ));
+        }
+    }
+
+    UE_LOG(LogFleshRingVertices, Log,
+        TEXT("VirtualBandSelector: Ring[%d] '%s' - Selected %d vertices"),
+        Context.RingIndex, *Ring.BoneName.ToString(), OutAffected.Num());
+}
+
+void FVirtualBandVertexSelector::SelectPostProcessingVertices(
+    const FVertexSelectionContext& Context,
+    const TArray<FAffectedVertex>& AffectedVertices,
+    FRingAffectedData& OutRingData)
+{
+    OutRingData.PostProcessingIndices.Reset();
+    OutRingData.PostProcessingInfluences.Reset();
+
+    // Smoothing이 꺼져있으면 원본 Affected Vertices만 복사
+    const bool bAnySmoothingEnabled =
+        Context.RingSettings.bEnableRadialSmoothing ||
+        Context.RingSettings.bEnableLaplacianSmoothing ||
+        Context.RingSettings.bEnablePBDEdgeConstraint;
+
+    if (!bAnySmoothingEnabled)
+    {
+        OutRingData.PostProcessingIndices.Reserve(AffectedVertices.Num());
+        OutRingData.PostProcessingInfluences.Reserve(AffectedVertices.Num());
+
+        for (const FAffectedVertex& V : AffectedVertices)
+        {
+            OutRingData.PostProcessingIndices.Add(V.VertexIndex);
+            OutRingData.PostProcessingInfluences.Add(1.0f);
+        }
+
+        UE_LOG(LogFleshRingVertices, Log,
+            TEXT("PostProcessing (VirtualBand): Smoothing disabled, using %d affected vertices"),
+            OutRingData.PostProcessingIndices.Num());
+        return;
+    }
+
+    const float BoundsZTop = Context.RingSettings.SmoothingBoundsZTop;
+    const float BoundsZBottom = Context.RingSettings.SmoothingBoundsZBottom;
+    const FFleshRingSettings& Ring = Context.RingSettings;
+    const TArray<FVector3f>& AllVertices = Context.AllVertices;
+    const FProceduralBandSettings& BandSettings = Ring.ProceduralBand;
+
+    // Z 확장이 없으면 원본 Affected Vertices를 그대로 사용
+    if (BoundsZTop < 0.01f && BoundsZBottom < 0.01f)
+    {
+        OutRingData.PostProcessingIndices.Reserve(AffectedVertices.Num());
+        OutRingData.PostProcessingInfluences.Reserve(AffectedVertices.Num());
+
+        for (const FAffectedVertex& V : AffectedVertices)
+        {
+            OutRingData.PostProcessingIndices.Add(V.VertexIndex);
+            OutRingData.PostProcessingInfluences.Add(1.0f);
+        }
+
+        UE_LOG(LogFleshRingVertices, Log,
+            TEXT("PostProcessing (VirtualBand): No Z extension, using %d affected vertices"),
+            OutRingData.PostProcessingIndices.Num());
+        return;
+    }
+
+    // 밴드 트랜스폼 계산 (SelectVertices와 동일)
+    const FQuat BoneRotation = Context.BoneTransform.GetRotation();
+    const FVector WorldMeshOffset = BoneRotation.RotateVector(Ring.MeshOffset);
+    const FVector BandCenter = Context.BoneTransform.GetLocation() + WorldMeshOffset;
+    const FQuat WorldMeshRotation = BoneRotation * Ring.MeshRotation;
+    const FVector BandAxis = WorldMeshRotation.RotateVector(FVector::ZAxisVector);
+
+    // Virtual Band 전체 높이
+    const float LowerHeight = BandSettings.Lower.Height;
+    const float BandHeight = BandSettings.BandHeight;
+    const float UpperHeight = BandSettings.Upper.Height;
+    const float TotalHeight = LowerHeight + BandHeight + UpperHeight;
+
+    // 확장된 Z 범위 (전체 Virtual Band + Z 확장)
+    const float ExtendedZMin = 0.0f - BoundsZBottom;
+    const float ExtendedZMax = TotalHeight + BoundsZTop;
+
+    // 최대 반경 계산 (AABB 쿼리용)
+    const float MaxRadius = FMath::Max(
+        FMath::Max(BandSettings.Lower.Radius, BandSettings.Upper.Radius),
+        FMath::Max(BandSettings.MidLowerRadius, BandSettings.MidUpperRadius)
+    ) + Ring.RingThickness;
+
+    OutRingData.PostProcessingIndices.Reserve(AllVertices.Num() / 4);
+    OutRingData.PostProcessingInfluences.Reserve(AllVertices.Num() / 4);
+
+    int32 CoreCount = 0;
+    int32 ExtendedCount = 0;
+
+    for (int32 VertexIdx = 0; VertexIdx < AllVertices.Num(); ++VertexIdx)
+    {
+        const FVector VertexPos = FVector(AllVertices[VertexIdx]);
+        const FVector ToVertex = VertexPos - BandCenter;
+
+        // 축 방향 거리
+        const float AxisDistance = FVector::DotProduct(ToVertex, BandAxis);
+        const float LocalZ = AxisDistance;
+
+        // 확장된 Z 범위 체크
+        if (LocalZ < ExtendedZMin || LocalZ > ExtendedZMax)
+        {
+            continue;
+        }
+
+        // 반경 방향 거리
+        const FVector RadialVec = ToVertex - BandAxis * AxisDistance;
+        const float RadialDistance = RadialVec.Size();
+
+        // 해당 높이에서의 밴드 반경 (가변 반경, Z 범위 클램프)
+        const float ClampedZ = FMath::Clamp(LocalZ, 0.0f, TotalHeight);
+        const float BandRadius = GetRadiusAtHeight(ClampedZ, BandSettings);
+
+        // 반경 범위 체크 (밴드 근처)
+        if (RadialDistance > BandRadius + Ring.RingThickness)
+        {
+            continue;
+        }
+
+        OutRingData.PostProcessingIndices.Add(static_cast<uint32>(VertexIdx));
+
+        // Influence 계산: 코어(Band Section 내) = 1.0, Z 확장 영역 = falloff
+        float Influence = 1.0f;
+
+        // 코어 영역: Band Section (LowerHeight ~ LowerHeight+BandHeight)
+        const float CoreZMin = LowerHeight;
+        const float CoreZMax = LowerHeight + BandHeight;
+
+        if (LocalZ < CoreZMin)
+        {
+            // 하단 확장 영역 (Lower Section + Z 확장)
+            const float DistFromCore = CoreZMin - LocalZ;
+            const float MaxExtension = LowerHeight + BoundsZBottom;
+            Influence = 1.0f - FMath::Clamp(DistFromCore / FMath::Max(MaxExtension, 0.01f), 0.0f, 1.0f);
+            Influence = FMath::InterpEaseInOut(0.0f, 1.0f, Influence, 2.0f);
+            ExtendedCount++;
+        }
+        else if (LocalZ > CoreZMax)
+        {
+            // 상단 확장 영역 (Upper Section + Z 확장)
+            const float DistFromCore = LocalZ - CoreZMax;
+            const float MaxExtension = UpperHeight + BoundsZTop;
+            Influence = 1.0f - FMath::Clamp(DistFromCore / FMath::Max(MaxExtension, 0.01f), 0.0f, 1.0f);
+            Influence = FMath::InterpEaseInOut(0.0f, 1.0f, Influence, 2.0f);
+            ExtendedCount++;
+        }
+        else
+        {
+            CoreCount++;
+        }
+
+        OutRingData.PostProcessingInfluences.Add(Influence);
+    }
+
+    UE_LOG(LogFleshRingVertices, Log,
+        TEXT("PostProcessing (VirtualBand): Selected %d vertices (Core=%d, Extended=%d) for Ring[%d]"),
+        OutRingData.PostProcessingIndices.Num(), CoreCount, ExtendedCount, Context.RingIndex);
+}
+
+// ============================================================================
 // Affected Vertices Manager Implementation
 // 영향받는 버텍스 관리자 구현
 // ============================================================================
@@ -1320,6 +1635,11 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         {
             RingSelector = MakeShared<FSDFBoundsBasedVertexSelector>();
         }
+        else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+        {
+            // ProceduralBand 모드 + SDF 무효 → VirtualBandVertexSelector (거리 기반 가변 반경)
+            RingSelector = MakeShared<FVirtualBandVertexSelector>();
+        }
         else
         {
             RingSelector = MakeShared<FDistanceBasedVertexSelector>();
@@ -1358,6 +1678,13 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             // SDF 모드: SDF 바운드 기반 Z 확장
             FSDFBoundsBasedVertexSelector* SDFSelector = static_cast<FSDFBoundsBasedVertexSelector*>(RingSelector.Get());
             SDFSelector->SelectPostProcessingVertices(Context, RingData.Vertices, RingData);
+            // Note: LayerTypes는 FullMeshLayerTypes에서 GPU가 직접 조회
+        }
+        else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+        {
+            // ProceduralBand 모드 (SDF 무효): VirtualBand 기반 Z 확장
+            FVirtualBandVertexSelector* VBSelector = static_cast<FVirtualBandVertexSelector*>(RingSelector.Get());
+            VBSelector->SelectPostProcessingVertices(Context, RingData.Vertices, RingData);
             // Note: LayerTypes는 FullMeshLayerTypes에서 GPU가 직접 조회
         }
         else
