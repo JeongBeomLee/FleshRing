@@ -51,7 +51,7 @@ private:
 
 /**
  * Manual 모드용 Bulge 영역 계산
- * Ring 파라미터(RingCenter, RingAxis, RingRadius, RingWidth)를 직접 받아서
+ * Ring 파라미터(RingCenter, RingAxis, RingRadius, RingHeight)를 직접 받아서
  * SDF 없이 Bulge 영역을 계산
  *
  * FSDFBulgeProvider와의 차이점:
@@ -66,7 +66,7 @@ public:
 	FVector3f RingCenter = FVector3f::ZeroVector;
 	FVector3f RingAxis = FVector3f(0.0f, 0.0f, 1.0f);
 	float RingRadius = 5.0f;
-	float RingWidth = 2.0f;
+	float RingHeight = 2.0f;
 
 	// Bulge 범위 파라미터
 	float AxialRange = 3.0f;	// 축 방향(위아래) 범위 배율
@@ -81,7 +81,7 @@ public:
 	 * @param InRingCenter - Ring 중심 (Component Space)
 	 * @param InRingAxis - Ring 축 방향 (정규화된 벡터)
 	 * @param InRingRadius - Ring 반경
-	 * @param InRingWidth - Ring 폭 (축 방향 두께)
+	 * @param InRingHeight - Ring 폭 (축 방향 두께)
 	 * @param InAxialRange - 축 방향 Bulge 범위 배율
 	 * @param InRadialRange - 반경 방향 Bulge 범위 배율
 	 */
@@ -89,7 +89,7 @@ public:
 		const FVector3f& InRingCenter,
 		const FVector3f& InRingAxis,
 		float InRingRadius,
-		float InRingWidth,
+		float InRingHeight,
 		float InAxialRange = 3.0f,
 		float InRadialRange = 1.5f);
 

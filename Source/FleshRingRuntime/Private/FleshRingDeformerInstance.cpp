@@ -401,7 +401,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			DispatchData.DeformAmounts.AddZeroed(NumAffected);
 
 			// Ring 높이의 절반을 threshold로 사용 (이 안쪽이 tightness zone)
-			const float RingHalfWidth = RingData.RingWidth * 0.5f;
+			const float RingHalfWidth = RingData.RingHeight * 0.5f;
 
 			for (int32 i = 0; i < NumAffected; ++i)
 			{
@@ -749,7 +749,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				FVector3f(DispatchData.Params.RingCenter),
 				FVector3f(DispatchData.Params.RingAxis),
 				DispatchData.Params.RingRadius,
-				DispatchData.Params.RingWidth,
+				DispatchData.Params.RingHeight,
 				RingBulgeAxialRange,
 				RingBulgeRadialRange);
 			BulgeProvider.FalloffType = RingBulgeFalloff;

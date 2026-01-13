@@ -100,7 +100,7 @@ public:
         SHADER_PARAMETER(FVector3f, RingAxis)         // 링 축 방향 (정규화됨)
         SHADER_PARAMETER(float, TightnessStrength)    // 조이기 강도
         SHADER_PARAMETER(float, RingRadius)           // 링 내부 반지름
-        SHADER_PARAMETER(float, RingWidth)            // 링 높이 (축 방향)
+        SHADER_PARAMETER(float, RingHeight)            // 링 높이 (축 방향)
 
         // ===== Counts =====
         // ===== 버텍스 수 =====
@@ -228,7 +228,7 @@ struct FTightnessDispatchParams
      * 링 높이 - 축 방향 (GPU 참조용, 실제 변형에는 사용 안함)
      * Note: RingThickness는 CPU에서 버텍스 선택 시에만 사용됨
      */
-    float RingWidth;
+    float RingHeight;
 
     // =========== Deformation Parameters ===========
 
@@ -382,7 +382,7 @@ struct FTightnessDispatchParams
         : RingCenter(FVector3f::ZeroVector)
         , RingAxis(FVector3f::UpVector)
         , RingRadius(5.0f)
-        , RingWidth(2.0f)
+        , RingHeight(2.0f)
         , TightnessStrength(1.0f)
         , NumAffectedVertices(0)
         , NumTotalVertices(0)
@@ -432,7 +432,7 @@ inline FTightnessDispatchParams CreateTightnessParams(
 
     // Ring 지오메트리 정보
     Params.RingRadius = AffectedData.RingRadius;
-    Params.RingWidth = AffectedData.RingWidth;
+    Params.RingHeight = AffectedData.RingHeight;
 
     // 변형 강도 (FFleshRingSettings에서 복사된 값)
     Params.TightnessStrength = AffectedData.TightnessStrength;
@@ -484,7 +484,7 @@ inline FTightnessDispatchParams CreateTightnessParamsWithSkinning_Deprecated(
 
     // Ring 지오메트리 정보
     Params.RingRadius = AffectedData.RingRadius;
-    Params.RingWidth = AffectedData.RingWidth;
+    Params.RingHeight = AffectedData.RingHeight;
 
     // 변형 강도
     Params.TightnessStrength = AffectedData.TightnessStrength;

@@ -36,7 +36,7 @@ float3 SDFLocalRingAxis;
 // Ring Center/Axis (Component Space) - Manual 모드용
 float3 RingCenter;
 float3 RingAxis;
-float RingWidth;
+float RingHeight;
 
 #ifndef THREADGROUP_SIZE
 #define THREADGROUP_SIZE 64

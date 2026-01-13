@@ -102,10 +102,10 @@ struct FRingAffectedData
     float RingThickness;
 
     /**
-     * Ring height along axis direction (total height, ±RingWidth/2 from center)
-     * 링 높이 - 축 방향 전체 높이 (중심에서 위아래 RingWidth/2)
+     * Ring height along axis direction (total height, ±RingHeight/2 from center)
+     * 링 높이 - 축 방향 전체 높이 (중심에서 위아래 RingHeight/2)
      */
-    float RingWidth;
+    float RingHeight;
 
     // =========== Deformation Parameters (Copy from FFleshRingSettings) ===========
 
@@ -457,7 +457,7 @@ struct FRingAffectedData
         , RingAxis(FVector::UpVector)
         , RingRadius(5.0f)
         , RingThickness(1.0f)
-        , RingWidth(2.0f)
+        , RingHeight(2.0f)
         , TightnessStrength(1.0f)
         , FalloffType(EFalloffType::Linear)
     {
@@ -661,7 +661,7 @@ public:
      * Select post-processing vertices for Manual mode (Z-extended range)
      * Manual 모드용 후처리 버텍스 선택 (Z 확장 범위)
      *
-     * Ring 파라미터(RingCenter, RingAxis, RingWidth) 기반으로 후처리 버텍스 선택.
+     * Ring 파라미터(RingCenter, RingAxis, RingHeight) 기반으로 후처리 버텍스 선택.
      * SDF 없이 Component Space에서 직접 계산.
      *
      * @param Context - Vertex selection context

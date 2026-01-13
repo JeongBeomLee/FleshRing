@@ -53,7 +53,7 @@ public:
 		// Ring Center/Axis (Component Space) - Manual 모드용
 		SHADER_PARAMETER(FVector3f, RingCenter)
 		SHADER_PARAMETER(FVector3f, RingAxis)
-		SHADER_PARAMETER(float, RingWidth)
+		SHADER_PARAMETER(float, RingHeight)
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
@@ -90,7 +90,7 @@ struct FBulgeDispatchParams
 	// Manual 모드용 파라미터 (Component Space)
 	FVector3f RingCenter = FVector3f::ZeroVector;
 	FVector3f RingAxis = FVector3f(0.0f, 0.0f, 1.0f);
-	float RingWidth = 2.0f;
+	float RingHeight = 2.0f;
 };
 
 void DispatchFleshRingBulgeCS(

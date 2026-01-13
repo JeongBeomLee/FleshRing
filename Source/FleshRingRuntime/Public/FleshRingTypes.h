@@ -332,9 +332,13 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::Manual", ClampMin = "0.1", ClampMax = "20.0"))
 	float RingThickness = 1.0f;
 
-	/** 링 높이 - 축 방향 전체 높이 (위아래 각각 RingWidth/2) */
+	/** 링 높이 - 축 방향 전체 높이 (위아래 각각 RingHeight/2) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::Manual", ClampMin = "0.1", ClampMax = "50.0"))
-	float RingWidth = 2.0f;
+	float RingHeight = 2.0f;
+
+	/** [DEPRECATED] RingWidth → RingHeight 마이그레이션용 */
+	UPROPERTY()
+	float RingWidth_DEPRECATED = 0.0f;
 
 	/** Bone 기준 Ring 위치 오프셋 (변형 영역) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::Manual"))
@@ -603,7 +607,8 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		, InfluenceMode(EFleshRingInfluenceMode::Auto)
 		, RingRadius(5.0f)
 		, RingThickness(1.0f)
-		, RingWidth(2.0f)
+		, RingHeight(2.0f)
+		, RingWidth_DEPRECATED(0.0f)
 		, bEnableBulge(true)
 		, BulgeFalloff(EFleshRingFalloffType::WendlandC2)
 		, BulgeIntensity(1.0f)

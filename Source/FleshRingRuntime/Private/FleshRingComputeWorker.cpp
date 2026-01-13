@@ -459,7 +459,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					// Manual 모드: Component Space 파라미터 설정
 					BulgeParams.RingCenter = DispatchData.Params.RingCenter;
 					BulgeParams.RingAxis = DispatchData.Params.RingAxis;
-					BulgeParams.RingWidth = DispatchData.Params.RingWidth;
+					BulgeParams.RingHeight = DispatchData.Params.RingHeight;
 				}
 
 				// [조건부 로그] 각 Ring별 첫 프레임만 출력

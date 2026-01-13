@@ -2034,7 +2034,7 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 			const FVector RingAxis = WorldRingRotation.RotateVector(FVector::ZAxisVector);
 
 			const float MaxDistance = RingSettings.RingRadius + RingSettings.RingThickness;
-			const float HalfWidth = RingSettings.RingWidth / 2.0f;
+			const float HalfWidth = RingSettings.RingHeight / 2.0f;
 
 			// Spatial Hash로 원통을 포함하는 OBB 내 후보만 추출 - O(1)
 			TArray<int32> CandidateIndices;
@@ -2291,7 +2291,7 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 		FTransform LocalToComponent = FTransform::Identity;
 		FVector3f RingCenter;
 		FVector3f RingAxis;
-		float RingWidth;
+		float RingHeight;
 		float RingRadius;
 		int32 DetectedDirection = 0;
 		bool bUseLocalSpace = false;  // Manual 모드는 Component Space 직접 사용
@@ -2319,7 +2319,7 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 				RingAxis = FVector3f(0, 0, 1);
 
 			// Ring 크기 계산 (FleshRingBulgeProviders.cpp와 동일)
-			RingWidth = FMath::Min3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z);
+			RingHeight = FMath::Min3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z);
 			RingRadius = FMath::Max3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z) * 0.5f;
 			DetectedDirection = SDFCache->DetectedBulgeDirection;
 		}
@@ -2350,7 +2350,7 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 			ManualRingRotation = WorldRingRotation;  // OBB 쿼리용 저장
 
 			// Ring 크기는 직접 사용
-			RingWidth = RingSettings.RingWidth;
+			RingHeight = RingSettings.RingHeight;
 			RingRadius = RingSettings.RingRadius;
 			DetectedDirection = 0;  // Manual 모드는 자동 감지 불가, 양방향
 		}
@@ -2361,11 +2361,11 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 		}
 
 		// Bulge 시작 거리 (Ring 경계)
-		const float BulgeStartDist = RingWidth * 0.5f;
+		const float BulgeStartDist = RingHeight * 0.5f;
 
 		// 직교 범위 제한 (각 축 독립적으로 제어)
-		// AxialLimit = 시작점 + 확장량 (AxialRange=1이면 RingWidth*0.5 만큼 확장)
-		const float AxialLimit = BulgeStartDist + RingWidth * 0.5f * RingSettings.BulgeAxialRange;
+		// AxialLimit = 시작점 + 확장량 (AxialRange=1이면 RingHeight*0.5 만큼 확장)
+		const float AxialLimit = BulgeStartDist + RingHeight * 0.5f * RingSettings.BulgeAxialRange;
 		const float RadialLimit = RingRadius * RingSettings.BulgeRadialRange;
 
 		// 방향 결정 (0 = 양방향) - DetectedDirection은 위에서 이미 계산됨

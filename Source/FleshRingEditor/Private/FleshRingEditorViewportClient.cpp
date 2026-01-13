@@ -1112,22 +1112,63 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 		// HitProxy 설정 (Ring 기즈모용)
 		PDI->SetHitProxy(new HFleshRingGizmoHitProxy(i));
 
-		// Ring 원 그리기 (RingRotation 적용)
-		float Radius = Ring.RingRadius;
-		int32 Segments = 32;
+		// Ring 밴드 시각화 (직사각형 단면 원환체)
+		// RingRadius = 링 중심선, RingThickness = 반경방향 ±두께 (양방향)
+		float InnerRadius = FMath::Max(0.0f, Ring.RingRadius - Ring.RingThickness);
+		float OuterRadius = Ring.RingRadius + Ring.RingThickness;
+		float HalfHeight = Ring.RingHeight / 2.0f;
 
-		for (int32 s = 0; s < Segments; ++s)
+		// 상단/하단 면 채우기 (방사형 직선으로 빈틈없이)
+		int32 FillSegments = 360;  // 촘촘한 방사형 선
+		float ZOffsets[2] = { -HalfHeight, HalfHeight };
+
+		for (float ZOffset : ZOffsets)
 		{
-			float Angle1 = (float)s / Segments * 2.0f * PI;
-			float Angle2 = (float)(s + 1) / Segments * 2.0f * PI;
+			for (int32 s = 0; s < FillSegments; ++s)
+			{
+				float Angle = (float)s / FillSegments * 2.0f * PI;
+				FVector Dir(FMath::Cos(Angle), FMath::Sin(Angle), 0.0f);
 
-			// 로컬 XY 평면에서 원을 그린 후 RingWorldRotation으로 회전
-			FVector P1 = GizmoLocation + RingWorldRotation.RotateVector(
-				FVector(FMath::Cos(Angle1) * Radius, FMath::Sin(Angle1) * Radius, 0.0f));
-			FVector P2 = GizmoLocation + RingWorldRotation.RotateVector(
-				FVector(FMath::Cos(Angle2) * Radius, FMath::Sin(Angle2) * Radius, 0.0f));
+				FVector InnerPt = GizmoLocation + RingWorldRotation.RotateVector(Dir * InnerRadius + FVector(0, 0, ZOffset));
+				FVector OuterPt = GizmoLocation + RingWorldRotation.RotateVector(Dir * OuterRadius + FVector(0, 0, ZOffset));
+				PDI->DrawLine(InnerPt, OuterPt, GizmoColor, SDPG_Foreground, 0.0f);  // 최소 굵기
+			}
+		}
 
-			PDI->DrawLine(P1, P2, GizmoColor, SDPG_Foreground, 1.0f);
+		// 내부/외부 원 경계선 (상/하)
+		int32 CircleSegments = 64;
+		float Radii[2] = { InnerRadius, OuterRadius };
+		for (float Radius : Radii)
+		{
+			for (float ZOffset : ZOffsets)
+			{
+				for (int32 s = 0; s < CircleSegments; ++s)
+				{
+					float Angle1 = (float)s / CircleSegments * 2.0f * PI;
+					float Angle2 = (float)(s + 1) / CircleSegments * 2.0f * PI;
+
+					FVector P1 = GizmoLocation + RingWorldRotation.RotateVector(
+						FVector(FMath::Cos(Angle1) * Radius, FMath::Sin(Angle1) * Radius, ZOffset));
+					FVector P2 = GizmoLocation + RingWorldRotation.RotateVector(
+						FVector(FMath::Cos(Angle2) * Radius, FMath::Sin(Angle2) * Radius, ZOffset));
+					PDI->DrawLine(P1, P2, GizmoColor, SDPG_Foreground, 0.0f);
+				}
+			}
+		}
+
+		// 수직 연결선 (4개 방향)
+		for (int32 q = 0; q < 4; ++q)
+		{
+			float Angle = (float)q / 4.0f * 2.0f * PI;
+			FVector Dir(FMath::Cos(Angle), FMath::Sin(Angle), 0.0f);
+
+			FVector InnerBottom = GizmoLocation + RingWorldRotation.RotateVector(Dir * InnerRadius + FVector(0, 0, -HalfHeight));
+			FVector InnerTop = GizmoLocation + RingWorldRotation.RotateVector(Dir * InnerRadius + FVector(0, 0, HalfHeight));
+			PDI->DrawLine(InnerBottom, InnerTop, GizmoColor, SDPG_Foreground, 0.0f);
+
+			FVector OuterBottom = GizmoLocation + RingWorldRotation.RotateVector(Dir * OuterRadius + FVector(0, 0, -HalfHeight));
+			FVector OuterTop = GizmoLocation + RingWorldRotation.RotateVector(Dir * OuterRadius + FVector(0, 0, HalfHeight));
+			PDI->DrawLine(OuterBottom, OuterTop, GizmoColor, SDPG_Foreground, 0.0f);
 		}
 
 		// 본 위치에 작은 구 표시

@@ -779,7 +779,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	// Ring Transform 그룹에 넣을 프로퍼티들 수집
 	TSharedPtr<IPropertyHandle> RingRadiusHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingRadius));
 	TSharedPtr<IPropertyHandle> RingThicknessHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingThickness));
-	TSharedPtr<IPropertyHandle> RingWidthHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingWidth));
+	TSharedPtr<IPropertyHandle> RingHeightHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingHeight));
 	TSharedPtr<IPropertyHandle> RingOffsetHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingOffset));
 	TSharedPtr<IPropertyHandle> RingEulerHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingEulerRotation));
 
@@ -787,7 +787,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	TSet<FName> RingGroupProperties;
 	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingRadius));
 	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingThickness));
-	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingWidth));
+	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingHeight));
 	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingOffset));
 	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingEulerRotation));
 
@@ -1197,9 +1197,9 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 				)
 			);
 	}
-	if (RingWidthHandle.IsValid())
+	if (RingHeightHandle.IsValid())
 	{
-		RingGroup.AddPropertyRow(RingWidthHandle.ToSharedRef())
+		RingGroup.AddPropertyRow(RingHeightHandle.ToSharedRef())
 			.IsEnabled(IsManualModeAttr)
 			.OverrideResetToDefault(
 				FResetToDefaultOverride::Create(

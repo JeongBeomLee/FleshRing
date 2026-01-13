@@ -117,7 +117,7 @@ void DispatchFleshRingTightnessCS(
     PassParameters->RingAxis = Params.RingAxis;
     PassParameters->TightnessStrength = Params.TightnessStrength;
     PassParameters->RingRadius = Params.RingRadius;
-    PassParameters->RingWidth = Params.RingWidth;
+    PassParameters->RingHeight = Params.RingHeight;
 
     // ===== Counts =====
     // ===== 버텍스 수 =====
@@ -280,7 +280,7 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
     PassParameters->RingAxis = Params.RingAxis;
     PassParameters->TightnessStrength = Params.TightnessStrength;
     PassParameters->RingRadius = Params.RingRadius;
-    PassParameters->RingWidth = Params.RingWidth;
+    PassParameters->RingHeight = Params.RingHeight;
 
     // ===== Counts =====
     // ===== 버텍스 수 =====
@@ -579,8 +579,8 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
             UE_LOG(LogTemp, Log, TEXT("    - 본 축 방향: (%.2f, %.2f, %.2f)"),
                 RingData.RingAxis.X, RingData.RingAxis.Y, RingData.RingAxis.Z);
             UE_LOG(LogTemp, Log, TEXT("    - Ring 반지름: %.2f"), RingData.RingRadius);
-            UE_LOG(LogTemp, Log, TEXT("    - Ring 너비: %.2f"), RingData.RingWidth);
-            UE_LOG(LogTemp, Log, TEXT("    - 영향 범위 (Radius+Width): %.2f"), RingData.RingRadius + RingData.RingWidth);
+            UE_LOG(LogTemp, Log, TEXT("    - Ring 너비: %.2f"), RingData.RingHeight);
+            UE_LOG(LogTemp, Log, TEXT("    - 영향 범위 (Radius+Width): %.2f"), RingData.RingRadius + RingData.RingHeight);
             UE_LOG(LogTemp, Log, TEXT("    - 조이기 강도: %.2f"), RingData.TightnessStrength);
             UE_LOG(LogTemp, Log, TEXT("    - 감쇠 타입: %s"), *FalloffTypeStr);
 

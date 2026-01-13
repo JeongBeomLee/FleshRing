@@ -44,15 +44,15 @@ void FSDFBulgeProvider::CalculateBulgeRegion(
 	const FVector3f RingAxis = DetectRingAxis();
 
 	// Ring 크기 계산 (축 방향 = Width, 반경 방향 = Radius)
-	const float RingWidth = FMath::Min3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z);  // 축 방향 크기
+	const float RingHeight = FMath::Min3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z);  // 축 방향 크기
 	const float RingRadius = FMath::Max3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z) * 0.5f;  // 반경 방향 크기
 
 	// Bulge 시작 거리 (Ring 경계)
-	const float BulgeStartDist = RingWidth * 0.5f;
+	const float BulgeStartDist = RingHeight * 0.5f;
 
 	// 직교 범위 제한 (각 축 독립적으로 제어)
-	// AxialLimit = 시작점 + 확장량 (AxialRange=1이면 RingWidth*0.5 만큼 확장)
-	const float AxialLimit = BulgeStartDist + RingWidth * 0.5f * AxialRange;
+	// AxialLimit = 시작점 + 확장량 (AxialRange=1이면 RingHeight*0.5 만큼 확장)
+	const float AxialLimit = BulgeStartDist + RingHeight * 0.5f * AxialRange;
 	const float RadialLimit = RingRadius * RadialRange;
 
 	// ================================================================
@@ -162,11 +162,11 @@ void FSDFBulgeProvider::CalculateBulgeRegion(
 void FSDFBulgeProvider::CalculateExpandedBulgeAABB(FVector& OutMin, FVector& OutMax) const
 {
 	const FVector3f BoundsSize = SDFBoundsMax - SDFBoundsMin;
-	const float RingWidth = FMath::Min3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z);
+	const float RingHeight = FMath::Min3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z);
 	const float RingRadius = FMath::Max3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z) * 0.5f;
 
 	// Bulge 영역 확장량 계산
-	const float AxialExpansion = RingWidth * 0.5f * AxialRange;
+	const float AxialExpansion = RingHeight * 0.5f * AxialRange;
 	// 동적 RadialLimit 확장 고려 (최대 1.5배)
 	const float RadialExpansion = RingRadius * RadialRange * 1.5f;
 
@@ -204,14 +204,14 @@ void FManualBulgeProvider::InitFromRingParams(
 	const FVector3f& InRingCenter,
 	const FVector3f& InRingAxis,
 	float InRingRadius,
-	float InRingWidth,
+	float InRingHeight,
 	float InAxialRange,
 	float InRadialRange)
 {
 	RingCenter = InRingCenter;
 	RingAxis = InRingAxis.GetSafeNormal();
 	RingRadius = InRingRadius;
-	RingWidth = InRingWidth;
+	RingHeight = InRingHeight;
 	AxialRange = InAxialRange;
 	RadialRange = InRadialRange;
 }
@@ -228,18 +228,18 @@ void FManualBulgeProvider::CalculateBulgeRegion(
 	OutBulgeDirections.Reset();  // GPU에서 계산
 
 	// 유효성 검사
-	if (RingRadius <= KINDA_SMALL_NUMBER || RingWidth <= KINDA_SMALL_NUMBER)
+	if (RingRadius <= KINDA_SMALL_NUMBER || RingHeight <= KINDA_SMALL_NUMBER)
 	{
 		UE_LOG(LogFleshRingBulge, Warning, TEXT("Manual Bulge: Ring 파라미터가 유효하지 않음 (Radius=%.2f, Width=%.2f)"),
-			RingRadius, RingWidth);
+			RingRadius, RingHeight);
 		return;
 	}
 
 	// Bulge 시작 거리 (Ring 경계)
-	const float BulgeStartDist = RingWidth * 0.5f;
+	const float BulgeStartDist = RingHeight * 0.5f;
 
 	// 직교 범위 제한
-	const float AxialLimit = BulgeStartDist + RingWidth * 0.5f * AxialRange;
+	const float AxialLimit = BulgeStartDist + RingHeight * 0.5f * AxialRange;
 	const float RadialLimit = RingRadius * RadialRange;
 
 	// ================================================================
@@ -345,7 +345,7 @@ void FManualBulgeProvider::CalculateBulgeRegion(
 void FManualBulgeProvider::CalculateExpandedBulgeAABB(FVector& OutMin, FVector& OutMax) const
 {
 	// Bulge 영역 확장량 계산
-	const float AxialExpansion = RingWidth * 0.5f * AxialRange;
+	const float AxialExpansion = RingHeight * 0.5f * AxialRange;
 	// 동적 RadialLimit 확장 고려 (최대 1.5배)
 	const float RadialExpansion = RingRadius * RadialRange * 1.5f;
 

@@ -34,6 +34,17 @@ void UFleshRingAsset::PostLoad()
 {
 	Super::PostLoad();
 
+	// RingWidth → RingHeight 마이그레이션 (구 에셋 호환성)
+	for (FFleshRingSettings& Ring : Rings)
+	{
+		if (Ring.RingWidth_DEPRECATED > 0.0f)
+		{
+			Ring.RingHeight = Ring.RingWidth_DEPRECATED;
+			Ring.RingWidth_DEPRECATED = 0.0f;
+			MarkPackageDirty();
+		}
+	}
+
 	// 에셋 로드 시 에디터 선택 상태 초기화
 	// (UPROPERTY()로 직렬화되지만, 로드 후에는 항상 초기화)
 	EditorSelectedRingIndex = -1;
@@ -294,7 +305,7 @@ uint32 UFleshRingAsset::CalculateSubdivisionParamsHash() const
 	{
 		Hash = HashCombine(Hash, GetTypeHash(Ring.BoneName.ToString()));
 		Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(Ring.RingRadius * 10)));
-		Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(Ring.RingWidth * 10)));
+		Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(Ring.RingHeight * 10)));
 		Hash = HashCombine(Hash, GetTypeHash(Ring.RingOffset.ToString()));
 	}
 
@@ -557,7 +568,7 @@ namespace SubdivisionHelpers
 			// 마진을 추가하여 경계 영역의 버텍스도 포함
 			const float InnerRadius = FMath::Max(0.0f, Ring.RingRadius - DefaultRadialMargin);
 			const float OuterRadius = Ring.RingRadius + Ring.RingThickness + DefaultRadialMargin;
-			const float HalfHeight = Ring.RingWidth * 0.5f + DefaultZMargin;
+			const float HalfHeight = Ring.RingHeight * 0.5f + DefaultZMargin;
 
 			// Torus 바운드 (마진 포함)
 			OutRingBounds = FBox(
@@ -1286,6 +1297,14 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 			}
 		}
 
+		// ★ Manual 모드 Ring 파라미터 변경 시 디버그 시각화 갱신
+		if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingRadius) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingThickness) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingHeight))
+		{
+			bNeedsFullRefresh = true;
+		}
+
 		// ★ Preview subdivision 파라미터 변경 시 캐시 무효화
 		if (PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, PreviewSubdivisionLevel) ||
 			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, PreviewBoneHopCount) ||
@@ -1785,7 +1804,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 				RingParams.Center = BoneTransform.GetLocation() + LocalOffset;
 				RingParams.Axis = Ring.RingRotation.RotateVector(FVector::UpVector);
 				RingParams.Radius = Ring.RingRadius;
-				RingParams.Width = Ring.RingWidth;
+				RingParams.Width = Ring.RingHeight;
 				RingParams.InfluenceMultiplier = InfluenceRadiusMultiplier;
 			}
 		}
@@ -1797,7 +1816,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 			RingParams.Center = FVector::ZeroVector;
 			RingParams.Axis = FVector::UpVector;
 			RingParams.Radius = Ring.RingRadius;
-			RingParams.Width = Ring.RingWidth;
+			RingParams.Width = Ring.RingHeight;
 		}
 
 		Processor.AddRingParams(RingParams);

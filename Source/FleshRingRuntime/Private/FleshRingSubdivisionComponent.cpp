@@ -337,7 +337,7 @@ void UFleshRingSubdivisionComponent::ComputeSubdivision()
 			RingParams.Center = Ring.RingOffset;
 			RingParams.Axis = FVector::UpVector;
 			RingParams.Radius = Ring.RingRadius;
-			RingParams.Width = Ring.RingWidth;
+			RingParams.Width = Ring.RingHeight;
 			RingParams.InfluenceMultiplier = InfluenceRadiusMultiplier;
 		}
 	}
@@ -348,7 +348,7 @@ void UFleshRingSubdivisionComponent::ComputeSubdivision()
 		RingParams.Center = Ring.RingOffset;
 		RingParams.Axis = FVector::UpVector; // TODO: Bone 방향에서 계산
 		RingParams.Radius = Ring.RingRadius;
-		RingParams.Width = Ring.RingWidth;
+		RingParams.Width = Ring.RingHeight;
 		RingParams.InfluenceMultiplier = InfluenceRadiusMultiplier;
 	}
 

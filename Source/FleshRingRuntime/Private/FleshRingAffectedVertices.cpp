@@ -348,7 +348,7 @@ void FDistanceBasedVertexSelector::SelectVertices(
         // Influence 계산용 파라미터 (로컬 스페이스 기준, 스케일 미적용)
         const float RingRadius = Ring.RingRadius;
         const float RingThickness = Ring.RingThickness;
-        const float HalfWidth = Ring.RingWidth / 2.0f;
+        const float HalfWidth = Ring.RingHeight / 2.0f;
 
         // ===== Spatial Hash 사용 시 O(1) 쿼리, 없으면 브루트포스 O(n) =====
         TArray<int32> CandidateIndices;
@@ -421,9 +421,9 @@ void FDistanceBasedVertexSelector::SelectVertices(
         const FQuat WorldRingRotation = BoneRotation * Ring.RingRotation;
         const FVector RingAxis = WorldRingRotation.RotateVector(FVector::ZAxisVector);
 
-        // Manual 모드는 스케일 없음 (RingRadius/RingThickness/RingWidth가 직접 단위)
+        // Manual 모드는 스케일 없음 (RingRadius/RingThickness/RingHeight가 직접 단위)
         const float MaxDistance = Ring.RingRadius + Ring.RingThickness;
-        const float HalfWidth = Ring.RingWidth / 2.0f;
+        const float HalfWidth = Ring.RingHeight / 2.0f;
 
         // ===== Spatial Hash OBB 쿼리로 후보 축소 (O(N) → O(K)) =====
         TArray<int32> CandidateIndices;
@@ -601,7 +601,7 @@ void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
     const FQuat WorldRingRotation = BoneRotation * Ring.RingRotation;
     const FVector RingAxis = WorldRingRotation.RotateVector(FVector::ZAxisVector);
 
-    const float HalfWidth = Ring.RingWidth / 2.0f;
+    const float HalfWidth = Ring.RingHeight / 2.0f;
     const float MaxRadialDistance = Ring.RingRadius + Ring.RingThickness;
 
     // Z 확장된 축 방향 범위
@@ -1581,7 +1581,7 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             // Manual 모드는 스케일 없이 직접 값 사용
             RingData.RingRadius = RingSettings.RingRadius;
             RingData.RingThickness = RingSettings.RingThickness;
-            RingData.RingWidth = RingSettings.RingWidth;
+            RingData.RingHeight = RingSettings.RingHeight;
         }
         else
         {
@@ -1598,7 +1598,7 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
 
             RingData.RingRadius = RingSettings.RingRadius * RadialScale;
             RingData.RingThickness = RingSettings.RingThickness * RadialScale;
-            RingData.RingWidth = RingSettings.RingWidth * AxialScale;
+            RingData.RingHeight = RingSettings.RingHeight * AxialScale;
         }
 
         // Deformation Parameters (copy from asset)
@@ -3112,7 +3112,7 @@ void FFleshRingAffectedVerticesManager::BuildPBDAdjacencyData(
     RingData.FullDeformAmountMap.AddZeroed(TotalVertexCount);
 
     // Ring 높이의 절반을 threshold로 사용
-    const float RingHalfWidth = RingData.RingWidth * 0.5f;
+    const float RingHalfWidth = RingData.RingHeight * 0.5f;
 
     for (int32 ThreadIdx = 0; ThreadIdx < NumAffected; ++ThreadIdx)
     {
