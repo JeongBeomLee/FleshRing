@@ -269,6 +269,13 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
 
     float3 inwardDir = -outwardRadial / radialLen;  // 안쪽 방향
 
+    // STEP 2.5: Z 범위 체크 (Entry Point 탐색 전에 필터링)
+    // Z 범위 밖 버텍스는 XY 방사형 레이가 AABB를 못 맞추므로 조기 종료
+    // 마진 없이 정확히 AABB Z 범위로 체크 (마진 시 어차피 Ray-AABB 실패)
+    float originalZ_UV = (LocalPos.z - SDFBoundsMin.z) / BoundsSize.z;
+    if (originalZ_UV < 0.0 || originalZ_UV > 1.0)
+        return Pos;
+
     // STEP 3: 레이마칭 시작점 결정 (Two-Phase)
     float3 RaymarchStart;
     bool bOutsideBounds = !IsInsideBounds(LocalPos, SDFBoundsMin, SDFBoundsMax);
@@ -276,27 +283,27 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
     if (bOutsideBounds)
     {
         // Phase 1: 바운드 외부 → Ray-Box Intersection으로 진입점 찾기
+        // Z 범위 체크를 통과했으므로, XY 방사형 레이는 반드시 AABB와 교차
         float3 EntryPoint;
         bool bHit = RayAABBIntersection(LocalPos, inwardDir, SDFBoundsMin, SDFBoundsMax, EntryPoint);
 
         if (!bHit)
         {
-            // Fallback: 방사형 방향이 빗나가면 바운드 중심 방향으로 재시도
-            // 회전된 Ring의 경우, 정점이 Z 범위 밖에 있으면 순수 방사형(XY) 방향이 AABB를 못 맞춤
-            // 바운드 중심 방향은 Z 성분을 포함하므로 항상 AABB와 교차
+            // [기존 Fallback - 주석 처리]
+            // Z 범위 체크가 선행되므로 더 이상 필요하지 않음
+            // 바운드 중심 방향으로 재시도하는 방식은 방사형이 아니므로 부정확
+            /*
             float3 boundsCenter = (SDFBoundsMin + SDFBoundsMax) * 0.5;
             float3 fallbackDir = normalize(boundsCenter - LocalPos);
             bHit = RayAABBIntersection(LocalPos, fallbackDir, SDFBoundsMin, SDFBoundsMax, EntryPoint);
-
             if (!bHit)
-            {
-                // 그래도 실패 → 변형 포기
                 return Pos;
-            }
-            // Fallback 성공 시 inwardDir 업데이트 (레이마칭에서 사용)
             inwardDir = fallbackDir;
+            */
+
+            // Z 범위 내인데도 실패 → 이론상 발생 불가, 안전장치
+            return Pos;
         }
-        // EntryPoint 찾았으면 레이마칭 시작점으로 삼기
         RaymarchStart = EntryPoint;
     }
     else
@@ -336,12 +343,8 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
         return Pos;
     }
 
-    // STEP 5: Z 범위 체크 (링 위/아래 버텍스 필터링)
-    float originalZ_UV = (LocalPos.z - SDFBoundsMin.z) / BoundsSize.z;
-    if (originalZ_UV < -0.1 || originalZ_UV > 1.1)
-        return Pos;
-
-    // STEP 6: Phase 2 - SDF 레이마칭 (진입점에서 표면까지)
+    // STEP 5: Phase 2 - SDF 레이마칭 (진입점에서 표면까지)
+    // (기존 Z 범위 체크는 STEP 2.5로 이동됨)
     float3 CurrentPos = RaymarchStart;
     float epsilon = max(BoundsSize.x, max(BoundsSize.y, BoundsSize.z)) / 64.0;
     float3 lastDir = inwardDir;
