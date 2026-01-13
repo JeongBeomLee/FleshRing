@@ -128,13 +128,18 @@ void FFleshRingDebugViewExtension::PostRenderViewFamily_RenderThread(
         return;
     }
 
-    // 디버그 포인트 전용 뎁스 버퍼 생성 (씬 뎁스와 분리)
-    // Create dedicated depth buffer for debug points (separate from scene depth)
+    // 렌더 타겟의 MSAA 샘플 수 가져오기 (와이어프레임 모드 등 호환성)
+    const uint32 NumSamples = RenderTarget->Desc.NumSamples;
+
+    // 디버그 포인트 전용 뎁스 버퍼 생성 (렌더 타겟과 동일한 MSAA 샘플 수)
+    // Create2D 파라미터 순서: Extent, Format, ClearValue, Flags, NumMips, NumSamples
     FRDGTextureDesc DepthDesc = FRDGTextureDesc::Create2D(
         FIntPoint(ViewRect.Width(), ViewRect.Height()),
         PF_DepthStencil,
-        FClearValueBinding::DepthFar,  // Reversed-Z: far = 0
-        TexCreate_DepthStencilTargetable);
+        FClearValueBinding::DepthFar,
+        TexCreate_DepthStencilTargetable,
+        1,            // NumMips = 1 (depth stencil 필수)
+        NumSamples);  // NumSamples = 렌더 타겟과 동일
     FRDGTextureRef DebugDepthBuffer = GraphBuilder.CreateTexture(DepthDesc, TEXT("FleshRingDebugDepth"));
 
     // RDG SRV 생성 (리소스 트래킹 및 RHI SRV 획득용)
