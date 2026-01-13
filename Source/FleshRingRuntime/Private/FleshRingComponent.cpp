@@ -302,10 +302,10 @@ void UFleshRingComponent::ResolveTargetMesh()
 		USkeletalMeshComponent* TargetMeshComp = ResolvedTargetMesh.Get();
 		USkeletalMesh* CurrentMesh = TargetMeshComp->GetSkeletalMeshAsset();
 
-		// ★ 에디터 프리뷰 모드: PreviewSubdividedMesh가 존재하면 메시 변경 스킵
-		// SubdividedMesh보다 PreviewSubdividedMesh를 우선시
+		// ★ 에디터 프리뷰 모드: PreviewSubdividedMesh가 존재하고 에디터 월드일 때만 스킵
+		// PIE/런타임(IsGameWorld)에서는 SubdividedMesh를 사용해야 함
 		// (SetAsset()에서 PreviewSubdividedMesh가 나중에 적용되므로 여기서 미리 스킵)
-		if (FleshRingAsset->PreviewSubdividedMesh != nullptr)
+		if (FleshRingAsset->PreviewSubdividedMesh != nullptr && GetWorld() && !GetWorld()->IsGameWorld())
 		{
 			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: PreviewSubdividedMesh exists, skipping mesh changes (editor preview mode)"));
 			return;
