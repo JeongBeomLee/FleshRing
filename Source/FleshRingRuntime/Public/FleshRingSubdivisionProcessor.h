@@ -332,6 +332,46 @@ public:
 	void ClearRingParams();
 
 	/**
+	 * Subdivision 대상 버텍스 인덱스 설정 (버텍스 기반 모드)
+	 *
+	 * 이 함수가 호출되면 Ring 파라미터 대신 버텍스 집합을 기반으로 subdivision 수행
+	 * 해당 버텍스를 포함하는 삼각형들이 subdivision 대상이 됨
+	 *
+	 * @param InTargetVertexIndices - subdivision 대상 버텍스 인덱스 집합
+	 */
+	void SetTargetVertexIndices(const TSet<uint32>& InTargetVertexIndices);
+
+	/**
+	 * 버텍스 기반 모드 활성화 여부
+	 */
+	bool IsVertexBasedMode() const { return bUseVertexBasedMode; }
+
+	/**
+	 * 버텍스 기반 모드 해제 (Ring 파라미터 모드로 복귀)
+	 */
+	void ClearTargetVertexIndices();
+
+	/**
+	 * Subdivision 대상 삼각형 인덱스 설정 (삼각형 기반 모드)
+	 *
+	 * 이 함수가 호출되면 Ring 파라미터나 버텍스 집합 대신 삼각형 집합을 기반으로 subdivision 수행
+	 * DI에서 추출한 AffectedVertices 위치를 삼각형으로 변환한 후 사용
+	 *
+	 * @param InTargetTriangleIndices - subdivision 대상 삼각형 인덱스 집합
+	 */
+	void SetTargetTriangleIndices(const TSet<int32>& InTargetTriangleIndices);
+
+	/**
+	 * 삼각형 기반 모드 활성화 여부
+	 */
+	bool IsTriangleBasedMode() const { return bUseTriangleBasedMode; }
+
+	/**
+	 * 삼각형 기반 모드 해제
+	 */
+	void ClearTargetTriangleIndices();
+
+	/**
 	 * 단일 Ring 파라미터 설정 (하위 호환용 - 기존 파라미터 초기화 후 추가)
 	 *
 	 * @param RingParams - Ring 영향 파라미터
@@ -476,6 +516,14 @@ private:
 
 	// Ring 파라미터 배열 (여러 Ring 지원)
 	TArray<FSubdivisionRingParams> RingParamsArray;
+
+	// 버텍스 기반 모드용 데이터
+	TSet<uint32> TargetVertexIndices;
+	bool bUseVertexBasedMode = false;
+
+	// 삼각형 기반 모드용 데이터
+	TSet<int32> TargetTriangleIndices;
+	bool bUseTriangleBasedMode = false;
 
 	// 설정
 	FSubdivisionProcessorSettings CurrentSettings;

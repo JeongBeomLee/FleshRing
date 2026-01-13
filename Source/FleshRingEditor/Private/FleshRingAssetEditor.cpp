@@ -3,6 +3,7 @@
 #include "FleshRingAssetEditor.h"
 #include "FleshRingAssetEditorToolkit.h"
 #include "FleshRingAsset.h"
+#include "FleshRingComponent.h"
 #include "FleshRingTypes.h"
 #include "SFleshRingSkeletonTree.h"
 #include "SFleshRingEditorViewport.h"
@@ -484,6 +485,19 @@ void FFleshRingAssetEditor::RefreshSDFOnly()
 	{
 		ViewportWidget->RefreshSDFOnly();
 	}
+}
+
+UFleshRingComponent* FFleshRingAssetEditor::GetPreviewFleshRingComponent() const
+{
+	if (ViewportWidget.IsValid())
+	{
+		TSharedPtr<FFleshRingPreviewScene> PreviewScene = ViewportWidget->GetPreviewScene();
+		if (PreviewScene.IsValid())
+		{
+			return PreviewScene->GetFleshRingComponent();
+		}
+	}
+	return nullptr;
 }
 
 void FFleshRingAssetEditor::OnObjectTransacted(UObject* Object, const FTransactionObjectEvent& TransactionEvent)

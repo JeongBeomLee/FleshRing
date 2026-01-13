@@ -145,6 +145,56 @@ void FFleshRingSubdivisionProcessor::ClearRingParams()
 	}
 }
 
+void FFleshRingSubdivisionProcessor::SetTargetVertexIndices(const TSet<uint32>& InTargetVertexIndices)
+{
+	InvalidateCache();
+	TargetVertexIndices = InTargetVertexIndices;
+	bUseVertexBasedMode = TargetVertexIndices.Num() > 0;
+
+	UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+		TEXT("SetTargetVertexIndices: %d vertices, VertexBasedMode=%s"),
+		TargetVertexIndices.Num(),
+		bUseVertexBasedMode ? TEXT("true") : TEXT("false"));
+}
+
+void FFleshRingSubdivisionProcessor::ClearTargetVertexIndices()
+{
+	if (bUseVertexBasedMode)
+	{
+		InvalidateCache();
+		TargetVertexIndices.Empty();
+		bUseVertexBasedMode = false;
+	}
+}
+
+void FFleshRingSubdivisionProcessor::SetTargetTriangleIndices(const TSet<int32>& InTargetTriangleIndices)
+{
+	InvalidateCache();
+	TargetTriangleIndices = InTargetTriangleIndices;
+	bUseTriangleBasedMode = TargetTriangleIndices.Num() > 0;
+
+	// 삼각형 기반 모드 사용 시 버텍스 기반 모드 비활성화
+	if (bUseTriangleBasedMode)
+	{
+		bUseVertexBasedMode = false;
+	}
+
+	UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+		TEXT("SetTargetTriangleIndices: %d triangles, TriangleBasedMode=%s"),
+		TargetTriangleIndices.Num(),
+		bUseTriangleBasedMode ? TEXT("true") : TEXT("false"));
+}
+
+void FFleshRingSubdivisionProcessor::ClearTargetTriangleIndices()
+{
+	if (bUseTriangleBasedMode)
+	{
+		InvalidateCache();
+		TargetTriangleIndices.Empty();
+		bUseTriangleBasedMode = false;
+	}
+}
+
 void FFleshRingSubdivisionProcessor::SetRingParams(const FSubdivisionRingParams& RingParams)
 {
 	// 하위 호환: 기존 파라미터 초기화 후 단일 Ring 추가
@@ -198,50 +248,120 @@ bool FFleshRingSubdivisionProcessor::Process(FSubdivisionTopologyResult& OutResu
 		return false;
 	}
 
-	// 2. LEB/Red-Green Refinement 수행 (모든 Ring에 대해)
+	// 2. LEB/Red-Green Refinement 수행
 	int32 TotalFacesAdded = 0;
 
-	for (int32 RingIdx = 0; RingIdx < RingParamsArray.Num(); ++RingIdx)
+	if (bUseTriangleBasedMode && TargetTriangleIndices.Num() > 0)
 	{
-		const FSubdivisionRingParams& CurrentRingParams = RingParamsArray[RingIdx];
-		int32 FacesAdded = 0;
+		// ========================================
+		// 삼각형 기반 모드: DI에서 추출한 삼각형 집합 직접 사용
+		// ========================================
+		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+			TEXT("Process: Using triangle-based mode with %d target triangles"),
+			TargetTriangleIndices.Num());
 
-		if (CurrentRingParams.bUseSDFBounds)
+		const int32 NumTriangles = SourceIndices.Num() / 3;
+		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+			TEXT("Process: %d/%d triangles selected for subdivision (%.1f%%)"),
+			TargetTriangleIndices.Num(), NumTriangles,
+			100.0f * (float)TargetTriangleIndices.Num() / NumTriangles);
+
+		// 대상 삼각형만 subdivision (직접 전달)
+		TotalFacesAdded = FLEBSubdivision::SubdivideSelectedFaces(
+			HalfEdgeMesh,
+			TargetTriangleIndices,
+			CurrentSettings.MaxSubdivisionLevel,
+			CurrentSettings.MinEdgeLength
+		);
+	}
+	else if (bUseVertexBasedMode && TargetVertexIndices.Num() > 0)
+	{
+		// ========================================
+		// 버텍스 기반 모드: 지정된 버텍스를 포함하는 삼각형 subdivision
+		// ========================================
+		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+			TEXT("Process: Using vertex-based mode with %d target vertices"),
+			TargetVertexIndices.Num());
+
+		// 대상 버텍스를 포함하는 삼각형 수집
+		TSet<int32> TargetTrianglesLocal;
+		const int32 NumTriangles = SourceIndices.Num() / 3;
+
+		for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
 		{
-			// SDF 모드: OBB 기반 영역 검사 (정확한 방식)
-			FSubdivisionOBB OBB = FSubdivisionOBB::CreateFromSDFBounds(
-				CurrentRingParams.SDFBoundsMin,
-				CurrentRingParams.SDFBoundsMax,
-				CurrentRingParams.SDFLocalToComponent,
-				CurrentRingParams.SDFInfluenceMultiplier
-			);
+			uint32 V0 = SourceIndices[TriIdx * 3 + 0];
+			uint32 V1 = SourceIndices[TriIdx * 3 + 1];
+			uint32 V2 = SourceIndices[TriIdx * 3 + 2];
 
-			FacesAdded = FLEBSubdivision::SubdivideRegion(
-				HalfEdgeMesh,
-				OBB,
-				CurrentSettings.MaxSubdivisionLevel,
-				CurrentSettings.MinEdgeLength
-			);
+			// 삼각형의 버텍스 중 하나라도 대상 집합에 포함되면 subdivision 대상
+			if (TargetVertexIndices.Contains(V0) ||
+				TargetVertexIndices.Contains(V1) ||
+				TargetVertexIndices.Contains(V2))
+			{
+				TargetTrianglesLocal.Add(TriIdx);
+			}
 		}
-		else
+
+		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
+			TEXT("Process: %d/%d triangles selected for subdivision (%.1f%%)"),
+			TargetTrianglesLocal.Num(), NumTriangles,
+			100.0f * (float)TargetTrianglesLocal.Num() / NumTriangles);
+
+		// 대상 삼각형만 subdivision
+		TotalFacesAdded = FLEBSubdivision::SubdivideSelectedFaces(
+			HalfEdgeMesh,
+			TargetTrianglesLocal,
+			CurrentSettings.MaxSubdivisionLevel,
+			CurrentSettings.MinEdgeLength
+		);
+	}
+	else
+	{
+		// ========================================
+		// Ring 파라미터 기반 모드 (기존 방식)
+		// ========================================
+		for (int32 RingIdx = 0; RingIdx < RingParamsArray.Num(); ++RingIdx)
 		{
-			// Manual 모드: 기존 Torus 방식 (Legacy)
-			FTorusParams TorusParams;
-			TorusParams.Center = CurrentRingParams.Center;
-			TorusParams.Axis = CurrentRingParams.Axis.GetSafeNormal();
-			TorusParams.MajorRadius = CurrentRingParams.Radius;
-			TorusParams.MinorRadius = CurrentRingParams.Width * 0.5f;
-			TorusParams.InfluenceMargin = CurrentRingParams.GetInfluenceRadius();
+			const FSubdivisionRingParams& CurrentRingParams = RingParamsArray[RingIdx];
+			int32 FacesAdded = 0;
 
-			FacesAdded = FLEBSubdivision::SubdivideRegion(
-				HalfEdgeMesh,
-				TorusParams,
-				CurrentSettings.MaxSubdivisionLevel,
-				CurrentSettings.MinEdgeLength
-			);
+			if (CurrentRingParams.bUseSDFBounds)
+			{
+				// SDF 모드: OBB 기반 영역 검사 (정확한 방식)
+				FSubdivisionOBB OBB = FSubdivisionOBB::CreateFromSDFBounds(
+					CurrentRingParams.SDFBoundsMin,
+					CurrentRingParams.SDFBoundsMax,
+					CurrentRingParams.SDFLocalToComponent,
+					CurrentRingParams.SDFInfluenceMultiplier
+				);
+
+				FacesAdded = FLEBSubdivision::SubdivideRegion(
+					HalfEdgeMesh,
+					OBB,
+					CurrentSettings.MaxSubdivisionLevel,
+					CurrentSettings.MinEdgeLength
+				);
+			}
+			else
+			{
+				// Manual 모드: 기존 Torus 방식 (Legacy)
+				FTorusParams TorusParams;
+				TorusParams.Center = CurrentRingParams.Center;
+				TorusParams.Axis = CurrentRingParams.Axis.GetSafeNormal();
+				TorusParams.MajorRadius = CurrentRingParams.Radius;
+				TorusParams.MinorRadius = CurrentRingParams.Width * 0.5f;
+				TorusParams.InfluenceMargin = CurrentRingParams.GetInfluenceRadius();
+
+				FacesAdded = FLEBSubdivision::SubdivideRegion(
+					HalfEdgeMesh,
+					TorusParams,
+					CurrentSettings.MaxSubdivisionLevel,
+					CurrentSettings.MinEdgeLength
+				);
+			}
+
+			TotalFacesAdded += FacesAdded;
 		}
-
-		TotalFacesAdded += FacesAdded;
 	}
 
 	// 3. 토폴로지 결과 추출

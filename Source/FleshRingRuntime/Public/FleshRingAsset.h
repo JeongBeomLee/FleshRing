@@ -7,6 +7,8 @@
 #include "FleshRingTypes.h"
 #include "FleshRingAsset.generated.h"
 
+class UFleshRingComponent;
+
 /** 에셋 변경 시 브로드캐스트되는 델리게이트 (구조적 변경 시 전체 리프레시) */
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnFleshRingAssetChanged, UFleshRingAsset*);
 
@@ -237,8 +239,12 @@ public:
 	 * Ring 영향 영역의 삼각형을 subdivision하고 SkinWeight를 barycentric 보간
 	 * 런타임용 - Ring 영역만 부분 subdivision
 	 * DetailCustomization에서 버튼으로 호출됨
+	 *
+	 * @param SourceComponent - AffectedVertices 데이터 제공용 Component (에디터 프리뷰)
+	 *                          SmoothingVolumeMode에 따라 Extended/PostProcessing 영역 포함
+	 *                          nullptr이면 기존 OBB 기반 영역 사용 (폴백)
 	 */
-	void GenerateSubdividedMesh();
+	void GenerateSubdividedMesh(UFleshRingComponent* SourceComponent = nullptr);
 
 	/** Subdivided 메시 제거 (DetailCustomization에서 버튼으로 호출됨) */
 	void ClearSubdividedMesh();

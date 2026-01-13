@@ -16,6 +16,8 @@
 #include "BoneWeights.h"
 #include "RenderingThread.h"
 #include "FleshRingComponent.h"
+#include "FleshRingDeformerInstance.h"
+#include "FleshRingAffectedVertices.h"
 #include "EngineUtils.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
@@ -300,6 +302,912 @@ uint32 UFleshRingAsset::CalculateSubdivisionParamsHash() const
 }
 
 #if WITH_EDITOR
+
+// ============================================
+// Subdivision 영역 계산용 헬퍼 함수들
+// ============================================
+
+namespace SubdivisionHelpers
+{
+	/** 위치를 정수 셀로 양자화 (UV Seam 용접용) */
+	FORCEINLINE FIntVector QuantizePosition(const FVector& Position, float CellSize = 0.01f)
+	{
+		return FIntVector(
+			FMath::FloorToInt(Position.X / CellSize),
+			FMath::FloorToInt(Position.Y / CellSize),
+			FMath::FloorToInt(Position.Z / CellSize)
+		);
+	}
+
+	/**
+	 * 위치 기반 버텍스 그룹화 (UV Seam 용접)
+	 * 같은 3D 위치의 버텍스들을 그룹화하여 함께 처리
+	 * @param Positions - 버텍스 위치 배열
+	 * @param CellSize - 양자화 셀 크기 (cm), 이 범위 내의 버텍스는 같은 위치로 간주
+	 * @return 양자화된 위치 → 버텍스 인덱스 배열 맵
+	 */
+	TMap<FIntVector, TArray<uint32>> BuildPositionGroups(const TArray<FVector>& Positions, float CellSize = 0.01f)
+	{
+		TMap<FIntVector, TArray<uint32>> PositionGroups;
+		PositionGroups.Reserve(Positions.Num());
+
+		for (int32 i = 0; i < Positions.Num(); ++i)
+		{
+			FIntVector Cell = QuantizePosition(Positions[i], CellSize);
+			PositionGroups.FindOrAdd(Cell).Add(static_cast<uint32>(i));
+		}
+
+		return PositionGroups;
+	}
+
+	/**
+	 * 버텍스 인접성 맵 빌드 (HopBased 확장용)
+	 * 삼각형 인덱스에서 각 버텍스의 이웃 버텍스 목록 생성
+	 * @param Indices - 삼각형 인덱스 배열 (3개씩 한 삼각형)
+	 * @return 버텍스 인덱스 → 이웃 버텍스 인덱스 집합 맵
+	 */
+	TMap<uint32, TSet<uint32>> BuildAdjacencyMap(const TArray<uint32>& Indices)
+	{
+		TMap<uint32, TSet<uint32>> AdjacencyMap;
+
+		const int32 NumTriangles = Indices.Num() / 3;
+		for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+		{
+			const uint32 V0 = Indices[TriIdx * 3 + 0];
+			const uint32 V1 = Indices[TriIdx * 3 + 1];
+			const uint32 V2 = Indices[TriIdx * 3 + 2];
+
+			// 양방향 연결
+			AdjacencyMap.FindOrAdd(V0).Add(V1);
+			AdjacencyMap.FindOrAdd(V0).Add(V2);
+			AdjacencyMap.FindOrAdd(V1).Add(V0);
+			AdjacencyMap.FindOrAdd(V1).Add(V2);
+			AdjacencyMap.FindOrAdd(V2).Add(V0);
+			AdjacencyMap.FindOrAdd(V2).Add(V1);
+		}
+
+		return AdjacencyMap;
+	}
+
+	/**
+	 * 위치 기반 인접성 맵 확장 (UV Seam 처리)
+	 * 같은 위치의 버텍스들이 서로의 이웃을 공유하도록 확장
+	 * @param AdjacencyMap - 원본 인접성 맵 (수정됨)
+	 * @param PositionGroups - 위치 기반 버텍스 그룹
+	 */
+	void ExpandAdjacencyForUVSeams(
+		TMap<uint32, TSet<uint32>>& AdjacencyMap,
+		const TMap<FIntVector, TArray<uint32>>& PositionGroups)
+	{
+		for (const auto& Group : PositionGroups)
+		{
+			const TArray<uint32>& Vertices = Group.Value;
+			if (Vertices.Num() <= 1)
+			{
+				continue;
+			}
+
+			// 그룹 내 모든 버텍스의 이웃을 합집합으로 수집
+			TSet<uint32> CombinedNeighbors;
+			for (uint32 V : Vertices)
+			{
+				if (TSet<uint32>* Neighbors = AdjacencyMap.Find(V))
+				{
+					CombinedNeighbors.Append(*Neighbors);
+				}
+			}
+
+			// 그룹 내 버텍스들은 이웃에서 제외
+			for (uint32 V : Vertices)
+			{
+				CombinedNeighbors.Remove(V);
+			}
+
+			// 그룹 내 모든 버텍스에 합집합 이웃 적용
+			for (uint32 V : Vertices)
+			{
+				AdjacencyMap.FindOrAdd(V) = CombinedNeighbors;
+			}
+		}
+	}
+
+	/**
+	 * 선택된 버텍스에 UV Seam 중복 버텍스 추가
+	 * @param SelectedVertices - 선택된 버텍스 집합 (수정됨)
+	 * @param Positions - 버텍스 위치 배열
+	 * @param PositionGroups - 위치 기반 버텍스 그룹
+	 */
+	void AddPositionDuplicates(
+		TSet<uint32>& SelectedVertices,
+		const TArray<FVector>& Positions,
+		const TMap<FIntVector, TArray<uint32>>& PositionGroups,
+		float CellSize = 0.01f)
+	{
+		TSet<uint32> Duplicates;
+
+		for (uint32 V : SelectedVertices)
+		{
+			FIntVector Cell = QuantizePosition(Positions[V], CellSize);
+			if (const TArray<uint32>* Group = PositionGroups.Find(Cell))
+			{
+				for (uint32 DupV : *Group)
+				{
+					if (!SelectedVertices.Contains(DupV))
+					{
+						Duplicates.Add(DupV);
+					}
+				}
+			}
+		}
+
+		SelectedVertices.Append(Duplicates);
+	}
+
+	/**
+	 * 본 체인을 따라 컴포넌트 스페이스 트랜스폼 계산
+	 * @param BoneIndex - 본 인덱스
+	 * @param RefSkeleton - 레퍼런스 스켈레톤
+	 * @param RefBonePose - 레퍼런스 본 포즈
+	 * @return 컴포넌트 스페이스 본 트랜스폼
+	 */
+	FTransform CalculateBoneTransform(
+		int32 BoneIndex,
+		const FReferenceSkeleton& RefSkeleton,
+		const TArray<FTransform>& RefBonePose)
+	{
+		if (BoneIndex == INDEX_NONE || !RefBonePose.IsValidIndex(BoneIndex))
+		{
+			return FTransform::Identity;
+		}
+
+		FTransform BoneTransform = RefBonePose[BoneIndex];
+		int32 ParentIndex = RefSkeleton.GetParentIndex(BoneIndex);
+
+		while (ParentIndex != INDEX_NONE)
+		{
+			BoneTransform = BoneTransform * RefBonePose[ParentIndex];
+			ParentIndex = RefSkeleton.GetParentIndex(ParentIndex);
+		}
+
+		return BoneTransform;
+	}
+
+	/**
+	 * 기본 Affected 버텍스 선택 (Auto/Manual 모드)
+	 * @param Ring - Ring 설정
+	 * @param Positions - 버텍스 위치 배열
+	 * @param BoneTransform - 본의 컴포넌트 스페이스 트랜스폼
+	 * @param OutAffectedVertices - 출력: 영향받는 버텍스 인덱스 집합
+	 * @param OutRingBounds - 출력: Ring 영역의 로컬 바운드 (Auto 모드에서만 유효)
+	 * @param OutRingTransform - 출력: Ring 로컬 → 컴포넌트 트랜스폼
+	 * @return 성공 여부
+	 */
+	bool SelectAffectedVertices(
+		const FFleshRingSettings& Ring,
+		const TArray<FVector>& Positions,
+		const FTransform& BoneTransform,
+		TSet<uint32>& OutAffectedVertices,
+		FBox& OutRingBounds,
+		FTransform& OutRingTransform)
+	{
+		OutAffectedVertices.Empty();
+		OutRingBounds = FBox(EForceInit::ForceInit);
+		OutRingTransform = FTransform::Identity;
+
+		// 기본 마진: PostProcess OFF일 때도 최소한의 여유 확보
+		// 변형 경계 영역의 polygon이 너무 거칠어지는 것 방지
+		constexpr float DefaultZMargin = 3.0f;  // cm
+		constexpr float DefaultRadialMargin = 1.5f;  // cm (Manual 모드용)
+
+		if (Ring.InfluenceMode == EFleshRingInfluenceMode::Auto && !Ring.RingMesh.IsNull())
+		{
+			// =====================================
+			// Auto 모드: SDF 바운드 기반
+			// =====================================
+			UStaticMesh* RingMesh = Ring.RingMesh.LoadSynchronous();
+			if (!RingMesh)
+			{
+				return false;
+			}
+
+			// RingMesh의 로컬 바운드
+			FBox MeshBounds = RingMesh->GetBoundingBox();
+
+			// Ring 로컬 → 컴포넌트 스페이스 트랜스폼
+			FTransform MeshTransform(Ring.MeshRotation, Ring.MeshOffset);
+			MeshTransform.SetScale3D(Ring.MeshScale);
+			OutRingTransform = MeshTransform * BoneTransform;
+
+			// SDFBoundsExpandX/Y + 기본 Z 마진 적용
+			// Z 방향에도 기본 마진을 추가하여 상하 경계 영역 포함
+			FVector Expand(Ring.SDFBoundsExpandX, Ring.SDFBoundsExpandY, DefaultZMargin);
+			MeshBounds.Min -= Expand;
+			MeshBounds.Max += Expand;
+
+			OutRingBounds = MeshBounds;
+
+			// 컴포넌트 → Ring 로컬 역변환
+			FTransform ComponentToLocal = OutRingTransform.Inverse();
+
+			// 바운드 내부 버텍스 선택
+			for (int32 i = 0; i < Positions.Num(); ++i)
+			{
+				FVector LocalPos = ComponentToLocal.TransformPosition(Positions[i]);
+				if (MeshBounds.IsInside(LocalPos))
+				{
+					OutAffectedVertices.Add(static_cast<uint32>(i));
+				}
+			}
+		}
+		else
+		{
+			// =====================================
+			// Manual 모드: Torus 영역 기반
+			// =====================================
+			FVector LocalOffset = Ring.RingRotation.RotateVector(Ring.RingOffset);
+			FVector Center = BoneTransform.GetLocation() + LocalOffset;
+			FVector Axis = BoneTransform.GetRotation().RotateVector(
+				Ring.RingRotation.RotateVector(FVector::UpVector));
+			Axis.Normalize();
+
+			// Ring 트랜스폼 설정 (BoundsExpand에서 사용)
+			OutRingTransform = FTransform(Ring.RingRotation, LocalOffset) * BoneTransform;
+
+			// Torus 파라미터 + 기본 마진
+			// 마진을 추가하여 경계 영역의 버텍스도 포함
+			const float InnerRadius = FMath::Max(0.0f, Ring.RingRadius - DefaultRadialMargin);
+			const float OuterRadius = Ring.RingRadius + Ring.RingThickness + DefaultRadialMargin;
+			const float HalfHeight = Ring.RingWidth * 0.5f + DefaultZMargin;
+
+			// Torus 바운드 (마진 포함)
+			OutRingBounds = FBox(
+				FVector(-OuterRadius, -OuterRadius, -HalfHeight),
+				FVector(OuterRadius, OuterRadius, HalfHeight)
+			);
+
+			// Torus 영역 내부 버텍스 선택
+			for (int32 i = 0; i < Positions.Num(); ++i)
+			{
+				FVector ToVertex = Positions[i] - Center;
+
+				// 축 방향 거리 (높이)
+				float AxisDist = FVector::DotProduct(ToVertex, Axis);
+
+				// 반경 방향 거리
+				FVector RadialVec = ToVertex - Axis * AxisDist;
+				float RadialDist = RadialVec.Size();
+
+				// Torus 영역 내부인지 확인 (마진 포함)
+				if (FMath::Abs(AxisDist) <= HalfHeight &&
+					RadialDist >= InnerRadius &&
+					RadialDist <= OuterRadius)
+				{
+					OutAffectedVertices.Add(static_cast<uint32>(i));
+				}
+			}
+		}
+
+		return OutAffectedVertices.Num() > 0;
+	}
+
+	/**
+	 * BoundsExpand 모드: Z축 바운드 확장으로 추가 버텍스 선택
+	 * @param Ring - Ring 설정
+	 * @param Positions - 버텍스 위치 배열
+	 * @param RingTransform - Ring 로컬 → 컴포넌트 트랜스폼
+	 * @param OriginalBounds - 기존 Ring 바운드 (로컬 스페이스)
+	 * @param SeedVertices - 기본 Affected 버텍스
+	 * @param OutExpandedVertices - 출력: 확장된 버텍스 집합
+	 */
+	void ExpandByBounds(
+		const FFleshRingSettings& Ring,
+		const TArray<FVector>& Positions,
+		const FTransform& RingTransform,
+		const FBox& OriginalBounds,
+		const TSet<uint32>& SeedVertices,
+		TSet<uint32>& OutExpandedVertices)
+	{
+		OutExpandedVertices = SeedVertices;
+
+		// Z축으로 바운드 확장
+		FBox ExpandedBounds = OriginalBounds;
+		ExpandedBounds.Min.Z -= Ring.SmoothingBoundsZBottom;
+		ExpandedBounds.Max.Z += Ring.SmoothingBoundsZTop;
+
+		// 컴포넌트 → Ring 로컬 역변환
+		FTransform ComponentToLocal = RingTransform.Inverse();
+
+		// 확장된 바운드 내부 버텍스 추가 선택
+		for (int32 i = 0; i < Positions.Num(); ++i)
+		{
+			uint32 VertexIdx = static_cast<uint32>(i);
+			if (SeedVertices.Contains(VertexIdx))
+			{
+				continue; // 이미 선택됨
+			}
+
+			FVector LocalPos = ComponentToLocal.TransformPosition(Positions[i]);
+			if (ExpandedBounds.IsInside(LocalPos))
+			{
+				OutExpandedVertices.Add(VertexIdx);
+			}
+		}
+	}
+
+	/**
+	 * HopBased 모드: BFS N-hop으로 버텍스 확장
+	 * @param SeedVertices - 시드 버텍스 (기본 Affected)
+	 * @param AdjacencyMap - 버텍스 인접성 맵
+	 * @param MaxHops - 최대 홉 수
+	 * @param OutExpandedVertices - 출력: 확장된 버텍스 집합
+	 */
+	void ExpandByHops(
+		const TSet<uint32>& SeedVertices,
+		const TMap<uint32, TSet<uint32>>& AdjacencyMap,
+		int32 MaxHops,
+		TSet<uint32>& OutExpandedVertices)
+	{
+		OutExpandedVertices = SeedVertices;
+
+		TSet<uint32> CurrentFrontier = SeedVertices;
+
+		for (int32 Hop = 0; Hop < MaxHops; ++Hop)
+		{
+			TSet<uint32> NextFrontier;
+
+			for (uint32 V : CurrentFrontier)
+			{
+				if (const TSet<uint32>* Neighbors = AdjacencyMap.Find(V))
+				{
+					for (uint32 N : *Neighbors)
+					{
+						if (!OutExpandedVertices.Contains(N))
+						{
+							OutExpandedVertices.Add(N);
+							NextFrontier.Add(N);
+						}
+					}
+				}
+			}
+
+			CurrentFrontier = MoveTemp(NextFrontier);
+
+			if (CurrentFrontier.Num() == 0)
+			{
+				break; // 더 이상 확장할 버텍스 없음
+			}
+		}
+	}
+
+	/**
+	 * DI의 AffectedVertices를 위치 기반 매칭으로 원본 메시 인덱스로 변환
+	 *
+	 * PreviewComponent의 DeformerInstance는 PreviewSubdividedMesh(토폴로지가 다름)를 사용하므로
+	 * 버텍스 인덱스가 원본 메시와 다름. 하지만 위치는 거의 동일하므로 위치 기반 매칭으로 변환.
+	 *
+	 * @param SourceComponent - DeformerInstance를 가진 FleshRingComponent (에디터 프리뷰)
+	 * @param SourceMesh - 원본 SkeletalMesh (subdivision 전)
+	 * @param OutVertexIndices - 출력: 원본 메시의 버텍스 인덱스 집합
+	 * @return true if matching succeeded, false if fallback needed
+	 */
+	bool ExtractAffectedVerticesFromDI(
+		const UFleshRingComponent* SourceComponent,
+		const USkeletalMesh* SourceMesh,
+		TSet<uint32>& OutVertexIndices)
+	{
+		OutVertexIndices.Empty();
+
+		if (!SourceComponent || !SourceMesh)
+		{
+			return false;
+		}
+
+		// SkeletalMeshComponent 가져오기 (DI가 바인딩된 메시)
+		USkeletalMeshComponent* SMC = const_cast<UFleshRingComponent*>(SourceComponent)->GetResolvedTargetMesh();
+		if (!SMC)
+		{
+			UE_LOG(LogFleshRingAsset, Warning, TEXT("ExtractAffectedVerticesFromDI: No SkeletalMeshComponent"));
+			return false;
+		}
+
+		// DeformerInstance 가져오기 (SkeletalMeshComponent에 바인딩됨)
+		UMeshDeformerInstance* BaseDI = SMC->GetMeshDeformerInstance();
+		if (!BaseDI)
+		{
+			UE_LOG(LogFleshRingAsset, Warning, TEXT("ExtractAffectedVerticesFromDI: No MeshDeformerInstance"));
+			return false;
+		}
+
+		// FleshRingDeformerInstance로 캐스트
+		const UFleshRingDeformerInstance* DI = Cast<UFleshRingDeformerInstance>(BaseDI);
+		if (!DI)
+		{
+			UE_LOG(LogFleshRingAsset, Warning, TEXT("ExtractAffectedVerticesFromDI: DeformerInstance is not FleshRingDeformerInstance"));
+			return false;
+		}
+
+		// LOD 0의 AffectedVertices 데이터 가져오기
+		const TArray<FRingAffectedData>* AllRingData = DI->GetAffectedRingDataForDebug(0);
+		if (!AllRingData || AllRingData->Num() == 0)
+		{
+			UE_LOG(LogFleshRingAsset, Warning, TEXT("ExtractAffectedVerticesFromDI: No ring data in DI"));
+			return false;
+		}
+
+		// DI가 사용 중인 메시 (PreviewSubdividedMesh일 수 있음)
+		USkeletalMesh* DIMesh = SMC->GetSkeletalMeshAsset();
+		if (!DIMesh)
+		{
+			UE_LOG(LogFleshRingAsset, Warning, TEXT("ExtractAffectedVerticesFromDI: No mesh in SMC"));
+			return false;
+		}
+
+		// DI 메시가 원본 메시와 같으면 인덱스를 그대로 사용
+		bool bSameMesh = (DIMesh == SourceMesh);
+
+		// DI 메시의 버텍스 위치 추출 (위치 매칭용)
+		FSkeletalMeshRenderData* DIRenderData = DIMesh->GetResourceForRendering();
+		if (!DIRenderData || DIRenderData->LODRenderData.Num() == 0)
+		{
+			UE_LOG(LogFleshRingAsset, Warning, TEXT("ExtractAffectedVerticesFromDI: No DI mesh render data"));
+			return false;
+		}
+
+		const FSkeletalMeshLODRenderData& DILODData = DIRenderData->LODRenderData[0];
+		const uint32 DIVertexCount = DILODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
+
+		// 원본 메시의 버텍스 위치 추출
+		FSkeletalMeshRenderData* SourceRenderData = SourceMesh->GetResourceForRendering();
+		if (!SourceRenderData || SourceRenderData->LODRenderData.Num() == 0)
+		{
+			UE_LOG(LogFleshRingAsset, Warning, TEXT("ExtractAffectedVerticesFromDI: No source mesh render data"));
+			return false;
+		}
+
+		const FSkeletalMeshLODRenderData& SourceLODData = SourceRenderData->LODRenderData[0];
+		const uint32 SourceVertexCount = SourceLODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
+
+		// DI의 모든 Ring에서 영향받는 버텍스 인덱스 수집
+		TSet<uint32> DIAffectedIndices;
+		for (const FRingAffectedData& RingData : *AllRingData)
+		{
+			// Tightness 영역 (PackedIndices)
+			for (uint32 Idx : RingData.PackedIndices)
+			{
+				if (Idx < DIVertexCount)
+				{
+					DIAffectedIndices.Add(Idx);
+				}
+			}
+
+			// PostProcessing 영역 (Z 확장)
+			for (uint32 Idx : RingData.PostProcessingIndices)
+			{
+				if (Idx < DIVertexCount)
+				{
+					DIAffectedIndices.Add(Idx);
+				}
+			}
+		}
+
+		UE_LOG(LogFleshRingAsset, Log, TEXT("ExtractAffectedVerticesFromDI: %d affected vertices from DI (bSameMesh=%d)"),
+			DIAffectedIndices.Num(), bSameMesh ? 1 : 0);
+
+		if (DIAffectedIndices.Num() == 0)
+		{
+			return false;
+		}
+
+		// 메시가 같으면 인덱스 그대로 사용
+		if (bSameMesh)
+		{
+			OutVertexIndices = MoveTemp(DIAffectedIndices);
+			return true;
+		}
+
+		// 메시가 다르면 위치 기반 매칭 수행
+
+		// 1. DI 영향 버텍스들의 위치 추출
+		TArray<FVector> DIAffectedPositions;
+		DIAffectedPositions.Reserve(DIAffectedIndices.Num());
+		for (uint32 DIIdx : DIAffectedIndices)
+		{
+			FVector Pos = FVector(DILODData.StaticVertexBuffers.PositionVertexBuffer.VertexPosition(DIIdx));
+			DIAffectedPositions.Add(Pos);
+		}
+
+		// 2. 원본 메시 버텍스들의 공간 해시 빌드 (위치 → 인덱스 매핑)
+		// Grid 크기: 0.1cm (매우 정밀)
+		constexpr float GridSize = 0.1f;
+		constexpr float MatchTolerance = 0.5f;  // 0.5cm 이내면 매칭
+
+		TMap<FIntVector, TArray<uint32>> SourcePositionHash;
+		for (uint32 i = 0; i < SourceVertexCount; ++i)
+		{
+			FVector Pos = FVector(SourceLODData.StaticVertexBuffers.PositionVertexBuffer.VertexPosition(i));
+			FIntVector GridKey(
+				FMath::FloorToInt(Pos.X / GridSize),
+				FMath::FloorToInt(Pos.Y / GridSize),
+				FMath::FloorToInt(Pos.Z / GridSize)
+			);
+			SourcePositionHash.FindOrAdd(GridKey).Add(i);
+		}
+
+		// 3. 각 DI 영향 위치에 대해 원본 메시에서 가장 가까운 버텍스 찾기
+		int32 MatchedCount = 0;
+		for (const FVector& DIPos : DIAffectedPositions)
+		{
+			FIntVector CenterKey(
+				FMath::FloorToInt(DIPos.X / GridSize),
+				FMath::FloorToInt(DIPos.Y / GridSize),
+				FMath::FloorToInt(DIPos.Z / GridSize)
+			);
+
+			float BestDistSq = MatchTolerance * MatchTolerance;
+			int32 BestSourceIdx = INDEX_NONE;
+
+			// 27-cell 이웃 탐색 (3x3x3)
+			for (int32 dx = -1; dx <= 1; ++dx)
+			{
+				for (int32 dy = -1; dy <= 1; ++dy)
+				{
+					for (int32 dz = -1; dz <= 1; ++dz)
+					{
+						FIntVector NeighborKey = CenterKey + FIntVector(dx, dy, dz);
+						if (const TArray<uint32>* Indices = SourcePositionHash.Find(NeighborKey))
+						{
+							for (uint32 SourceIdx : *Indices)
+							{
+								FVector SourcePos = FVector(SourceLODData.StaticVertexBuffers.PositionVertexBuffer.VertexPosition(SourceIdx));
+								float DistSq = FVector::DistSquared(DIPos, SourcePos);
+								if (DistSq < BestDistSq)
+								{
+									BestDistSq = DistSq;
+									BestSourceIdx = SourceIdx;
+								}
+							}
+						}
+					}
+				}
+			}
+
+			if (BestSourceIdx != INDEX_NONE)
+			{
+				OutVertexIndices.Add(static_cast<uint32>(BestSourceIdx));
+				MatchedCount++;
+			}
+		}
+
+		UE_LOG(LogFleshRingAsset, Log, TEXT("ExtractAffectedVerticesFromDI: Position-matched %d / %d vertices -> %d unique source indices"),
+			MatchedCount, DIAffectedPositions.Num(), OutVertexIndices.Num());
+
+		return OutVertexIndices.Num() > 0;
+	}
+
+	/**
+	 * 점에서 삼각형까지의 최단 거리 제곱 계산
+	 * @param Point - 검사할 점
+	 * @param V0, V1, V2 - 삼각형 버텍스들
+	 * @return 최단 거리 제곱
+	 */
+	float PointToTriangleDistSq(const FVector& Point, const FVector& V0, const FVector& V1, const FVector& V2)
+	{
+		// 삼각형 평면에 점 투영
+		FVector Edge0 = V1 - V0;
+		FVector Edge1 = V2 - V0;
+		FVector Normal = FVector::CrossProduct(Edge0, Edge1);
+		float NormalLenSq = Normal.SizeSquared();
+
+		if (NormalLenSq < SMALL_NUMBER)
+		{
+			// Degenerate 삼각형
+			return FLT_MAX;
+		}
+
+		Normal /= FMath::Sqrt(NormalLenSq);
+
+		// 평면까지 거리
+		FVector ToPoint = Point - V0;
+		float PlaneDist = FVector::DotProduct(ToPoint, Normal);
+		FVector Projected = Point - Normal * PlaneDist;
+
+		// Barycentric 좌표 계산
+		FVector V0ToP = Projected - V0;
+		float D00 = FVector::DotProduct(Edge0, Edge0);
+		float D01 = FVector::DotProduct(Edge0, Edge1);
+		float D11 = FVector::DotProduct(Edge1, Edge1);
+		float D20 = FVector::DotProduct(V0ToP, Edge0);
+		float D21 = FVector::DotProduct(V0ToP, Edge1);
+
+		float Denom = D00 * D11 - D01 * D01;
+		if (FMath::Abs(Denom) < SMALL_NUMBER)
+		{
+			return FLT_MAX;
+		}
+
+		float V = (D11 * D20 - D01 * D21) / Denom;
+		float W = (D00 * D21 - D01 * D20) / Denom;
+		float U = 1.0f - V - W;
+
+		// 삼각형 내부인지 확인
+		if (U >= 0.0f && V >= 0.0f && W >= 0.0f)
+		{
+			// 내부: 평면까지 거리만 반환
+			return PlaneDist * PlaneDist;
+		}
+
+		// 외부: 가장 가까운 엣지/버텍스까지 거리
+		auto PointToSegmentDistSq = [](const FVector& P, const FVector& A, const FVector& B) -> float
+		{
+			FVector AB = B - A;
+			FVector AP = P - A;
+			float T = FVector::DotProduct(AP, AB) / FMath::Max(FVector::DotProduct(AB, AB), SMALL_NUMBER);
+			T = FMath::Clamp(T, 0.0f, 1.0f);
+			FVector Closest = A + AB * T;
+			return FVector::DistSquared(P, Closest);
+		};
+
+		float D0 = PointToSegmentDistSq(Point, V0, V1);
+		float D1 = PointToSegmentDistSq(Point, V1, V2);
+		float D2 = PointToSegmentDistSq(Point, V2, V0);
+
+		return FMath::Min3(D0, D1, D2);
+	}
+
+	/**
+	 * DI의 AffectedVertices 위치들이 속한 원본 메시 삼각형 찾기
+	 *
+	 * PreviewSubdividedMesh의 AffectedVertices 위치들이
+	 * 원본 메시의 어느 삼각형 내부/근처에 있는지 찾아서 반환
+	 *
+	 * @param SourceComponent - DeformerInstance를 가진 FleshRingComponent
+	 * @param SourceMesh - 원본 SkeletalMesh (subdivision 전)
+	 * @param SourcePositions - 원본 메시 버텍스 위치 배열
+	 * @param SourceIndices - 원본 메시 인덱스 배열
+	 * @param OutTriangleIndices - 출력: 영향받는 삼각형 인덱스 집합
+	 * @return true if succeeded
+	 */
+	bool ExtractAffectedTrianglesFromDI(
+		const UFleshRingComponent* SourceComponent,
+		const USkeletalMesh* SourceMesh,
+		const TArray<FVector>& SourcePositions,
+		const TArray<uint32>& SourceIndices,
+		TSet<int32>& OutTriangleIndices)
+	{
+		OutTriangleIndices.Empty();
+
+		if (!SourceComponent || !SourceMesh)
+		{
+			return false;
+		}
+
+		// SkeletalMeshComponent 가져오기
+		USkeletalMeshComponent* SMC = const_cast<UFleshRingComponent*>(SourceComponent)->GetResolvedTargetMesh();
+		if (!SMC)
+		{
+			UE_LOG(LogFleshRingAsset, Warning, TEXT("ExtractAffectedTrianglesFromDI: No SkeletalMeshComponent"));
+			return false;
+		}
+
+		// DeformerInstance 가져오기
+		UMeshDeformerInstance* BaseDI = SMC->GetMeshDeformerInstance();
+		if (!BaseDI)
+		{
+			UE_LOG(LogFleshRingAsset, Warning, TEXT("ExtractAffectedTrianglesFromDI: No MeshDeformerInstance"));
+			return false;
+		}
+
+		const UFleshRingDeformerInstance* DI = Cast<UFleshRingDeformerInstance>(BaseDI);
+		if (!DI)
+		{
+			UE_LOG(LogFleshRingAsset, Warning, TEXT("ExtractAffectedTrianglesFromDI: Not FleshRingDeformerInstance"));
+			return false;
+		}
+
+		// LOD 0의 AffectedVertices 데이터
+		const TArray<FRingAffectedData>* AllRingData = DI->GetAffectedRingDataForDebug(0);
+		if (!AllRingData || AllRingData->Num() == 0)
+		{
+			UE_LOG(LogFleshRingAsset, Warning, TEXT("ExtractAffectedTrianglesFromDI: No ring data"));
+			return false;
+		}
+
+		// DI가 사용 중인 메시 (PreviewSubdividedMesh)
+		USkeletalMesh* DIMesh = SMC->GetSkeletalMeshAsset();
+		if (!DIMesh)
+		{
+			return false;
+		}
+
+		FSkeletalMeshRenderData* DIRenderData = DIMesh->GetResourceForRendering();
+		if (!DIRenderData || DIRenderData->LODRenderData.Num() == 0)
+		{
+			return false;
+		}
+
+		const FSkeletalMeshLODRenderData& DILODData = DIRenderData->LODRenderData[0];
+		const uint32 DIVertexCount = DILODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
+
+		// FleshRingAsset에서 Ring 설정 가져오기
+		const UFleshRingAsset* Asset = SourceComponent->FleshRingAsset;
+		if (!Asset)
+		{
+			UE_LOG(LogFleshRingAsset, Warning, TEXT("ExtractAffectedTrianglesFromDI: No FleshRingAsset"));
+			return false;
+		}
+
+		// DI의 AffectedVertices 인덱스 수집
+		// Ring 설정에 따라 조건부 수집:
+		// - bEnablePostProcess == false → PackedIndices만
+		// - bEnablePostProcess == true && BoundsExpand → PackedIndices + PostProcessingIndices
+		// - bEnablePostProcess == true && HopBased → PackedIndices + ExtendedSmoothingIndices
+		TSet<uint32> DIAffectedIndices;
+		const int32 NumRings = FMath::Min(AllRingData->Num(), Asset->Rings.Num());
+
+		for (int32 RingIdx = 0; RingIdx < NumRings; ++RingIdx)
+		{
+			const FRingAffectedData& RingData = (*AllRingData)[RingIdx];
+			const FFleshRingSettings& RingSettings = Asset->Rings[RingIdx];
+
+			// 1. 기본 영역 (Tightness 대상) - 항상 수집
+			for (uint32 Idx : RingData.PackedIndices)
+			{
+				if (Idx < DIVertexCount) DIAffectedIndices.Add(Idx);
+			}
+
+			// 2. PostProcess가 켜져있을 때만 확장 영역 수집
+			if (RingSettings.bEnablePostProcess)
+			{
+				if (RingSettings.SmoothingVolumeMode == ESmoothingVolumeMode::BoundsExpand)
+				{
+					// BoundsExpand 모드: PostProcessingIndices (Z 확장)
+					for (uint32 Idx : RingData.PostProcessingIndices)
+					{
+						if (Idx < DIVertexCount) DIAffectedIndices.Add(Idx);
+					}
+				}
+				else // HopBased
+				{
+					// HopBased 모드: ExtendedSmoothingIndices (N-hop 확장)
+					for (uint32 Idx : RingData.ExtendedSmoothingIndices)
+					{
+						if (Idx < DIVertexCount) DIAffectedIndices.Add(Idx);
+					}
+				}
+			}
+
+			UE_LOG(LogFleshRingAsset, Log,
+				TEXT("ExtractAffectedTrianglesFromDI: Ring[%d] PostProcess=%s, Mode=%s, Packed=%d, PostProc=%d, Extended=%d"),
+				RingIdx,
+				RingSettings.bEnablePostProcess ? TEXT("ON") : TEXT("OFF"),
+				RingSettings.SmoothingVolumeMode == ESmoothingVolumeMode::BoundsExpand ? TEXT("BoundsExpand") : TEXT("HopBased"),
+				RingData.PackedIndices.Num(),
+				RingData.PostProcessingIndices.Num(),
+				RingData.ExtendedSmoothingIndices.Num());
+		}
+
+		if (DIAffectedIndices.Num() == 0)
+		{
+			return false;
+		}
+
+		// AffectedVertices의 위치들 추출
+		TArray<FVector> AffectedPositions;
+		AffectedPositions.Reserve(DIAffectedIndices.Num());
+		for (uint32 DIIdx : DIAffectedIndices)
+		{
+			FVector Pos = FVector(DILODData.StaticVertexBuffers.PositionVertexBuffer.VertexPosition(DIIdx));
+			AffectedPositions.Add(Pos);
+		}
+
+		UE_LOG(LogFleshRingAsset, Log, TEXT("ExtractAffectedTrianglesFromDI: %d affected positions from DI"),
+			AffectedPositions.Num());
+
+		// ============================================
+		// 원본 메시 삼각형 공간 해시 빌드
+		// ============================================
+		const int32 NumTriangles = SourceIndices.Num() / 3;
+		constexpr float GridSize = 5.0f;  // 5cm 그리드
+
+		// 삼각형 AABB → 그리드 셀 매핑
+		TMap<FIntVector, TArray<int32>> TriangleSpatialHash;
+
+		for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+		{
+			const FVector& V0 = SourcePositions[SourceIndices[TriIdx * 3 + 0]];
+			const FVector& V1 = SourcePositions[SourceIndices[TriIdx * 3 + 1]];
+			const FVector& V2 = SourcePositions[SourceIndices[TriIdx * 3 + 2]];
+
+			// 삼각형 AABB
+			FVector MinBound = V0.ComponentMin(V1.ComponentMin(V2));
+			FVector MaxBound = V0.ComponentMax(V1.ComponentMax(V2));
+
+			// AABB가 걸치는 모든 그리드 셀에 등록
+			FIntVector MinCell(
+				FMath::FloorToInt(MinBound.X / GridSize),
+				FMath::FloorToInt(MinBound.Y / GridSize),
+				FMath::FloorToInt(MinBound.Z / GridSize)
+			);
+			FIntVector MaxCell(
+				FMath::FloorToInt(MaxBound.X / GridSize),
+				FMath::FloorToInt(MaxBound.Y / GridSize),
+				FMath::FloorToInt(MaxBound.Z / GridSize)
+			);
+
+			for (int32 X = MinCell.X; X <= MaxCell.X; ++X)
+			{
+				for (int32 Y = MinCell.Y; Y <= MaxCell.Y; ++Y)
+				{
+					for (int32 Z = MinCell.Z; Z <= MaxCell.Z; ++Z)
+					{
+						TriangleSpatialHash.FindOrAdd(FIntVector(X, Y, Z)).Add(TriIdx);
+					}
+				}
+			}
+		}
+
+		// ============================================
+		// 각 AffectedPosition이 속한 삼각형 찾기
+		// ============================================
+		constexpr float MaxDistSq = 2.0f * 2.0f;  // 2cm 이내
+
+		for (const FVector& Pos : AffectedPositions)
+		{
+			FIntVector CellKey(
+				FMath::FloorToInt(Pos.X / GridSize),
+				FMath::FloorToInt(Pos.Y / GridSize),
+				FMath::FloorToInt(Pos.Z / GridSize)
+			);
+
+			float BestDistSq = MaxDistSq;
+			int32 BestTriIdx = INDEX_NONE;
+
+			// 현재 셀 + 이웃 셀 탐색 (3x3x3)
+			for (int32 dx = -1; dx <= 1; ++dx)
+			{
+				for (int32 dy = -1; dy <= 1; ++dy)
+				{
+					for (int32 dz = -1; dz <= 1; ++dz)
+					{
+						FIntVector NeighborKey = CellKey + FIntVector(dx, dy, dz);
+						if (const TArray<int32>* TriIndices = TriangleSpatialHash.Find(NeighborKey))
+						{
+							for (int32 TriIdx : *TriIndices)
+							{
+								const FVector& V0 = SourcePositions[SourceIndices[TriIdx * 3 + 0]];
+								const FVector& V1 = SourcePositions[SourceIndices[TriIdx * 3 + 1]];
+								const FVector& V2 = SourcePositions[SourceIndices[TriIdx * 3 + 2]];
+
+								float DistSq = PointToTriangleDistSq(Pos, V0, V1, V2);
+								if (DistSq < BestDistSq)
+								{
+									BestDistSq = DistSq;
+									BestTriIdx = TriIdx;
+								}
+							}
+						}
+					}
+				}
+			}
+
+			if (BestTriIdx != INDEX_NONE)
+			{
+				OutTriangleIndices.Add(BestTriIdx);
+			}
+		}
+
+		UE_LOG(LogFleshRingAsset, Log, TEXT("ExtractAffectedTrianglesFromDI: Found %d triangles for %d positions"),
+			OutTriangleIndices.Num(), AffectedPositions.Num());
+
+		return OutTriangleIndices.Num() > 0;
+	}
+
+} // namespace SubdivisionHelpers
+
+// ============================================
+// UFleshRingAsset 에디터 전용 함수들
+// ============================================
+
 void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
@@ -514,8 +1422,12 @@ void UFleshRingAsset::PostTransacted(const FTransactionObjectEvent& TransactionE
 	OnAssetChanged.Broadcast(this);
 }
 
-void UFleshRingAsset::GenerateSubdividedMesh()
+void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponent)
 {
+	// SourceComponent가 있으면 DeformerInstance의 AffectedVertices 데이터를 활용
+	// DI가 이미 정확하게 계산한 영역을 위치 기반 매칭으로 원본 메시 인덱스로 변환
+	// SourceComponent가 없으면 폴백으로 원본 메시 기반 직접 계산
+
 	// 이전 SubdividedMesh가 있으면 먼저 제거 (같은 이름 충돌 방지)
 	if (SubdividedMesh)
 	{
@@ -523,10 +1435,11 @@ void UFleshRingAsset::GenerateSubdividedMesh()
 		// GC가 안전하게 정리하게 함
 		SubdividedMesh = nullptr;
 
-		// 델리게이트 브로드캐스트하여 프리뷰 씬 등이 원본 메시로 전환하게 함
-		OnAssetChanged.Broadcast(this);
+		// Note: OnAssetChanged.Broadcast() 호출 안 함
+		// SubdividedMesh는 런타임용이고, 프리뷰는 PreviewSubdividedMesh를 사용
+		// 브로드캐스트 시 프리뷰 DeformerInstance가 재초기화되어 변형 데이터 손실됨
 
-		// 월드의 FleshRingComponent들도 직접 업데이트
+		// 월드의 FleshRingComponent들만 직접 업데이트 (프리뷰 제외)
 		if (GEngine)
 		{
 			for (const FWorldContext& Context : GEngine->GetWorldContexts())
@@ -888,6 +1801,158 @@ void UFleshRingAsset::GenerateSubdividedMesh()
 		}
 
 		Processor.AddRingParams(RingParams);
+	}
+
+	// ============================================
+	// 3-1. Affected 영역 계산 (삼각형 기반)
+	// ============================================
+	// 우선순위:
+	// 1. SourceComponent의 DI에서 AffectedVertices 위치 추출 → 해당 위치를 포함하는 삼각형 찾기
+	//    - PreviewMesh의 subdivision된 버텍스 위치를 사용하여 원본 메시의 삼각형을 정확히 선택
+	//    - 새 버텍스(subdivision으로 생성된)도 포함하여 누락 영역 없음
+	// 2. 폴백: 원본 메시 기반 버텍스 계산 → 삼각형으로 변환
+	{
+		using namespace SubdivisionHelpers;
+
+		TSet<int32> CombinedTriangleIndices;
+		bool bUsedDIData = false;
+
+		// ★ 방법 1: SourceComponent의 DI에서 삼각형 추출 시도 (Point-in-Triangle)
+		if (SourceComponent)
+		{
+			UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateSubdividedMesh: Trying to extract affected triangles from DI..."));
+
+			if (ExtractAffectedTrianglesFromDI(SourceComponent, SourceMesh, SourcePositions, SourceIndices, CombinedTriangleIndices))
+			{
+				bUsedDIData = true;
+				UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateSubdividedMesh: Successfully extracted %d triangles from DI"),
+					CombinedTriangleIndices.Num());
+			}
+			else
+			{
+				UE_LOG(LogFleshRingAsset, Warning, TEXT("GenerateSubdividedMesh: DI triangle extraction failed, falling back to vertex-based calculation"));
+			}
+		}
+
+		// ★ 방법 2: 폴백 - 원본 메시 기반 버텍스 계산 후 삼각형으로 변환
+		if (!bUsedDIData)
+		{
+			UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateSubdividedMesh: Calculating affected vertices from original mesh (fallback)"));
+
+			TSet<uint32> CombinedVertexIndices;
+
+			// UV Seam 용접을 위한 위치 그룹화
+			TMap<FIntVector, TArray<uint32>> PositionGroups = BuildPositionGroups(SourcePositions);
+
+			// 인접성 맵 빌드 (HopBased용)
+			TMap<uint32, TSet<uint32>> AdjacencyMap = BuildAdjacencyMap(SourceIndices);
+
+			// UV Seam 처리: 같은 위치 버텍스들이 이웃을 공유하도록 확장
+			ExpandAdjacencyForUVSeams(AdjacencyMap, PositionGroups);
+
+			for (int32 RingIdx = 0; RingIdx < Rings.Num(); ++RingIdx)
+			{
+				const FFleshRingSettings& Ring = Rings[RingIdx];
+
+				// 본 트랜스폼 계산
+				int32 BoneIndex = RefSkeleton.FindBoneIndex(Ring.BoneName);
+				FTransform BoneTransform = CalculateBoneTransform(BoneIndex, RefSkeleton, RefBonePose);
+
+				// [DEBUG] 본 정보 출력
+				UE_LOG(LogFleshRingAsset, Log, TEXT("  Ring %d (%s): BoneIndex=%d, BonePos=%s"),
+					RingIdx, *Ring.BoneName.ToString(), BoneIndex, *BoneTransform.GetLocation().ToString());
+
+				// 1. 기본 Affected 버텍스 선택
+				TSet<uint32> AffectedVertices;
+				FBox RingBounds;
+				FTransform RingTransform;
+
+				if (!SelectAffectedVertices(Ring, SourcePositions, BoneTransform,
+					AffectedVertices, RingBounds, RingTransform))
+				{
+					UE_LOG(LogFleshRingAsset, Warning, TEXT("  Ring %d (%s): No affected vertices found, RingTransformPos=%s"),
+						RingIdx, *Ring.BoneName.ToString(), *RingTransform.GetLocation().ToString());
+					continue;
+				}
+
+				// [DEBUG] 선택 결과 출력
+				UE_LOG(LogFleshRingAsset, Log, TEXT("  Ring %d (%s): %d base affected vertices, RingPos=%s, Bounds=%s ~ %s"),
+					RingIdx, *Ring.BoneName.ToString(), AffectedVertices.Num(),
+					*RingTransform.GetLocation().ToString(),
+					*RingBounds.Min.ToString(), *RingBounds.Max.ToString());
+
+				// 2. SmoothingVolumeMode에 따른 확장
+				TSet<uint32> ExtendedVertices;
+
+				if (!Ring.bEnablePostProcess)
+				{
+					// PostProcess 비활성화: 기본 Affected Vertices만
+					ExtendedVertices = AffectedVertices;
+					UE_LOG(LogFleshRingAsset, Log, TEXT("    -> PostProcess OFF: using %d vertices"),
+						ExtendedVertices.Num());
+				}
+				else if (Ring.SmoothingVolumeMode == ESmoothingVolumeMode::BoundsExpand)
+				{
+					// BoundsExpand: Z축 바운드 확장
+					ExpandByBounds(Ring, SourcePositions, RingTransform, RingBounds,
+						AffectedVertices, ExtendedVertices);
+					UE_LOG(LogFleshRingAsset, Log, TEXT("    -> BoundsExpand (ZTop=%.1f, ZBottom=%.1f): %d -> %d vertices"),
+						Ring.SmoothingBoundsZTop, Ring.SmoothingBoundsZBottom,
+						AffectedVertices.Num(), ExtendedVertices.Num());
+				}
+				else // HopBased
+				{
+					// HopBased: BFS N-hop 확장
+					ExpandByHops(AffectedVertices, AdjacencyMap, Ring.MaxSmoothingHops, ExtendedVertices);
+					UE_LOG(LogFleshRingAsset, Log, TEXT("    -> HopBased (MaxHops=%d): %d -> %d vertices"),
+						Ring.MaxSmoothingHops, AffectedVertices.Num(), ExtendedVertices.Num());
+				}
+
+				// 3. UV Seam 처리: 선택된 버텍스들의 같은 위치 버텍스도 추가
+				int32 BeforeUVSeam = ExtendedVertices.Num();
+				AddPositionDuplicates(ExtendedVertices, SourcePositions, PositionGroups);
+				if (ExtendedVertices.Num() > BeforeUVSeam)
+				{
+					UE_LOG(LogFleshRingAsset, Log, TEXT("    -> UV Seam: added %d duplicate vertices"),
+						ExtendedVertices.Num() - BeforeUVSeam);
+				}
+
+				// 합집합에 추가
+				CombinedVertexIndices.Append(ExtendedVertices);
+			}
+
+			// 버텍스 → 삼각형 변환 (폴백의 경우)
+			const int32 NumTriangles = SourceIndices.Num() / 3;
+			for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+			{
+				uint32 V0 = SourceIndices[TriIdx * 3 + 0];
+				uint32 V1 = SourceIndices[TriIdx * 3 + 1];
+				uint32 V2 = SourceIndices[TriIdx * 3 + 2];
+
+				if (CombinedVertexIndices.Contains(V0) ||
+					CombinedVertexIndices.Contains(V1) ||
+					CombinedVertexIndices.Contains(V2))
+				{
+					CombinedTriangleIndices.Add(TriIdx);
+				}
+			}
+
+			UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateSubdividedMesh: Converted %d vertices to %d triangles (fallback)"),
+				CombinedVertexIndices.Num(), CombinedTriangleIndices.Num());
+		}
+
+		UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateSubdividedMesh: Combined %d unique triangle indices (from %s)"),
+			CombinedTriangleIndices.Num(), bUsedDIData ? TEXT("DI") : TEXT("fallback calculation"));
+
+		// 삼각형 기반 모드 설정
+		if (CombinedTriangleIndices.Num() > 0)
+		{
+			Processor.SetTargetTriangleIndices(CombinedTriangleIndices);
+		}
+		else
+		{
+			UE_LOG(LogFleshRingAsset, Warning, TEXT("GenerateSubdividedMesh: No triangles selected, falling back to Ring params"));
+		}
 	}
 
 	// Subdivision 실행
@@ -1274,10 +2339,11 @@ void UFleshRingAsset::GenerateSubdividedMesh()
 	SubdivisionParamsHash = CalculateSubdivisionParamsHash();
 	MarkPackageDirty();
 
-	// 이 에셋을 사용하는 컴포넌트들에게 변경 알림
-	OnAssetChanged.Broadcast(this);
+	// Note: OnAssetChanged.Broadcast() 호출 안 함
+	// SubdividedMesh는 런타임용이고, 프리뷰는 PreviewSubdividedMesh를 사용
+	// 브로드캐스트 시 프리뷰 DeformerInstance가 재초기화되어 변형 데이터 손실됨
 
-	// 델리게이트 바인딩이 안 된 컴포넌트들도 업데이트하기 위해 직접 검색
+	// 월드의 FleshRingComponent들만 직접 업데이트 (프리뷰 제외)
 	if (GEngine)
 	{
 		for (const FWorldContext& Context : GEngine->GetWorldContexts())

@@ -6,12 +6,16 @@
 #include "DetailWidgetRow.h"
 #include "IDetailGroup.h"
 #include "FleshRingAsset.h"
+#include "FleshRingComponent.h"
+#include "FleshRingAssetEditor.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Images/SImage.h"
 #include "Widgets/Layout/SBox.h"
 #include "Styling/AppStyle.h"
 #include "Styling/SlateTypes.h"
+#include "Subsystems/AssetEditorSubsystem.h"
+#include "Editor.h"
 
 #define LOCTEXT_NAMESPACE "FleshRingAssetDetailCustomization"
 
@@ -230,7 +234,32 @@ FReply FFleshRingAssetDetailCustomization::OnGenerateRuntimeMeshClicked()
 {
 	if (CachedAsset.IsValid())
 	{
-		CachedAsset->GenerateSubdividedMesh();
+		// UAssetEditorSubsystem을 통해 열린 에디터에서 PreviewComponent 가져오기
+		UFleshRingComponent* PreviewComponent = nullptr;
+
+		if (GEditor)
+		{
+			UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
+			if (AssetEditorSubsystem)
+			{
+				TArray<IAssetEditorInstance*> Editors = AssetEditorSubsystem->FindEditorsForAsset(CachedAsset.Get());
+				for (IAssetEditorInstance* Editor : Editors)
+				{
+					// FFleshRingAssetEditor는 FAssetEditorToolkit을 상속
+					FFleshRingAssetEditor* FleshRingEditor = static_cast<FFleshRingAssetEditor*>(Editor);
+					if (FleshRingEditor)
+					{
+						PreviewComponent = FleshRingEditor->GetPreviewFleshRingComponent();
+						if (PreviewComponent)
+						{
+							break;
+						}
+					}
+				}
+			}
+		}
+
+		CachedAsset->GenerateSubdividedMesh(PreviewComponent);
 	}
 	return FReply::Handled();
 }

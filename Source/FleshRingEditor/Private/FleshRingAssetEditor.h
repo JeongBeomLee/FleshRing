@@ -8,6 +8,7 @@
 #include "FleshRingEditorViewportClient.h"
 
 class UFleshRingAsset;
+class UFleshRingComponent;
 class SFleshRingEditorViewport;
 class SFleshRingSkeletonTree;
 class IDetailsView;
@@ -52,6 +53,9 @@ public:
 
 	/** SDF만 재생성 (VirtualBand 드래그 중 - 컴포넌트 재생성 없이) */
 	void RefreshSDFOnly();
+
+	/** PreviewScene의 FleshRingComponent 반환 (Subdivision 데이터 접근용) */
+	UFleshRingComponent* GetPreviewFleshRingComponent() const;
 
 private:
 	/** Skeleton Tree 탭 생성 */
