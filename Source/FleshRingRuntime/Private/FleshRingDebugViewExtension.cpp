@@ -47,7 +47,8 @@ void FFleshRingDebugViewExtension::SetDebugPointBufferShared(TSharedPtr<TRefCoun
     FScopeLock Lock(&BufferLock);
     DebugPointBufferSharedPtr = InBufferPtr;
     PointCount = InPointCount;
-    bEnabled = (InBufferPtr.IsValid() && InPointCount > 0);
+    // TSharedPtr 자체와 내부 TRefCountPtr<FRDGPooledBuffer> 모두 유효해야 함
+    bEnabled = (InBufferPtr.IsValid() && InBufferPtr->IsValid() && InPointCount > 0);
 }
 
 void FFleshRingDebugViewExtension::SetDebugBulgePointBufferShared(TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBufferPtr, uint32 InPointCount)
@@ -55,7 +56,8 @@ void FFleshRingDebugViewExtension::SetDebugBulgePointBufferShared(TSharedPtr<TRe
     FScopeLock Lock(&BufferLock);
     DebugBulgePointBufferSharedPtr = InBufferPtr;
     BulgePointCount = InPointCount;
-    bBulgeEnabled = (InBufferPtr.IsValid() && InPointCount > 0);
+    // TSharedPtr 자체와 내부 TRefCountPtr<FRDGPooledBuffer> 모두 유효해야 함
+    bBulgeEnabled = (InBufferPtr.IsValid() && InBufferPtr->IsValid() && InPointCount > 0);
 }
 
 void FFleshRingDebugViewExtension::ClearDebugBulgePointBuffer()

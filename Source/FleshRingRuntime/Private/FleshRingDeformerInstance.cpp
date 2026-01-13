@@ -986,9 +986,18 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 
 	// GPU 디버그 렌더링 활성화 시 TightnessCS 강제 실행
 	// DebugPointBuffer에 매 프레임 월드 좌표를 쓰기 위해 캐싱 무효화
-	if (bOutputDebugPoints)
+	// Bulge 디버그도 TightnessCS → BulgeCS 파이프라인이 필요하므로 함께 체크
+	if (bOutputDebugPoints || bOutputDebugBulgePoints)
 	{
 		bNeedTightnessCaching = true;
+
+		// Bulge 디버그 포인트 버퍼 TSharedPtr 생성 (bOutputDebugBulgePoints 설정 후 초기화)
+		// NOTE: bOutputDebugBulgePoints 체크가 Line 874 버퍼 초기화 블록 이후에 있으므로
+		// 여기서 추가 초기화 필요 (그렇지 않으면 첫 프레임에서 버퍼가 null)
+		if (bOutputDebugBulgePoints && !CurrentLODData.CachedDebugBulgePointBufferShared.IsValid())
+		{
+			CurrentLODData.CachedDebugBulgePointBufferShared = MakeShared<TRefCountPtr<FRDGPooledBuffer>>();
+		}
 	}
 
 	// 작업 아이템 생성

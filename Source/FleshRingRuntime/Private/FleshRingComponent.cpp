@@ -192,6 +192,18 @@ void UFleshRingComponent::PostEditChangeProperty(FPropertyChangedEvent& Property
 	{
 		UpdateRingMeshVisibility();
 	}
+
+	// Bulge Heatmap 활성화 시 캐시 무효화 (즉시 디버그 포인트 표시를 위해)
+	if (PropertyName == GET_MEMBER_NAME_CHECKED(UFleshRingComponent, bShowBulgeHeatmap))
+	{
+		if (bShowBulgeHeatmap && InternalDeformer)
+		{
+			if (UFleshRingDeformerInstance* DeformerInstance = InternalDeformer->GetActiveInstance())
+			{
+				DeformerInstance->InvalidateTightnessCache();
+			}
+		}
+	}
 }
 
 void UFleshRingComponent::BindToAssetDelegate()
@@ -1102,6 +1114,7 @@ void UFleshRingComponent::DrawDebugVisualization()
 		if (bUseGPUDebugRendering && DebugViewExtension.IsValid())
 		{
 			DebugViewExtension->ClearDebugPointBuffer();
+			DebugViewExtension->ClearDebugBulgePointBuffer();
 		}
 		return;
 	}
@@ -1169,6 +1182,11 @@ void UFleshRingComponent::DrawDebugVisualization()
 		// 꺼져 있으면 ClearDebugPointBuffer() 호출
 		UpdateDebugPointBuffer();
 
+		// GPU 렌더링 모드에서도 DebugBulgeData 캐싱 필요 (PointCount 계산용)
+		if (bShowBulgeHeatmap && !bDebugBulgeVerticesCached)
+		{
+			CacheBulgeVerticesForDebug();
+		}
 		// Bulge GPU 디버그 렌더링 (Cyan → Magenta 색상)
 		// UpdateDebugBulgePointBuffer() 내부에서 bShowBulgeHeatmap 체크
 		UpdateDebugBulgePointBuffer();
@@ -2876,6 +2894,8 @@ void UFleshRingComponent::UpdateDebugBulgePointBuffer()
 	}
 
 	// CachedDebugBulgePointBufferSharedPtr 가져오기
+	// TSharedPtr만 체크 (Tightness와 동일) - 내부 버퍼는 ViewExtension에서 체크
+	// TSharedPtr을 전달하면 나중에 버퍼가 채워질 때 같은 포인터를 통해 접근 가능
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> DebugBulgePointBufferSharedPtr = DeformerInstance->GetCachedDebugBulgePointBufferSharedPtr();
 	if (!DebugBulgePointBufferSharedPtr.IsValid())
 	{
@@ -2883,8 +2903,12 @@ void UFleshRingComponent::UpdateDebugBulgePointBuffer()
 		return;
 	}
 
-	// Bulge 포인트 수 가져오기
-	uint32 BulgePointCount = DeformerInstance->GetCachedBulgePointCount();
+	// Bulge 포인트 수 계산 (CPU 캐시에서 - Tightness와 동일한 방식)
+	uint32 BulgePointCount = 0;
+	for (const FRingAffectedData& BulgeData : DebugBulgeData)
+	{
+		BulgePointCount += BulgeData.Vertices.Num();
+	}
 
 	if (BulgePointCount == 0)
 	{
