@@ -49,41 +49,6 @@ enum class EFalloffType : uint8
 	Hermite		UMETA(DisplayName = "Hermite (S-Curve)")
 };
 
-/** Seed 블렌딩 가중치 타입 (K-Nearest Seeds) */
-UENUM(BlueprintType)
-enum class ESeedBlendWeightType : uint8
-{
-	/** 1/(d+1) - 선형 역수, 균일한 블렌딩 */
-	InverseLinear	UMETA(DisplayName = "1/(d+1) - Inverse Linear"),
-
-	/** 1/(d+1)² - 제곱 역수, 가까운 seed 강조 */
-	InverseSquare	UMETA(DisplayName = "1/(d+1)² - Inverse Square"),
-
-	/** exp(-d/σ) - 가우시안, 부드러운 감쇠 */
-	Gaussian		UMETA(DisplayName = "exp(-d/σ) - Gaussian")
-};
-
-/** 변형 전파 모드 (Hop-based vs Heat Diffusion) */
-UENUM(BlueprintType)
-enum class EDeformPropagationMode : uint8
-{
-	/**
-	 * Hop 기반 전파 (기존 방식)
-	 * - K-Nearest Seeds 블렌딩
-	 * - 1패스, 빠름
-	 * - Seed 경계에서 약간의 불연속 가능
-	 */
-	HopBased		UMETA(DisplayName = "Hop-based (K-Nearest)"),
-
-	/**
-	 * Heat Diffusion (열 확산)
-	 * - 변형량을 열처럼 확산
-	 * - 여러 iteration, 연속적이고 부드러움
-	 * - 물리적으로 자연스러운 결과
-	 */
-	HeatDiffusion	UMETA(DisplayName = "Heat Diffusion")
-};
-
 /** 스무딩 볼륨 선택 모드 */
 UENUM(BlueprintType)
 enum class ESmoothingVolumeMode : uint8
@@ -524,38 +489,6 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides))
 	EFalloffType HopFalloffType = EFalloffType::Hermite;
 
-	/** 변형 전파 모드 (HopBased vs HeatDiffusion) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides, DisplayName = "Propagation Mode"))
-	EDeformPropagationMode DeformPropagationMode = EDeformPropagationMode::HeatDiffusion;
-
-	/** K-Nearest Seed 블렌딩 개수 (1 = nearest seed만, 4-8 권장) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides, ClampMin = "1", ClampMax = "16", DisplayName = "Seed Blend Count (K)"))
-	int32 SeedBlendCount = 4;
-
-	/** Seed 블렌딩 가중치 함수 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && SeedBlendCount > 1", EditConditionHides, DisplayName = "Seed Blend Weight Type"))
-	ESeedBlendWeightType SeedBlendWeightType = ESeedBlendWeightType::InverseSquare;
-
-	/** Gaussian 블렌딩 시그마 (Gaussian 타입 전용) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && SeedBlendCount > 1 && SeedBlendWeightType == ESeedBlendWeightType::Gaussian", EditConditionHides, ClampMin = "0.5", ClampMax = "20.0", DisplayName = "Gaussian Sigma"))
-	float SeedBlendGaussianSigma = 3.0f;
-
-	/** Heat Diffusion 반복 횟수 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && DeformPropagationMode == EDeformPropagationMode::HeatDiffusion", EditConditionHides, ClampMin = "1", ClampMax = "50", DisplayName = "Heat Diffusion Iterations"))
-	int32 HeatDiffusionIterations = 10;
-
-	/** Heat Diffusion Lambda (확산 속도) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && DeformPropagationMode == EDeformPropagationMode::HeatDiffusion", EditConditionHides, ClampMin = "0.1", ClampMax = "0.9", DisplayName = "Heat Diffusion Lambda"))
-	float HeatDiffusionLambda = 0.5f;
-
-	/** Hop Propagation 후 Local Polish용 Laplacian 반복 횟수 (0 = 비활성화) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides, ClampMin = "0", ClampMax = "5", DisplayName = "Post-Hop Laplacian Iterations"))
-	int32 PostHopLaplacianIterations = 1;
-
-	/** Hop Propagation 후 Laplacian 강도 (Lambda) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && PostHopLaplacianIterations > 0", EditConditionHides, ClampMin = "0.1", ClampMax = "0.8", DisplayName = "Post-Hop Laplacian Lambda"))
-	float PostHopLaplacianLambda = 0.3f;
-
 	/** 스무딩 영역 상단 확장 거리 (cm) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::BoundsExpand", EditConditionHides, ClampMin = "0.0", ClampMax = "50.0", DisplayName = "Bounds Expand Top (cm)"))
 	float SmoothingBoundsZTop = 5.0f;
@@ -563,6 +496,39 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	/** 스무딩 영역 하단 확장 거리 (cm) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::BoundsExpand", EditConditionHides, ClampMin = "0.0", ClampMax = "50.0", DisplayName = "Bounds Expand Bottom (cm)"))
 	float SmoothingBoundsZBottom = 0.0f;
+
+	// ===== Heat Propagation (변형 전파) =====
+
+	/**
+	 * Heat Propagation 활성화
+	 * - Seed(직접 변형된 버텍스)의 delta를 Extended 영역으로 확산
+	 * - Tightness 직후, Radial/Laplacian 전에 실행
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heat Propagation", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides))
+	bool bEnableHeatPropagation = true;
+
+	/**
+	 * Heat Propagation 반복 횟수
+	 * - 높을수록 더 넓게 확산 (권장: 5~20)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heat Propagation", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && bEnableHeatPropagation", EditConditionHides, ClampMin = "1", ClampMax = "50"))
+	int32 HeatPropagationIterations = 10;
+
+	/**
+	 * Heat Propagation Lambda (확산 계수)
+	 * - 각 반복에서 이웃 평균과 블렌딩하는 비율
+	 * - 0.5 권장, 높을수록 빠른 확산
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heat Propagation", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && bEnableHeatPropagation", EditConditionHides, ClampMin = "0.1", ClampMax = "0.9"))
+	float HeatPropagationLambda = 0.5f;
+
+	/**
+	 * Bulge 버텍스도 Heat Propagation Seed로 포함
+	 * - true: Tightness + Bulge 변형 모두 전파
+	 * - false: Tightness 변형만 전파
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heat Propagation", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && bEnableHeatPropagation", EditConditionHides))
+	bool bIncludeBulgeVerticesAsSeeds = true;
 
 	// ===== Smoothing (스무딩 전체 제어) =====
 
@@ -680,16 +646,12 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		, MaxSmoothingHops(5)
 		, HopFalloffRatio(0.3f)
 		, HopFalloffType(EFalloffType::Hermite)
-		, DeformPropagationMode(EDeformPropagationMode::HeatDiffusion)
-		, SeedBlendCount(4)
-		, SeedBlendWeightType(ESeedBlendWeightType::InverseSquare)
-		, SeedBlendGaussianSigma(3.0f)
-		, HeatDiffusionIterations(10)
-		, HeatDiffusionLambda(0.5f)
-		, PostHopLaplacianIterations(1)
-		, PostHopLaplacianLambda(0.3f)
 		, SmoothingBoundsZTop(5.0f)
 		, SmoothingBoundsZBottom(0.0f)
+		, bEnableHeatPropagation(true)
+		, HeatPropagationIterations(10)
+		, HeatPropagationLambda(0.5f)
+		, bIncludeBulgeVerticesAsSeeds(true)
 		, bEnableSmoothing(true)
 		, bEnableRadialSmoothing(true)
 		, bEnableLaplacianSmoothing(true)

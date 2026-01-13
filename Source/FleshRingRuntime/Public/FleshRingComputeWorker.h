@@ -19,6 +19,7 @@
 #include "FleshRingLayerPenetrationShader.h"
 #include "FleshRingPBDEdgeShader.h"
 #include "FleshRingSkinSDFShader.h"
+#include "FleshRingHeatPropagationShader.h"
 
 class FSkeletalMeshObject;
 class UFleshRingDeformerInstance;
@@ -142,6 +143,14 @@ struct FFleshRingWorkItem
 		TArray<float> ExtendedInfluences;            // 확장 영역 influence (홉 falloff)
 		TArray<uint32> ExtendedIsAnchor;             // 확장 영역 앵커 플래그 (1=Seed, 0=확장)
 		TArray<uint32> ExtendedLaplacianAdjacency;   // 확장 영역 인접 데이터
+
+		// ===== Heat Propagation (변형 전파) =====
+		// Seed의 delta를 Extended 영역으로 확산
+		// BoneRatioCS 이후, LaplacianCS 이전에 실행
+		bool bEnableHeatPropagation = false;
+		int32 HeatPropagationIterations = 10;
+		float HeatPropagationLambda = 0.5f;
+		bool bIncludeBulgeVerticesAsSeeds = true;  // Bulge 버텍스도 Seed로 포함
 
 		// ===== Bone Ratio Preserve용 슬라이스 데이터 =====
 		// 반경 균일화 스무딩 활성화 여부

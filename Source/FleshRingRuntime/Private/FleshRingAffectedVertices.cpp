@@ -1724,11 +1724,12 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
 
             // Build hop distance data for topology-based smoothing
             // 홉 기반 스무딩용 확장 영역 데이터 빌드
-            // ANY smoothing이 켜져있으면 hop 데이터 빌드 (Radial, Laplacian, PBD 중 하나라도)
+            // ANY smoothing 또는 HeatPropagation이 켜져있으면 hop 데이터 빌드
             const bool bAnySmoothingEnabled =
                 RingSettings.bEnableRadialSmoothing ||
                 RingSettings.bEnableLaplacianSmoothing ||
-                RingSettings.bEnablePBDEdgeConstraint;
+                RingSettings.bEnablePBDEdgeConstraint ||
+                RingSettings.bEnableHeatPropagation;  // Heat Propagation도 Extended 데이터 필요
 
             if (bAnySmoothingEnabled)
             {
@@ -3236,8 +3237,9 @@ void FFleshRingAffectedVerticesManager::BuildExtendedLaplacianAdjacency(
             const TArray<uint32>* VerticesAtNeighborPos = CachedPositionToVertices.Find(NeighborPosKey);
             if (!VerticesAtNeighborPos || VerticesAtNeighborPos->Num() == 0) continue;
 
-            // Extended 영역 버텍스 우선 선택
-            uint32 NeighborIdx = (*VerticesAtNeighborPos)[0];
+            // Extended 영역 버텍스만 선택 (Heat Propagation을 위해 Extended 외부 이웃 제외)
+            // Only select vertices within Extended region (exclude non-Extended for Heat Propagation)
+            uint32 NeighborIdx = UINT32_MAX;  // Invalid sentinel
             for (uint32 CandidateIdx : *VerticesAtNeighborPos)
             {
                 if (ExtendedVertexSet.Contains(CandidateIdx))
@@ -3245,6 +3247,13 @@ void FFleshRingAffectedVerticesManager::BuildExtendedLaplacianAdjacency(
                     NeighborIdx = CandidateIdx;
                     break;
                 }
+            }
+
+            // Skip if no Extended neighbor found at this position
+            // (non-Extended neighbors would have delta=0, diluting propagation)
+            if (NeighborIdx == UINT32_MAX)
+            {
+                continue;
             }
 
             // Layer type filtering

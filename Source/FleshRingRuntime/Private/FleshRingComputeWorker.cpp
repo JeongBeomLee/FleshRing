@@ -3,6 +3,7 @@
 #include "FleshRingComputeWorker.h"
 #include "FleshRingDeformerInstance.h"
 #include "FleshRingSkinningShader.h"
+#include "FleshRingHeatPropagationShader.h"
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
 #include "SkeletalMeshDeformerHelpers.h"
@@ -720,6 +721,152 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 						RingIdx, NumAffected, DispatchData.SlicePackedData.Num() / 33);
 					LoggedBoneRatioRings.Add(RingIdx);
 				}
+			}
+		}
+
+		// ===== HeatPropagationCS Dispatch (BoneRatioCS 이후, LaplacianCS 이전) =====
+		// Delta-based Heat Propagation: Seed의 변형 delta를 Extended 영역으로 전파
+		// Algorithm: Init → Diffuse × N → Apply
+		if (WorkItem.RingDispatchDataPtr.IsValid())
+		{
+			for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
+			{
+				const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
+
+				// Heat Propagation 활성화 조건: bEnableHeatPropagation && HopBased mode && Extended 데이터 존재
+				if (!DispatchData.bEnableHeatPropagation || !DispatchData.bUseHopBasedSmoothing)
+				{
+					continue;
+				}
+
+				// Extended 데이터 검증
+				if (DispatchData.ExtendedSmoothingIndices.Num() == 0 ||
+					DispatchData.ExtendedIsAnchor.Num() == 0 ||
+					DispatchData.ExtendedLaplacianAdjacency.Num() == 0)
+				{
+					continue;
+				}
+
+				const uint32 NumExtendedVertices = DispatchData.ExtendedSmoothingIndices.Num();
+
+				// ========================================
+				// 1. Original Positions 버퍼 (바인드 포즈)
+				// ========================================
+				FRDGBufferRef OriginalPositionsBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateBufferDesc(sizeof(float), ActualBufferSize),
+					*FString::Printf(TEXT("FleshRing_HeatProp_OriginalPos_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					OriginalPositionsBuffer,
+					WorkItem.SourceDataPtr->GetData(),
+					ActualBufferSize * sizeof(float),
+					ERDGInitialDataFlags::None
+				);
+
+				// ========================================
+				// 2. Output Positions 버퍼
+				// TightenedBindPose를 먼저 복사 (non-extended 버텍스 유지)
+				// ========================================
+				FRDGBufferRef HeatPropOutputBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateBufferDesc(sizeof(float), ActualBufferSize),
+					*FString::Printf(TEXT("FleshRing_HeatProp_Output_Ring%d"), RingIdx)
+				);
+				AddCopyBufferPass(GraphBuilder, HeatPropOutputBuffer, TightenedBindPoseBuffer);
+
+				// ========================================
+				// 3. Extended Indices 버퍼
+				// ========================================
+				FRDGBufferRef ExtendedIndicesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumExtendedVertices),
+					*FString::Printf(TEXT("FleshRing_HeatProp_ExtIndices_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					ExtendedIndicesBuffer,
+					DispatchData.ExtendedSmoothingIndices.GetData(),
+					NumExtendedVertices * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// ========================================
+				// 4. IsSeed Flags 버퍼 (1=Seed, 0=Non-Seed)
+				// ExtendedIsAnchor: Seed(앵커)=1, Non-Seed=0
+				// bIncludeBulgeVerticesAsSeeds가 true면 Bulge 버텍스도 Seed로 마킹
+				// ========================================
+				TArray<uint32> IsSeedFlagsData;
+				IsSeedFlagsData.SetNumUninitialized(NumExtendedVertices);
+				FMemory::Memcpy(IsSeedFlagsData.GetData(), DispatchData.ExtendedIsAnchor.GetData(), NumExtendedVertices * sizeof(uint32));
+
+				// Bulge 버텍스도 Seed로 포함시키는 경우
+				if (DispatchData.bIncludeBulgeVerticesAsSeeds && DispatchData.BulgeIndices.Num() > 0)
+				{
+					// BulgeIndices를 Set으로 변환 - O(M) 공간 (M = Bulge 버텍스 수)
+					TSet<uint32> BulgeIndicesSet;
+					BulgeIndicesSet.Reserve(DispatchData.BulgeIndices.Num());
+					for (uint32 BulgeIdx : DispatchData.BulgeIndices)
+					{
+						BulgeIndicesSet.Add(BulgeIdx);
+					}
+
+					// Extended 영역 순회하며 Bulge 버텍스를 Seed로 마킹 - O(N) 시간
+					for (uint32 ThreadIdx = 0; ThreadIdx < NumExtendedVertices; ++ThreadIdx)
+					{
+						if (IsSeedFlagsData[ThreadIdx] == 0 &&
+							BulgeIndicesSet.Contains(DispatchData.ExtendedSmoothingIndices[ThreadIdx]))
+						{
+							IsSeedFlagsData[ThreadIdx] = 1;
+						}
+					}
+				}
+
+				FRDGBufferRef IsSeedFlagsBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumExtendedVertices),
+					*FString::Printf(TEXT("FleshRing_HeatProp_IsSeed_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					IsSeedFlagsBuffer,
+					IsSeedFlagsData.GetData(),
+					NumExtendedVertices * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// ========================================
+				// 5. Adjacency Data 버퍼 (Laplacian adjacency 재사용)
+				// ========================================
+				FRDGBufferRef AdjacencyDataBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), DispatchData.ExtendedLaplacianAdjacency.Num()),
+					*FString::Printf(TEXT("FleshRing_HeatProp_Adjacency_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					AdjacencyDataBuffer,
+					DispatchData.ExtendedLaplacianAdjacency.GetData(),
+					DispatchData.ExtendedLaplacianAdjacency.Num() * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// ========================================
+				// 6. Heat Propagation Dispatch (Delta-based)
+				// ========================================
+				FHeatPropagationDispatchParams HeatPropParams;
+				HeatPropParams.NumExtendedVertices = NumExtendedVertices;
+				HeatPropParams.NumTotalVertices = ActualNumVertices;
+				HeatPropParams.HeatLambda = DispatchData.HeatPropagationLambda;
+				HeatPropParams.NumIterations = DispatchData.HeatPropagationIterations;
+
+				DispatchFleshRingHeatPropagationCS(
+					GraphBuilder,
+					HeatPropParams,
+					OriginalPositionsBuffer,       // 원본 바인드 포즈
+					TightenedBindPoseBuffer,       // 현재 변형된 위치 (Seed의 delta 계산용)
+					HeatPropOutputBuffer,          // 출력 위치
+					ExtendedIndicesBuffer,         // Extended 영역 버텍스 인덱스
+					IsSeedFlagsBuffer,             // Seed 플래그 (1=Seed, 0=Non-Seed)
+					AdjacencyDataBuffer            // 인접 정보 (diffusion용)
+				);
+
+				// ========================================
+				// 7. 결과를 TightenedBindPoseBuffer로 복사
+				// ========================================
+				AddCopyBufferPass(GraphBuilder, TightenedBindPoseBuffer, HeatPropOutputBuffer);
 			}
 		}
 

@@ -1,0 +1,243 @@
+// ============================================================================
+// FleshRingHeatPropagationCS.usf - Heat Propagation Compute Shader
+// ============================================================================
+// Purpose: Propagate deformation delta from Seeds to Extended region
+//
+// Algorithm (Delta-based):
+//   1. Init:    Seed.delta = CurrentPos - OriginalPos, Non-Seed.delta = 0
+//   2. Diffuse: Non-Seed.delta = lerp(delta, neighborAvgDelta, lambda)
+//   3. Apply:   Non-Seed.FinalPos = OriginalPos + delta
+//
+// PassType:
+//   0 = Init (compute initial delta)
+//   1 = Diffuse (propagate delta)
+//   2 = Apply (apply delta to positions)
+// ============================================================================
+
+#include "/Engine/Public/Platform.ush"
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+#define MAX_NEIGHBORS 12
+
+#ifndef THREADGROUP_SIZE
+#define THREADGROUP_SIZE 64
+#endif
+
+// ============================================================================
+// Buffer Declarations
+// ============================================================================
+
+// Pass type: 0=Init, 1=Diffuse, 2=Apply
+uint PassType;
+
+// Position buffers (Init/Apply)
+Buffer<float> OriginalPositions;    // Bind pose positions (SourceData)
+Buffer<float> CurrentPositions;     // Tightened positions (after TightnessCS)
+RWBuffer<float> OutputPositions;    // Final output (Apply only)
+
+// Delta buffers (Init/Diffuse)
+Buffer<float> DeltaIn;              // Input delta (Diffuse only)
+RWBuffer<float> DeltaOut;           // Output delta (Init/Diffuse)
+
+// Extended region data
+StructuredBuffer<uint> ExtendedIndices;     // Vertex indices in extended region
+StructuredBuffer<uint> IsSeedFlags;         // 1 = Seed (anchor), 0 = Non-Seed
+StructuredBuffer<uint> AdjacencyData;       // Neighbor info for diffusion
+
+// Parameters
+uint NumExtendedVertices;
+float HeatLambda;
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+float3 ReadPosition(Buffer<float> PositionBuffer, uint VertexIndex)
+{
+    uint BaseIndex = VertexIndex * 3;
+    return float3(
+        PositionBuffer[BaseIndex + 0],
+        PositionBuffer[BaseIndex + 1],
+        PositionBuffer[BaseIndex + 2]
+    );
+}
+
+void WritePosition(RWBuffer<float> PositionBuffer, uint VertexIndex, float3 Position)
+{
+    uint BaseIndex = VertexIndex * 3;
+    PositionBuffer[BaseIndex + 0] = Position.x;
+    PositionBuffer[BaseIndex + 1] = Position.y;
+    PositionBuffer[BaseIndex + 2] = Position.z;
+}
+
+// Delta buffers are now full mesh size (NumTotalVertices * 3)
+// Use mesh vertex index for delta access
+float3 ReadDeltaByVertex(uint VertexIndex)
+{
+    uint BaseIndex = VertexIndex * 3;
+    return float3(
+        DeltaIn[BaseIndex + 0],
+        DeltaIn[BaseIndex + 1],
+        DeltaIn[BaseIndex + 2]
+    );
+}
+
+void WriteDeltaByVertex(uint VertexIndex, float3 Delta)
+{
+    uint BaseIndex = VertexIndex * 3;
+    DeltaOut[BaseIndex + 0] = Delta.x;
+    DeltaOut[BaseIndex + 1] = Delta.y;
+    DeltaOut[BaseIndex + 2] = Delta.z;
+}
+
+uint GetNeighborCount(uint AdjacencyOffset)
+{
+    return AdjacencyData[AdjacencyOffset];
+}
+
+// Returns mesh vertex index (not thread index!)
+uint GetNeighborVertexIndex(uint AdjacencyOffset, uint NeighborSlot)
+{
+    return AdjacencyData[AdjacencyOffset + 1 + NeighborSlot];
+}
+
+// ============================================================================
+// Pass 0: Init - Compute initial delta
+// ============================================================================
+
+void InitPass(uint ThreadIndex)
+{
+    uint VertexIndex = ExtendedIndices[ThreadIndex];
+    uint IsSeed = IsSeedFlags[ThreadIndex];
+
+    float3 Delta;
+    if (IsSeed != 0)
+    {
+        // Seed: delta = deformation amount (CurrentPos - OriginalPos)
+        float3 CurrentPos = ReadPosition(CurrentPositions, VertexIndex);
+        float3 OriginalPos = ReadPosition(OriginalPositions, VertexIndex);
+        Delta = CurrentPos - OriginalPos;
+    }
+    else
+    {
+        // Non-Seed: delta = 0 (will receive diffused delta)
+        Delta = float3(0, 0, 0);
+    }
+
+    // Write delta using mesh vertex index
+    WriteDeltaByVertex(VertexIndex, Delta);
+}
+
+// ============================================================================
+// Pass 1: Diffuse - Propagate delta to neighbors
+// ============================================================================
+
+void DiffusePass(uint ThreadIndex)
+{
+    uint VertexIndex = ExtendedIndices[ThreadIndex];
+    uint IsSeed = IsSeedFlags[ThreadIndex];
+
+    // Read current delta using mesh vertex index
+    float3 MyDelta = ReadDeltaByVertex(VertexIndex);
+
+    if (IsSeed != 0)
+    {
+        // Seed: delta is fixed, no diffusion
+        WriteDeltaByVertex(VertexIndex, MyDelta);
+        return;
+    }
+
+    // Non-Seed: diffuse delta from neighbors
+    uint AdjacencyOffset = ThreadIndex * (1 + MAX_NEIGHBORS);
+    uint NeighborCount = GetNeighborCount(AdjacencyOffset);
+
+    if (NeighborCount == 0)
+    {
+        WriteDeltaByVertex(VertexIndex, MyDelta);
+        return;
+    }
+
+    // Sum neighbor deltas
+    float3 NeighborSum = float3(0, 0, 0);
+    uint ValidNeighbors = 0;
+
+    for (uint i = 0; i < NeighborCount && i < MAX_NEIGHBORS; i++)
+    {
+        // Get neighbor's mesh vertex index from adjacency data
+        uint NeighborVertexIdx = GetNeighborVertexIndex(AdjacencyOffset, i);
+
+        // Read neighbor's delta using mesh vertex index
+        float3 NeighborDelta = ReadDeltaByVertex(NeighborVertexIdx);
+        NeighborSum += NeighborDelta;
+        ValidNeighbors++;
+    }
+
+    if (ValidNeighbors == 0)
+    {
+        WriteDeltaByVertex(VertexIndex, MyDelta);
+        return;
+    }
+
+    // Compute neighbor average and blend
+    float3 NeighborAvg = NeighborSum / (float)ValidNeighbors;
+    float3 NewDelta = lerp(MyDelta, NeighborAvg, HeatLambda);
+
+    WriteDeltaByVertex(VertexIndex, NewDelta);
+}
+
+// ============================================================================
+// Pass 2: Apply - Apply diffused delta to positions
+// ============================================================================
+
+void ApplyPass(uint ThreadIndex)
+{
+    uint VertexIndex = ExtendedIndices[ThreadIndex];
+    uint IsSeed = IsSeedFlags[ThreadIndex];
+
+    float3 FinalPos;
+    if (IsSeed != 0)
+    {
+        // Seed: 현재 변형된 위치 유지 (Tightness/Bulge 결과)
+        FinalPos = ReadPosition(CurrentPositions, VertexIndex);
+    }
+    else
+    {
+        // Non-Seed: 원본 위치 + 전파된 delta
+        float3 OriginalPos = ReadPosition(OriginalPositions, VertexIndex);
+        float3 Delta = ReadDeltaByVertex(VertexIndex);
+        FinalPos = OriginalPos + Delta;
+    }
+
+    WritePosition(OutputPositions, VertexIndex, FinalPos);
+}
+
+// ============================================================================
+// Main Compute Shader
+// ============================================================================
+
+[numthreads(THREADGROUP_SIZE, 1, 1)]
+void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    uint ThreadIndex = DispatchThreadId.x;
+
+    if (ThreadIndex >= NumExtendedVertices)
+    {
+        return;
+    }
+
+    if (PassType == 0)
+    {
+        InitPass(ThreadIndex);
+    }
+    else if (PassType == 1)
+    {
+        DiffusePass(ThreadIndex);
+    }
+    else if (PassType == 2)
+    {
+        ApplyPass(ThreadIndex);
+    }
+}

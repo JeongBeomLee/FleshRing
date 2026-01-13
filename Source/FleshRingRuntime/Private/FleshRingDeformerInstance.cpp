@@ -466,6 +466,14 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			DispatchData.ExtendedInfluences = RingData.ExtendedInfluences;
 			DispatchData.ExtendedIsAnchor = RingData.ExtendedIsAnchor;  // 앵커 플래그 (1=Seed, 0=확장)
 			DispatchData.ExtendedLaplacianAdjacency = RingData.ExtendedLaplacianAdjacency;
+
+			// Heat Propagation 설정 복사 (HopBased 모드에서만 유효)
+			DispatchData.bEnableHeatPropagation = Settings.bEnablePostProcess &&
+				Settings.SmoothingVolumeMode == ESmoothingVolumeMode::HopBased &&
+				Settings.bEnableHeatPropagation;
+			DispatchData.HeatPropagationIterations = Settings.HeatPropagationIterations;
+			DispatchData.HeatPropagationLambda = Settings.HeatPropagationLambda;
+			DispatchData.bIncludeBulgeVerticesAsSeeds = Settings.bIncludeBulgeVerticesAsSeeds;
 		}
 
 		// Ring별 PBD Edge Constraint 설정 복사
