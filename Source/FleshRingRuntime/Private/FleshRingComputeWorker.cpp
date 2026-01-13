@@ -184,6 +184,9 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 	// DebugPointBuffer (GPU 디버그 렌더링용)
 	FRDGBufferRef DebugPointBuffer = nullptr;
 
+	// DebugBulgePointBuffer (Bulge GPU 디버그 렌더링용)
+	FRDGBufferRef DebugBulgePointBuffer = nullptr;
+
 	if (WorkItem.bNeedTightnessCaching)
 	{
 		// 소스 버퍼 생성
@@ -270,6 +273,31 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				);
 				// 0으로 초기화
 				AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DebugPointBuffer), 0u);
+			}
+		}
+
+		// ===== DebugBulgePointBuffer 생성 (Bulge GPU 렌더링용) =====
+		uint32 MaxBulgeVertices = 0;
+		if (WorkItem.bOutputDebugBulgePoints && WorkItem.bAnyRingHasBulge && NumRings > 0)
+		{
+			// 최대 Bulge 버텍스 수 계산
+			for (int32 RingIdx = 0; RingIdx < NumRings; ++RingIdx)
+			{
+				const FFleshRingWorkItem::FRingDispatchData& Data = (*WorkItem.RingDispatchDataPtr)[RingIdx];
+				if (Data.bEnableBulge)
+				{
+					MaxBulgeVertices = FMath::Max(MaxBulgeVertices, static_cast<uint32>(Data.BulgeIndices.Num()));
+				}
+			}
+
+			if (MaxBulgeVertices > 0)
+			{
+				DebugBulgePointBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(FFleshRingDebugPoint), MaxBulgeVertices),
+					TEXT("FleshRing_DebugBulgePointBuffer")
+				);
+				// 0으로 초기화
+				AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DebugBulgePointBuffer), 0u);
 			}
 		}
 
@@ -530,6 +558,11 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					BulgeParams.RingHeight = DispatchData.Params.RingHeight;
 				}
 
+				// ===== Debug Point Output 파라미터 설정 =====
+				BulgeParams.bOutputDebugBulgePoints = WorkItem.bOutputDebugBulgePoints && DebugBulgePointBuffer;
+				BulgeParams.DebugBulgePointBaseOffset = 0;  // 현재 Ring 0만 지원 (다중 링 지원 시 누적 필요)
+				BulgeParams.BulgeLocalToWorld = WorkItem.LocalToWorldMatrix;
+
 				// [조건부 로그] 각 Ring별 첫 프레임만 출력
 				static TSet<int32> LoggedBulgeRings;
 				if (!LoggedBulgeRings.Contains(RingIdx))
@@ -547,7 +580,8 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					BulgeInfluencesBuffer,
 					VolumeAccumBuffer,
 					BulgeOutputBuffer,        // OUTPUT (UAV) - 별도 출력 버퍼
-					RingSDFTextureRDG
+					RingSDFTextureRDG,
+					DebugBulgePointBuffer     // Debug Point Buffer
 				);
 
 				// 결과를 TightenedBindPoseBuffer로 복사 (다음 Ring이 이 결과 위에 누적)
@@ -1734,6 +1768,12 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 		{
 			*WorkItem.CachedDebugPointBufferSharedPtr = GraphBuilder.ConvertToExternalBuffer(DebugPointBuffer);
 		}
+
+		// Bulge 디버그 포인트 버퍼 캐싱
+		if (WorkItem.CachedDebugBulgePointBufferSharedPtr.IsValid() && DebugBulgePointBuffer)
+		{
+			*WorkItem.CachedDebugBulgePointBufferSharedPtr = GraphBuilder.ConvertToExternalBuffer(DebugBulgePointBuffer);
+		}
 	}
 	else
 	{
@@ -1766,6 +1806,12 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 		if (WorkItem.CachedDebugPointBufferSharedPtr.IsValid() && WorkItem.CachedDebugPointBufferSharedPtr->IsValid())
 		{
 			DebugPointBuffer = GraphBuilder.RegisterExternalBuffer(*WorkItem.CachedDebugPointBufferSharedPtr);
+		}
+
+		// 캐싱 모드에서 DebugBulgePointBuffer 복구
+		if (WorkItem.CachedDebugBulgePointBufferSharedPtr.IsValid() && WorkItem.CachedDebugBulgePointBufferSharedPtr->IsValid())
+		{
+			DebugBulgePointBuffer = GraphBuilder.RegisterExternalBuffer(*WorkItem.CachedDebugBulgePointBufferSharedPtr);
 		}
 	}
 

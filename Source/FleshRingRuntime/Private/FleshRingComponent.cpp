@@ -1168,6 +1168,10 @@ void UFleshRingComponent::DrawDebugVisualization()
 		// UpdateDebugPointBuffer() 내부에서 bShowAffectedVertices 체크하여
 		// 꺼져 있으면 ClearDebugPointBuffer() 호출
 		UpdateDebugPointBuffer();
+
+		// Bulge GPU 디버그 렌더링 (Cyan → Magenta 색상)
+		// UpdateDebugBulgePointBuffer() 내부에서 bShowBulgeHeatmap 체크
+		UpdateDebugBulgePointBuffer();
 	}
 
 	for (int32 RingIndex = 0; RingIndex < NumRings; ++RingIndex)
@@ -1195,7 +1199,12 @@ void UFleshRingComponent::DrawDebugVisualization()
 
 		if (bShowBulgeHeatmap)
 		{
-			DrawBulgeHeatmap(RingIndex);
+			// GPU 렌더링 모드가 아닐 때만 CPU DrawDebugPoint 사용
+			if (!bUseGPUDebugRendering)
+			{
+				DrawBulgeHeatmap(RingIndex);
+			}
+			// 방향 화살표는 항상 표시
 			DrawBulgeDirectionArrow(RingIndex);
 		}
 	}
@@ -2832,6 +2841,59 @@ void UFleshRingComponent::UpdateDebugPointBuffer()
 
 	// ViewExtension에 SharedPtr 전달
 	DebugViewExtension->SetDebugPointBufferShared(DebugPointBufferSharedPtr, PointCount);
+}
+
+void UFleshRingComponent::UpdateDebugBulgePointBuffer()
+{
+	// ViewExtension이 없으면 초기화
+	if (!DebugViewExtension.IsValid())
+	{
+		InitializeDebugViewExtension();
+	}
+
+	if (!DebugViewExtension.IsValid())
+	{
+		return;
+	}
+
+	// bShowBulgeHeatmap가 비활성화되면 렌더링 비활성화
+	if (!bShowBulgeHeatmap || !bShowDebugVisualization)
+	{
+		DebugViewExtension->ClearDebugBulgePointBuffer();
+		return;
+	}
+
+	// DeformerInstance에서 캐싱된 DebugBulgePointBuffer 가져오기
+	if (!InternalDeformer)
+	{
+		return;
+	}
+
+	UFleshRingDeformerInstance* DeformerInstance = InternalDeformer->GetActiveInstance();
+	if (!DeformerInstance)
+	{
+		return;
+	}
+
+	// CachedDebugBulgePointBufferSharedPtr 가져오기
+	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> DebugBulgePointBufferSharedPtr = DeformerInstance->GetCachedDebugBulgePointBufferSharedPtr();
+	if (!DebugBulgePointBufferSharedPtr.IsValid())
+	{
+		DebugViewExtension->ClearDebugBulgePointBuffer();
+		return;
+	}
+
+	// Bulge 포인트 수 가져오기
+	uint32 BulgePointCount = DeformerInstance->GetCachedBulgePointCount();
+
+	if (BulgePointCount == 0)
+	{
+		DebugViewExtension->ClearDebugBulgePointBuffer();
+		return;
+	}
+
+	// ViewExtension에 SharedPtr 전달
+	DebugViewExtension->SetDebugBulgePointBufferShared(DebugBulgePointBufferSharedPtr, BulgePointCount);
 }
 
 #endif // WITH_EDITOR

@@ -278,6 +278,17 @@ struct FFleshRingWorkItem
 	// 디버그 포인트 수 (ViewExtension에 전달)
 	uint32 DebugPointCount = 0;
 
+	// ===== Bulge 디버그 포인트 버퍼 (GPU 렌더링) =====
+	// BulgeCS에서 출력된 디버그 포인트 (WorldPosition + Influence)
+	// SceneViewExtension에서 직접 GPU 렌더링 (Tightness와 다른 색상)
+	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedDebugBulgePointBufferSharedPtr;
+
+	// Bulge 디버그 포인트 출력 활성화 플래그
+	bool bOutputDebugBulgePoints = false;
+
+	// Bulge 디버그 포인트 수 (ViewExtension에 전달)
+	uint32 DebugBulgePointCount = 0;
+
 	// ===== GPU Readback 관련 =====
 	// Readback 결과를 저장할 배열 (게임 스레드에서 접근)
 	TSharedPtr<TArray<float>> DebugInfluenceReadbackResultPtr;

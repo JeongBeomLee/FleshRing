@@ -442,6 +442,9 @@ private:
 
 	/** GPU 디버그 렌더링용 포인트 버퍼 업데이트 */
 	void UpdateDebugPointBuffer();
+
+	/** GPU 디버그 렌더링용 Bulge 포인트 버퍼 업데이트 */
+	void UpdateDebugBulgePointBuffer();
 #endif
 
 #if WITH_EDITOR

@@ -22,6 +22,7 @@ FFleshRingDebugViewExtension::FFleshRingDebugViewExtension(const FAutoRegister& 
 FFleshRingDebugViewExtension::~FFleshRingDebugViewExtension()
 {
     ClearDebugPointBuffer();
+    ClearDebugBulgePointBuffer();
 }
 
 void FFleshRingDebugViewExtension::SetDebugPointBuffer(TRefCountPtr<FRDGPooledBuffer> InBuffer, uint32 InPointCount)
@@ -49,43 +50,78 @@ void FFleshRingDebugViewExtension::SetDebugPointBufferShared(TSharedPtr<TRefCoun
     bEnabled = (InBufferPtr.IsValid() && InPointCount > 0);
 }
 
+void FFleshRingDebugViewExtension::SetDebugBulgePointBufferShared(TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBufferPtr, uint32 InPointCount)
+{
+    FScopeLock Lock(&BufferLock);
+    DebugBulgePointBufferSharedPtr = InBufferPtr;
+    BulgePointCount = InPointCount;
+    bBulgeEnabled = (InBufferPtr.IsValid() && InPointCount > 0);
+}
+
+void FFleshRingDebugViewExtension::ClearDebugBulgePointBuffer()
+{
+    FScopeLock Lock(&BufferLock);
+    DebugBulgePointBufferSharedPtr = nullptr;
+    BulgePointCount = 0;
+    bBulgeEnabled = false;
+}
+
 void FFleshRingDebugViewExtension::PostRenderViewFamily_RenderThread(
     FRDGBuilder& GraphBuilder,
     FSceneViewFamily& InViewFamily)
 {
-    FRDGBufferRef DebugPointsRDG = nullptr;
-    uint32 LocalPointCount = 0;
+    // ========================================
+    // Local copies of buffer data (thread-safe)
+    // 버퍼 데이터의 로컬 복사본 (스레드 안전)
+    // ========================================
+    TRefCountPtr<FRDGPooledBuffer> LocalTightnessBuffer;
+    TRefCountPtr<FRDGPooledBuffer> LocalBulgeBuffer;
+    uint32 LocalTightnessPointCount = 0;
+    uint32 LocalBulgePointCount = 0;
     float LocalPointSizeBase = PointSizeBase;
     float LocalPointSizeInfluence = PointSizeInfluence;
+    bool bRenderTightness = false;
+    bool bRenderBulge = false;
 
-    // RegisterExternalBuffer를 사용하여 풀링된 버퍼를 RDG에 등록
-    TRefCountPtr<FRDGPooledBuffer> LocalBuffer;
     {
         FScopeLock Lock(&BufferLock);
-        if (!bEnabled || PointCount == 0)
+
+        // Tightness buffer
+        if (bEnabled && PointCount > 0)
         {
-            return;
+            if (DebugPointBufferSharedPtr.IsValid() && DebugPointBufferSharedPtr->IsValid())
+            {
+                LocalTightnessBuffer = *DebugPointBufferSharedPtr;
+            }
+            else if (DebugPointBuffer.IsValid())
+            {
+                LocalTightnessBuffer = DebugPointBuffer;
+            }
+
+            if (LocalTightnessBuffer.IsValid())
+            {
+                LocalTightnessPointCount = PointCount;
+                bRenderTightness = true;
+            }
         }
 
-        // SharedPtr 방식 우선 사용
-        if (DebugPointBufferSharedPtr.IsValid() && DebugPointBufferSharedPtr->IsValid())
+        // Bulge buffer
+        if (bBulgeEnabled && BulgePointCount > 0)
         {
-            LocalBuffer = *DebugPointBufferSharedPtr;
+            if (DebugBulgePointBufferSharedPtr.IsValid() && DebugBulgePointBufferSharedPtr->IsValid())
+            {
+                LocalBulgeBuffer = *DebugBulgePointBufferSharedPtr;
+                LocalBulgePointCount = BulgePointCount;
+                bRenderBulge = true;
+            }
         }
-        else if (DebugPointBuffer.IsValid())
-        {
-            LocalBuffer = DebugPointBuffer;
-        }
-        else
-        {
-            return;
-        }
-
-        LocalPointCount = PointCount;
     }
 
-    // Register external buffer
-    DebugPointsRDG = GraphBuilder.RegisterExternalBuffer(LocalBuffer, TEXT("FleshRingDebugPoints"));
+    // Nothing to render
+    if (!bRenderTightness && !bRenderBulge)
+    {
+        return;
+    }
 
     // Get first view for rendering parameters
     if (InViewFamily.Views.Num() == 0 || !InViewFamily.Views[0])
@@ -105,17 +141,14 @@ void FFleshRingDebugViewExtension::PostRenderViewFamily_RenderThread(
     }
 
     // Calculate view parameters (TAA 지터 없는 행렬 사용)
-    // Use unjittered matrix to prevent TAA-related jittering
     FMatrix44f ViewProjectionMatrix = FMatrix44f(View->ViewMatrices.GetViewMatrix() * View->ViewMatrices.GetProjectionNoAAMatrix());
     FIntRect ViewRect = View->UnscaledViewRect;
     FVector2f InvViewportSize(1.0f / FMath::Max(1, ViewRect.Width()), 1.0f / FMath::Max(1, ViewRect.Height()));
 
     // Get render target from view family
-    // 뷰 패밀리에서 렌더 타겟 가져오기
     FRDGTextureRef RenderTarget = nullptr;
     if (InViewFamily.RenderTarget)
     {
-        // Try to get the render target texture
         FRHITexture* RHITexture = InViewFamily.RenderTarget->GetRenderTargetTexture();
         if (RHITexture)
         {
@@ -128,102 +161,139 @@ void FFleshRingDebugViewExtension::PostRenderViewFamily_RenderThread(
         return;
     }
 
-    // 렌더 타겟의 MSAA 샘플 수 가져오기 (와이어프레임 모드 등 호환성)
+    // 렌더 타겟의 MSAA 샘플 수 가져오기
     const uint32 NumSamples = RenderTarget->Desc.NumSamples;
 
-    // 디버그 포인트 전용 뎁스 버퍼 생성 (렌더 타겟과 동일한 MSAA 샘플 수)
-    // Create2D 파라미터 순서: Extent, Format, ClearValue, Flags, NumMips, NumSamples
+    // 공유 뎁스 버퍼 생성 (Tightness + Bulge 모두 사용)
     FRDGTextureDesc DepthDesc = FRDGTextureDesc::Create2D(
         FIntPoint(ViewRect.Width(), ViewRect.Height()),
         PF_DepthStencil,
         FClearValueBinding::DepthFar,
         TexCreate_DepthStencilTargetable,
-        1,            // NumMips = 1 (depth stencil 필수)
-        NumSamples);  // NumSamples = 렌더 타겟과 동일
+        1,
+        NumSamples);
     FRDGTextureRef DebugDepthBuffer = GraphBuilder.CreateTexture(DepthDesc, TEXT("FleshRingDebugDepth"));
 
-    // RDG SRV 생성 (리소스 트래킹 및 RHI SRV 획득용)
-    FRDGBufferSRVRef DebugPointsSRV = GraphBuilder.CreateSRV(DebugPointsRDG);
+    // ========================================
+    // Pass 1: Tightness debug points (ColorMode = 0)
+    // 패스 1: Tightness 디버그 포인트 (파랑→초록→빨강)
+    // ========================================
+    if (bRenderTightness)
+    {
+        FRDGBufferRef TightnessPointsRDG = GraphBuilder.RegisterExternalBuffer(LocalTightnessBuffer, TEXT("FleshRingDebugPoints_Tightness"));
+        FRDGBufferSRVRef TightnessSRV = GraphBuilder.CreateSRV(TightnessPointsRDG);
 
-    // Allocate pixel shader parameters (RDG 리소스 트래킹용)
-    // PSParameters에 RDG SRV를 포함시켜서 RDG가 버퍼 상태 전환을 올바르게 수행하도록 함
-    FFleshRingDebugPointPS::FParameters* PSParameters =
-        GraphBuilder.AllocParameters<FFleshRingDebugPointPS::FParameters>();
-    PSParameters->DebugPointsRDG = DebugPointsSRV;
-    PSParameters->RenderTargets[0] = FRenderTargetBinding(RenderTarget, ERenderTargetLoadAction::ELoad);
-    PSParameters->RenderTargets.DepthStencil = FDepthStencilBinding(DebugDepthBuffer, ERenderTargetLoadAction::EClear, FExclusiveDepthStencil::DepthWrite_StencilNop);
+        FFleshRingDebugPointPS::FParameters* PSParams =
+            GraphBuilder.AllocParameters<FFleshRingDebugPointPS::FParameters>();
+        PSParams->DebugPointsRDG = TightnessSRV;
+        PSParams->RenderTargets[0] = FRenderTargetBinding(RenderTarget, ERenderTargetLoadAction::ELoad);
+        PSParams->RenderTargets.DepthStencil = FDepthStencilBinding(DebugDepthBuffer, ERenderTargetLoadAction::EClear, FExclusiveDepthStencil::DepthWrite_StencilNop);
 
-    // Add render pass
-    // 렌더 패스 추가
-    GraphBuilder.AddPass(
-        RDG_EVENT_NAME("FleshRingDebugPoints"),
-        PSParameters,
-        ERDGPassFlags::Raster,
-        [VertexShader, PixelShader, LocalPointCount, ViewRect, DebugPointsSRV,
-         ViewProjectionMatrix, InvViewportSize, LocalPointSizeBase, LocalPointSizeInfluence](FRHICommandList& RHICmdList)
-        {
-            // Set viewport
-            // 뷰포트 설정
-            RHICmdList.SetViewport(
-                ViewRect.Min.X, ViewRect.Min.Y, 0.0f,
-                ViewRect.Max.X, ViewRect.Max.Y, 1.0f);
+        GraphBuilder.AddPass(
+            RDG_EVENT_NAME("FleshRingDebugPoints_Tightness"),
+            PSParams,
+            ERDGPassFlags::Raster,
+            [VertexShader, PixelShader, LocalTightnessPointCount, ViewRect, TightnessSRV,
+             ViewProjectionMatrix, InvViewportSize, LocalPointSizeBase, LocalPointSizeInfluence](FRHICommandList& RHICmdList)
+            {
+                RHICmdList.SetViewport(
+                    ViewRect.Min.X, ViewRect.Min.Y, 0.0f,
+                    ViewRect.Max.X, ViewRect.Max.Y, 1.0f);
 
-            // Setup graphics pipeline state
-            // 그래픽스 파이프라인 상태 설정
-            FGraphicsPipelineStateInitializer GraphicsPSOInit;
-            RHICmdList.ApplyCachedRenderTargets(GraphicsPSOInit);
+                FGraphicsPipelineStateInitializer GraphicsPSOInit;
+                RHICmdList.ApplyCachedRenderTargets(GraphicsPSOInit);
 
-            // Blend state: Alpha blending for soft edges
-            // 블렌드 상태: 부드러운 가장자리를 위한 알파 블렌딩
-            GraphicsPSOInit.BlendState = TStaticBlendState<
-                CW_RGBA,
-                BO_Add, BF_SourceAlpha, BF_InverseSourceAlpha,
-                BO_Add, BF_One, BF_InverseSourceAlpha>::GetRHI();
+                GraphicsPSOInit.BlendState = TStaticBlendState<
+                    CW_RGBA,
+                    BO_Add, BF_SourceAlpha, BF_InverseSourceAlpha,
+                    BO_Add, BF_One, BF_InverseSourceAlpha>::GetRHI();
+                GraphicsPSOInit.RasterizerState = TStaticRasterizerState<FM_Solid, CM_None>::GetRHI();
+                GraphicsPSOInit.DepthStencilState = TStaticDepthStencilState<true, CF_GreaterEqual>::GetRHI();
+                GraphicsPSOInit.PrimitiveType = PT_TriangleStrip;
+                GraphicsPSOInit.BoundShaderState.VertexDeclarationRHI = GEmptyVertexDeclaration.VertexDeclarationRHI;
+                GraphicsPSOInit.BoundShaderState.VertexShaderRHI = VertexShader.GetVertexShader();
+                GraphicsPSOInit.BoundShaderState.PixelShaderRHI = PixelShader.GetPixelShader();
 
-            // Rasterizer state: No culling (billboard quads)
-            // 래스터라이저 상태: 컬링 없음 (빌보드 쿼드)
-            GraphicsPSOInit.RasterizerState = TStaticRasterizerState<FM_Solid, CM_None>::GetRHI();
+                SetGraphicsPipelineState(RHICmdList, GraphicsPSOInit, 0);
 
-            // Depth state: Write enabled, test with GreaterEqual (reversed-Z)
-            // 뎁스 상태: 쓰기 활성화, 포인트끼리 깊이 테스트 (카메라에 가까운 것이 앞)
-            GraphicsPSOInit.DepthStencilState = TStaticDepthStencilState<true, CF_GreaterEqual>::GetRHI();
+                FFleshRingDebugPointVS::FParameters VSParams;
+                VSParams.DebugPoints = TightnessSRV ? TightnessSRV->GetRHI() : nullptr;
+                VSParams.ViewProjectionMatrix = ViewProjectionMatrix;
+                VSParams.InvViewportSize = InvViewportSize;
+                VSParams.PointSizeBase = LocalPointSizeBase;
+                VSParams.PointSizeInfluence = LocalPointSizeInfluence;
+                VSParams.ColorMode = 0;  // Tightness: Blue → Green → Red
 
-            // Primitive type: Triangle strip (4 vertices per quad)
-            // 프리미티브 타입: 트라이앵글 스트립 (쿼드당 4개 버텍스)
-            GraphicsPSOInit.PrimitiveType = PT_TriangleStrip;
+                SetShaderParameters(RHICmdList, VertexShader, VertexShader.GetVertexShader(), VSParams);
+                RHICmdList.DrawPrimitive(0, 2, LocalTightnessPointCount);
+            }
+        );
+    }
 
-            // Bind shaders
-            // 셰이더 바인딩
-            GraphicsPSOInit.BoundShaderState.VertexDeclarationRHI = GEmptyVertexDeclaration.VertexDeclarationRHI;
-            GraphicsPSOInit.BoundShaderState.VertexShaderRHI = VertexShader.GetVertexShader();
-            GraphicsPSOInit.BoundShaderState.PixelShaderRHI = PixelShader.GetPixelShader();
+    // ========================================
+    // Pass 2: Bulge debug points (ColorMode = 1)
+    // 패스 2: Bulge 디버그 포인트 (청록→마젠타)
+    // ========================================
+    if (bRenderBulge)
+    {
+        FRDGBufferRef BulgePointsRDG = GraphBuilder.RegisterExternalBuffer(LocalBulgeBuffer, TEXT("FleshRingDebugPoints_Bulge"));
+        FRDGBufferSRVRef BulgeSRV = GraphBuilder.CreateSRV(BulgePointsRDG);
 
-            // Set pipeline state
-            // 파이프라인 상태 설정
-            SetGraphicsPipelineState(RHICmdList, GraphicsPSOInit, 0);
+        FFleshRingDebugPointPS::FParameters* PSParams =
+            GraphBuilder.AllocParameters<FFleshRingDebugPointPS::FParameters>();
+        PSParams->DebugPointsRDG = BulgeSRV;
+        PSParams->RenderTargets[0] = FRenderTargetBinding(RenderTarget, ERenderTargetLoadAction::ELoad);
+        // 두 번째 패스: 뎁스 버퍼 로드 (기존 Tightness 포인트와 깊이 테스트)
+        PSParams->RenderTargets.DepthStencil = FDepthStencilBinding(DebugDepthBuffer,
+            bRenderTightness ? ERenderTargetLoadAction::ELoad : ERenderTargetLoadAction::EClear,
+            FExclusiveDepthStencil::DepthWrite_StencilNop);
 
-            // VS 파라미터 설정 (람다 내부에서 RHI SRV 획득)
-            // SHADER_PARAMETER_SRV는 FRHIShaderResourceView*를 기대하므로
-            // RDG SRV에서 GetRHI()로 변환해야 함
-            FFleshRingDebugPointVS::FParameters VSParams;
-            VSParams.DebugPoints = DebugPointsSRV ? DebugPointsSRV->GetRHI() : nullptr;
-            VSParams.ViewProjectionMatrix = ViewProjectionMatrix;
-            VSParams.InvViewportSize = InvViewportSize;
-            VSParams.PointSizeBase = LocalPointSizeBase;
-            VSParams.PointSizeInfluence = LocalPointSizeInfluence;
+        GraphBuilder.AddPass(
+            RDG_EVENT_NAME("FleshRingDebugPoints_Bulge"),
+            PSParams,
+            ERDGPassFlags::Raster,
+            [VertexShader, PixelShader, LocalBulgePointCount, ViewRect, BulgeSRV,
+             ViewProjectionMatrix, InvViewportSize, LocalPointSizeBase, LocalPointSizeInfluence](FRHICommandList& RHICmdList)
+            {
+                RHICmdList.SetViewport(
+                    ViewRect.Min.X, ViewRect.Min.Y, 0.0f,
+                    ViewRect.Max.X, ViewRect.Max.Y, 1.0f);
 
-            SetShaderParameters(RHICmdList, VertexShader, VertexShader.GetVertexShader(), VSParams);
+                FGraphicsPipelineStateInitializer GraphicsPSOInit;
+                RHICmdList.ApplyCachedRenderTargets(GraphicsPSOInit);
 
-            // Draw instanced quads (4 vertices per quad, N instances)
-            // 인스턴스드 쿼드 그리기 (쿼드당 4개 버텍스, N개 인스턴스)
-            RHICmdList.DrawPrimitive(0, 2, LocalPointCount);  // 2 triangles per quad
-        }
-    );
+                GraphicsPSOInit.BlendState = TStaticBlendState<
+                    CW_RGBA,
+                    BO_Add, BF_SourceAlpha, BF_InverseSourceAlpha,
+                    BO_Add, BF_One, BF_InverseSourceAlpha>::GetRHI();
+                GraphicsPSOInit.RasterizerState = TStaticRasterizerState<FM_Solid, CM_None>::GetRHI();
+                GraphicsPSOInit.DepthStencilState = TStaticDepthStencilState<true, CF_GreaterEqual>::GetRHI();
+                GraphicsPSOInit.PrimitiveType = PT_TriangleStrip;
+                GraphicsPSOInit.BoundShaderState.VertexDeclarationRHI = GEmptyVertexDeclaration.VertexDeclarationRHI;
+                GraphicsPSOInit.BoundShaderState.VertexShaderRHI = VertexShader.GetVertexShader();
+                GraphicsPSOInit.BoundShaderState.PixelShaderRHI = PixelShader.GetPixelShader();
+
+                SetGraphicsPipelineState(RHICmdList, GraphicsPSOInit, 0);
+
+                FFleshRingDebugPointVS::FParameters VSParams;
+                VSParams.DebugPoints = BulgeSRV ? BulgeSRV->GetRHI() : nullptr;
+                VSParams.ViewProjectionMatrix = ViewProjectionMatrix;
+                VSParams.InvViewportSize = InvViewportSize;
+                VSParams.PointSizeBase = LocalPointSizeBase;
+                VSParams.PointSizeInfluence = LocalPointSizeInfluence;
+                VSParams.ColorMode = 1;  // Bulge: Cyan → Magenta
+
+                SetShaderParameters(RHICmdList, VertexShader, VertexShader.GetVertexShader(), VSParams);
+                RHICmdList.DrawPrimitive(0, 2, LocalBulgePointCount);
+            }
+        );
+    }
 }
 
 bool FFleshRingDebugViewExtension::IsActiveThisFrame_Internal(const FSceneViewExtensionContext& Context) const
 {
-    if (!bEnabled)
+    // Tightness 또는 Bulge 중 하나라도 활성화되어 있으면 활성화
+    if (!bEnabled && !bBulgeEnabled)
     {
         return false;
     }

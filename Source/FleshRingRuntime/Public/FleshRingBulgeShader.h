@@ -7,6 +7,7 @@
 #include "ShaderParameterStruct.h"
 #include "RenderGraphResources.h"
 #include "RenderGraphUtils.h"
+#include "FleshRingDebugTypes.h"
 
 /**
  * Bulge Compute Shader
@@ -54,6 +55,12 @@ public:
 		SHADER_PARAMETER(FVector3f, RingCenter)
 		SHADER_PARAMETER(FVector3f, RingAxis)
 		SHADER_PARAMETER(float, RingHeight)
+
+		// Debug Point Output - GPU 디버그 렌더링용
+		SHADER_PARAMETER_RDG_BUFFER_UAV(RWStructuredBuffer<FFleshRingDebugPoint>, DebugBulgePointBuffer)
+		SHADER_PARAMETER(uint32, bOutputDebugBulgePoints)
+		SHADER_PARAMETER(uint32, DebugBulgePointBaseOffset)
+		SHADER_PARAMETER(FMatrix44f, BulgeLocalToWorld)
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
@@ -91,6 +98,11 @@ struct FBulgeDispatchParams
 	FVector3f RingCenter = FVector3f::ZeroVector;
 	FVector3f RingAxis = FVector3f(0.0f, 0.0f, 1.0f);
 	float RingHeight = 2.0f;
+
+	// Debug Point Output 파라미터 - GPU 디버그 렌더링용
+	bool bOutputDebugBulgePoints = false;
+	uint32 DebugBulgePointBaseOffset = 0;
+	FMatrix44f BulgeLocalToWorld = FMatrix44f::Identity;
 };
 
 void DispatchFleshRingBulgeCS(
@@ -101,7 +113,8 @@ void DispatchFleshRingBulgeCS(
 	FRDGBufferRef BulgeInfluencesBuffer,
 	FRDGBufferRef VolumeAccumBuffer,
 	FRDGBufferRef OutputPositionsBuffer,
-	FRDGTextureRef SDFTexture);
+	FRDGTextureRef SDFTexture,
+	FRDGBufferRef DebugBulgePointBuffer = nullptr);
 
 void DispatchFleshRingBulgeCS_WithReadback(
 	FRDGBuilder& GraphBuilder,
@@ -112,4 +125,5 @@ void DispatchFleshRingBulgeCS_WithReadback(
 	FRDGBufferRef VolumeAccumBuffer,
 	FRDGBufferRef OutputPositionsBuffer,
 	FRDGTextureRef SDFTexture,
-	FRHIGPUBufferReadback* Readback);
+	FRHIGPUBufferReadback* Readback,
+	FRDGBufferRef DebugBulgePointBuffer = nullptr);

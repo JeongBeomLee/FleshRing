@@ -131,6 +131,34 @@ public:
 		return nullptr;
 	}
 
+	/**
+	 * Bulge GPU 디버그 렌더링용 캐시된 포인트 버퍼 SharedPtr 가져오기
+	 * @param LODIndex - LOD 인덱스
+	 * @return CachedDebugBulgePointBufferShared의 SharedPtr, 없으면 nullptr
+	 */
+	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> GetCachedDebugBulgePointBufferSharedPtr(int32 LODIndex = 0) const
+	{
+		if (LODData.IsValidIndex(LODIndex))
+		{
+			return LODData[LODIndex].CachedDebugBulgePointBufferShared;
+		}
+		return nullptr;
+	}
+
+	/**
+	 * Bulge 디버그 포인트 수 가져오기
+	 * @param LODIndex - LOD 인덱스
+	 * @return 캐시된 Bulge 포인트 수
+	 */
+	uint32 GetCachedBulgePointCount(int32 LODIndex = 0) const
+	{
+		if (LODData.IsValidIndex(LODIndex))
+		{
+			return LODData[LODIndex].CachedBulgePointCount;
+		}
+		return 0;
+	}
+
 #if WITH_EDITORONLY_DATA
 	virtual bool RequestReadbackDeformerGeometry(TUniquePtr<FMeshDeformerGeometryReadbackRequest> InRequest) override { return false; }
 #endif
@@ -192,6 +220,11 @@ private:
 
 		// 디버그 포인트 버퍼 캐싱 (WorldPosition + Influence)
 		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedDebugPointBufferShared;
+
+		// Bulge 디버그 포인트 버퍼 캐싱 (WorldPosition + Influence)
+		// Cyan→Magenta 색상 그라데이션으로 표시
+		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedDebugBulgePointBufferShared;
+		uint32 CachedBulgePointCount = 0;
 
 		// ===== GPU Readback 관련 =====
 		// Readback 결과 저장 (스레드 안전 공유용)

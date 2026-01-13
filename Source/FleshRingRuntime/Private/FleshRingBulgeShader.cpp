@@ -21,7 +21,8 @@ void DispatchFleshRingBulgeCS(
 	FRDGBufferRef BulgeInfluencesBuffer,
 	FRDGBufferRef VolumeAccumBuffer,
 	FRDGBufferRef OutputPositionsBuffer,
-	FRDGTextureRef SDFTexture)
+	FRDGTextureRef SDFTexture,
+	FRDGBufferRef DebugBulgePointBuffer)
 {
 	if (Params.NumBulgeVertices == 0)
 	{
@@ -91,6 +92,23 @@ void DispatchFleshRingBulgeCS(
 	PassParameters->RingAxis = Params.RingAxis;
 	PassParameters->RingHeight = Params.RingHeight;
 
+	// Debug Point Output 파라미터
+	PassParameters->bOutputDebugBulgePoints = Params.bOutputDebugBulgePoints ? 1 : 0;
+	PassParameters->DebugBulgePointBaseOffset = Params.DebugBulgePointBaseOffset;
+	PassParameters->BulgeLocalToWorld = Params.BulgeLocalToWorld;
+
+	if (DebugBulgePointBuffer)
+	{
+		PassParameters->DebugBulgePointBuffer = GraphBuilder.CreateUAV(DebugBulgePointBuffer);
+	}
+	else
+	{
+		// Dummy 버퍼 생성 (RDG는 모든 선언된 UAV 파라미터가 바인딩되어야 함)
+		FRDGBufferDesc DummyDesc = FRDGBufferDesc::CreateStructuredDesc(sizeof(FFleshRingDebugPoint), 1);
+		FRDGBufferRef DummyBuffer = GraphBuilder.CreateBuffer(DummyDesc, TEXT("FleshRingBulge_DummyDebugPoints"));
+		PassParameters->DebugBulgePointBuffer = GraphBuilder.CreateUAV(DummyBuffer);
+	}
+
 	TShaderMapRef<FFleshRingBulgeCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
 
 	const uint32 ThreadGroupSize = 64;
@@ -114,7 +132,8 @@ void DispatchFleshRingBulgeCS_WithReadback(
 	FRDGBufferRef VolumeAccumBuffer,
 	FRDGBufferRef OutputPositionsBuffer,
 	FRDGTextureRef SDFTexture,
-	FRHIGPUBufferReadback* Readback)
+	FRHIGPUBufferReadback* Readback,
+	FRDGBufferRef DebugBulgePointBuffer)
 {
 	DispatchFleshRingBulgeCS(
 		GraphBuilder,
@@ -124,7 +143,8 @@ void DispatchFleshRingBulgeCS_WithReadback(
 		BulgeInfluencesBuffer,
 		VolumeAccumBuffer,
 		OutputPositionsBuffer,
-		SDFTexture
+		SDFTexture,
+		DebugBulgePointBuffer
 	);
 
 	AddEnqueueCopyPass(GraphBuilder, Readback, OutputPositionsBuffer, 0);

@@ -62,9 +62,27 @@ public:
     /** 디버그 포인트 버퍼 클리어 (렌더링 비활성화) */
     void ClearDebugPointBuffer();
 
+    // ========================================
+    // Bulge Debug Point Buffer Management
+    // ========================================
+
+    /**
+     * Set the Bulge debug point buffer and count (call from game thread)
+     * Bulge 디버그 포인트 버퍼와 개수 설정 (게임 스레드에서 호출)
+     */
+    void SetDebugBulgePointBufferShared(TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBufferPtr, uint32 InPointCount);
+
+    /** Clear the Bulge debug point buffer (disable Bulge rendering) */
+    /** Bulge 디버그 포인트 버퍼 클리어 (Bulge 렌더링 비활성화) */
+    void ClearDebugBulgePointBuffer();
+
     /** Check if debug rendering is enabled */
     /** 디버그 렌더링이 활성화되어 있는지 확인 */
     bool IsEnabled() const { return bEnabled; }
+
+    /** Check if Bulge debug rendering is enabled */
+    /** Bulge 디버그 렌더링이 활성화되어 있는지 확인 */
+    bool IsBulgeEnabled() const { return bBulgeEnabled; }
 
     // ========================================
     // Rendering Parameters
@@ -101,4 +119,17 @@ private:
     /** Flag to enable/disable rendering */
     /** 렌더링 활성화/비활성화 플래그 */
     bool bEnabled = false;
+
+    // ========================================
+    // Bulge Debug Point Data
+    // ========================================
+
+    /** SharedPtr to Bulge pooled buffer */
+    TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> DebugBulgePointBufferSharedPtr;
+
+    /** Number of Bulge debug points in the buffer */
+    uint32 BulgePointCount = 0;
+
+    /** Flag to enable/disable Bulge rendering */
+    bool bBulgeEnabled = false;
 };

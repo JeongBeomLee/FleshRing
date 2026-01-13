@@ -24,6 +24,7 @@ float4x4 ViewProjectionMatrix;  // 뷰프로젝션 행렬
 float2 InvViewportSize;         // 1/ViewportSize (픽셀 → NDC 변환용)
 float PointSizeBase;            // 기본 포인트 크기 (픽셀)
 float PointSizeInfluence;       // Influence에 따른 추가 크기
+uint ColorMode;                 // 색상 모드: 0 = Tightness, 1 = Bulge
 
 // Vertex shader output / input to pixel shader
 // 버텍스 셰이더 출력 / 픽셀 셰이더 입력
@@ -32,6 +33,7 @@ struct FVSOutput
     float4 Position : SV_POSITION;
     float2 UV : TEXCOORD0;
     float Influence : TEXCOORD1;
+    nointerpolation uint OutColorMode : TEXCOORD2;  // 색상 모드 (flat interpolation)
 };
 
 // Main vertex shader
@@ -74,4 +76,5 @@ void MainVS(
     Output.Position = ClipPos;
     Output.UV = Offset * 0.5 + 0.5;  // Convert -1~1 to 0~1
     Output.Influence = Point.Influence;
+    Output.OutColorMode = ColorMode;
 }

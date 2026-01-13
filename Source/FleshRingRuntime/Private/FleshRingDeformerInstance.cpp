@@ -906,13 +906,21 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		{
 			CurrentLODData.CachedDebugPointBufferShared = MakeShared<TRefCountPtr<FRDGPooledBuffer>>();
 		}
+
+		// Bulge 디버그 포인트 버퍼 TSharedPtr 생성 (첫 캐싱 시)
+		if (!CurrentLODData.CachedDebugBulgePointBufferShared.IsValid())
+		{
+			CurrentLODData.CachedDebugBulgePointBufferShared = MakeShared<TRefCountPtr<FRDGPooledBuffer>>();
+		}
 	}
 
 	// 디버그 Influence 출력 필요 여부 결정
 	// 에디터에서 bShowDebugVisualization && bShowAffectedVertices가 활성화되어 있을 때만 출력
 	bool bOutputDebugInfluences = false;
 	bool bOutputDebugPoints = false;  // GPU 렌더링용 디버그 포인트 출력
+	bool bOutputDebugBulgePoints = false;  // GPU 렌더링용 Bulge 디버그 포인트 출력
 	uint32 MaxAffectedVertexCount = 0;
+	uint32 MaxBulgeVertexCount = 0;
 #if WITH_EDITORONLY_DATA
 	if (FleshRingComponent.IsValid() && FleshRingComponent->bShowDebugVisualization && FleshRingComponent->bShowAffectedVertices)
 	{
@@ -945,6 +953,25 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				CurrentLODData.bDebugInfluenceReadbackComplete = MakeShared<std::atomic<bool>>(false);
 			}
 			CurrentLODData.DebugInfluenceCount = MaxAffectedVertexCount;
+		}
+	}
+
+	// Bulge 디버그 포인트 출력 활성화
+	// bShowDebugVisualization && bShowBulgeHeatmap && GPU 렌더링 모드일 때
+	if (FleshRingComponent.IsValid() && FleshRingComponent->bShowDebugVisualization && FleshRingComponent->bShowBulgeHeatmap)
+	{
+		if (FleshRingComponent->IsGPUDebugRenderingEnabled())
+		{
+			bOutputDebugBulgePoints = true;
+
+			// Bulge 버텍스 수 계산
+			if (RingDispatchDataPtr.IsValid())
+			{
+				for (const auto& RingData : *RingDispatchDataPtr)
+				{
+					MaxBulgeVertexCount += RingData.BulgeIndices.Num();
+				}
+			}
 		}
 	}
 #endif
@@ -986,6 +1013,12 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	// GPU 디버그 렌더링용 DebugPointBuffer 관련 필드
 	WorkItem.CachedDebugPointBufferSharedPtr = CurrentLODData.CachedDebugPointBufferShared;
 	WorkItem.bOutputDebugPoints = bOutputDebugPoints;
+
+	// GPU 디버그 렌더링용 Bulge DebugPointBuffer 관련 필드
+	WorkItem.CachedDebugBulgePointBufferSharedPtr = CurrentLODData.CachedDebugBulgePointBufferShared;
+	WorkItem.bOutputDebugBulgePoints = bOutputDebugBulgePoints;
+	WorkItem.DebugBulgePointCount = MaxBulgeVertexCount;
+	CurrentLODData.CachedBulgePointCount = MaxBulgeVertexCount;  // LODData에도 저장
 
 	// ViewExtension과 PointCount 설정 (렌더 스레드에서 직접 버퍼 전달용)
 	if (bOutputDebugPoints && FleshRingComponent.IsValid())

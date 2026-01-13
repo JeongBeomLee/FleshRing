@@ -42,6 +42,10 @@ public:
         // Additional size based on Influence value
         // Influence 값에 따른 추가 크기
         SHADER_PARAMETER(float, PointSizeInfluence)
+
+        // Color mode: 0 = Tightness (Blue→Green→Red), 1 = Bulge (Cyan→Magenta)
+        // 색상 모드: 0 = Tightness (파랑→초록→빨강), 1 = Bulge (청록→마젠타)
+        SHADER_PARAMETER(uint32, ColorMode)
     END_SHADER_PARAMETER_STRUCT()
 
     static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)

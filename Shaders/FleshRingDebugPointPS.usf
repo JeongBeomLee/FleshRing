@@ -13,6 +13,7 @@ struct FPSInput
     float4 Position : SV_POSITION;
     float2 UV : TEXCOORD0;
     float Influence : TEXCOORD1;
+    nointerpolation uint ColorMode : TEXCOORD2;  // 색상 모드: 0 = Tightness, 1 = Bulge
 };
 
 // Main pixel shader
@@ -41,24 +42,35 @@ void MainPS(
     // Step 2: Influence-based color gradient
     // 2단계: Influence 기반 색상 그라데이션
     // ========================================
-    // Blue (0) → Green (0.5) → Red (1)
-    // 파랑 (0) → 초록 (0.5) → 빨강 (1)
+    // ColorMode 0: Tightness - Blue (0) → Green (0.5) → Red (1)
+    // ColorMode 1: Bulge - Cyan (0) → Magenta (1)
     float3 FillColor;
     float Influence = saturate(Input.Influence);
 
-    if (Influence < 0.5)
+    if (Input.ColorMode == 0)
     {
-        // Blue → Green (0.0 ~ 0.5)
-        // 파랑 → 초록
-        float T = Influence * 2.0;  // 0~1 range
-        FillColor = lerp(float3(0.0, 0.0, 1.0), float3(0.0, 1.0, 0.0), T);
+        // Tightness mode: Blue → Green → Red
+        // 조임 모드: 파랑 → 초록 → 빨강
+        if (Influence < 0.5)
+        {
+            // Blue → Green (0.0 ~ 0.5)
+            // 파랑 → 초록
+            float T = Influence * 2.0;  // 0~1 range
+            FillColor = lerp(float3(0.0, 0.0, 1.0), float3(0.0, 1.0, 0.0), T);
+        }
+        else
+        {
+            // Green → Red (0.5 ~ 1.0)
+            // 초록 → 빨강
+            float T = (Influence - 0.5) * 2.0;  // 0~1 range
+            FillColor = lerp(float3(0.0, 1.0, 0.0), float3(1.0, 0.0, 0.0), T);
+        }
     }
     else
     {
-        // Green → Red (0.5 ~ 1.0)
-        // 초록 → 빨강
-        float T = (Influence - 0.5) * 2.0;  // 0~1 range
-        FillColor = lerp(float3(0.0, 1.0, 0.0), float3(1.0, 0.0, 0.0), T);
+        // Bulge mode: Cyan → Magenta
+        // 팽창 모드: 청록 → 마젠타
+        FillColor = lerp(float3(0.0, 1.0, 1.0), float3(1.0, 0.0, 1.0), Influence);
     }
 
     // ========================================
