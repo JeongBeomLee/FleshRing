@@ -515,6 +515,34 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			RingInfluenceMode = (*RingSettingsPtr)[RingIndex].InfluenceMode;
 		}
 
+		// ===== ProceduralBand 파라미터 설정 (SDF 무관하게 항상 설정) =====
+		// GPU InfluenceMode: 0=Auto/SDF, 1=Manual, 2=ProceduralBand
+		// Note: bUseSDFInfluence가 1이면 SDF 모드 사용, 0이면 InfluenceMode에 따라 분기
+		switch (RingInfluenceMode)
+		{
+		case EFleshRingInfluenceMode::Auto:
+			DispatchData.Params.InfluenceMode = 0;
+			break;
+		case EFleshRingInfluenceMode::Manual:
+			DispatchData.Params.InfluenceMode = 1;
+			break;
+		case EFleshRingInfluenceMode::ProceduralBand:
+			DispatchData.Params.InfluenceMode = 2;
+			// ProceduralBand 가변 반경 파라미터 설정
+			if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIndex))
+			{
+				const FProceduralBandSettings& BandSettings = (*RingSettingsPtr)[RingIndex].ProceduralBand;
+				DispatchData.Params.LowerRadius = BandSettings.Lower.Radius;
+				DispatchData.Params.MidLowerRadius = BandSettings.MidLowerRadius;
+				DispatchData.Params.MidUpperRadius = BandSettings.MidUpperRadius;
+				DispatchData.Params.UpperRadius = BandSettings.Upper.Radius;
+				DispatchData.Params.LowerHeight = BandSettings.Lower.Height;
+				DispatchData.Params.BandSectionHeight = BandSettings.BandHeight;
+				DispatchData.Params.UpperHeight = BandSettings.Upper.Height;
+			}
+			break;
+		}
+
 		// SDF 캐시 데이터 전달 (렌더 스레드로 안전하게 복사)
 		// Auto 또는 ProceduralBand 모드 + SDF 유효할 때만 SDF 모드 사용
 		if (FleshRingComponent.IsValid())

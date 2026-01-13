@@ -989,27 +989,7 @@ void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
 
 float FVirtualBandVertexSelector::GetRadiusAtHeight(float LocalZ, const FProceduralBandSettings& BandSettings) const
 {
-    const float LowerHeight = BandSettings.Lower.Height;
-    const float BandHeight = BandSettings.BandHeight;
-    const float UpperHeight = BandSettings.Upper.Height;
-
-    // Lower Section: LowerRadius → MidLowerRadius
-    if (LocalZ < LowerHeight)
-    {
-        const float t = (LowerHeight > KINDA_SMALL_NUMBER) ? LocalZ / LowerHeight : 0.0f;
-        return FMath::Lerp(BandSettings.Lower.Radius, BandSettings.MidLowerRadius, FMath::Clamp(t, 0.0f, 1.0f));
-    }
-
-    // Band Section: MidLowerRadius → MidUpperRadius
-    if (LocalZ < LowerHeight + BandHeight)
-    {
-        const float t = (BandHeight > KINDA_SMALL_NUMBER) ? (LocalZ - LowerHeight) / BandHeight : 0.0f;
-        return FMath::Lerp(BandSettings.MidLowerRadius, BandSettings.MidUpperRadius, FMath::Clamp(t, 0.0f, 1.0f));
-    }
-
-    // Upper Section: MidUpperRadius → UpperRadius
-    const float t = (UpperHeight > KINDA_SMALL_NUMBER) ? (LocalZ - LowerHeight - BandHeight) / UpperHeight : 0.0f;
-    return FMath::Lerp(BandSettings.MidUpperRadius, BandSettings.Upper.Radius, FMath::Clamp(t, 0.0f, 1.0f));
+    return BandSettings.GetRadiusAtHeight(LocalZ);
 }
 
 float FVirtualBandVertexSelector::CalculateFalloff(float Distance, float MaxDistance, EFalloffType InFalloffType) const

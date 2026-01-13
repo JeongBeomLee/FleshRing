@@ -2018,25 +2018,9 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 				FMath::Max(BandSettings.MidLowerRadius, BandSettings.MidUpperRadius)
 			) + TightnessFalloffRange;
 
-			// 높이별 가변 반경 계산 람다
 			auto GetRadiusAtHeight = [&BandSettings](float LocalZ) -> float
 			{
-				const float LH = BandSettings.Lower.Height;
-				const float BH = BandSettings.BandHeight;
-				const float UH = BandSettings.Upper.Height;
-
-				if (LocalZ < LH)
-				{
-					const float t = (LH > KINDA_SMALL_NUMBER) ? LocalZ / LH : 0.0f;
-					return FMath::Lerp(BandSettings.Lower.Radius, BandSettings.MidLowerRadius, FMath::Clamp(t, 0.0f, 1.0f));
-				}
-				if (LocalZ < LH + BH)
-				{
-					const float t = (BH > KINDA_SMALL_NUMBER) ? (LocalZ - LH) / BH : 0.0f;
-					return FMath::Lerp(BandSettings.MidLowerRadius, BandSettings.MidUpperRadius, FMath::Clamp(t, 0.0f, 1.0f));
-				}
-				const float t = (UH > KINDA_SMALL_NUMBER) ? (LocalZ - LH - BH) / UH : 0.0f;
-				return FMath::Lerp(BandSettings.MidUpperRadius, BandSettings.Upper.Radius, FMath::Clamp(t, 0.0f, 1.0f));
+				return BandSettings.GetRadiusAtHeight(LocalZ);
 			};
 
 			// Spatial Hash로 후보 추출

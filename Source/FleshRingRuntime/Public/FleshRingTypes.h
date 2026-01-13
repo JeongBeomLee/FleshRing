@@ -300,6 +300,63 @@ struct FLESHRINGRUNTIME_API FProceduralBandSettings
 		return FMath::Max(FMath::Max(MidUpperRadius, MidLowerRadius), FMath::Max(Upper.Radius, Lower.Radius));
 	}
 
+	/**
+	 * Catmull-Rom 스플라인으로 높이별 반경 계산
+	 * 4개 제어점(Lower.Radius → MidLowerRadius → MidUpperRadius → Upper.Radius)을
+	 * 부드러운 곡선으로 연결
+	 *
+	 * @param LocalZ - 밴드 로컬 좌표계에서의 높이 (0 = 하단, TotalHeight = 상단)
+	 * @return 해당 높이에서의 반경
+	 */
+	float GetRadiusAtHeight(float LocalZ) const
+	{
+		const float TotalHeight = GetTotalHeight();
+		if (TotalHeight <= KINDA_SMALL_NUMBER)
+		{
+			return MidLowerRadius;
+		}
+
+		// 4개 제어점 (높이, 반경)
+		const float H[4] = { 0.0f, Lower.Height, Lower.Height + BandHeight, TotalHeight };
+		const float R[4] = { Lower.Radius, MidLowerRadius, MidUpperRadius, Upper.Radius };
+
+		// LocalZ 클램프
+		const float Z = FMath::Clamp(LocalZ, 0.0f, TotalHeight);
+
+		// 어느 구간인지 찾기 (0: H0~H1, 1: H1~H2, 2: H2~H3)
+		int32 Segment = 0;
+		if (Z >= H[2]) Segment = 2;
+		else if (Z >= H[1]) Segment = 1;
+
+		// 구간 내 정규화된 t 계산
+		const float SegmentStart = H[Segment];
+		const float SegmentEnd = H[Segment + 1];
+		const float SegmentLength = SegmentEnd - SegmentStart;
+		const float t = (SegmentLength > KINDA_SMALL_NUMBER) ? (Z - SegmentStart) / SegmentLength : 0.0f;
+
+		// Catmull-Rom에 필요한 4개 반경 (P0, P1, P2, P3)
+		// P1~P2 구간을 보간, P0과 P3는 이웃 제어점 (끝점은 복제)
+		float P0, P1, P2, P3;
+		if (Segment == 0)      { P0 = R[0]; P1 = R[0]; P2 = R[1]; P3 = R[2]; }
+		else if (Segment == 1) { P0 = R[0]; P1 = R[1]; P2 = R[2]; P3 = R[3]; }
+		else                   { P0 = R[1]; P1 = R[2]; P2 = R[3]; P3 = R[3]; }
+
+		// Catmull-Rom 스플라인 계산
+		const float t2 = t * t;
+		const float t3 = t2 * t;
+		const float Result = 0.5f * (
+			(2.0f * P1) +
+			(-P0 + P2) * t +
+			(2.0f * P0 - 5.0f * P1 + 4.0f * P2 - P3) * t2 +
+			(-P0 + 3.0f * P1 - 3.0f * P2 + P3) * t3
+		);
+
+		// 오버슈트 방지 클램프
+		const float MinRadius = FMath::Min(FMath::Min(R[0], R[1]), FMath::Min(R[2], R[3]));
+		const float MaxRadius = FMath::Max(FMath::Max(R[0], R[1]), FMath::Max(R[2], R[3]));
+		return FMath::Clamp(Result, MinRadius, MaxRadius);
+	}
+
 };
 
 /** 개별 Ring 설정 */

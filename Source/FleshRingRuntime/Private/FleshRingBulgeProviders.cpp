@@ -382,23 +382,16 @@ void FVirtualBandInfluenceProvider::InitFromBandSettings(
 
 float FVirtualBandInfluenceProvider::GetRadiusAtHeight(float LocalZ) const
 {
-	// Lower Section: LowerRadius → MidLowerRadius
-	if (LocalZ < LowerHeight)
-	{
-		float t = (LowerHeight > 0.0f) ? LocalZ / LowerHeight : 0.0f;
-		return FMath::Lerp(LowerRadius, MidLowerRadius, t);
-	}
+	FProceduralBandSettings TempSettings;
+	TempSettings.Lower.Radius = LowerRadius;
+	TempSettings.Lower.Height = LowerHeight;
+	TempSettings.MidLowerRadius = MidLowerRadius;
+	TempSettings.MidUpperRadius = MidUpperRadius;
+	TempSettings.BandHeight = BandHeight;
+	TempSettings.Upper.Radius = UpperRadius;
+	TempSettings.Upper.Height = UpperHeight;
 
-	// Band Section: MidLowerRadius → MidUpperRadius
-	if (LocalZ < LowerHeight + BandHeight)
-	{
-		float t = (BandHeight > 0.0f) ? (LocalZ - LowerHeight) / BandHeight : 0.0f;
-		return FMath::Lerp(MidLowerRadius, MidUpperRadius, t);
-	}
-
-	// Upper Section: MidUpperRadius → UpperRadius
-	float t = (UpperHeight > 0.0f) ? (LocalZ - LowerHeight - BandHeight) / UpperHeight : 0.0f;
-	return FMath::Lerp(MidUpperRadius, UpperRadius, FMath::Clamp(t, 0.0f, 1.0f));
+	return TempSettings.GetRadiusAtHeight(LocalZ);
 }
 
 float FVirtualBandInfluenceProvider::CalculateFalloff(float Distance, float MaxDistance) const

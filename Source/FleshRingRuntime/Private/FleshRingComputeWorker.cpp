@@ -298,16 +298,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					ERDGInitialDataFlags::None
 				);
 
-				FRDGBufferRef InfluencesBuffer = GraphBuilder.CreateBuffer(
-					FRDGBufferDesc::CreateStructuredDesc(sizeof(float), Params.NumAffectedVertices),
-					TEXT("FleshRing_Influences")
-				);
-				GraphBuilder.QueueBufferUpload(
-					InfluencesBuffer,
-					DispatchData.Influences.GetData(),
-					DispatchData.Influences.Num() * sizeof(float),
-					ERDGInitialDataFlags::None
-				);
+				// NOTE: InfluencesBuffer 제거됨 - GPU에서 직접 Influence 계산
 
 				// ===== UV Seam Welding: RepresentativeIndices 버퍼 생성 =====
 				// 같은 위치의 UV 중복 버텍스들이 동일하게 변형되도록 보장
@@ -432,7 +423,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					Params,
 					SourceBuffer,
 					IndicesBuffer,
-					InfluencesBuffer,
+					// NOTE: InfluencesBuffer 제거됨 - GPU에서 직접 Influence 계산
 					RepresentativeIndicesBuffer,  // UV seam welding용 대표 버텍스 인덱스
 					TightenedBindPoseBuffer,
 					SDFTextureRDG,

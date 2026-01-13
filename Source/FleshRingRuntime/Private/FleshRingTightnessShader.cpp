@@ -45,7 +45,7 @@ void DispatchFleshRingTightnessCS(
     const FTightnessDispatchParams& Params,
     FRDGBufferRef SourcePositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
-    FRDGBufferRef InfluencesBuffer,
+    // NOTE: InfluencesBuffer 제거됨 - GPU에서 직접 Influence 계산
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRDGTextureRef SDFTexture,
@@ -74,7 +74,7 @@ void DispatchFleshRingTightnessCS(
     // ===== 입력 버퍼 바인딩 (SRV) =====
     PassParameters->SourcePositions = GraphBuilder.CreateSRV(SourcePositionsBuffer, PF_R32_FLOAT);
     PassParameters->AffectedIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
-    PassParameters->Influences = GraphBuilder.CreateSRV(InfluencesBuffer);
+    // NOTE: Influences 버퍼 제거됨 - GPU에서 CalculateManualInfluence/CalculateProceduralBandInfluence로 직접 계산
 
     // ===== UV Seam Welding: RepresentativeIndices 바인딩 =====
     // RepresentativeIndices가 nullptr이면 AffectedIndices를 대신 사용 (fallback)
@@ -128,6 +128,17 @@ void DispatchFleshRingTightnessCS(
     PassParameters->RingHeight = Params.RingHeight;
     PassParameters->RingThickness = Params.RingThickness;
     PassParameters->FalloffType = Params.FalloffType;
+    PassParameters->InfluenceMode = Params.InfluenceMode;
+
+    // ===== ProceduralBand (Virtual Band) Parameters =====
+    // ===== 가상 밴드 파라미터 =====
+    PassParameters->LowerRadius = Params.LowerRadius;
+    PassParameters->MidLowerRadius = Params.MidLowerRadius;
+    PassParameters->MidUpperRadius = Params.MidUpperRadius;
+    PassParameters->UpperRadius = Params.UpperRadius;
+    PassParameters->LowerHeight = Params.LowerHeight;
+    PassParameters->BandSectionHeight = Params.BandSectionHeight;
+    PassParameters->UpperHeight = Params.UpperHeight;
 
     // ===== Counts =====
     // ===== 버텍스 수 =====
@@ -305,7 +316,7 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
     const FTightnessDispatchParams& Params,
     FRDGBufferRef SourcePositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
-    FRDGBufferRef InfluencesBuffer,
+    // NOTE: InfluencesBuffer 제거됨 - GPU에서 직접 Influence 계산
     FRDGBufferRef OutputPositionsBuffer,
     FRDGBufferRef BoneMatricesBuffer,
     FRDGBufferRef InputWeightStreamBuffer,
@@ -327,7 +338,7 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
     // ===== 입력 버퍼 바인딩 (SRV) =====
     PassParameters->SourcePositions = GraphBuilder.CreateSRV(SourcePositionsBuffer, PF_R32_FLOAT);
     PassParameters->AffectedIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
-    PassParameters->Influences = GraphBuilder.CreateSRV(InfluencesBuffer);
+    // NOTE: Influences 버퍼 제거됨 - GPU에서 직접 Influence 계산
 
     // RepresentativeIndices fallback: AffectedIndices 사용 (각 버텍스가 자기 자신이 대표)
     PassParameters->RepresentativeIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
@@ -359,6 +370,17 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
     PassParameters->RingHeight = Params.RingHeight;
     PassParameters->RingThickness = Params.RingThickness;
     PassParameters->FalloffType = Params.FalloffType;
+    PassParameters->InfluenceMode = Params.InfluenceMode;
+
+    // ===== ProceduralBand (Virtual Band) Parameters =====
+    // ===== 가상 밴드 파라미터 =====
+    PassParameters->LowerRadius = Params.LowerRadius;
+    PassParameters->MidLowerRadius = Params.MidLowerRadius;
+    PassParameters->MidUpperRadius = Params.MidUpperRadius;
+    PassParameters->UpperRadius = Params.UpperRadius;
+    PassParameters->LowerHeight = Params.LowerHeight;
+    PassParameters->BandSectionHeight = Params.BandSectionHeight;
+    PassParameters->UpperHeight = Params.UpperHeight;
 
     // ===== Counts =====
     // ===== 버텍스 수 =====
@@ -476,7 +498,7 @@ void DispatchFleshRingTightnessCS_WithReadback(
     const FTightnessDispatchParams& Params,
     FRDGBufferRef SourcePositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
-    FRDGBufferRef InfluencesBuffer,
+    // NOTE: InfluencesBuffer 제거됨 - GPU에서 직접 Influence 계산
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRHIGPUBufferReadback* Readback,
@@ -492,7 +514,6 @@ void DispatchFleshRingTightnessCS_WithReadback(
         Params,
         SourcePositionsBuffer,
         AffectedIndicesBuffer,
-        InfluencesBuffer,
         RepresentativeIndicesBuffer,
         OutputPositionsBuffer,
         SDFTexture,
@@ -779,17 +800,7 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
                         ERDGInitialDataFlags::None
                     );
 
-                    // Influences 버퍼 (입력: 버텍스별 영향도)
-                    FRDGBufferRef InfluencesBuffer = GraphBuilder.CreateBuffer(
-                        FRDGBufferDesc::CreateStructuredDesc(sizeof(float), Params.NumAffectedVertices),
-                        TEXT("TightnessTest_Influences")
-                    );
-                    GraphBuilder.QueueBufferUpload(  // 데이터 업로드 "예약"
-                        InfluencesBuffer,
-                        InfluencesPtr->GetData(),
-                        InfluencesPtr->Num() * sizeof(float),
-                        ERDGInitialDataFlags::None
-                    );
+                    // NOTE: InfluencesBuffer 제거됨 - GPU에서 직접 Influence 계산
 
                     // Output 버퍼 (출력: 변형된 버텍스 위치)
                     FRDGBufferRef OutputBuffer = GraphBuilder.CreateBuffer(
@@ -817,7 +828,7 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
                         Params,
                         SourceBuffer,
                         IndicesBuffer,
-                        InfluencesBuffer,
+                        // NOTE: InfluencesBuffer 제거됨 - GPU에서 직접 Influence 계산
                         nullptr,  // RepresentativeIndicesBuffer - 테스트에서는 사용하지 않음
                         OutputBuffer,
                         Readback.Get()

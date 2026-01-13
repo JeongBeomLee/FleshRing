@@ -50,9 +50,8 @@ public:
         // 입력: 처리할 영향받는 버텍스 인덱스
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, AffectedIndices)
 
-        // Input: Per-vertex influence weights (0-1)
-        // 입력: 버텍스별 영향도 (0~1)
-        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float>, Influences)
+        // NOTE: Influences 버퍼 제거됨 - GPU에서 직접 Influence 계산
+        // (Manual: CalculateManualInfluence, ProceduralBand: CalculateProceduralBandInfluence)
 
         // Input: Representative vertex indices for UV seam welding
         // 입력: UV seam 용접을 위한 대표 버텍스 인덱스
@@ -129,6 +128,17 @@ public:
         SHADER_PARAMETER(float, RingHeight)            // 링 높이 (축 방향)
         SHADER_PARAMETER(float, RingThickness)        // 링 두께 (Radial falloff 범위) - Manual 모드 GPU Influence 계산용
         SHADER_PARAMETER(uint32, FalloffType)         // Falloff 타입 (0=Linear, 1=Quadratic, 2=Hermite) - Manual 모드 GPU Influence 계산용
+        SHADER_PARAMETER(uint32, InfluenceMode)       // Influence 모드 (0=Auto/SDF, 1=Manual, 2=ProceduralBand)
+
+        // ===== ProceduralBand (Virtual Band) Parameters =====
+        // ===== 가상 밴드 파라미터 (가변 반경 GPU Influence 계산용) =====
+        SHADER_PARAMETER(float, LowerRadius)          // 하단 끝 반경
+        SHADER_PARAMETER(float, MidLowerRadius)       // 밴드 하단 반경
+        SHADER_PARAMETER(float, MidUpperRadius)       // 밴드 상단 반경
+        SHADER_PARAMETER(float, UpperRadius)          // 상단 끝 반경
+        SHADER_PARAMETER(float, LowerHeight)          // Lower Section 높이
+        SHADER_PARAMETER(float, BandSectionHeight)    // Band Section 높이
+        SHADER_PARAMETER(float, UpperHeight)          // Upper Section 높이
 
         // ===== Counts =====
         // ===== 버텍스 수 =====
@@ -268,6 +278,36 @@ struct FTightnessDispatchParams
      * Falloff 타입 - Manual 모드 GPU Influence 계산용
      */
     uint32 FalloffType;
+
+    /**
+     * Influence mode (0=Auto/SDF, 1=Manual, 2=ProceduralBand)
+     * Influence 계산 모드
+     */
+    uint32 InfluenceMode;
+
+    // =========== ProceduralBand (Virtual Band) Parameters ===========
+    // 가변 반경 기반 GPU Influence 계산용 (Catmull-Rom 스플라인)
+
+    /** 하단 끝 반경 (Lower Section 아래쪽) */
+    float LowerRadius;
+
+    /** 밴드 하단 반경 (MidLower - 조임 지점 하단) */
+    float MidLowerRadius;
+
+    /** 밴드 상단 반경 (MidUpper - 조임 지점 상단) */
+    float MidUpperRadius;
+
+    /** 상단 끝 반경 (Upper Section 위쪽, 살 불룩) */
+    float UpperRadius;
+
+    /** Lower Section 높이 (하단 경사 구간) */
+    float LowerHeight;
+
+    /** Band Section 높이 (조이는 영역) */
+    float BandSectionHeight;
+
+    /** Upper Section 높이 (상단 경사 구간, 불룩 영역) */
+    float UpperHeight;
 
     // =========== Deformation Parameters ===========
 
@@ -453,6 +493,14 @@ struct FTightnessDispatchParams
         , RingHeight(2.0f)
         , RingThickness(2.0f)
         , FalloffType(0)
+        , InfluenceMode(1)  // Default: Manual (SDF가 없을 때)
+        , LowerRadius(9.0f)
+        , MidLowerRadius(8.0f)
+        , MidUpperRadius(8.0f)
+        , UpperRadius(11.0f)
+        , LowerHeight(1.0f)
+        , BandSectionHeight(2.0f)
+        , UpperHeight(2.0f)
         , TightnessStrength(1.0f)
         , NumAffectedVertices(0)
         , NumTotalVertices(0)
@@ -619,7 +667,7 @@ void DispatchFleshRingTightnessCS(
     const FTightnessDispatchParams& Params,
     FRDGBufferRef SourcePositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
-    FRDGBufferRef InfluencesBuffer,
+    // NOTE: InfluencesBuffer 제거됨 - GPU에서 직접 Influence 계산
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRDGTextureRef SDFTexture = nullptr,
@@ -659,7 +707,7 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
     const FTightnessDispatchParams& Params,
     FRDGBufferRef SourcePositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
-    FRDGBufferRef InfluencesBuffer,
+    // NOTE: InfluencesBuffer 제거됨 - GPU에서 직접 Influence 계산
     FRDGBufferRef OutputPositionsBuffer,
     FRDGBufferRef BoneMatricesBuffer,
     FRDGBufferRef InputWeightStreamBuffer,
@@ -699,7 +747,7 @@ void DispatchFleshRingTightnessCS_WithReadback(
     const FTightnessDispatchParams& Params,
     FRDGBufferRef SourcePositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
-    FRDGBufferRef InfluencesBuffer,
+    // NOTE: InfluencesBuffer 제거됨 - GPU에서 직접 Influence 계산
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRHIGPUBufferReadback* Readback,

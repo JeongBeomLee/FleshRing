@@ -12,7 +12,8 @@
  */
 Buffer<float> SourcePositions;              // 메시의 원본 정점 위치(바인드 포즈 컴포넌트 스페이스)
 StructuredBuffer<uint> AffectedIndices;     // 영향받는 정점 인덱스 (출력용)
-StructuredBuffer<float> Influences;         // 정점별 영향도 (0~1, 감쇠 계산에서 산출)
+// NOTE: Influences 버퍼 제거됨 - GPU에서 직접 Influence 계산
+// (CalculateManualInfluence, CalculateProceduralBandInfluence)
 StructuredBuffer<uint> RepresentativeIndices; // UV seam 용접용 대표 정점 인덱스 (입력용)
 RWBuffer<float> OutputPositions;            // 출력: 변형된 정점 위치
 RWBuffer<uint> VolumeAccumBuffer;           // 출력: Bulge 패스용 부피 누적 버퍼 (Atomic 연산)
@@ -66,6 +67,18 @@ float RingRadius;           // 링 내부 반지름
 float RingHeight;            // 링 높이 (축 방향)
 float RingThickness;        // 링 두께 (Radial falloff 범위)
 uint FalloffType;           // Falloff 타입 (0=Linear, 1=Quadratic, 2=Hermite)
+uint InfluenceMode;         // Influence 모드 (0=Auto/SDF, 1=Manual, 2=ProceduralBand)
+
+// ============================================================================
+// ProceduralBand (Virtual Band) Parameters - 가변 반경 GPU Influence 계산용
+// ============================================================================
+float LowerRadius;          // 하단 끝 반경
+float MidLowerRadius;       // 밴드 하단 반경
+float MidUpperRadius;       // 밴드 상단 반경
+float UpperRadius;          // 상단 끝 반경
+float LowerHeight;          // Lower Section 높이
+float BandSectionHeight;    // Band Section 높이
+float UpperHeight;          // Upper Section 높이
 
 // ============================================================================
 // SDF Parameters
@@ -246,6 +259,124 @@ float CalculateManualInfluence(float3 VertexPos)
     // Radial × Axial falloff 조합
     float RadialInfluence = CalculateFalloff(DistFromSurface, RingThickness, FalloffType);
     float AxialInfluence = CalculateFalloff(abs(AxisDist), HalfWidth, FalloffType);
+
+    return RadialInfluence * AxialInfluence;
+}
+
+// ============================================================================
+// ProceduralBand Mode GPU Influence Calculation Functions
+// 가상 밴드 모드 GPU Influence 계산 함수
+// ============================================================================
+
+// CPU의 FProceduralBandSettings::GetRadiusAtHeight()와 동일 로직
+// Catmull-Rom 스플라인으로 높이별 반경 계산
+float GetRadiusAtHeight_ProceduralBand(float LocalZ)
+{
+    float TotalHeight = LowerHeight + BandSectionHeight + UpperHeight;
+    if (TotalHeight <= 0.0001)
+        return MidLowerRadius;
+
+    // 4개 제어점 (높이, 반경)
+    float H[4];
+    H[0] = 0.0;
+    H[1] = LowerHeight;
+    H[2] = LowerHeight + BandSectionHeight;
+    H[3] = TotalHeight;
+
+    float R[4];
+    R[0] = LowerRadius;
+    R[1] = MidLowerRadius;
+    R[2] = MidUpperRadius;
+    R[3] = UpperRadius;
+
+    // LocalZ 클램프
+    float Z = clamp(LocalZ, 0.0, TotalHeight);
+
+    // 어느 구간인지 찾기 (0: H0~H1, 1: H1~H2, 2: H2~H3)
+    int Segment = 0;
+    if (Z >= H[2]) Segment = 2;
+    else if (Z >= H[1]) Segment = 1;
+
+    // 구간 내 정규화된 t 계산
+    float SegmentLength = H[Segment + 1] - H[Segment];
+    float t = (SegmentLength > 0.0001) ? (Z - H[Segment]) / SegmentLength : 0.0;
+
+    // Catmull-Rom에 필요한 4개 반경 (P0, P1, P2, P3)
+    // P1~P2 구간을 보간, P0과 P3는 이웃 제어점 (끝점은 복제)
+    float P0, P1, P2, P3;
+    if (Segment == 0)      { P0 = R[0]; P1 = R[0]; P2 = R[1]; P3 = R[2]; }
+    else if (Segment == 1) { P0 = R[0]; P1 = R[1]; P2 = R[2]; P3 = R[3]; }
+    else                   { P0 = R[1]; P1 = R[2]; P2 = R[3]; P3 = R[3]; }
+
+    // Catmull-Rom 스플라인 계산
+    float t2 = t * t;
+    float t3 = t2 * t;
+    float Result = 0.5 * (
+        (2.0 * P1) +
+        (-P0 + P2) * t +
+        (2.0 * P0 - 5.0 * P1 + 4.0 * P2 - P3) * t2 +
+        (-P0 + 3.0 * P1 - 3.0 * P2 + P3) * t3
+    );
+
+    // 오버슈트 방지 클램프
+    float MinR = min(min(R[0], R[1]), min(R[2], R[3]));
+    float MaxR = max(max(R[0], R[1]), max(R[2], R[3]));
+    return clamp(Result, MinR, MaxR);
+}
+
+// ProceduralBand 모드용 GPU Influence 계산
+// CPU의 FVirtualBandVertexSelector와 유사한 로직 (Tightness 영역 계산)
+float CalculateProceduralBandInfluence(float3 VertexPos)
+{
+    float3 ToVertex = VertexPos - RingCenter;
+    float AxisDist = dot(ToVertex, RingAxis);
+    float3 RadialVec = ToVertex - RingAxis * AxisDist;
+    float RadialDist = length(RadialVec);
+
+    float TotalHeight = LowerHeight + BandSectionHeight + UpperHeight;
+
+    // Band Section 범위 (Tightness 적용 영역)
+    float BandZMin = LowerHeight;
+    float BandZMax = LowerHeight + BandSectionHeight;
+
+    // Band Section 외부는 Tightness 없음
+    if (AxisDist < BandZMin || AxisDist > BandZMax)
+        return 0.0;
+
+    // 해당 높이에서의 밴드 반경 (Catmull-Rom)
+    float BandRadius = GetRadiusAtHeight_ProceduralBand(AxisDist);
+
+    // 밴드 표면보다 안쪽이면 영향 없음
+    if (RadialDist <= BandRadius)
+        return 0.0;
+
+    // 밴드 표면과의 거리
+    float DistFromSurface = RadialDist - BandRadius;
+
+    // TightnessFalloffRange: 반경 차이에서 파생 (Bulge 영역과 유사)
+    float UpperBulge = UpperRadius - MidUpperRadius;
+    float LowerBulge = LowerRadius - MidLowerRadius;
+    float FalloffRange = max(max(UpperBulge, LowerBulge), 1.0);
+
+    if (DistFromSurface > FalloffRange)
+        return 0.0;
+
+    // Radial Falloff
+    float RadialInfluence = CalculateFalloff(DistFromSurface, FalloffRange, FalloffType);
+
+    // Axial Falloff (Band 경계 근처에서 감쇠)
+    float AxialFalloffRange = BandSectionHeight * 0.2;
+    float AxialInfluence = 1.0;
+    if (AxisDist < BandZMin + AxialFalloffRange)
+    {
+        float Dist = BandZMin + AxialFalloffRange - AxisDist;
+        AxialInfluence = CalculateFalloff(Dist, AxialFalloffRange, FalloffType);
+    }
+    else if (AxisDist > BandZMax - AxialFalloffRange)
+    {
+        float Dist = AxisDist - (BandZMax - AxialFalloffRange);
+        AxialInfluence = CalculateFalloff(Dist, AxialFalloffRange, FalloffType);
+    }
 
     return RadialInfluence * AxialInfluence;
 }
@@ -667,7 +798,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
     if(bUseSDFInfluence != 0)
     {
-        // SDF 모드 : Gradient 기반 변형
+        // SDF 모드 : Gradient 기반 변형 (Auto 또는 ProceduralBand + SDF 유효)
         //float3 LocalPos = TransformToSDFLocal(BindPos);
         NewPos = ApplyTightnessDeformation_SDF(Pos, BindPos, TightnessStrength);
 
@@ -676,12 +807,22 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         float displacement = length(NewPos - Pos);
         Influence = (TightnessStrength > 0.001) ? saturate(displacement / TightnessStrength) : 0.0;
     }
+    else if (InfluenceMode == 2)
+    {
+        // ===== ProceduralBand 모드: GPU에서 가변 반경 기반 Influence 계산 =====
+        // SDF가 없는 ProceduralBand 모드 (거리 기반 Catmull-Rom 스플라인)
+        Influence = CalculateProceduralBandInfluence(BindPos);
+    }
     else
     {
-        // ===== Manual 모드: GPU에서 Influence 직접 계산 =====
-        // 기존: CPU에서 미리 계산된 Influences[ThreadIndex] 사용
-        // 변경: GPU에서 BindPos 기준으로 Influence 직접 계산
+        // ===== Manual 모드: GPU에서 고정 반경 기반 Influence 계산 =====
+        // GPU에서 BindPos 기준으로 Influence 직접 계산 (CPU Influences 버퍼 사용 안함)
         Influence = CalculateManualInfluence(BindPos);
+    }
+
+    // ===== SDF가 아닌 모드 공통 처리 (Manual/ProceduralBand) =====
+    if (bUseSDFInfluence == 0)
+    {
 
         // Skip if influence is negligible
         if (Influence < 0.001)
