@@ -330,6 +330,12 @@ private:
 	FName PendingRingAddBoneName = NAME_None;
 	FVector2D PendingRingAddScreenPos = FVector2D::ZeroVector;
 
+	// 카메라 포커스 보간용
+	bool bIsCameraInterpolating = false;
+	FVector CameraTargetLocation = FVector::ZeroVector;
+	FRotator CameraTargetRotation = FRotator::ZeroRotator;
+	float CameraInterpSpeed = 5.0f;  // 보간 속도 (높을수록 빠름)
+
 	// Preview Scene Settings 변경 델리게이트 핸들
 	FDelegateHandle AssetViewerSettingsChangedHandle;
 

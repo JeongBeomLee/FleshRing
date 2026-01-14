@@ -174,6 +174,24 @@ void FFleshRingEditorViewportClient::Tick(float DeltaSeconds)
 		}
 	}
 
+	// 카메라 포커스 보간 처리
+	if (bIsCameraInterpolating)
+	{
+		const FVector CurrentLocation = GetViewLocation();
+		const FVector NewLocation = FMath::VInterpTo(CurrentLocation, CameraTargetLocation, DeltaSeconds, CameraInterpSpeed);
+
+		SetViewLocation(NewLocation);
+
+		// 목표 지점에 충분히 가까워지면 보간 종료 (강제 스냅 없이)
+		const float DistanceToTarget = FVector::Dist(NewLocation, CameraTargetLocation);
+		if (DistanceToTarget < 0.01f)
+		{
+			bIsCameraInterpolating = false;
+		}
+
+		Invalidate();
+	}
+
 	// 선택된 링이 삭제되었는지 확인하고 선택 해제
 	// (Undo/Redo 중에는 스킵 - RefreshViewport에서 복원됨)
 	if (!bSkipSelectionValidation && SelectionType != EFleshRingSelectionType::None && PreviewScene)
@@ -273,6 +291,18 @@ void FFleshRingEditorViewportClient::DrawCanvas(FViewport& InViewport, FSceneVie
 
 bool FFleshRingEditorViewportClient::InputKey(const FInputKeyEventArgs& EventArgs)
 {
+	// 카메라 조작 키 입력 시 포커스 보간 중단
+	if (bIsCameraInterpolating && EventArgs.Event == IE_Pressed)
+	{
+		if (EventArgs.Key == EKeys::RightMouseButton ||
+			EventArgs.Key == EKeys::MiddleMouseButton ||
+			EventArgs.Key == EKeys::MouseScrollUp ||
+			EventArgs.Key == EKeys::MouseScrollDown)
+		{
+			bIsCameraInterpolating = false;
+		}
+	}
+
 	if (EventArgs.Event == IE_Pressed)
 	{
 		// F키로 메시에 포커스
@@ -799,8 +829,25 @@ void FFleshRingEditorViewportClient::FocusOnMesh()
 		}
 	}
 
-	// 엔진 내장 FocusViewportOnBox 사용 (Persona 방식)
-	FocusViewportOnBox(FocusBox, true);
+	// 타겟 위치/회전 계산 (FocusViewportOnBox 로직 참고)
+	const FVector BoxCenter = FocusBox.GetCenter();
+	const FVector BoxExtent = FocusBox.GetExtent();
+	const float BoxRadius = BoxExtent.Size();
+
+	// 현재 카메라 방향 유지하면서 거리만 조정
+	const FRotator CurrentRotation = GetViewRotation();
+	const FVector ViewDirection = CurrentRotation.Vector();
+
+	// 적절한 거리 계산 (FOV 고려)
+	const float HalfFOVRadians = FMath::DegreesToRadians(ViewFOV * 0.5f);
+	const float DistanceToFit = BoxRadius / FMath::Tan(HalfFOVRadians);
+
+	// 타겟 위치 설정
+	CameraTargetLocation = BoxCenter - ViewDirection * DistanceToFit * 1.5f;  // 1.5배 여유
+	CameraTargetRotation = CurrentRotation;
+
+	// 보간 시작
+	bIsCameraInterpolating = true;
 }
 
 void FFleshRingEditorViewportClient::DrawMeshBones(FPrimitiveDrawInterface* PDI)
