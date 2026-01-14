@@ -586,18 +586,15 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				// 본 위치는 링 메시 중심과 다를 수 있음 (MeshOffset 등)
 				DispatchData.SDFLocalRingCenter = (SDFCache->BoundsMin + SDFCache->BoundsMax) * 0.5f;
 
-				// Ring Axis: SDF Local Space에서 링 메시의 구멍 방향
-				// SDF Local = 링 메시의 로컬 좌표계이므로, 회전과 무관하게 항상 동일한 축
-				// 링 메시 제작 시 Z축이 구멍 방향이 되도록 표준화되어 있다고 가정
-				// (만약 링 메시가 다른 방향으로 제작되었다면, 해당 축으로 변경 필요)
-				// NOTE: 원래 Version이랑 현재 0,0,1로 고정하는 것중에 뭐가 확실한지 검증 필요
-				//if (SDFExtent.Z < SDFExtent.X && SDFExtent.Z < SDFExtent.Y)
-				//	DispatchData.SDFLocalRingAxis = FVector3f(0, 0, 1);
-				//else if (SDFExtent.Y < SDFExtent.X)
-				//	DispatchData.SDFLocalRingAxis = FVector3f(0, 1, 0);
-				//else
-				//	DispatchData.SDFLocalRingAxis = FVector3f(1, 0, 0);
-				DispatchData.SDFLocalRingAxis = FVector3f(0, 0, 1);  // Z축 고정 (메시 로컬)
+				// Ring Axis: SDF Local Space에서 링 메시의 구멍 방향 (가장 짧은 축)
+				// CPU의 FSDFBulgeProvider::DetectRingAxis()와 동일한 로직 사용
+				// 불일치 시 BulgeAxisDirection 필터링이 잘못됨
+				if (SDFExtent.X <= SDFExtent.Y && SDFExtent.X <= SDFExtent.Z)
+					DispatchData.SDFLocalRingAxis = FVector3f(1, 0, 0);
+				else if (SDFExtent.Y <= SDFExtent.X && SDFExtent.Y <= SDFExtent.Z)
+					DispatchData.SDFLocalRingAxis = FVector3f(0, 1, 0);
+				else
+					DispatchData.SDFLocalRingAxis = FVector3f(0, 0, 1);
 
 				// [조건부 로그] 첫 프레임만 출력
 				static bool bLoggedSDFMode = false;
@@ -707,6 +704,8 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		float RingBulgeAxialRange = 3.0f;
 		float RingBulgeRadialRange = 1.5f;
 		float RingBulgeRadialRatio = 0.7f;
+		float RingUpperBulgeStrength = 1.0f;
+		float RingLowerBulgeStrength = 1.0f;
 		EFleshRingFalloffType RingBulgeFalloff = EFleshRingFalloffType::WendlandC2;
 		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(OriginalIdx))
 		{
@@ -715,6 +714,8 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			RingBulgeAxialRange = (*RingSettingsPtr)[OriginalIdx].BulgeAxialRange;
 			RingBulgeRadialRange = (*RingSettingsPtr)[OriginalIdx].BulgeRadialRange;
 			RingBulgeRadialRatio = (*RingSettingsPtr)[OriginalIdx].BulgeRadialRatio;
+			RingUpperBulgeStrength = (*RingSettingsPtr)[OriginalIdx].UpperBulgeStrength;
+			RingLowerBulgeStrength = (*RingSettingsPtr)[OriginalIdx].LowerBulgeStrength;
 			RingBulgeFalloff = (*RingSettingsPtr)[OriginalIdx].BulgeFalloff;
 		}
 
@@ -820,6 +821,8 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			DispatchData.BulgeStrength = RingBulgeStrength;
 			DispatchData.MaxBulgeDistance = RingMaxBulgeDistance;
 			DispatchData.BulgeRadialRatio = RingBulgeRadialRatio;
+			DispatchData.UpperBulgeStrength = RingUpperBulgeStrength;
+			DispatchData.LowerBulgeStrength = RingLowerBulgeStrength;
 			bAnyRingHasBulge = true;
 
 			// ===== Bulge 방향 데이터 설정 =====

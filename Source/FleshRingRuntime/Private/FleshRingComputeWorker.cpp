@@ -520,11 +520,12 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				if (DispatchData.bHasValidSDF && DispatchData.SDFPooledTexture.IsValid())
 				{
 					RingSDFTextureRDG = GraphBuilder.RegisterExternalTexture(DispatchData.SDFPooledTexture);
-					// TODO: Tight에서 행렬 변환 잘 되어서 들어가게 되면 Bulge도 밑 코드로 교체!
-					// FTransform::Inverse() 대신 FMatrix::Inverse() 사용 (비균일 스케일+회전 시 Shear 보존)
-					//FMatrix ForwardMatrix = DispatchData.SDFLocalToComponent.ToMatrixWithScale();
-					//FMatrix InverseMatrix = ForwardMatrix.Inverse();
-					FMatrix InverseMatrix = DispatchData.SDFLocalToComponent.Inverse().ToMatrixWithScale();
+					// NOTE: FTransform::Inverse() 대신 FMatrix::Inverse() 사용 (비균일 스케일+회전 시 Shear 보존),
+					// 링 회전 시 Bulge 영역이 Positive인데 Negative 방향에 잡히거나 Negative인데 Positive 방향에 잡히는 정점이 있었음!
+					FMatrix ForwardMatrix = DispatchData.SDFLocalToComponent.ToMatrixWithScale();
+					FMatrix InverseMatrix = ForwardMatrix.Inverse();
+					// 이 방식으로 하면 안됨!
+					//FMatrix InverseMatrix = DispatchData.SDFLocalToComponent.Inverse().ToMatrixWithScale();
 					RingComponentToSDFLocal = FMatrix44f(InverseMatrix);
 				}
 
@@ -538,6 +539,8 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				BulgeParams.BulgeAxisDirection = DispatchData.BulgeAxisDirection;  // 방향 필터링
 				BulgeParams.RingIndex = RingIdx;      // Ring별 VolumeAccumBuffer 슬롯 지정
 				BulgeParams.BulgeRadialRatio = DispatchData.BulgeRadialRatio;  // Radial vs Axial 비율
+				BulgeParams.UpperBulgeStrength = DispatchData.UpperBulgeStrength;  // 상단 강도 배수
+				BulgeParams.LowerBulgeStrength = DispatchData.LowerBulgeStrength;  // 하단 강도 배수
 
 				// SDF 모드 vs Manual 모드 분기
 				BulgeParams.bUseSDFInfluence = DispatchData.bHasValidSDF ? 1 : 0;

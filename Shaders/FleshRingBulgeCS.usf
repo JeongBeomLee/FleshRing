@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 // FleshRingBulgeCS.usf - Bulge Pass Compute Shader
 // Wendland C2 Kernel 기반 부피 보존 변형 (CPU에서 Falloff 계산)
 
@@ -27,6 +27,8 @@ float FixedPointScale;
 int BulgeAxisDirection;  // -1: 음의 축, +1: 양의 축, 0: 양방향
 uint RingIndex;          // Ring 인덱스 (VolumeAccumBuffer 슬롯 지정용)
 float BulgeRadialRatio;  // Radial vs Axial 방향 비율 (0.0~1.0, 기본 0.7)
+float UpperBulgeStrength;  // 상단(축 양수) Bulge 강도 배수
+float LowerBulgeStrength;  // 하단(축 음수) Bulge 강도 배수
 uint bUseSDFInfluence;   // 0 = Manual (Component Space 직접), 1 = SDF 모드
 
 // Ring Center/Axis (SDF Local Space) - SDF 모드용
@@ -48,7 +50,7 @@ struct FDebugPoint
 RWStructuredBuffer<FDebugPoint> DebugBulgePointBuffer;
 uint bOutputDebugBulgePoints;       // 0 = 비활성화, 1 = 활성화
 uint DebugBulgePointBaseOffset;     // 다중 링 지원용 오프셋
-float4x4 BulgeLocalToWorld;         // Component → World 변환 행렬
+float4x4 BulgeLocalToWorld;         // Component -> World 변환 행렬
 
 #ifndef THREADGROUP_SIZE
 #define THREADGROUP_SIZE 64
@@ -96,12 +98,12 @@ FRingGeometry ComputeRingGeometry()
 {
     FRingGeometry Ring;
 
-    // CPU에서 전달받은 Ring Center/Axis 사용 (바운드 확장 시에도 정확한 위치)
+    // CPU에서 전달받은 Ring Center/Axis 사용 (바운드 확장 전에 정확한 위치)
     Ring.Center = SDFLocalRingCenter;
     Ring.Axis = SDFLocalRingAxis;
 
-    // EffectWidth: CPU의 BoundsExpansionRatio와 맞춤
-    // t = axialDist / EffectWidth > 1 이어야 Bulge 영역
+    // EffectWidth: CPUBoundsExpansionRatio에 맞춤
+    // t = axialDist / EffectWidth > 1 이면 Bulge 영역 외부
     float3 BoundsSize = SDFBoundsMax - SDFBoundsMin;
     float minSize = min(BoundsSize.x, min(BoundsSize.y, BoundsSize.z));
     Ring.EffectWidth = minSize * 0.4;
@@ -151,8 +153,8 @@ float3 ComputeSDFGradient(float3 LocalPos)
 }
 
 // 살이 링을 덮는 방향 계산 (Radial + Axial, 비율은 BulgeRadialRatio로 조절)
-// 리서치: 링 윗부분은 위로, 아랫부분은 아래로 밀려나는 느낌
-// SDF 모드용 (SDF Local Space)
+// 링 위쪽 부분은 위로, 아랫부분은 아래로 밀려나는 느낌
+// SDF 모드 (SDF Local Space)
 float3 ComputeFleshCoveringDirection(float3 LocalPos, FRingGeometry Ring)
 {
     float3 ToVertex = LocalPos - Ring.Center;
@@ -161,7 +163,7 @@ float3 ComputeFleshCoveringDirection(float3 LocalPos, FRingGeometry Ring)
     // 방사 방향 (바깥으로)
     float3 RadialDir = ComputePureRadialDirection(LocalPos, Ring);
 
-    // 축 방향 (위/아래): 버텍스가 링 위면 위로, 아래면 아래로
+    // 축 방향 (위/아래): 버텍스가 위면 위로, 아래면 아래로
     float3 AxialDir = Ring.Axis * sign(axialComponent);
 
     // BulgeRadialRatio만큼 Radial, 나머지(1-ratio)만큼 Axial
@@ -171,7 +173,7 @@ float3 ComputeFleshCoveringDirection(float3 LocalPos, FRingGeometry Ring)
     return (len > 0.0001) ? (CombinedDir / len) : RadialDir;
 }
 
-// Manual 모드용 방향 계산 (Component Space에서 직접, SDF 변환 없음)
+// Manual 모드 방향 계산 (Component Space에서 직접, SDF 변환 없음)
 float3 ComputeFleshCoveringDirection_Manual(float3 ComponentPos)
 {
     float3 ToVertex = ComponentPos - RingCenter;
@@ -192,7 +194,7 @@ float3 ComputeFleshCoveringDirection_Manual(float3 ComponentPos)
         RadialDir = RadialVec / radialLen;
     }
 
-    // 축 방향 (위/아래): 버텍스가 링 위면 위로, 아래면 아래로
+    // 축 방향 (위/아래): 버텍스가 위면 위로, 아래면 아래로
     float3 AxialDir = RingAxis * sign(axialComponent);
 
     // BulgeRadialRatio만큼 Radial, 나머지(1-ratio)만큼 Axial
@@ -252,6 +254,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
     // ===== 방향 필터링 및 Bulge 방향 계산: SDF 모드 vs Manual 모드 분기 =====
     float3 BulgeDirComponent;
+    float axialComponentForAsymmetric = 0.0;  // 비대칭 Bulge 강도용
 
     if (bUseSDFInfluence != 0)
     {
@@ -259,13 +262,14 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         float3 LocalPos = TransformToSDFLocal(Pos);
         FRingGeometry Ring = ComputeRingGeometry();
 
-        // 축 방향 거리 계산 (방향 필터링용)
+        // 축방향 거리 계산 (방향 필터링용)
         float3 ToVertex = LocalPos - Ring.Center;
         float axialComponent = dot(ToVertex, Ring.Axis);
+        axialComponentForAsymmetric = axialComponent;  // 비대칭 강도 계산용
 
         // 방향 필터링 (BulgeAxisDirection != 0이면 한쪽만 처리)
         if (BulgeAxisDirection != 0)
-        {
+        { 
             int vertexSide = (axialComponent > 0.0) ? 1 : -1;
             if (vertexSide != BulgeAxisDirection)
             {
@@ -282,9 +286,10 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     {
         // ===== Manual 모드: Component Space에서 직접 계산 (SDF 변환 없음) =====
 
-        // 축 방향 거리 계산 (방향 필터링용)
+        // 축방향 거리 계산 (방향 필터링용)
         float3 ToVertex = Pos - RingCenter;
         float axialComponent = dot(ToVertex, RingAxis);
+        axialComponentForAsymmetric = axialComponent;  // 비대칭 강도 계산용
 
         // 방향 필터링 (BulgeAxisDirection != 0이면 한쪽만 처리)
         if (BulgeAxisDirection != 0)
@@ -311,13 +316,17 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     BulgeDirComponent = BulgeDirComponent / dirLen;
 
     // Bulge 계산
-    // CPUInfluence = BulgeMask × DistInfluence (CPU에서 사전 계산됨)
+    // CPUInfluence = BulgeMask × DistInfluence (CPU에서 사전 계산)
 #if DEBUG_IGNORE_VOLUME
     float BulgeAmount = DEBUG_FIXED_STRENGTH * CPUInfluence;
 #else
     float VolumeFactor = VolumeLoss / max(float(NumBulgeVertices), 1.0);
     float BulgeAmount = VolumeFactor * CPUInfluence * BulgeStrength;
 #endif
+
+    // Asymmetric Bulge: 상단/하단 강도 배수 적용
+    float asymmetricMultiplier = (axialComponentForAsymmetric > 0.0) ? UpperBulgeStrength : LowerBulgeStrength;
+    BulgeAmount *= asymmetricMultiplier;
 
     BulgeAmount = clamp(BulgeAmount, 0.0, MaxBulgeDistance);
 

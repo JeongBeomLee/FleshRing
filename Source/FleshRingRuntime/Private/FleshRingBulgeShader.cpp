@@ -85,6 +85,8 @@ void DispatchFleshRingBulgeCS(
 	PassParameters->BulgeAxisDirection = Params.BulgeAxisDirection;
 	PassParameters->RingIndex = Params.RingIndex;
 	PassParameters->BulgeRadialRatio = Params.BulgeRadialRatio;
+	PassParameters->UpperBulgeStrength = Params.UpperBulgeStrength;
+	PassParameters->LowerBulgeStrength = Params.LowerBulgeStrength;
 	PassParameters->bUseSDFInfluence = Params.bUseSDFInfluence;
 
 	// Manual 모드용 파라미터 (Component Space)

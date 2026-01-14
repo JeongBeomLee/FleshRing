@@ -45,6 +45,8 @@ public:
 		SHADER_PARAMETER(int32, BulgeAxisDirection)
 		SHADER_PARAMETER(uint32, RingIndex)           // Ring 인덱스 (VolumeAccumBuffer 슬롯 지정)
 		SHADER_PARAMETER(float, BulgeRadialRatio)     // Radial vs Axial 방향 비율 (0.0~1.0, 기본 0.7)
+		SHADER_PARAMETER(float, UpperBulgeStrength)   // 상단(축 양수) Bulge 강도 배수
+		SHADER_PARAMETER(float, LowerBulgeStrength)   // 하단(축 음수) Bulge 강도 배수
 		SHADER_PARAMETER(uint32, bUseSDFInfluence)    // 0 = Manual (Component Space), 1 = SDF 모드
 
 		// Ring Center/Axis (SDF Local Space) - SDF 모드용
@@ -85,6 +87,8 @@ struct FBulgeDispatchParams
 	int32 BulgeAxisDirection = 0;	// Bulge 방향 (-1: 음의 축, +1: 양의 축, 0: 양방향)
 	uint32 RingIndex = 0;			// Ring 인덱스 (VolumeAccumBuffer 슬롯 지정)
 	float BulgeRadialRatio = 0.7f;	// Radial vs Axial 방향 비율 (0.0~1.0)
+	float UpperBulgeStrength = 1.0f;	// 상단(축 양수) Bulge 강도 배수
+	float LowerBulgeStrength = 1.0f;	// 하단(축 음수) Bulge 강도 배수
 	uint32 bUseSDFInfluence = 1;	// 0 = Manual (Component Space), 1 = SDF 모드
 
 	// SDF 모드용 파라미터
