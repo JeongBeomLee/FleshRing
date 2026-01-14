@@ -872,6 +872,10 @@ bool UFleshRingComponent::RefreshWithDeformerReuse()
 	// GetDebugPointCount()가 옛날 값을 반환하면 버퍼 크기 불일치로 크래시 발생
 	bDebugAffectedVerticesCached = false;
 	bDebugBulgeVerticesCached = false;
+
+	// 디버그 배열 크기 재조정 (Ring 추가/제거 시 배열 크기 변경 필요)
+	DebugAffectedData.Reset();
+	DebugBulgeData.Reset();
 #endif
 
 	return true;
@@ -1171,24 +1175,11 @@ void UFleshRingComponent::DrawDebugVisualization()
 	}
 
 	// GPU 디버그 렌더링 모드: ViewExtension + 셰이더로 원형 포인트 렌더링
+	// ★ DrawDebug 방식: 매 프레임 GPU에서 새로 계산, CPU 캐시 불필요
+	// PointCount는 렌더 스레드에서 버퍼의 NumElements로 직접 읽음
 	if (bUseGPUDebugRendering)
 	{
-		// GPU 렌더링 모드에서도 DebugAffectedData 캐싱 필요 (PointCount 계산용)
-		if (bShowAffectedVertices && !bDebugAffectedVerticesCached)
-		{
-			CacheAffectedVerticesForDebug();
-		}
-		// UpdateDebugPointBuffer() 내부에서 bShowAffectedVertices 체크하여
-		// 꺼져 있으면 ClearDebugPointBuffer() 호출
 		UpdateDebugPointBuffer();
-
-		// GPU 렌더링 모드에서도 DebugBulgeData 캐싱 필요 (PointCount 계산용)
-		if (bShowBulgeHeatmap && !bDebugBulgeVerticesCached)
-		{
-			CacheBulgeVerticesForDebug();
-		}
-		// Bulge GPU 디버그 렌더링 (Cyan → Magenta 색상)
-		// UpdateDebugBulgePointBuffer() 내부에서 bShowBulgeHeatmap 체크
 		UpdateDebugBulgePointBuffer();
 	}
 
@@ -1920,14 +1911,24 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 	}
 
 	// ===== 3. 폴백: Ring별 영향받는 버텍스 직접 계산 =====
-	DebugAffectedData.Reset();
-	DebugAffectedData.SetNum(FleshRingAsset->Rings.Num());
+	// 배열 크기 확인 (Ring 수가 변경되었을 때만 초기화)
+	if (DebugAffectedData.Num() != FleshRingAsset->Rings.Num())
+	{
+		DebugAffectedData.Reset();
+		DebugAffectedData.SetNum(FleshRingAsset->Rings.Num());
+	}
 
 	const FReferenceSkeleton& RefSkeleton = Mesh->GetRefSkeleton();
 	const TArray<FTransform>& RefBonePose = RefSkeleton.GetRefBonePose();
 
 	for (int32 RingIdx = 0; RingIdx < FleshRingAsset->Rings.Num(); ++RingIdx)
 	{
+		// ★ 이미 캐싱된 Ring은 스킵 (Ring별 무효화 지원)
+		if (DebugAffectedData[RingIdx].Vertices.Num() > 0)
+		{
+			continue;
+		}
+
 		const FFleshRingSettings& RingSettings = FleshRingAsset->Rings[RingIdx];
 
 		// 본 인덱스 찾기
@@ -2375,14 +2376,24 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 		return;
 	}
 
-	// DebugBulgeData 초기화
-	DebugBulgeData.Reset();
-	DebugBulgeData.SetNum(FleshRingAsset->Rings.Num());
+	// DebugBulgeData 배열 크기 확인 (Ring 수가 변경되었을 때만 초기화)
+	if (DebugBulgeData.Num() != FleshRingAsset->Rings.Num())
+	{
+		DebugBulgeData.Reset();
+		DebugBulgeData.SetNum(FleshRingAsset->Rings.Num());
+	}
 
 	for (int32 RingIdx = 0; RingIdx < FleshRingAsset->Rings.Num(); ++RingIdx)
 	{
 		const FFleshRingSettings& RingSettings = FleshRingAsset->Rings[RingIdx];
 		FRingAffectedData& BulgeData = DebugBulgeData[RingIdx];
+
+		// ★ 이미 캐싱된 Ring은 스킵 (Ring별 무효화 지원)
+		if (BulgeData.Vertices.Num() > 0)
+		{
+			continue;
+		}
+
 		BulgeData.BoneName = RingSettings.BoneName;
 
 		// Bulge 비활성화면 스킵
@@ -2837,6 +2848,7 @@ void UFleshRingComponent::UpdateDebugPointBuffer()
 	}
 
 	// CachedDebugPointBufferSharedPtr 가져오기
+	// PointCount는 ViewExtension에서 버퍼의 NumElements로 직접 읽음 (스레드 안전)
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> DebugPointBufferSharedPtr = DeformerInstance->GetCachedDebugPointBufferSharedPtr();
 	if (!DebugPointBufferSharedPtr.IsValid())
 	{
@@ -2844,21 +2856,8 @@ void UFleshRingComponent::UpdateDebugPointBuffer()
 		return;
 	}
 
-	// 버텍스 수 가져오기 (모든 Ring의 AffectedVertices 합계)
-	uint32 PointCount = 0;
-	for (const FRingAffectedData& AffectedData : DebugAffectedData)
-	{
-		PointCount += AffectedData.Vertices.Num();
-	}
-
-	if (PointCount == 0)
-	{
-		DebugViewExtension->ClearDebugPointBuffer();
-		return;
-	}
-
 	// ViewExtension에 SharedPtr 전달
-	DebugViewExtension->SetDebugPointBufferShared(DebugPointBufferSharedPtr, PointCount);
+	DebugViewExtension->SetDebugPointBufferShared(DebugPointBufferSharedPtr);
 }
 
 void UFleshRingComponent::UpdateDebugBulgePointBuffer()
@@ -2894,8 +2893,7 @@ void UFleshRingComponent::UpdateDebugBulgePointBuffer()
 	}
 
 	// CachedDebugBulgePointBufferSharedPtr 가져오기
-	// TSharedPtr만 체크 (Tightness와 동일) - 내부 버퍼는 ViewExtension에서 체크
-	// TSharedPtr을 전달하면 나중에 버퍼가 채워질 때 같은 포인터를 통해 접근 가능
+	// PointCount는 ViewExtension에서 버퍼의 NumElements로 직접 읽음 (스레드 안전)
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> DebugBulgePointBufferSharedPtr = DeformerInstance->GetCachedDebugBulgePointBufferSharedPtr();
 	if (!DebugBulgePointBufferSharedPtr.IsValid())
 	{
@@ -2903,21 +2901,8 @@ void UFleshRingComponent::UpdateDebugBulgePointBuffer()
 		return;
 	}
 
-	// Bulge 포인트 수 계산 (CPU 캐시에서 - Tightness와 동일한 방식)
-	uint32 BulgePointCount = 0;
-	for (const FRingAffectedData& BulgeData : DebugBulgeData)
-	{
-		BulgePointCount += BulgeData.Vertices.Num();
-	}
-
-	if (BulgePointCount == 0)
-	{
-		DebugViewExtension->ClearDebugBulgePointBuffer();
-		return;
-	}
-
 	// ViewExtension에 SharedPtr 전달
-	DebugViewExtension->SetDebugBulgePointBufferShared(DebugBulgePointBufferSharedPtr, BulgePointCount);
+	DebugViewExtension->SetDebugBulgePointBufferShared(DebugBulgePointBufferSharedPtr);
 }
 
 #endif // WITH_EDITOR

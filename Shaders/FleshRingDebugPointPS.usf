@@ -23,6 +23,17 @@ void MainPS(
     out float4 OutColor : SV_Target0)
 {
     // ========================================
+    // Step 0: Invalid point check
+    // 0단계: 무효 포인트 체크
+    // ========================================
+    // Influence <= 0 means invalid/skip (e.g., early return in BulgeCS)
+    // Influence <= 0이면 무효/스킵 (예: BulgeCS에서 early return)
+    if (Input.Influence <= 0.0)
+    {
+        discard;
+    }
+
+    // ========================================
     // Step 1: Circular mask
     // 1단계: 원형 마스크
     // ========================================

@@ -987,16 +987,21 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	}
 #endif
 
-	// GPU 디버그 렌더링 활성화 시 TightnessCS 강제 실행
-	// DebugPointBuffer에 매 프레임 월드 좌표를 쓰기 위해 캐싱 무효화
-	// Bulge 디버그도 TightnessCS → BulgeCS 파이프라인이 필요하므로 함께 체크
+	// GPU 디버그 렌더링용 버퍼 초기화
+	// ★ DrawDebug 방식: 캐싱 없이 매 프레임 새로 계산 (정확성 > 성능)
+	// 디버깅 목적이므로 성능 저하는 허용
 	if (bOutputDebugPoints || bOutputDebugBulgePoints)
 	{
+		// 디버그 렌더링 활성화 시 매 프레임 TightnessCS/BulgeCS 재실행
 		bNeedTightnessCaching = true;
 
-		// Bulge 디버그 포인트 버퍼 TSharedPtr 생성 (bOutputDebugBulgePoints 설정 후 초기화)
-		// NOTE: bOutputDebugBulgePoints 체크가 Line 874 버퍼 초기화 블록 이후에 있으므로
-		// 여기서 추가 초기화 필요 (그렇지 않으면 첫 프레임에서 버퍼가 null)
+		// Affected 디버그 포인트 버퍼 TSharedPtr 생성
+		if (bOutputDebugPoints && !CurrentLODData.CachedDebugPointBufferShared.IsValid())
+		{
+			CurrentLODData.CachedDebugPointBufferShared = MakeShared<TRefCountPtr<FRDGPooledBuffer>>();
+		}
+
+		// Bulge 디버그 포인트 버퍼 TSharedPtr 생성
 		if (bOutputDebugBulgePoints && !CurrentLODData.CachedDebugBulgePointBufferShared.IsValid())
 		{
 			CurrentLODData.CachedDebugBulgePointBufferShared = MakeShared<TRefCountPtr<FRDGPooledBuffer>>();
@@ -1038,7 +1043,6 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	WorkItem.CachedDebugBulgePointBufferSharedPtr = CurrentLODData.CachedDebugBulgePointBufferShared;
 	WorkItem.bOutputDebugBulgePoints = bOutputDebugBulgePoints;
 	WorkItem.DebugBulgePointCount = MaxBulgeVertexCount;
-	CurrentLODData.CachedBulgePointCount = MaxBulgeVertexCount;  // LODData에도 저장
 
 	// ViewExtension과 PointCount 설정 (렌더 스레드에서 직접 버퍼 전달용)
 	if (bOutputDebugPoints && FleshRingComponent.IsValid())
@@ -1145,6 +1149,12 @@ void UFleshRingDeformerInstance::InvalidateTightnessCache(int32 DirtyRingIndex)
         {
             Data.DebugInfluenceReadbackResult->Empty();
         }
+    }
+
+    // 4. CPU 디버그 캐시도 무효화 (GPU 재계산과 동기화)
+    if (FleshRingComponent.IsValid())
+    {
+        FleshRingComponent->InvalidateDebugCaches(DirtyRingIndex);
     }
 
     if (DirtyRingIndex == INDEX_NONE)

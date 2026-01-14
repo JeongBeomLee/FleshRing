@@ -25,46 +25,33 @@ FFleshRingDebugViewExtension::~FFleshRingDebugViewExtension()
     ClearDebugBulgePointBuffer();
 }
 
-void FFleshRingDebugViewExtension::SetDebugPointBuffer(TRefCountPtr<FRDGPooledBuffer> InBuffer, uint32 InPointCount)
-{
-    FScopeLock Lock(&BufferLock);
-    DebugPointBuffer = InBuffer;
-    PointCount = InPointCount;
-    bEnabled = (InBuffer.IsValid() && InPointCount > 0);
-}
-
 void FFleshRingDebugViewExtension::ClearDebugPointBuffer()
 {
     FScopeLock Lock(&BufferLock);
-    DebugPointBuffer = nullptr;
     DebugPointBufferSharedPtr = nullptr;
-    PointCount = 0;
     bEnabled = false;
 }
 
-void FFleshRingDebugViewExtension::SetDebugPointBufferShared(TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBufferPtr, uint32 InPointCount)
+void FFleshRingDebugViewExtension::SetDebugPointBufferShared(TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBufferPtr)
 {
     FScopeLock Lock(&BufferLock);
     DebugPointBufferSharedPtr = InBufferPtr;
-    PointCount = InPointCount;
-    // TSharedPtr 자체와 내부 TRefCountPtr<FRDGPooledBuffer> 모두 유효해야 함
-    bEnabled = (InBufferPtr.IsValid() && InBufferPtr->IsValid() && InPointCount > 0);
+    // TSharedPtr 자체만 유효하면 OK (내부 버퍼와 NumElements는 렌더 스레드에서 확인)
+    bEnabled = InBufferPtr.IsValid();
 }
 
-void FFleshRingDebugViewExtension::SetDebugBulgePointBufferShared(TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBufferPtr, uint32 InPointCount)
+void FFleshRingDebugViewExtension::SetDebugBulgePointBufferShared(TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBufferPtr)
 {
     FScopeLock Lock(&BufferLock);
     DebugBulgePointBufferSharedPtr = InBufferPtr;
-    BulgePointCount = InPointCount;
-    // TSharedPtr 자체와 내부 TRefCountPtr<FRDGPooledBuffer> 모두 유효해야 함
-    bBulgeEnabled = (InBufferPtr.IsValid() && InBufferPtr->IsValid() && InPointCount > 0);
+    // TSharedPtr 자체만 유효하면 OK (내부 버퍼와 NumElements는 렌더 스레드에서 확인)
+    bBulgeEnabled = InBufferPtr.IsValid();
 }
 
 void FFleshRingDebugViewExtension::ClearDebugBulgePointBuffer()
 {
     FScopeLock Lock(&BufferLock);
     DebugBulgePointBufferSharedPtr = nullptr;
-    BulgePointCount = 0;
     bBulgeEnabled = false;
 }
 
@@ -89,31 +76,31 @@ void FFleshRingDebugViewExtension::PostRenderViewFamily_RenderThread(
         FScopeLock Lock(&BufferLock);
 
         // Tightness buffer
-        if (bEnabled && PointCount > 0)
+        // PointCount는 버퍼의 NumElements에서 직접 읽음 (게임/렌더 스레드 동기화 보장)
+        if (bEnabled && DebugPointBufferSharedPtr.IsValid() && DebugPointBufferSharedPtr->IsValid())
         {
-            if (DebugPointBufferSharedPtr.IsValid() && DebugPointBufferSharedPtr->IsValid())
+            LocalTightnessBuffer = *DebugPointBufferSharedPtr;
+            // 버퍼 유효성 추가 검증: RHI 리소스 존재 및 NumElements > 0
+            if (LocalTightnessBuffer.IsValid() &&
+                LocalTightnessBuffer->GetRHI() != nullptr &&
+                LocalTightnessBuffer->Desc.NumElements > 0)
             {
-                LocalTightnessBuffer = *DebugPointBufferSharedPtr;
-            }
-            else if (DebugPointBuffer.IsValid())
-            {
-                LocalTightnessBuffer = DebugPointBuffer;
-            }
-
-            if (LocalTightnessBuffer.IsValid())
-            {
-                LocalTightnessPointCount = PointCount;
+                LocalTightnessPointCount = LocalTightnessBuffer->Desc.NumElements;
                 bRenderTightness = true;
             }
         }
 
         // Bulge buffer
-        if (bBulgeEnabled && BulgePointCount > 0)
+        // PointCount는 버퍼의 NumElements에서 직접 읽음 (게임/렌더 스레드 동기화 보장)
+        if (bBulgeEnabled && DebugBulgePointBufferSharedPtr.IsValid() && DebugBulgePointBufferSharedPtr->IsValid())
         {
-            if (DebugBulgePointBufferSharedPtr.IsValid() && DebugBulgePointBufferSharedPtr->IsValid())
+            LocalBulgeBuffer = *DebugBulgePointBufferSharedPtr;
+            // 버퍼 유효성 추가 검증: RHI 리소스 존재 및 NumElements > 0
+            if (LocalBulgeBuffer.IsValid() &&
+                LocalBulgeBuffer->GetRHI() != nullptr &&
+                LocalBulgeBuffer->Desc.NumElements > 0)
             {
-                LocalBulgeBuffer = *DebugBulgePointBufferSharedPtr;
-                LocalBulgePointCount = BulgePointCount;
+                LocalBulgePointCount = LocalBulgeBuffer->Desc.NumElements;
                 bRenderBulge = true;
             }
         }

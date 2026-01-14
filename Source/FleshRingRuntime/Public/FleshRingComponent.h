@@ -436,6 +436,36 @@ public:
 		return 0;
 	}
 
+	/**
+	 * CPU 디버그 캐시 무효화 (Ring 이동 시 다른 클래스에서 호출)
+	 * @param DirtyRingIndex - 특정 Ring만 무효화 (INDEX_NONE이면 전체 무효화)
+	 */
+	void InvalidateDebugCaches(int32 DirtyRingIndex = INDEX_NONE)
+	{
+		if (DirtyRingIndex == INDEX_NONE)
+		{
+			// 전체 무효화: 모든 데이터 리셋
+			bDebugAffectedVerticesCached = false;
+			bDebugBulgeVerticesCached = false;
+		}
+		else
+		{
+			// 특정 Ring만 무효화: 해당 Ring 데이터만 Reset
+			// 캐싱 함수가 다시 호출되도록 플래그도 false로 설정
+			// (캐싱 함수 내부에서 이미 데이터 있는 Ring은 스킵)
+			if (DebugAffectedData.IsValidIndex(DirtyRingIndex))
+			{
+				DebugAffectedData[DirtyRingIndex].Vertices.Reset();
+				bDebugAffectedVerticesCached = false;
+			}
+			if (DebugBulgeData.IsValidIndex(DirtyRingIndex))
+			{
+				DebugBulgeData[DirtyRingIndex].Vertices.Reset();
+				bDebugBulgeVerticesCached = false;
+			}
+		}
+	}
+
 private:
 	/** GPU 디버그 렌더링용 ViewExtension 초기화 */
 	void InitializeDebugViewExtension();

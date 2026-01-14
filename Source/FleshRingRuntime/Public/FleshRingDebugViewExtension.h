@@ -45,18 +45,13 @@ public:
     // ========================================
 
     /**
-     * Set the debug point buffer and count (call from game thread)
-     * 디버그 포인트 버퍼와 개수 설정 (게임 스레드에서 호출)
+     * Set the debug point buffer (call from game thread)
+     * 디버그 포인트 버퍼 설정 (게임 스레드에서 호출)
+     * PointCount는 렌더 스레드에서 버퍼의 NumElements로 직접 읽음
      *
      * @param InBufferPtr - SharedPtr to pooled buffer (매 프레임 최신 버퍼 참조)
-     *                      풀링된 버퍼에 대한 SharedPtr
-     * @param InPointCount - Number of debug points in the buffer
-     *                       버퍼의 디버그 포인트 개수
      */
-    void SetDebugPointBufferShared(TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBufferPtr, uint32 InPointCount);
-
-    /** Legacy: Set debug point buffer (단일 프레임, 복사) */
-    void SetDebugPointBuffer(TRefCountPtr<FRDGPooledBuffer> InBuffer, uint32 InPointCount);
+    void SetDebugPointBufferShared(TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBufferPtr);
 
     /** Clear the debug point buffer (disable rendering) */
     /** 디버그 포인트 버퍼 클리어 (렌더링 비활성화) */
@@ -67,10 +62,11 @@ public:
     // ========================================
 
     /**
-     * Set the Bulge debug point buffer and count (call from game thread)
-     * Bulge 디버그 포인트 버퍼와 개수 설정 (게임 스레드에서 호출)
+     * Set the Bulge debug point buffer (call from game thread)
+     * Bulge 디버그 포인트 버퍼 설정 (게임 스레드에서 호출)
+     * PointCount는 렌더 스레드에서 버퍼의 NumElements로 직접 읽음
      */
-    void SetDebugBulgePointBufferShared(TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBufferPtr, uint32 InPointCount);
+    void SetDebugBulgePointBufferShared(TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBufferPtr);
 
     /** Clear the Bulge debug point buffer (disable Bulge rendering) */
     /** Bulge 디버그 포인트 버퍼 클리어 (Bulge 렌더링 비활성화) */
@@ -105,16 +101,8 @@ private:
     /** 버퍼 데이터에 대한 스레드 안전 접근 */
     mutable FCriticalSection BufferLock;
 
-    /** Pooled buffer containing debug points (legacy, 단일 프레임용) */
-    /** 디버그 포인트가 포함된 풀링된 버퍼 */
-    TRefCountPtr<FRDGPooledBuffer> DebugPointBuffer;
-
     /** SharedPtr to pooled buffer (매 프레임 최신 버퍼 참조) */
     TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> DebugPointBufferSharedPtr;
-
-    /** Number of debug points in the buffer */
-    /** 버퍼의 디버그 포인트 개수 */
-    uint32 PointCount = 0;
 
     /** Flag to enable/disable rendering */
     /** 렌더링 활성화/비활성화 플래그 */
@@ -126,9 +114,6 @@ private:
 
     /** SharedPtr to Bulge pooled buffer */
     TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> DebugBulgePointBufferSharedPtr;
-
-    /** Number of Bulge debug points in the buffer */
-    uint32 BulgePointCount = 0;
 
     /** Flag to enable/disable Bulge rendering */
     bool bBulgeEnabled = false;

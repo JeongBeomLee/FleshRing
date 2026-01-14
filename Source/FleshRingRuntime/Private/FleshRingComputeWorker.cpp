@@ -254,22 +254,22 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 		}
 
 		// ===== DebugPointBuffer 생성 (GPU 렌더링용) =====
+		// [버그 수정] FMath::Max → 합산으로 변경
+		// 다중 Ring에서 DebugPointCumulativeOffset이 누적되므로 버퍼 크기도 합산해야 함
+		// 이전: Max만 사용 → 버퍼 오버런 → 힙 손상 → 크래시
+		uint32 TotalAffectedVertices = 0;
 		if (WorkItem.bOutputDebugPoints && NumRings > 0)
 		{
-			// MaxAffectedVertices가 이미 계산되어 있지 않다면 다시 계산
-			if (MaxAffectedVertices == 0)
+			for (int32 RingIdx = 0; RingIdx < NumRings; ++RingIdx)
 			{
-				for (int32 RingIdx = 0; RingIdx < NumRings; ++RingIdx)
-				{
-					const FFleshRingWorkItem::FRingDispatchData& Data = (*WorkItem.RingDispatchDataPtr)[RingIdx];
-					MaxAffectedVertices = FMath::Max(MaxAffectedVertices, Data.Params.NumAffectedVertices);
-				}
+				const FFleshRingWorkItem::FRingDispatchData& Data = (*WorkItem.RingDispatchDataPtr)[RingIdx];
+				TotalAffectedVertices += Data.Params.NumAffectedVertices;
 			}
 
-			if (MaxAffectedVertices > 0)
+			if (TotalAffectedVertices > 0)
 			{
 				DebugPointBuffer = GraphBuilder.CreateBuffer(
-					FRDGBufferDesc::CreateStructuredDesc(sizeof(FFleshRingDebugPoint), MaxAffectedVertices),
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(FFleshRingDebugPoint), TotalAffectedVertices),
 					TEXT("FleshRing_DebugPointBuffer")
 				);
 				// 0으로 초기화
@@ -281,13 +281,14 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 		uint32 MaxBulgeVertices = 0;
 		if (WorkItem.bOutputDebugBulgePoints && WorkItem.bAnyRingHasBulge && NumRings > 0)
 		{
-			// 최대 Bulge 버텍스 수 계산
+			// 전체 Bulge 버텍스 수 합산 (다중 Ring의 모든 Bulge 포인트를 담아야 함)
 			for (int32 RingIdx = 0; RingIdx < NumRings; ++RingIdx)
 			{
 				const FFleshRingWorkItem::FRingDispatchData& Data = (*WorkItem.RingDispatchDataPtr)[RingIdx];
 				if (Data.bEnableBulge)
 				{
-					MaxBulgeVertices = FMath::Max(MaxBulgeVertices, static_cast<uint32>(Data.BulgeIndices.Num()));
+					// FMath::Max 사용 시 가장 큰 Ring의 포인트만 계산되어 다른 Ring 포인트 누락됨
+					MaxBulgeVertices += Data.BulgeIndices.Num();
 				}
 			}
 
@@ -469,6 +470,9 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 		// ===== BulgeCS Dispatch (TightnessCS 이후, 각 Ring별로) =====
 		if (WorkItem.bAnyRingHasBulge && VolumeAccumBuffer && WorkItem.RingDispatchDataPtr.IsValid())
 		{
+			// 디버그 Bulge 포인트 버퍼 오프셋 (다중 링 지원)
+			uint32 DebugBulgePointCumulativeOffset = 0;
+
 			// 각 Ring별로 BulgeCS 디스패치
 			for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
 			{
@@ -564,7 +568,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 
 				// ===== Debug Point Output 파라미터 설정 =====
 				BulgeParams.bOutputDebugBulgePoints = WorkItem.bOutputDebugBulgePoints && DebugBulgePointBuffer;
-				BulgeParams.DebugBulgePointBaseOffset = 0;  // 현재 Ring 0만 지원 (다중 링 지원 시 누적 필요)
+				BulgeParams.DebugBulgePointBaseOffset = DebugBulgePointCumulativeOffset;  // 다중 링 누적 오프셋
 				BulgeParams.BulgeLocalToWorld = WorkItem.LocalToWorldMatrix;
 
 				// [조건부 로그] 각 Ring별 첫 프레임만 출력
@@ -590,6 +594,9 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 
 				// 결과를 TightenedBindPoseBuffer로 복사 (다음 Ring이 이 결과 위에 누적)
 				AddCopyBufferPass(GraphBuilder, TightenedBindPoseBuffer, BulgeOutputBuffer);
+
+				// 다음 Ring을 위해 디버그 포인트 오프셋 누적
+				DebugBulgePointCumulativeOffset += NumBulgeVertices;
 			}
 		}
 

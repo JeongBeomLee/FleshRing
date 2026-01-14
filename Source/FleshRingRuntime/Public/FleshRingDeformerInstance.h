@@ -146,15 +146,15 @@ public:
 	}
 
 	/**
-	 * Bulge 디버그 포인트 수 가져오기
+	 * Affected 디버그 포인트 수 가져오기 (실제 변형에 사용되는 값)
 	 * @param LODIndex - LOD 인덱스
-	 * @return 캐시된 Bulge 포인트 수
+	 * @return 총 Affected 버텍스 수
 	 */
-	uint32 GetCachedBulgePointCount(int32 LODIndex = 0) const
+	uint32 GetTotalAffectedVertexCount(int32 LODIndex = 0) const
 	{
-		if (LODData.IsValidIndex(LODIndex))
+		if (LODData.IsValidIndex(LODIndex) && LODData[LODIndex].bAffectedVerticesRegistered)
 		{
-			return LODData[LODIndex].CachedBulgePointCount;
+			return static_cast<uint32>(LODData[LODIndex].AffectedVerticesManager.GetTotalAffectedCount());
 		}
 		return 0;
 	}
@@ -224,7 +224,6 @@ private:
 		// Bulge 디버그 포인트 버퍼 캐싱 (WorldPosition + Influence)
 		// Cyan→Magenta 색상 그라데이션으로 표시
 		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedDebugBulgePointBufferShared;
-		uint32 CachedBulgePointCount = 0;
 
 		// ===== GPU Readback 관련 =====
 		// Readback 결과 저장 (스레드 안전 공유용)

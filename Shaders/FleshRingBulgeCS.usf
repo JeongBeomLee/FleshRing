@@ -209,6 +209,19 @@ float3 ComputeFleshCoveringDirection_Manual(float3 ComponentPos)
 #define DEBUG_IGNORE_VOLUME 0
 #define DEBUG_FIXED_STRENGTH 2.0
 
+// 무효 디버그 포인트 쓰기 헬퍼 (early return 시 호출)
+// Influence = -1은 "이 포인트는 무효/스킵" 마커
+void WriteInvalidDebugPoint(uint ThreadIndex)
+{
+    if (bOutputDebugBulgePoints != 0)
+    {
+        FDebugPoint InvalidPoint;
+        InvalidPoint.WorldPosition = float3(0, 0, 0);
+        InvalidPoint.Influence = -1.0;  // 무효 마커
+        DebugBulgePointBuffer[DebugBulgePointBaseOffset + ThreadIndex] = InvalidPoint;
+    }
+}
+
 [numthreads(THREADGROUP_SIZE, 1, 1)]
 void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 {
@@ -220,7 +233,10 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     uint VertexIndex = BulgeVertexIndices[ThreadIndex];
 
     if (VertexIndex >= NumTotalVertices)
+    {
+        WriteInvalidDebugPoint(ThreadIndex);
         return;
+    }
 
     float3 Pos = ReadPosition(VertexIndex);
 
@@ -238,6 +254,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     float CPUInfluence = BulgeInfluences[ThreadIndex];
     if (CPUInfluence < 0.001)
     {
+        WriteInvalidDebugPoint(ThreadIndex);
         WritePosition(VertexIndex, Pos);
         return;
     }
@@ -248,6 +265,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
     if (VolumeLoss < 0.001)
     {
+        WriteInvalidDebugPoint(ThreadIndex);
         WritePosition(VertexIndex, Pos);
         return;
     }
@@ -269,10 +287,11 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
         // 방향 필터링 (BulgeAxisDirection != 0이면 한쪽만 처리)
         if (BulgeAxisDirection != 0)
-        { 
+        {
             int vertexSide = (axialComponent > 0.0) ? 1 : -1;
             if (vertexSide != BulgeAxisDirection)
             {
+                WriteInvalidDebugPoint(ThreadIndex);
                 WritePosition(VertexIndex, Pos);
                 return;
             }
@@ -297,6 +316,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
             int vertexSide = (axialComponent > 0.0) ? 1 : -1;
             if (vertexSide != BulgeAxisDirection)
             {
+                WriteInvalidDebugPoint(ThreadIndex);
                 WritePosition(VertexIndex, Pos);
                 return;
             }
@@ -310,6 +330,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     float dirLen = length(BulgeDirComponent);
     if (dirLen < 0.0001 || isnan(dirLen) || isinf(dirLen))
     {
+        WriteInvalidDebugPoint(ThreadIndex);
         WritePosition(VertexIndex, Pos);
         return;
     }
@@ -335,6 +356,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
     if (any(isnan(PosDelta)) || any(isinf(PosDelta)))
     {
+        WriteInvalidDebugPoint(ThreadIndex);
         WritePosition(VertexIndex, Pos);
         return;
     }
