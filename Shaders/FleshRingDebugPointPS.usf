@@ -1,4 +1,4 @@
-// FleshRing Debug Point Pixel Shader
+﻿// FleshRing Debug Point Pixel Shader
 // GPU 원형 디버그 포인트 렌더링
 //
 // Purpose: Render circular points with influence-based color gradient
