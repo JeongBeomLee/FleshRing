@@ -27,8 +27,8 @@
 // 입력: TightenedBindPose (캐싱된, 변형된 바인드 포즈)
 Buffer<float> SourcePositions;
 
-// Input: Original tangent buffer (TangentX=Normal, TangentZ=Tangent)
-// 입력: 원본 탄젠트 버퍼 (TangentX=노멀, TangentZ=탄젠트)
+// Input: Original tangent buffer (TangentX=Tangent, TangentZ=Normal)
+// 입력: 원본 탄젠트 버퍼 (TangentX=탄젠트, TangentZ=노멀)
 // Format: 2 x SNORM8x4 per vertex - SRV format handles SNORM->float conversion
 // SRV 포맷이 SNORM->float 변환을 처리
 Buffer<float4> SourceTangents;
@@ -53,7 +53,7 @@ RWBuffer<float> OutputPositions;
 // TAA/TSR용 이전 프레임 스키닝된 위치 출력 (velocity 계산용)
 RWBuffer<float> OutputPreviousPositions;
 
-// Output: Skinned tangents (TangentX=Normal, TangentZ=Tangent)
+// Output: Skinned tangents (TangentX=Tangent, TangentZ=Normal)
 // 출력: 스키닝된 탄젠트 - TANGENT_RWBUFFER_FORMAT from GpuSkinCommon.ush
 // Optimus와 동일한 방식: PF_R16G16B16A16_SNORM (non-OpenGL)
 RWBuffer<TANGENT_RWBUFFER_FORMAT> OutputTangents;
@@ -364,10 +364,10 @@ void WritePreviousPosition(uint VertexIndex, float3 Pos)
 // Tangent Read/Write Helper Functions
 // 탄젠트 읽기/쓰기 헬퍼 함수
 // ============================================================================
-// UE5 Tangent buffer format (Optimus와 동일):
+// UE5 Tangent buffer format (GpuSkinCommon.ush 표준):
 // - 2 x float4 per vertex (TangentX, TangentZ)
-// - TangentX (index 0): Normal direction (W unused)
-// - TangentZ (index 1): Tangent direction + Binormal sign in W
+// - TangentX (index 0): Tangent direction (W unused)
+// - TangentZ (index 1): Normal direction + Binormal sign in W
 // - Format: PF_R16G16B16A16_SNORM (16-bit per channel)
 // - GpuSkinCommon.ush의 TangentBias_SkinCache / TangentUnbias_SkinCache 사용
 // ============================================================================
@@ -398,17 +398,18 @@ bool IsRecomputedNormalValid(float3 Normal)
 // Read recomputed tangents from TangentRecomputeCS output buffer
 // TangentRecomputeCS 출력 버퍼에서 재계산된 탄젠트 읽기
 // Format: 8 floats per vertex (TangentX.xyzw + TangentZ.xyzw)
+// UE 표준: TangentX = Tangent (W=0), TangentZ = Normal (W=binormal sign)
 void ReadRecomputedTangents(uint VertexIndex, out float3 OutNormal, out float4 OutTangent)
 {
     uint BaseIndex = VertexIndex * 8;
-    // TangentX = Normal (W=0)
+    // TangentX = Tangent (W=0)
     float4 TangentX = float4(
         RecomputedTangents[BaseIndex + 0],
         RecomputedTangents[BaseIndex + 1],
         RecomputedTangents[BaseIndex + 2],
         RecomputedTangents[BaseIndex + 3]
     );
-    // TangentZ = Tangent (W=binormal sign)
+    // TangentZ = Normal (W=binormal sign)
     float4 TangentZ = float4(
         RecomputedTangents[BaseIndex + 4],
         RecomputedTangents[BaseIndex + 5],
@@ -416,8 +417,8 @@ void ReadRecomputedTangents(uint VertexIndex, out float3 OutNormal, out float4 O
         RecomputedTangents[BaseIndex + 7]
     );
 
-    OutNormal = TangentX.xyz;
-    OutTangent = TangentZ;
+    OutNormal = TangentZ.xyz;
+    OutTangent = float4(TangentX.xyz, TangentZ.w);  // Tangent.xyz + BinormalSign from TangentZ.w
 }
 
 // Check if recomputed tangent is valid (not zero vector)
@@ -429,18 +430,18 @@ bool IsRecomputedTangentValid(float3 Normal, float3 Tangent)
     return (dot(Normal, Normal) > 1e-8f) && (dot(Tangent, Tangent) > 1e-8f);
 }
 
-// Read TangentX (Normal) and TangentZ (Tangent) from buffer
-// 버퍼에서 TangentX (노멀)와 TangentZ (탄젠트) 읽기
-// Optimus 방식: TangentBias_SkinCache() 사용
+// Read TangentX (Tangent) and TangentZ (Normal) from buffer
+// 버퍼에서 TangentX (탄젠트)와 TangentZ (노멀) 읽기
+// GpuSkinCommon.ush 표준: TangentX=Tangent(Index 0), TangentZ=Normal(Index 1)
 void ReadTangents(uint VertexIndex, out float3 OutNormal, out float4 OutTangent)
 {
     uint BaseIndex = VertexIndex * 2;
     // Use TangentBias_SkinCache from GpuSkinCommon.ush (passthrough for SNORM, converts for OpenGL)
-    float4 TangentX = TangentBias_SkinCache(SourceTangents[BaseIndex + 0]);
-    float4 TangentZ = TangentBias_SkinCache(SourceTangents[BaseIndex + 1]);
+    float4 TangentX = TangentBias_SkinCache(SourceTangents[BaseIndex + 0]);  // Tangent
+    float4 TangentZ = TangentBias_SkinCache(SourceTangents[BaseIndex + 1]);  // Normal + BinormalSign
 
-    OutNormal = TangentX.xyz;
-    OutTangent = TangentZ; // W contains binormal sign
+    OutNormal = TangentZ.xyz;
+    OutTangent = float4(TangentX.xyz, TangentZ.w);  // Tangent.xyz + BinormalSign from TangentZ.w
 }
 
 // Read tangents with optional recomputed normal/tangent override
@@ -499,22 +500,22 @@ float3 SafeNormalize(float3 V, float3 Default)
     return LenSq > 1e-8f ? V * rsqrt(LenSq) : Default;
 }
 
-// Write TangentX (Normal) and TangentZ (Tangent) to buffer
-// 버퍼에 TangentX (노멀)와 TangentZ (탄젠트) 쓰기
-// Optimus 방식: TangentUnbias_SkinCache() 사용
+// Write TangentX (Tangent) and TangentZ (Normal) to buffer
+// 버퍼에 TangentX (탄젠트)와 TangentZ (노멀) 쓰기
+// GpuSkinCommon.ush 표준: TangentX=Tangent(Index 0), TangentZ=Normal(Index 1)
 void WriteTangents(uint VertexIndex, float3 Normal, float4 Tangent)
 {
     uint BaseIndex = VertexIndex * 2;
 
-    // TangentX: Normal (safe normalized) with W=0
-    // 0 벡터면 (0,0,1) 기본값 사용
-    float3 SafeNormal = SafeNormalize(Normal, float3(0, 0, 1));
-    float4 TangentX = float4(SafeNormal, 0.0f);
-
-    // TangentZ: Tangent direction (safe normalized) with binormal sign preserved in W
+    // TangentX (Index 0): Tangent direction (safe normalized) with W=0
     // 0 벡터면 (1,0,0) 기본값 사용
     float3 SafeTangentDir = SafeNormalize(Tangent.xyz, float3(1, 0, 0));
-    float4 TangentZ = float4(SafeTangentDir, Tangent.w);
+    float4 TangentX = float4(SafeTangentDir, 0.0f);
+
+    // TangentZ (Index 1): Normal (safe normalized) with binormal sign preserved in W
+    // 0 벡터면 (0,0,1) 기본값 사용
+    float3 SafeNormal = SafeNormalize(Normal, float3(0, 0, 1));
+    float4 TangentZ = float4(SafeNormal, Tangent.w);
 
     // Use TangentUnbias_SkinCache from GpuSkinCommon.ush (passthrough for SNORM, converts for OpenGL)
     OutputTangents[BaseIndex + 0] = TangentUnbias_SkinCache(TangentX);
