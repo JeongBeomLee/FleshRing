@@ -466,6 +466,9 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			DispatchData.ExtendedInfluences = RingData.ExtendedInfluences;
 			DispatchData.ExtendedIsAnchor = RingData.ExtendedIsAnchor;  // 앵커 플래그 (1=Seed, 0=확장)
 			DispatchData.ExtendedLaplacianAdjacency = RingData.ExtendedLaplacianAdjacency;
+			DispatchData.ExtendedRepresentativeIndices = RingData.ExtendedRepresentativeIndices;  // UV seam welding용
+			DispatchData.ExtendedAdjacencyOffsets = RingData.ExtendedAdjacencyOffsets;  // NormalRecomputeCS용
+			DispatchData.ExtendedAdjacencyTriangles = RingData.ExtendedAdjacencyTriangles;  // NormalRecomputeCS용
 
 			// Heat Propagation 설정 복사 (HopBased 모드에서만 유효)
 			DispatchData.bEnableHeatPropagation = Settings.bEnablePostProcess &&

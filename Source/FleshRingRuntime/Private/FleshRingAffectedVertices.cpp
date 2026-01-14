@@ -3653,6 +3653,42 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
     // BuildExtendedLaplacianAdjacency가 내부적으로 CachedWeldedNeighborPositions 사용
     BuildExtendedLaplacianAdjacency(RingData, CachedVertexLayerTypes);
 
+    // ===== Step 5: 확장된 영역의 RepresentativeIndices 구축 (UV seam welding) =====
+    // Heat Propagation에서 UV seam vertex들이 동일한 delta를 받도록 보장
+    {
+        RingData.ExtendedRepresentativeIndices.Reset(NumExtended);
+        RingData.ExtendedRepresentativeIndices.AddUninitialized(NumExtended);
+
+        int32 NumWelded = 0;
+        for (int32 i = 0; i < NumExtended; ++i)
+        {
+            const uint32 VertIdx = RingData.ExtendedSmoothingIndices[i];
+
+            // 캐시에서 O(1) 조회
+            const FIntVector* PosKey = CachedVertexToPosition.Find(VertIdx);
+            if (PosKey)
+            {
+                const uint32* Representative = CachedPositionToRepresentative.Find(*PosKey);
+                const uint32 RepIdx = Representative ? *Representative : VertIdx;
+                RingData.ExtendedRepresentativeIndices[i] = RepIdx;
+
+                if (RepIdx != VertIdx)
+                {
+                    NumWelded++;
+                }
+            }
+            else
+            {
+                // 캐시 미스 - 자기 자신을 대표로
+                RingData.ExtendedRepresentativeIndices[i] = VertIdx;
+            }
+        }
+
+        UE_LOG(LogFleshRingVertices, Verbose,
+            TEXT("BuildHopDistanceData: ExtendedRepresentativeIndices built, %d vertices (welded=%d)"),
+            NumExtended, NumWelded);
+    }
+
     // ===== Step 6: 기존 HopBasedInfluences도 업데이트 (기존 Affected 영역용) =====
     // 이건 기존 코드와의 호환성을 위해 유지
     RingData.HopBasedInfluences.Reset(NumAffected);
@@ -3660,6 +3696,71 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
     for (int32 i = 0; i < NumAffected; ++i)
     {
         RingData.HopBasedInfluences[i] = 1.0f;  // Seeds는 모두 1.0
+    }
+
+    // ===== Step 7: Extended 영역 삼각형 인접 데이터 구축 (NormalRecomputeCS용) =====
+    // ExtendedSmoothingIndices에 대한 삼각형 인접 정보 구축
+    // 로드리게스 기반 노말 재계산에서 사용
+    {
+        RingData.ExtendedAdjacencyOffsets.Reset();
+        RingData.ExtendedAdjacencyTriangles.Reset();
+
+        if (!bTopologyCacheBuilt || CachedVertexTriangles.Num() == 0)
+        {
+            UE_LOG(LogFleshRingVertices, Warning,
+                TEXT("BuildHopDistanceData: Topology cache not built for Extended adjacency"));
+        }
+        else
+        {
+            // Step 7-1: 각 Extended 버텍스의 삼각형 수 계산
+            TArray<int32> AdjCounts;
+            AdjCounts.SetNumZeroed(NumExtended);
+
+            for (int32 ExtIdx = 0; ExtIdx < NumExtended; ++ExtIdx)
+            {
+                const uint32 VertexIndex = RingData.ExtendedSmoothingIndices[ExtIdx];
+                const TArray<uint32>* TrianglesPtr = CachedVertexTriangles.Find(VertexIndex);
+                if (TrianglesPtr)
+                {
+                    AdjCounts[ExtIdx] = TrianglesPtr->Num();
+                }
+            }
+
+            // Step 7-2: 오프셋 배열 빌드 (누적합)
+            RingData.ExtendedAdjacencyOffsets.SetNum(NumExtended + 1);
+            RingData.ExtendedAdjacencyOffsets[0] = 0;
+
+            for (int32 i = 0; i < NumExtended; ++i)
+            {
+                RingData.ExtendedAdjacencyOffsets[i + 1] = RingData.ExtendedAdjacencyOffsets[i] + AdjCounts[i];
+            }
+
+            const uint32 TotalAdjacencies = RingData.ExtendedAdjacencyOffsets[NumExtended];
+
+            // Step 7-3: 삼각형 배열 채우기 (캐시에서 직접 복사)
+            RingData.ExtendedAdjacencyTriangles.SetNum(TotalAdjacencies);
+
+            for (int32 ExtIdx = 0; ExtIdx < NumExtended; ++ExtIdx)
+            {
+                const uint32 VertexIndex = RingData.ExtendedSmoothingIndices[ExtIdx];
+                const TArray<uint32>* TrianglesPtr = CachedVertexTriangles.Find(VertexIndex);
+
+                if (TrianglesPtr && TrianglesPtr->Num() > 0)
+                {
+                    const uint32 Offset = RingData.ExtendedAdjacencyOffsets[ExtIdx];
+                    FMemory::Memcpy(
+                        &RingData.ExtendedAdjacencyTriangles[Offset],
+                        TrianglesPtr->GetData(),
+                        TrianglesPtr->Num() * sizeof(uint32)
+                    );
+                }
+            }
+
+            UE_LOG(LogFleshRingVertices, Verbose,
+                TEXT("BuildHopDistanceData: ExtendedAdjacencyData built, %d vertices, %d triangles (avg %.1f tri/vert)"),
+                NumExtended, TotalAdjacencies,
+                NumExtended > 0 ? static_cast<float>(TotalAdjacencies) / NumExtended : 0.0f);
+        }
     }
 
     // 통계 로그

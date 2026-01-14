@@ -854,6 +854,24 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				);
 
 				// ========================================
+				// 5.5. UV Seam Welding: RepresentativeIndices 버퍼 (HeatPropagation용)
+				// ========================================
+				FRDGBufferRef HeatPropRepresentativeIndicesBuffer = nullptr;
+				if (DispatchData.ExtendedRepresentativeIndices.Num() == NumExtendedVertices)
+				{
+					HeatPropRepresentativeIndicesBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumExtendedVertices),
+						*FString::Printf(TEXT("FleshRing_HeatProp_RepIndices_Ring%d"), RingIdx)
+					);
+					GraphBuilder.QueueBufferUpload(
+						HeatPropRepresentativeIndicesBuffer,
+						DispatchData.ExtendedRepresentativeIndices.GetData(),
+						NumExtendedVertices * sizeof(uint32),
+						ERDGInitialDataFlags::None
+					);
+				}
+
+				// ========================================
 				// 6. Heat Propagation Dispatch (Delta-based)
 				// ========================================
 				FHeatPropagationDispatchParams HeatPropParams;
@@ -870,7 +888,8 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					HeatPropOutputBuffer,          // 출력 위치
 					ExtendedIndicesBuffer,         // Extended 영역 버텍스 인덱스
 					IsSeedFlagsBuffer,             // Seed 플래그 (1=Seed, 0=Non-Seed)
-					AdjacencyDataBuffer            // 인접 정보 (diffusion용)
+					AdjacencyDataBuffer,           // 인접 정보 (diffusion용)
+					HeatPropRepresentativeIndicesBuffer  // UV seam welding용 대표 버텍스 인덱스
 				);
 
 				// ========================================
@@ -1656,26 +1675,34 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				{
 					const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
 
-					// ===== Normal 영역 선택 (ANY 스무딩 활성화 시에만 확장 영역 사용) =====
-					// Note: Hop 기반 확장은 Normal 인접 데이터가 없으므로, PostProcessing만 지원
+					// ===== Normal 영역 선택 (LaplacianCS와 동일한 우선순위) =====
+					// 우선순위: Extended(Hop) > PostProcessing(Z) > Original
+					const bool bUseExtendedRegion = DispatchData.bUseHopBasedSmoothing &&
+						DispatchData.ExtendedSmoothingIndices.Num() > 0 &&
+						DispatchData.ExtendedAdjacencyOffsets.Num() > 0 &&
+						DispatchData.ExtendedAdjacencyTriangles.Num() > 0;
+
 					const bool bAnySmoothingEnabled =
 						DispatchData.bEnableRadialSmoothing ||
 						DispatchData.bEnableLaplacianSmoothing ||
 						DispatchData.bEnablePBDEdgeConstraint;
 
-					const bool bUsePostProcessingRegion =
+					const bool bUsePostProcessingRegion = !bUseExtendedRegion &&
 						bAnySmoothingEnabled &&
 						DispatchData.PostProcessingIndices.Num() > 0 &&
 						DispatchData.PostProcessingAdjacencyOffsets.Num() > 0 &&
 						DispatchData.PostProcessingAdjacencyTriangles.Num() > 0;
 
-					// 사용할 데이터 소스 선택
-					const TArray<uint32>& IndicesSource = bUsePostProcessingRegion
-						? DispatchData.PostProcessingIndices : DispatchData.Indices;
-					const TArray<uint32>& AdjacencyOffsetsSource = bUsePostProcessingRegion
-						? DispatchData.PostProcessingAdjacencyOffsets : DispatchData.AdjacencyOffsets;
-					const TArray<uint32>& AdjacencyTrianglesSource = bUsePostProcessingRegion
-						? DispatchData.PostProcessingAdjacencyTriangles : DispatchData.AdjacencyTriangles;
+					// 사용할 데이터 소스 선택 (우선순위: Extended > PostProcessing > Original)
+					const TArray<uint32>& IndicesSource = bUseExtendedRegion
+						? DispatchData.ExtendedSmoothingIndices
+						: (bUsePostProcessingRegion ? DispatchData.PostProcessingIndices : DispatchData.Indices);
+					const TArray<uint32>& AdjacencyOffsetsSource = bUseExtendedRegion
+						? DispatchData.ExtendedAdjacencyOffsets
+						: (bUsePostProcessingRegion ? DispatchData.PostProcessingAdjacencyOffsets : DispatchData.AdjacencyOffsets);
+					const TArray<uint32>& AdjacencyTrianglesSource = bUseExtendedRegion
+						? DispatchData.ExtendedAdjacencyTriangles
+						: (bUsePostProcessingRegion ? DispatchData.PostProcessingAdjacencyTriangles : DispatchData.AdjacencyTriangles);
 
 					// 인접 데이터가 없으면 스킵
 					if (AdjacencyOffsetsSource.Num() == 0 || AdjacencyTrianglesSource.Num() == 0)
@@ -1742,9 +1769,11 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					static TSet<int32> LoggedNormalRings;
 					if (!LoggedNormalRings.Contains(RingIdx))
 					{
+						const TCHAR* RegionName = bUseExtendedRegion ? TEXT("EXTENDED")
+							: (bUsePostProcessingRegion ? TEXT("POSTPROCESSING") : TEXT("ORIGINAL"));
 						UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] NormalRecomputeCS Ring[%d]: %s region (%d vertices, %d original), AdjTriangles=%d (SurfaceRotation)"),
 							RingIdx,
-							bUsePostProcessingRegion ? TEXT("POSTPROCESSING") : TEXT("ORIGINAL"),
+							RegionName,
 							NumAffected, DispatchData.Indices.Num(),
 							AdjacencyTrianglesSource.Num());
 						LoggedNormalRings.Add(RingIdx);

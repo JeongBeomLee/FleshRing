@@ -143,6 +143,9 @@ struct FFleshRingWorkItem
 		TArray<float> ExtendedInfluences;            // 확장 영역 influence (홉 falloff)
 		TArray<uint32> ExtendedIsAnchor;             // 확장 영역 앵커 플래그 (1=Seed, 0=확장)
 		TArray<uint32> ExtendedLaplacianAdjacency;   // 확장 영역 인접 데이터
+		TArray<uint32> ExtendedRepresentativeIndices;  // 확장 영역 UV seam 대표 버텍스 인덱스
+		TArray<uint32> ExtendedAdjacencyOffsets;    // 확장 영역 노멀 재계산용 인접 오프셋
+		TArray<uint32> ExtendedAdjacencyTriangles;  // 확장 영역 노멀 재계산용 인접 삼각형
 
 		// ===== Heat Propagation (변형 전파) =====
 		// Seed의 delta를 Extended 영역으로 확산

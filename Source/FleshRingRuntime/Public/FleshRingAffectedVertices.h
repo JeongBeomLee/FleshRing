@@ -451,6 +451,31 @@ struct FRingAffectedData
      */
     TArray<uint32> ExtendedLaplacianAdjacency;
 
+    /**
+     * Representative vertex indices for UV seam welding in extended region
+     * ExtendedRepresentativeIndices[ThreadIndex] = representative vertex index for that vertex
+     * All UV duplicates at same position share the same representative
+     * Used by HeatPropagationCS to ensure UV seam vertices move identically
+     * 확장 영역 UV seam 용접용 대표 버텍스 인덱스
+     * ExtendedRepresentativeIndices[ThreadIndex] = 해당 버텍스의 대표 버텍스 인덱스
+     * 같은 위치의 모든 UV duplicate가 동일한 대표를 공유
+     * HeatPropagationCS에서 UV seam 버텍스가 동일하게 이동하도록 보장
+     */
+    TArray<uint32> ExtendedRepresentativeIndices;
+
+    /**
+     * Triangle adjacency data for extended smoothing region (NormalRecomputeCS용)
+     * ExtendedAdjacencyOffsets[i] = start index in ExtendedAdjacencyTriangles for vertex i
+     * ExtendedAdjacencyOffsets has NumExtended+1 elements (prefix sum format)
+     * ExtendedAdjacencyTriangles = flattened list of adjacent triangle indices
+     * 확장 스무딩 영역용 삼각형 인접 데이터 (NormalRecomputeCS용)
+     * ExtendedAdjacencyOffsets[i] = 버텍스 i의 인접 삼각형 시작 인덱스
+     * ExtendedAdjacencyOffsets는 NumExtended+1 개 원소 (누적합 형식)
+     * ExtendedAdjacencyTriangles = 인접 삼각형 인덱스의 평탄화된 리스트
+     */
+    TArray<uint32> ExtendedAdjacencyOffsets;
+    TArray<uint32> ExtendedAdjacencyTriangles;
+
     FRingAffectedData()
         : BoneName(NAME_None)
         , RingCenter(FVector::ZeroVector)

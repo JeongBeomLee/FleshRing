@@ -47,6 +47,12 @@ StructuredBuffer<uint> ExtendedIndices;     // Vertex indices in extended region
 StructuredBuffer<uint> IsSeedFlags;         // 1 = Seed (anchor), 0 = Non-Seed
 StructuredBuffer<uint> AdjacencyData;       // Neighbor info for diffusion
 
+// UV Seam Welding: Representative vertex indices
+// RepresentativeIndices[ThreadIndex] = representative vertex index for UV seam welding
+// All UV duplicates at same position share the same representative
+// Delta is read/written using representative index to ensure UV seam vertices move identically
+StructuredBuffer<uint> RepresentativeIndices;
+
 // Parameters
 uint NumExtendedVertices;
 float HeatLambda;
@@ -111,12 +117,14 @@ uint GetNeighborVertexIndex(uint AdjacencyOffset, uint NeighborSlot)
 void InitPass(uint ThreadIndex)
 {
     uint VertexIndex = ExtendedIndices[ThreadIndex];
+    uint RepIndex = RepresentativeIndices[ThreadIndex];  // UV seam welding용 대표 버텍스
     uint IsSeed = IsSeedFlags[ThreadIndex];
 
     float3 Delta;
     if (IsSeed != 0)
     {
         // Seed: delta = deformation amount (CurrentPos - OriginalPos)
+        // 위치는 실제 버텍스에서 읽음 (UV별로 다를 수 있음)
         float3 CurrentPos = ReadPosition(CurrentPositions, VertexIndex);
         float3 OriginalPos = ReadPosition(OriginalPositions, VertexIndex);
         Delta = CurrentPos - OriginalPos;
@@ -127,8 +135,9 @@ void InitPass(uint ThreadIndex)
         Delta = float3(0, 0, 0);
     }
 
-    // Write delta using mesh vertex index
-    WriteDeltaByVertex(VertexIndex, Delta);
+    // Write delta using REPRESENTATIVE vertex index
+    // UV seam의 모든 duplicate가 같은 slot에 쓰므로 동일한 delta 공유
+    WriteDeltaByVertex(RepIndex, Delta);
 }
 
 // ============================================================================
@@ -137,16 +146,16 @@ void InitPass(uint ThreadIndex)
 
 void DiffusePass(uint ThreadIndex)
 {
-    uint VertexIndex = ExtendedIndices[ThreadIndex];
+    uint RepIndex = RepresentativeIndices[ThreadIndex];  // UV seam welding용 대표 버텍스
     uint IsSeed = IsSeedFlags[ThreadIndex];
 
-    // Read current delta using mesh vertex index
-    float3 MyDelta = ReadDeltaByVertex(VertexIndex);
+    // Read current delta using REPRESENTATIVE vertex index
+    float3 MyDelta = ReadDeltaByVertex(RepIndex);
 
     if (IsSeed != 0)
     {
         // Seed: delta is fixed, no diffusion
-        WriteDeltaByVertex(VertexIndex, MyDelta);
+        WriteDeltaByVertex(RepIndex, MyDelta);
         return;
     }
 
@@ -156,7 +165,7 @@ void DiffusePass(uint ThreadIndex)
 
     if (NeighborCount == 0)
     {
-        WriteDeltaByVertex(VertexIndex, MyDelta);
+        WriteDeltaByVertex(RepIndex, MyDelta);
         return;
     }
 
@@ -167,9 +176,12 @@ void DiffusePass(uint ThreadIndex)
     for (uint i = 0; i < NeighborCount && i < MAX_NEIGHBORS; i++)
     {
         // Get neighbor's mesh vertex index from adjacency data
+        // Note: Adjacency uses mesh vertex index directly (not thread index)
+        // UV seam duplicates at same position already share the same delta slot
         uint NeighborVertexIdx = GetNeighborVertexIndex(AdjacencyOffset, i);
 
         // Read neighbor's delta using mesh vertex index
+        // (neighbor의 representative가 자기 자신이면 그대로, 아니면 representative의 delta 읽음)
         float3 NeighborDelta = ReadDeltaByVertex(NeighborVertexIdx);
         NeighborSum += NeighborDelta;
         ValidNeighbors++;
@@ -177,7 +189,7 @@ void DiffusePass(uint ThreadIndex)
 
     if (ValidNeighbors == 0)
     {
-        WriteDeltaByVertex(VertexIndex, MyDelta);
+        WriteDeltaByVertex(RepIndex, MyDelta);
         return;
     }
 
@@ -185,7 +197,8 @@ void DiffusePass(uint ThreadIndex)
     float3 NeighborAvg = NeighborSum / (float)ValidNeighbors;
     float3 NewDelta = lerp(MyDelta, NeighborAvg, HeatLambda);
 
-    WriteDeltaByVertex(VertexIndex, NewDelta);
+    // Write delta using REPRESENTATIVE vertex index
+    WriteDeltaByVertex(RepIndex, NewDelta);
 }
 
 // ============================================================================
@@ -194,7 +207,8 @@ void DiffusePass(uint ThreadIndex)
 
 void ApplyPass(uint ThreadIndex)
 {
-    uint VertexIndex = ExtendedIndices[ThreadIndex];
+    uint VertexIndex = ExtendedIndices[ThreadIndex];  // 실제 버텍스 인덱스 (출력용)
+    uint RepIndex = RepresentativeIndices[ThreadIndex];  // UV seam welding용 대표 버텍스
     uint IsSeed = IsSeedFlags[ThreadIndex];
 
     float3 FinalPos;
@@ -206,11 +220,13 @@ void ApplyPass(uint ThreadIndex)
     else
     {
         // Non-Seed: 원본 위치 + 전파된 delta
+        // delta는 REPRESENTATIVE에서 읽음 (UV seam 버텍스들이 동일한 delta 공유)
         float3 OriginalPos = ReadPosition(OriginalPositions, VertexIndex);
-        float3 Delta = ReadDeltaByVertex(VertexIndex);
+        float3 Delta = ReadDeltaByVertex(RepIndex);
         FinalPos = OriginalPos + Delta;
     }
 
+    // 위치는 실제 버텍스에 출력 (각 UV duplicate가 자기 slot에 출력)
     WritePosition(OutputPositions, VertexIndex, FinalPos);
 }
 

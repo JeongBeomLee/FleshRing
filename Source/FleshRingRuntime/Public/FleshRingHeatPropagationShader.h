@@ -44,6 +44,11 @@ public:
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, IsSeedFlags)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, AdjacencyData)
 
+        // UV Seam Welding: Representative vertex indices
+        // RepresentativeIndices[ThreadIndex] = representative vertex index for UV seam welding
+        // All UV duplicates at same position share the same representative
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, RepresentativeIndices)
+
         // Parameters
         SHADER_PARAMETER(uint32, NumExtendedVertices)
         SHADER_PARAMETER(float, HeatLambda)
@@ -104,6 +109,7 @@ struct FHeatPropagationDispatchParams
  * @param ExtendedIndicesBuffer - Extended region vertex indices
  * @param IsSeedFlagsBuffer - Seed flags (1=Seed, 0=Non-Seed)
  * @param AdjacencyDataBuffer - Laplacian adjacency for Extended region
+ * @param RepresentativeIndicesBuffer - Representative vertex indices for UV seam welding (nullptr = use ExtendedIndices)
  */
 void DispatchFleshRingHeatPropagationCS(
     FRDGBuilder& GraphBuilder,
@@ -113,4 +119,5 @@ void DispatchFleshRingHeatPropagationCS(
     FRDGBufferRef OutputPositionsBuffer,
     FRDGBufferRef ExtendedIndicesBuffer,
     FRDGBufferRef IsSeedFlagsBuffer,
-    FRDGBufferRef AdjacencyDataBuffer);
+    FRDGBufferRef AdjacencyDataBuffer,
+    FRDGBufferRef RepresentativeIndicesBuffer);

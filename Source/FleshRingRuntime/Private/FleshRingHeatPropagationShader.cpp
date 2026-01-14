@@ -33,7 +33,8 @@ void DispatchFleshRingHeatPropagationCS(
     FRDGBufferRef OutputPositionsBuffer,
     FRDGBufferRef ExtendedIndicesBuffer,
     FRDGBufferRef IsSeedFlagsBuffer,
-    FRDGBufferRef AdjacencyDataBuffer)
+    FRDGBufferRef AdjacencyDataBuffer,
+    FRDGBufferRef RepresentativeIndicesBuffer)
 {
     // Early out
     if (Params.NumExtendedVertices == 0 || Params.NumIterations <= 0)
@@ -84,6 +85,12 @@ void DispatchFleshRingHeatPropagationCS(
     );
     AddClearUAVFloatPass(GraphBuilder, GraphBuilder.CreateUAV(DummyFloatBuffer, PF_R32_FLOAT), 0.0f);
 
+    // UV Seam Welding: RepresentativeIndices 바인딩
+    // nullptr이면 ExtendedIndices를 fallback으로 사용
+    FRDGBufferSRVRef RepresentativeIndicesSRV = RepresentativeIndicesBuffer
+        ? GraphBuilder.CreateSRV(RepresentativeIndicesBuffer)
+        : GraphBuilder.CreateSRV(ExtendedIndicesBuffer);
+
     // ========================================
     // Pass 0: Init
     // Seed.delta = CurrentPos - OriginalPos
@@ -102,6 +109,7 @@ void DispatchFleshRingHeatPropagationCS(
         InitParams->ExtendedIndices = GraphBuilder.CreateSRV(ExtendedIndicesBuffer);
         InitParams->IsSeedFlags = GraphBuilder.CreateSRV(IsSeedFlagsBuffer);
         InitParams->AdjacencyData = GraphBuilder.CreateSRV(AdjacencyDataBuffer);
+        InitParams->RepresentativeIndices = RepresentativeIndicesSRV;
         InitParams->NumExtendedVertices = Params.NumExtendedVertices;
         InitParams->HeatLambda = Params.HeatLambda;
 
@@ -134,6 +142,7 @@ void DispatchFleshRingHeatPropagationCS(
         DiffuseParams->ExtendedIndices = GraphBuilder.CreateSRV(ExtendedIndicesBuffer);
         DiffuseParams->IsSeedFlags = GraphBuilder.CreateSRV(IsSeedFlagsBuffer);
         DiffuseParams->AdjacencyData = GraphBuilder.CreateSRV(AdjacencyDataBuffer);
+        DiffuseParams->RepresentativeIndices = RepresentativeIndicesSRV;
         DiffuseParams->NumExtendedVertices = Params.NumExtendedVertices;
         DiffuseParams->HeatLambda = Params.HeatLambda;
 
@@ -169,6 +178,7 @@ void DispatchFleshRingHeatPropagationCS(
         ApplyParams->ExtendedIndices = GraphBuilder.CreateSRV(ExtendedIndicesBuffer);
         ApplyParams->IsSeedFlags = GraphBuilder.CreateSRV(IsSeedFlagsBuffer);
         ApplyParams->AdjacencyData = GraphBuilder.CreateSRV(AdjacencyDataBuffer);
+        ApplyParams->RepresentativeIndices = RepresentativeIndicesSRV;
         ApplyParams->NumExtendedVertices = Params.NumExtendedVertices;
         ApplyParams->HeatLambda = Params.HeatLambda;
 
