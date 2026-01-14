@@ -1041,10 +1041,12 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				}
 
 				// ===== UV Seam Welding: RepresentativeIndices 버퍼 생성 (LaplacianCS용) =====
-				// 영역에 따라 적절한 RepresentativeIndices 선택
-				const TArray<uint32>& RepresentativeSource = bUsePostProcessingRegion
-					? DispatchData.PostProcessingRepresentativeIndices
-					: DispatchData.RepresentativeIndices;
+				// 영역에 따라 적절한 RepresentativeIndices 선택 (우선순위: Extended > PostProcessing > Original)
+				const TArray<uint32>& RepresentativeSource = bUseExtendedRegion
+					? DispatchData.ExtendedRepresentativeIndices
+					: (bUsePostProcessingRegion
+						? DispatchData.PostProcessingRepresentativeIndices
+						: DispatchData.RepresentativeIndices);
 
 				FRDGBufferRef LaplacianRepresentativeIndicesBuffer = nullptr;
 				if (RepresentativeSource.Num() > 0 && RepresentativeSource.Num() == static_cast<int32>(NumSmoothingVertices))

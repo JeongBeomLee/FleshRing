@@ -2366,19 +2366,51 @@ void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
                     }
 
                     // ============================================================
-                    // 핵심 수정: Affected 버텍스 우선 선택
+                    // 핵심 수정: Representative 버텍스 우선 선택 (UV Seam Welding)
                     // ============================================================
-                    // 해당 위치의 버텍스 중 Affected 버텍스가 있으면 그것을 선택.
-                    // Affected가 아닌 버텍스는 스무딩되지 않아 위치가 변하지 않음.
-                    // 모든 Laplacian 계산이 같은 (스무딩된) 위치를 참조해야 일관성 유지.
-                    uint32 NeighborIdx = (*VerticesAtNeighborPos)[0];  // 기본: 첫 번째
-                    for (uint32 CandidateIdx : *VerticesAtNeighborPos)
+                    // UV seam에서 동일 위치의 모든 duplicate vertex가 같은 이웃 인덱스를 참조해야
+                    // Laplacian 계산 결과가 동일해지고 크랙이 방지됨.
+                    //
+                    // 선택 우선순위:
+                    // 1. Representative 인덱스 (같은 위치의 대표 버텍스)
+                    // 2. Affected 버텍스 중 하나 (스무딩 대상)
+                    // 3. 해당 위치의 첫 번째 버텍스 (fallback)
+                    uint32 NeighborIdx = UINT32_MAX;
+
+                    // 1순위: Representative 인덱스 확인
+                    const uint32* RepresentativeIdx = CachedPositionToRepresentative.Find(NeighborPosKey);
+                    if (RepresentativeIdx && AffectedVertexSet.Contains(*RepresentativeIdx))
                     {
-                        if (AffectedVertexSet.Contains(CandidateIdx))
+                        NeighborIdx = *RepresentativeIdx;
+                    }
+                    else
+                    {
+                        // 2순위: Affected 버텍스 중 가장 작은 인덱스 선택 (일관성)
+                        // 중요: "첫 번째 발견"이 아닌 "최소 인덱스" 사용
+                        // 그래야 같은 위치의 모든 UV duplicate가 동일한 이웃 인덱스를 참조
+                        uint32 MinAffectedIdx = UINT32_MAX;
+                        for (uint32 CandidateIdx : *VerticesAtNeighborPos)
                         {
-                            NeighborIdx = CandidateIdx;
-                            break;  // Affected 버텍스 찾으면 사용
+                            if (AffectedVertexSet.Contains(CandidateIdx))
+                            {
+                                MinAffectedIdx = FMath::Min(MinAffectedIdx, CandidateIdx);
+                            }
                         }
+                        if (MinAffectedIdx != UINT32_MAX)
+                        {
+                            NeighborIdx = MinAffectedIdx;
+                        }
+                    }
+
+                    // 3순위: Fallback - 가장 작은 인덱스 (일관성)
+                    if (NeighborIdx == UINT32_MAX)
+                    {
+                        uint32 MinIdx = UINT32_MAX;
+                        for (uint32 CandidateIdx : *VerticesAtNeighborPos)
+                        {
+                            MinIdx = FMath::Min(MinIdx, CandidateIdx);
+                        }
+                        NeighborIdx = MinIdx;
                     }
 
                     // Layer type filtering: only include neighbors of same layer
@@ -2504,15 +2536,49 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingLaplacianAdjacencyDat
             const TArray<uint32>* VerticesAtNeighborPos = CachedPositionToVertices.Find(NeighborPosKey);
             if (!VerticesAtNeighborPos || VerticesAtNeighborPos->Num() == 0) continue;
 
-            // Affected 버텍스 우선 선택
-            uint32 NeighborIdx = (*VerticesAtNeighborPos)[0];
-            for (uint32 CandidateIdx : *VerticesAtNeighborPos)
+            // ================================================================
+            // [UV Seam Welding] 이웃 인덱스도 Representative 우선 사용
+            // ================================================================
+            // 같은 위치의 모든 버텍스가 동일한 이웃 인덱스를 참조하도록
+            // Representative 인덱스를 우선 사용하여 Laplacian 계산 일관성 보장
+            // ================================================================
+            uint32 NeighborIdx = UINT32_MAX;
+
+            // 1순위: Representative 인덱스 사용 (PostProcessing 내부면 더 좋음)
+            const uint32* RepresentativeIdx = CachedPositionToRepresentative.Find(NeighborPosKey);
+            if (RepresentativeIdx)
             {
-                if (PostProcessingVertexSet.Contains(CandidateIdx))
+                NeighborIdx = *RepresentativeIdx;
+            }
+
+            // 2순위: Representative가 없거나 PostProcessing에 없으면, PostProcessing 내 가장 작은 인덱스 선택
+            // 중요: 일관성을 위해 "첫 번째 발견"이 아닌 "최소 인덱스" 사용
+            // 그래야 같은 위치의 모든 UV duplicate가 동일한 이웃 인덱스를 참조
+            if (NeighborIdx == UINT32_MAX || !PostProcessingVertexSet.Contains(NeighborIdx))
+            {
+                uint32 MinPostProcIdx = UINT32_MAX;
+                for (uint32 CandidateIdx : *VerticesAtNeighborPos)
                 {
-                    NeighborIdx = CandidateIdx;
-                    break;
+                    if (PostProcessingVertexSet.Contains(CandidateIdx))
+                    {
+                        MinPostProcIdx = FMath::Min(MinPostProcIdx, CandidateIdx);
+                    }
                 }
+                if (MinPostProcIdx != UINT32_MAX)
+                {
+                    NeighborIdx = MinPostProcIdx;
+                }
+            }
+
+            // 3순위: 여전히 없으면 가장 작은 인덱스 사용 (일관성)
+            if (NeighborIdx == UINT32_MAX)
+            {
+                uint32 MinIdx = UINT32_MAX;
+                for (uint32 CandidateIdx : *VerticesAtNeighborPos)
+                {
+                    MinIdx = FMath::Min(MinIdx, CandidateIdx);
+                }
+                NeighborIdx = MinIdx;
             }
 
             // Layer type filtering
@@ -3237,15 +3303,36 @@ void FFleshRingAffectedVerticesManager::BuildExtendedLaplacianAdjacency(
             const TArray<uint32>* VerticesAtNeighborPos = CachedPositionToVertices.Find(NeighborPosKey);
             if (!VerticesAtNeighborPos || VerticesAtNeighborPos->Num() == 0) continue;
 
-            // Extended 영역 버텍스만 선택 (Heat Propagation을 위해 Extended 외부 이웃 제외)
-            // Only select vertices within Extended region (exclude non-Extended for Heat Propagation)
+            // ================================================================
+            // [UV Seam Welding] 이웃 인덱스도 Representative 우선 사용
+            // ================================================================
+            // 같은 위치의 모든 버텍스가 동일한 이웃 인덱스를 참조하도록
+            // Representative 인덱스를 우선 사용하여 Laplacian 계산 일관성 보장
+            // ================================================================
             uint32 NeighborIdx = UINT32_MAX;  // Invalid sentinel
-            for (uint32 CandidateIdx : *VerticesAtNeighborPos)
+
+            // 1순위: Representative 인덱스가 Extended에 있으면 사용
+            const uint32* RepresentativeIdx = CachedPositionToRepresentative.Find(NeighborPosKey);
+            if (RepresentativeIdx && ExtendedVertexSet.Contains(*RepresentativeIdx))
             {
-                if (ExtendedVertexSet.Contains(CandidateIdx))
+                NeighborIdx = *RepresentativeIdx;
+            }
+            else
+            {
+                // 2순위: Representative가 Extended에 없으면 Extended 내에서 가장 작은 인덱스 선택
+                // 중요: 일관성을 위해 "첫 번째 발견"이 아닌 "최소 인덱스" 사용
+                // 그래야 같은 위치의 모든 UV duplicate가 동일한 이웃 인덱스를 참조
+                uint32 MinExtendedIdx = UINT32_MAX;
+                for (uint32 CandidateIdx : *VerticesAtNeighborPos)
                 {
-                    NeighborIdx = CandidateIdx;
-                    break;
+                    if (ExtendedVertexSet.Contains(CandidateIdx))
+                    {
+                        MinExtendedIdx = FMath::Min(MinExtendedIdx, CandidateIdx);
+                    }
+                }
+                if (MinExtendedIdx != UINT32_MAX)
+                {
+                    NeighborIdx = MinExtendedIdx;
                 }
             }
 
@@ -3585,6 +3672,57 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
                 HopDistanceMap.Add(NeighborVertIdx, CurrentHop + 1);
                 BfsQueue.Enqueue(NeighborVertIdx);
             }
+        }
+    }
+
+    // ===== Step 2.5: UV Duplicate 확장 (UV Seam Welding) =====
+    // HopDistanceMap에 포함된 모든 버텍스의 UV duplicate들도 포함시킴
+    // 이렇게 해야 UV seam의 모든 duplicate가 함께 스무딩되어 크랙 방지
+    {
+        // 현재 HopDistanceMap의 복사본을 만들어 순회 (순회 중 수정 방지)
+        TArray<TPair<uint32, int32>> CurrentEntries;
+        CurrentEntries.Reserve(HopDistanceMap.Num());
+        for (const auto& Pair : HopDistanceMap)
+        {
+            CurrentEntries.Add(TPair<uint32, int32>(Pair.Key, Pair.Value));
+        }
+
+        int32 NumDuplicatesAdded = 0;
+        for (const auto& Entry : CurrentEntries)
+        {
+            const uint32 VertIdx = Entry.Key;
+            const int32 Hop = Entry.Value;
+
+            // 이 버텍스의 position key 찾기
+            const FIntVector* PosKey = CachedVertexToPosition.Find(VertIdx);
+            if (!PosKey)
+            {
+                continue;
+            }
+
+            // 같은 position의 모든 버텍스 찾기
+            const TArray<uint32>* VerticesAtPos = CachedPositionToVertices.Find(*PosKey);
+            if (!VerticesAtPos)
+            {
+                continue;
+            }
+
+            // UV duplicate들을 같은 hop distance로 추가
+            for (uint32 DuplicateIdx : *VerticesAtPos)
+            {
+                if (!HopDistanceMap.Contains(DuplicateIdx))
+                {
+                    HopDistanceMap.Add(DuplicateIdx, Hop);
+                    NumDuplicatesAdded++;
+                }
+            }
+        }
+
+        if (NumDuplicatesAdded > 0)
+        {
+            UE_LOG(LogFleshRingVertices, Verbose,
+                TEXT("Extended UV duplicates: %d vertices added for UV seam welding"),
+                NumDuplicatesAdded);
         }
     }
 
