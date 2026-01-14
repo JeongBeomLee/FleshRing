@@ -133,12 +133,12 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	bool bNeedsPreviewMeshGeneration = false;
 
 #if WITH_EDITOR
-	if (InAsset->bEnableSubdivision)
+	if (InAsset->SubdivisionSettings.bEnableSubdivision)
 	{
 		if (InAsset->HasValidPreviewMesh() && !InAsset->NeedsPreviewMeshRegeneration())
 		{
 			// 유효한 PreviewMesh 존재 - 그것을 표시해야 함
-			TargetDisplayMesh = InAsset->PreviewSubdividedMesh;
+			TargetDisplayMesh = InAsset->SubdivisionSettings.PreviewSubdividedMesh;
 		}
 		else
 		{
@@ -250,7 +250,7 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	// ApplyAsset() 이후에 설정해야 덮어쓰이지 않음
 	// ============================================
 #if WITH_EDITOR
-	if (InAsset->bEnableSubdivision)
+	if (InAsset->SubdivisionSettings.bEnableSubdivision)
 	{
 		// 프리뷰 메시가 없거나 재생성 필요 시 생성
 		if (!InAsset->HasValidPreviewMesh() || InAsset->NeedsPreviewMeshRegeneration())
@@ -261,11 +261,11 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 		// 프리뷰 메시 사용 (있으면)
 		if (InAsset->HasValidPreviewMesh())
 		{
-			SetSkeletalMesh(InAsset->PreviewSubdividedMesh);
+			SetSkeletalMesh(InAsset->SubdivisionSettings.PreviewSubdividedMesh);
 			UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Using PreviewSubdividedMesh (Level %d, %d vertices)"),
-				InAsset->PreviewSubdivisionLevel,
-				InAsset->PreviewSubdividedMesh->GetResourceForRendering() ?
-					InAsset->PreviewSubdividedMesh->GetResourceForRendering()->LODRenderData[0].StaticVertexBuffers.PositionVertexBuffer.GetNumVertices() : 0);
+				InAsset->SubdivisionSettings.PreviewSubdivisionLevel,
+				InAsset->SubdivisionSettings.PreviewSubdividedMesh->GetResourceForRendering() ?
+					InAsset->SubdivisionSettings.PreviewSubdividedMesh->GetResourceForRendering()->LODRenderData[0].StaticVertexBuffers.PositionVertexBuffer.GetNumVertices() : 0);
 		}
 	}
 	else
@@ -584,10 +584,10 @@ void FFleshRingPreviewScene::ExecutePendingDeformerInit()
 	// PreviewMesh를 다시 적용
 	if (CurrentAsset)
 	{
-		bool bUsePreviewMesh = CurrentAsset->bEnableSubdivision && CurrentAsset->HasValidPreviewMesh();
+		bool bUsePreviewMesh = CurrentAsset->SubdivisionSettings.bEnableSubdivision && CurrentAsset->HasValidPreviewMesh();
 		if (bUsePreviewMesh && SkeletalMeshComponent)
 		{
-			SkeletalMeshComponent->SetSkeletalMesh(CurrentAsset->PreviewSubdividedMesh);
+			SkeletalMeshComponent->SetSkeletalMesh(CurrentAsset->SubdivisionSettings.PreviewSubdividedMesh);
 			UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Re-applied PreviewSubdividedMesh after Deformer init"));
 		}
 	}

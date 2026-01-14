@@ -134,10 +134,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision|Settings", meta = (ClampMin = "0.1"))
 	float MinEdgeLength = 1.0f;
 
-	/** Ring 영향 범위 배율 (RingHeight 기준) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision|Settings", meta = (ClampMin = "1.0", ClampMax = "5.0"))
-	float InfluenceRadiusMultiplier = 2.0f;
-
 	// =====================================
 	// PreSubdivideRegion Mode Settings
 	// =====================================

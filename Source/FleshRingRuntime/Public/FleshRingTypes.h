@@ -117,6 +117,94 @@ enum class EFleshRingLayerType : uint8
 // =====================================
 
 /**
+ * Subdivision 설정 (에디터 프리뷰 + 런타임)
+ * UFleshRingAsset에서 사용되며, IPropertyTypeCustomization으로 그룹화 가능
+ */
+USTRUCT(BlueprintType)
+struct FLESHRINGRUNTIME_API FSubdivisionSettings
+{
+	GENERATED_BODY()
+
+	// ===== 공통 설정 =====
+
+	/** Subdivision 활성화 (Low-Poly 메시용) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision")
+	bool bEnableSubdivision = false;
+
+	/** 최소 엣지 길이 (이보다 작으면 subdivision 중단) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision", meta = (ClampMin = "0.1"))
+	float MinEdgeLength = 1.0f;
+
+	// ===== 에디터 프리뷰 설정 =====
+
+	/** 에디터 프리뷰용 Subdivision 레벨 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision", meta = (ClampMin = "1", ClampMax = "4"))
+	int32 PreviewSubdivisionLevel = 2;
+
+	/**
+	 * 이웃 본 탐색 깊이 (0 = 타겟 본만, 1 = 부모+자식, 2 = 조부모+손자 포함)
+	 * 0이면 BoneWeightThreshold만으로 영역 판단
+	 * 높을수록 subdivision 영역이 넓어지지만 성능 비용 증가
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision", meta = (ClampMin = "0", ClampMax = "3"))
+	int32 PreviewBoneHopCount = 1;
+
+	/**
+	 * 본 가중치 임계값 (0.0-1.0)
+	 * 이 값 이상의 영향을 받는 버텍스만 subdivision 대상
+	 * 높을수록 subdivision 영역이 좁아져 성능 향상
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision", meta = (ClampMin = "0.01", ClampMax = "0.7"))
+	float PreviewBoneWeightThreshold = 0.1f;
+
+	// ===== 런타임 설정 =====
+
+	/** 최대 Subdivision 레벨 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision", meta = (ClampMin = "1", ClampMax = "6", EditCondition = "bEnableSubdivision"))
+	int32 MaxSubdivisionLevel = 4;
+
+	// ===== 생성된 메시 (런타임) =====
+
+	/**
+	 * Subdivision된 SkeletalMesh (에셋 안에 내장됨)
+	 * GenerateSubdividedMesh()로 생성됨 - 런타임용 (Ring 영역만 subdivision)
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Subdivision", meta = (EditCondition = "bEnableSubdivision"))
+	TObjectPtr<USkeletalMesh> SubdividedMesh;
+
+	/** Subdivision 생성 시점의 파라미터 해시 (재생성 필요 여부 판단용) */
+	UPROPERTY()
+	uint32 SubdivisionParamsHash = 0;
+
+	// ===== 에디터 프리뷰 메시 (Transient) =====
+
+	/**
+	 * 에디터 프리뷰용 Subdivision 메시 (Transient - 저장 안 함)
+	 * 본 기반 영역 subdivision으로 링 편집 시 실시간 프리뷰 제공
+	 */
+	UPROPERTY(Transient)
+	TObjectPtr<USkeletalMesh> PreviewSubdividedMesh;
+
+	/** 프리뷰 메시 캐시 해시 (본 배치 변경 감지용) */
+	UPROPERTY(Transient)
+	uint32 CachedPreviewBoneConfigHash = 0;
+
+	FSubdivisionSettings()
+		: bEnableSubdivision(false)
+		, MinEdgeLength(1.0f)
+		, PreviewSubdivisionLevel(2)
+		, PreviewBoneHopCount(1)
+		, PreviewBoneWeightThreshold(0.1f)
+		, MaxSubdivisionLevel(4)
+		, SubdividedMesh(nullptr)
+		, SubdivisionParamsHash(0)
+		, PreviewSubdividedMesh(nullptr)
+		, CachedPreviewBoneConfigHash(0)
+	{
+	}
+};
+
+/**
  * 머티리얼-레이어 매핑 (침투 해결용)
  * 각 머티리얼이 어느 레이어에 속하는지 정의
  * 스타킹이 항상 살 위에 렌더링되도록 보장

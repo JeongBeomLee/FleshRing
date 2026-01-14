@@ -8,6 +8,7 @@
 #include "FleshRingDetailCustomization.h"
 #include "FleshRingAssetDetailCustomization.h"
 #include "FleshRingSettingsCustomization.h"
+#include "FSubdivisionSettingsCustomization.h"
 #include "FleshRingComponent.h"
 #include "FleshRingAsset.h"
 #include "PropertyEditorModule.h"
@@ -66,6 +67,12 @@ void FFleshRingEditorModule::StartupModule()
 	PropertyModule.RegisterCustomPropertyTypeLayout(
 		FFleshRingSettings::StaticStruct()->GetFName(),
 		FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FFleshRingSettingsCustomization::MakeInstance)
+	);
+
+	// FSubdivisionSettings Property Type Customization 등록
+	PropertyModule.RegisterCustomPropertyTypeLayout(
+		FSubdivisionSettings::StaticStruct()->GetFName(),
+		FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FSubdivisionSettingsCustomization::MakeInstance)
 	);
 
 	// 등록 Detail View 갱신
@@ -274,6 +281,7 @@ void FFleshRingEditorModule::ShutdownModule()
 		PropertyModule.UnregisterCustomClassLayout(UFleshRingComponent::StaticClass()->GetFName());
 		PropertyModule.UnregisterCustomClassLayout(UFleshRingAsset::StaticClass()->GetFName());
 		PropertyModule.UnregisterCustomPropertyTypeLayout(FFleshRingSettings::StaticStruct()->GetFName());
+		PropertyModule.UnregisterCustomPropertyTypeLayout(FSubdivisionSettings::StaticStruct()->GetFName());
 	}
 }
 

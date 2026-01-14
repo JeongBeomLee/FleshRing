@@ -87,76 +87,9 @@ public:
 	// Subdivision Settings
 	// =====================================
 
-	/** Subdivision 활성화 (Low-Poly 메시용) */
+	/** Subdivision 설정 (에디터 프리뷰 + 런타임) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision Settings")
-	bool bEnableSubdivision = false;
-
-	/** 최대 Subdivision 레벨 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision Settings", meta = (ClampMin = "1", ClampMax = "6", EditCondition = "bEnableSubdivision"))
-	int32 MaxSubdivisionLevel = 4;
-
-	/** 최소 엣지 길이 (이보다 작으면 subdivision 중단) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision Settings", meta = (ClampMin = "0.1"))
-	float MinEdgeLength = 1.0f;
-
-	/** Ring 영향 범위 배율 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision Settings", meta = (ClampMin = "1.0", ClampMax = "5.0", EditCondition = "bEnableSubdivision"))
-	float InfluenceRadiusMultiplier = 2.0f;
-
-	// =====================================
-	// Subdivided Mesh (Embedded Asset)
-	// =====================================
-
-	/**
-	 * Subdivision된 SkeletalMesh (이 에셋 안에 내장됨)
-	 * GenerateSubdividedMesh()로 생성됨 - 런타임용 (Ring 영역만 subdivision)
-	 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Subdivision Settings|Generated", meta = (EditCondition = "bEnableSubdivision"))
-	TObjectPtr<USkeletalMesh> SubdividedMesh;
-
-	/** Subdivision 생성 시점의 파라미터 해시 (재생성 필요 여부 판단용) */
-	UPROPERTY()
-	uint32 SubdivisionParamsHash = 0;
-
-	// =====================================
-	// Preview Mesh (Editor Only, Transient)
-	// =====================================
-
-	/**
-	 * 에디터 프리뷰용 Subdivision 메시 (Transient - 저장 안 함)
-	 * 본 기반 영역 subdivision으로 링 편집 시 실시간 프리뷰 제공
-	 * GeneratePreviewMesh()로 생성됨
-	 */
-	UPROPERTY(Transient)
-	TObjectPtr<USkeletalMesh> PreviewSubdividedMesh;
-
-	/** 에디터 프리뷰용 Subdivision 레벨 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision Settings|Preview", meta = (ClampMin = "1", ClampMax = "4"))
-	int32 PreviewSubdivisionLevel = 2;
-
-	/**
-	 * 이웃 본 탐색 깊이 (0 = 타겟 본만, 1 = 부모+자식, 2 = 조부모+손자 포함)
-	 * 0이면 BoneWeightThreshold만으로 영역 판단
-	 * 높을수록 subdivision 영역이 넓어지지만 성능 비용 증가
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision Settings|Preview", meta = (ClampMin = "0", ClampMax = "3"))
-	int32 PreviewBoneHopCount = 1;
-
-	/**
-	 * 본 가중치 임계값 (0.0-1.0)
-	 * 이 값 이상의 영향을 받는 버텍스만 subdivision 대상
-	 * 높을수록 subdivision 영역이 좁아져 성능 향상
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision Settings|Preview", meta = (ClampMin = "0.01", ClampMax = "0.7"))
-	float PreviewBoneWeightThreshold = 0.1f;
-
-	// =====================================
-	// Preview Mesh Cache (Editor Only, Transient)
-	// =====================================
-
-	/** 프리뷰 메시 캐시 해시 (본 배치 변경 감지용) */
-	UPROPERTY(Transient)
-	uint32 CachedPreviewBoneConfigHash = 0;
+	FSubdivisionSettings SubdivisionSettings;
 
 	// =====================================
 	// Editor Selection State (Undo 가능, 디스크 저장 시 초기화)
@@ -224,7 +157,7 @@ public:
 
 	/** Subdivided 메시가 생성되어 있는지 */
 	UFUNCTION(BlueprintPure, Category = "FleshRing|Subdivision")
-	bool HasSubdividedMesh() const { return SubdividedMesh != nullptr; }
+	bool HasSubdividedMesh() const { return SubdivisionSettings.SubdividedMesh != nullptr; }
 
 	/** Subdivision 파라미터 변경으로 재생성 필요한지 */
 	UFUNCTION(BlueprintPure, Category = "FleshRing|Subdivision")
@@ -260,7 +193,7 @@ public:
 	void ClearPreviewMesh();
 
 	/** 프리뷰 메시 유효 여부 */
-	bool HasValidPreviewMesh() const { return PreviewSubdividedMesh != nullptr; }
+	bool HasValidPreviewMesh() const { return SubdivisionSettings.PreviewSubdividedMesh != nullptr; }
 
 	/** 프리뷰 메시 재생성 필요 여부 (레벨 변경 시 등) */
 	bool NeedsPreviewMeshRegeneration() const;

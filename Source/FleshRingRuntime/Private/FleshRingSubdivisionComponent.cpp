@@ -71,7 +71,6 @@ void UFleshRingSubdivisionComponent::PostEditChangeProperty(FPropertyChangedEven
 	// Settings 변경 시 재계산 필요
 	if (PropertyName == GET_MEMBER_NAME_CHECKED(UFleshRingSubdivisionComponent, MaxSubdivisionLevel) ||
 		PropertyName == GET_MEMBER_NAME_CHECKED(UFleshRingSubdivisionComponent, MinEdgeLength) ||
-		PropertyName == GET_MEMBER_NAME_CHECKED(UFleshRingSubdivisionComponent, InfluenceRadiusMultiplier) ||
 		PropertyName == GET_MEMBER_NAME_CHECKED(UFleshRingSubdivisionComponent, SubdivisionMode))
 	{
 		InvalidateCache();
@@ -321,7 +320,6 @@ void UFleshRingSubdivisionComponent::ComputeSubdivision()
 			RingParams.SDFBoundsMin = FVector(SDFCache->BoundsMin);
 			RingParams.SDFBoundsMax = FVector(SDFCache->BoundsMax);
 			RingParams.SDFLocalToComponent = SDFCache->LocalToComponent;
-			RingParams.SDFInfluenceMultiplier = InfluenceRadiusMultiplier;
 
 			UE_LOG(LogFleshRingSubdivision, Log,
 				TEXT("Using SDF mode - Bounds: [%s] to [%s]"),
@@ -338,7 +336,6 @@ void UFleshRingSubdivisionComponent::ComputeSubdivision()
 			RingParams.Axis = FVector::UpVector;
 			RingParams.Radius = Ring.RingRadius;
 			RingParams.Width = Ring.RingHeight;
-			RingParams.InfluenceMultiplier = InfluenceRadiusMultiplier;
 		}
 	}
 	else
@@ -349,7 +346,6 @@ void UFleshRingSubdivisionComponent::ComputeSubdivision()
 		RingParams.Axis = FVector::UpVector; // TODO: Bone 방향에서 계산
 		RingParams.Radius = Ring.RingRadius;
 		RingParams.Width = Ring.RingHeight;
-		RingParams.InfluenceMultiplier = InfluenceRadiusMultiplier;
 	}
 
 	Processor->SetRingParams(RingParams);

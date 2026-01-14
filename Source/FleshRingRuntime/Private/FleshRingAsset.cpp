@@ -271,17 +271,17 @@ void UFleshRingAsset::ClearMaterialLayerMappings()
 
 bool UFleshRingAsset::NeedsSubdivisionRegeneration() const
 {
-	if (!bEnableSubdivision)
+	if (!SubdivisionSettings.bEnableSubdivision)
 	{
 		return false;
 	}
 
-	if (!SubdividedMesh)
+	if (!SubdivisionSettings.SubdividedMesh)
 	{
 		return true;
 	}
 
-	return CalculateSubdivisionParamsHash() != SubdivisionParamsHash;
+	return CalculateSubdivisionParamsHash() != SubdivisionSettings.SubdivisionParamsHash;
 }
 
 uint32 UFleshRingAsset::CalculateSubdivisionParamsHash() const
@@ -295,10 +295,9 @@ uint32 UFleshRingAsset::CalculateSubdivisionParamsHash() const
 	}
 
 	// Subdivision settings
-	Hash = HashCombine(Hash, GetTypeHash(bEnableSubdivision));
-	Hash = HashCombine(Hash, GetTypeHash(MaxSubdivisionLevel));
-	Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(MinEdgeLength * 100)));
-	Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(InfluenceRadiusMultiplier * 100)));
+	Hash = HashCombine(Hash, GetTypeHash(SubdivisionSettings.bEnableSubdivision));
+	Hash = HashCombine(Hash, GetTypeHash(SubdivisionSettings.MaxSubdivisionLevel));
+	Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(SubdivisionSettings.MinEdgeLength * 100)));
 
 	// Ring settings (영향 영역 관련)
 	for (const FFleshRingSettings& Ring : Rings)
@@ -693,7 +692,7 @@ namespace SubdivisionHelpers
 	/**
 	 * DI의 AffectedVertices를 위치 기반 매칭으로 원본 메시 인덱스로 변환
 	 *
-	 * PreviewComponent의 DeformerInstance는 PreviewSubdividedMesh(토폴로지가 다름)를 사용하므로
+	 * PreviewComponent의 DeformerInstance는 SubdivisionSettings.PreviewSubdividedMesh(토폴로지가 다름)를 사용하므로
 	 * 버텍스 인덱스가 원본 메시와 다름. 하지만 위치는 거의 동일하므로 위치 기반 매칭으로 변환.
 	 *
 	 * @param SourceComponent - DeformerInstance를 가진 FleshRingComponent (에디터 프리뷰)
@@ -1023,7 +1022,7 @@ namespace SubdivisionHelpers
 			return false;
 		}
 
-		// DI가 사용 중인 메시 (PreviewSubdividedMesh)
+		// DI가 사용 중인 메시 (SubdivisionSettings.PreviewSubdividedMesh)
 		USkeletalMesh* DIMesh = SMC->GetSkeletalMeshAsset();
 		if (!DIMesh)
 		{
@@ -1283,7 +1282,7 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 		FName PropName = PropertyChangedEvent.Property->GetFName();
 
 		if (PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, TargetSkeletalMesh) ||
-			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, bEnableSubdivision) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, bEnableSubdivision) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingMesh) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BoneName) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, InfluenceMode))
@@ -1306,10 +1305,10 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 		}
 
 		// ★ Preview subdivision 파라미터 변경 시 캐시 무효화
-		if (PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, PreviewSubdivisionLevel) ||
-			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, PreviewBoneHopCount) ||
-			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, PreviewBoneWeightThreshold) ||
-			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, MinEdgeLength))
+		if (PropName == GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, PreviewSubdivisionLevel) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, PreviewBoneHopCount) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, PreviewBoneWeightThreshold) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, MinEdgeLength))
 		{
 			InvalidatePreviewMeshCache();
 		}
@@ -1351,12 +1350,12 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 		// TargetSkeletalMesh 변경 시 Subdivision 메시들 클리어 (새 메시로 재생성 필요)
 		if (PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, TargetSkeletalMesh))
 		{
-			if (PreviewSubdividedMesh)
+			if (SubdivisionSettings.PreviewSubdividedMesh)
 			{
 				ClearPreviewMesh();
 			}
 			// SubdividedMesh도 클리어 (소스 메시가 변경되었으므로 재생성 필요)
-			if (SubdividedMesh)
+			if (SubdivisionSettings.SubdividedMesh)
 			{
 				ClearSubdividedMesh();
 				// ClearSubdividedMesh()가 OnAssetChanged.Broadcast()를 호출하므로 중복 방지
@@ -1366,9 +1365,9 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 
 		// bEnableSubdivision이 false로 변경되면 SubdividedMesh도 정리
 		// (상태 불일치로 인한 크래시 방지)
-		if (PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, bEnableSubdivision))
+		if (PropName == GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, bEnableSubdivision))
 		{
-			if (!bEnableSubdivision && SubdividedMesh)
+			if (!SubdivisionSettings.bEnableSubdivision && SubdivisionSettings.SubdividedMesh)
 			{
 				// ClearSubdividedMesh() 내부에서 OnAssetChanged.Broadcast() 호출함
 				ClearSubdividedMesh();
@@ -1408,25 +1407,25 @@ void UFleshRingAsset::PostTransacted(const FTransactionObjectEvent& TransactionE
 	// SubdividedMesh는 Undo/Redo 후 무조건 클리어
 	// (Undo로 dangling pointer가 복원되거나 TargetMesh와 불일치할 수 있음)
 	// 재생성은 사용자가 GenerateSubdividedMesh 버튼으로 명시적으로 해야 함
-	if (SubdividedMesh)
+	if (SubdivisionSettings.SubdividedMesh)
 	{
-		SubdividedMesh = nullptr;
+		SubdivisionSettings.SubdividedMesh = nullptr;
 	}
 
 	// ★ PreviewSubdividedMesh는 Transient - Undo/Redo로 영향 없음
 	// 구조가 바뀌었는지 Hash로 판단하여 필요할 때만 재생성
 	const uint32 CurrentHash = CalculatePreviewBoneConfigHash();
-	const bool bStructureChanged = (CachedPreviewBoneConfigHash != CurrentHash);
+	const bool bStructureChanged = (SubdivisionSettings.CachedPreviewBoneConfigHash != CurrentHash);
 
 	if (bStructureChanged)
 	{
 		// 구조 변경됨 (Ring 추가/삭제, BoneName 변경 등) - 재생성 필요
 		UE_LOG(LogFleshRingAsset, Log, TEXT("PostTransacted: Structure changed (Hash %u -> %u), will regenerate preview mesh"),
-			CachedPreviewBoneConfigHash, CurrentHash);
+			SubdivisionSettings.CachedPreviewBoneConfigHash, CurrentHash);
 
-		if (PreviewSubdividedMesh)
+		if (SubdivisionSettings.PreviewSubdividedMesh)
 		{
-			PreviewSubdividedMesh = nullptr;
+			SubdivisionSettings.PreviewSubdividedMesh = nullptr;
 		}
 		InvalidatePreviewMeshCache();
 	}
@@ -1448,11 +1447,11 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 	// SourceComponent가 없으면 폴백으로 원본 메시 기반 직접 계산
 
 	// 이전 SubdividedMesh가 있으면 먼저 제거 (같은 이름 충돌 방지)
-	if (SubdividedMesh)
+	if (SubdivisionSettings.SubdividedMesh)
 	{
 		// ★ 즉시 파괴하지 않고 포인터만 null로 설정 (렌더 스레드 안전)
 		// GC가 안전하게 정리하게 함
-		SubdividedMesh = nullptr;
+		SubdivisionSettings.SubdividedMesh = nullptr;
 
 		// Note: OnAssetChanged.Broadcast() 호출 안 함
 		// SubdividedMesh는 런타임용이고, 프리뷰는 PreviewSubdividedMesh를 사용
@@ -1471,7 +1470,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 						{
 							if (Comp->FleshRingAsset == this)
 							{
-								// ApplyAsset()이 SubdividedMesh == nullptr을 보고 원본 메시로 전환
+								// ApplyAsset()이 SubdivisionSettings.SubdividedMesh == nullptr을 보고 원본 메시로 전환
 								Comp->ApplyAsset();
 							}
 						}
@@ -1481,7 +1480,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		}
 	}
 
-	if (!bEnableSubdivision)
+	if (!SubdivisionSettings.bEnableSubdivision)
 	{
 		UE_LOG(LogFleshRingAsset, Warning, TEXT("GenerateSubdividedMesh: Subdivision이 비활성화됨"));
 		return;
@@ -1697,13 +1696,13 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		UE_LOG(LogFleshRingAsset, Warning, TEXT("║    5-10 cm: %6d (%5.1f%%)                                 ║"), HistBins[3], EdgeCount > 0 ? HistBins[3] * 100.0f / EdgeCount : 0.0f);
 		UE_LOG(LogFleshRingAsset, Warning, TEXT("║    > 10 cm: %6d (%5.1f%%)                                 ║"), HistBins[4], EdgeCount > 0 ? HistBins[4] * 100.0f / EdgeCount : 0.0f);
 		UE_LOG(LogFleshRingAsset, Warning, TEXT("╠══════════════════════════════════════════════════════════════╣"));
-		UE_LOG(LogFleshRingAsset, Warning, TEXT("║  Subdivision Level Prediction (MinEdgeLength=%.1f):          ║"), MinEdgeLength);
+		UE_LOG(LogFleshRingAsset, Warning, TEXT("║  Subdivision Level Prediction (SubdivisionSettings.MinEdgeLength=%.1f):          ║"), SubdivisionSettings.MinEdgeLength);
 
 		int32 PredictedStopLevel = 0;
 		for (int32 L = 1; L <= 6; ++L)
 		{
 			const float ExpectedAvg = AvgEdge / FMath::Pow(2.0f, (float)L);
-			const bool bWillStop = ExpectedAvg < MinEdgeLength;
+			const bool bWillStop = ExpectedAvg < SubdivisionSettings.MinEdgeLength;
 			if (bWillStop && PredictedStopLevel == 0)
 			{
 				PredictedStopLevel = L;
@@ -1716,12 +1715,12 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		if (PredictedStopLevel > 0)
 		{
 			UE_LOG(LogFleshRingAsset, Warning, TEXT("║  ★ PREDICTION: Most edges will stop at Level %d             ║"), PredictedStopLevel);
-			UE_LOG(LogFleshRingAsset, Warning, TEXT("║    Setting MaxLevel=%d is SAFE                              ║"), MaxSubdivisionLevel);
+			UE_LOG(LogFleshRingAsset, Warning, TEXT("║    Setting MaxLevel=%d is SAFE                              ║"), SubdivisionSettings.MaxSubdivisionLevel);
 		}
 		else
 		{
 			UE_LOG(LogFleshRingAsset, Warning, TEXT("║  ⚠ WARNING: Edges may subdivide beyond Level 6!            ║"));
-			UE_LOG(LogFleshRingAsset, Warning, TEXT("║    Consider increasing MinEdgeLength or reducing MaxLevel   ║"));
+			UE_LOG(LogFleshRingAsset, Warning, TEXT("║    Consider increasing SubdivisionSettings.MinEdgeLength or reducing MaxLevel   ║"));
 		}
 		UE_LOG(LogFleshRingAsset, Warning, TEXT("╚══════════════════════════════════════════════════════════════╝"));
 		UE_LOG(LogFleshRingAsset, Warning, TEXT(""));
@@ -1740,8 +1739,8 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 
 	// 프로세서 설정
 	FSubdivisionProcessorSettings Settings;
-	Settings.MaxSubdivisionLevel = MaxSubdivisionLevel;
-	Settings.MinEdgeLength = MinEdgeLength;
+	Settings.MaxSubdivisionLevel = SubdivisionSettings.MaxSubdivisionLevel;
+	Settings.MinEdgeLength = SubdivisionSettings.MinEdgeLength;
 	Processor.SetSettings(Settings);
 
 	// ★ 모든 Ring에 대해 파라미터 설정
@@ -1788,7 +1787,6 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 					RingParams.SDFBoundsMin = FVector(MeshBounds.Min);
 					RingParams.SDFBoundsMax = FVector(MeshBounds.Max);
 					RingParams.SDFLocalToComponent = LocalToComponent;
-					RingParams.SDFInfluenceMultiplier = InfluenceRadiusMultiplier;
 				}
 				else
 				{
@@ -1805,7 +1803,6 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 				RingParams.Axis = Ring.RingRotation.RotateVector(FVector::UpVector);
 				RingParams.Radius = Ring.RingRadius;
 				RingParams.Width = Ring.RingHeight;
-				RingParams.InfluenceMultiplier = InfluenceRadiusMultiplier;
 			}
 		}
 		else
@@ -2083,18 +2080,18 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 	FString MeshName = FString::Printf(TEXT("%s_Subdivided_%s"),
 		*SourceMesh->GetName(),
 		*FGuid::NewGuid().ToString(EGuidFormats::Short));
-	SubdividedMesh = DuplicateObject<USkeletalMesh>(SourceMesh, this, FName(*MeshName));
+	SubdivisionSettings.SubdividedMesh = DuplicateObject<USkeletalMesh>(SourceMesh, this, FName(*MeshName));
 
-	if (!SubdividedMesh)
+	if (!SubdivisionSettings.SubdividedMesh)
 	{
 		UE_LOG(LogFleshRingAsset, Error, TEXT("GenerateSubdividedMesh: 소스 메시 복제 실패"));
 		return;
 	}
 
 	// 복제된 메시의 기존 MeshDescription 제거
-	if (SubdividedMesh->HasMeshDescription(0))
+	if (SubdivisionSettings.SubdividedMesh->HasMeshDescription(0))
 	{
-		SubdividedMesh->ClearMeshDescription(0);
+		SubdivisionSettings.SubdividedMesh->ClearMeshDescription(0);
 	}
 
 	// ============================================
@@ -2317,32 +2314,32 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 	}
 
 	// MeshDescription을 SkeletalMesh에 저장
-	SubdividedMesh->CreateMeshDescription(0, MoveTemp(MeshDescription));
+	SubdivisionSettings.SubdividedMesh->CreateMeshDescription(0, MoveTemp(MeshDescription));
 
 	// 기존 렌더 리소스 해제 (DuplicateObject로 복제된 데이터 제거)
-	SubdividedMesh->ReleaseResources();
-	SubdividedMesh->ReleaseResourcesFence.Wait();
+	SubdivisionSettings.SubdividedMesh->ReleaseResources();
+	SubdivisionSettings.SubdividedMesh->ReleaseResourcesFence.Wait();
 
 	// MeshDescription을 실제 LOD 모델 데이터로 커밋
 	USkeletalMesh::FCommitMeshDescriptionParams CommitParams;
 	CommitParams.bMarkPackageDirty = false;
-	SubdividedMesh->CommitMeshDescription(0, CommitParams);
+	SubdivisionSettings.SubdividedMesh->CommitMeshDescription(0, CommitParams);
 
 	// 메시 빌드 (LOD 모델 → 렌더 데이터)
-	SubdividedMesh->Build();
+	SubdivisionSettings.SubdividedMesh->Build();
 
 	// Build 결과 검증
-	FSkeletalMeshRenderData* NewRenderData = SubdividedMesh->GetResourceForRendering();
+	FSkeletalMeshRenderData* NewRenderData = SubdivisionSettings.SubdividedMesh->GetResourceForRendering();
 	if (!NewRenderData || NewRenderData->LODRenderData.Num() == 0)
 	{
 		UE_LOG(LogFleshRingAsset, Error, TEXT("GenerateSubdividedMesh: Build failed - no RenderData"));
-		SubdividedMesh->ConditionalBeginDestroy();
-		SubdividedMesh = nullptr;
+		SubdivisionSettings.SubdividedMesh->ConditionalBeginDestroy();
+		SubdivisionSettings.SubdividedMesh = nullptr;
 		return;
 	}
 
 	// 렌더 리소스 초기화
-	SubdividedMesh->InitResources();
+	SubdivisionSettings.SubdividedMesh->InitResources();
 	FlushRenderingCommands();
 
 	// 바운딩 박스 재계산
@@ -2351,11 +2348,11 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 	{
 		BoundingBox += NewPositions[i];
 	}
-	SubdividedMesh->SetImportedBounds(FBoxSphereBounds(BoundingBox));
-	SubdividedMesh->CalculateExtendedBounds();
+	SubdivisionSettings.SubdividedMesh->SetImportedBounds(FBoxSphereBounds(BoundingBox));
+	SubdivisionSettings.SubdividedMesh->CalculateExtendedBounds();
 
 	// 파라미터 해시 저장 (재생성 판단용)
-	SubdivisionParamsHash = CalculateSubdivisionParamsHash();
+	SubdivisionSettings.SubdivisionParamsHash = CalculateSubdivisionParamsHash();
 	MarkPackageDirty();
 
 	// Note: OnAssetChanged.Broadcast() 호출 안 함
@@ -2386,12 +2383,12 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 
 void UFleshRingAsset::ClearSubdividedMesh()
 {
-	if (SubdividedMesh)
+	if (SubdivisionSettings.SubdividedMesh)
 	{
 		// ★ 즉시 파괴하지 않고 포인터만 null로 설정
 		// 렌더 스레드가 아직 메시를 사용 중일 수 있으므로 GC가 안전하게 정리하게 함
-		SubdividedMesh = nullptr;
-		SubdivisionParamsHash = 0;
+		SubdivisionSettings.SubdividedMesh = nullptr;
+		SubdivisionSettings.SubdivisionParamsHash = 0;
 
 		// 에디터 프리뷰 메시도 함께 제거 (원본 메시로 완전 복원)
 		ClearPreviewMesh();
@@ -2433,14 +2430,14 @@ void UFleshRingAsset::GeneratePreviewMesh()
 	}
 
 	// 기존 PreviewMesh가 있으면 먼저 제거
-	if (PreviewSubdividedMesh)
+	if (SubdivisionSettings.PreviewSubdividedMesh)
 	{
 		// ★ 즉시 파괴하지 않고 포인터만 null로 설정 (렌더 스레드 안전)
-		PreviewSubdividedMesh = nullptr;
+		SubdivisionSettings.PreviewSubdividedMesh = nullptr;
 		OnAssetChanged.Broadcast(this);
 	}
 
-	if (!bEnableSubdivision)
+	if (!SubdivisionSettings.bEnableSubdivision)
 	{
 		return;
 	}
@@ -2605,7 +2602,7 @@ void UFleshRingAsset::GeneratePreviewMesh()
 	Processor.SetVertexBoneInfluences(VertexBoneInfluences);
 
 	FSubdivisionProcessorSettings Settings;
-	Settings.MinEdgeLength = MinEdgeLength;
+	Settings.MinEdgeLength = SubdivisionSettings.MinEdgeLength;
 	Processor.SetSettings(Settings);
 
 	FSubdivisionTopologyResult TopologyResult;
@@ -2627,19 +2624,19 @@ void UFleshRingAsset::GeneratePreviewMesh()
 
 		// 이웃 본 수집
 		TSet<int32> TargetBones = FFleshRingSubdivisionProcessor::GatherNeighborBones(
-			RefSkeleton, RingBoneIndices, PreviewBoneHopCount);
+			RefSkeleton, RingBoneIndices, SubdivisionSettings.PreviewBoneHopCount);
 
 		// 본 영역 파라미터 설정
 		FBoneRegionSubdivisionParams BoneParams;
 		BoneParams.TargetBoneIndices = TargetBones;
-		BoneParams.BoneWeightThreshold = static_cast<uint8>(PreviewBoneWeightThreshold * 255);
-		BoneParams.NeighborHopCount = PreviewBoneHopCount;
-		BoneParams.MaxSubdivisionLevel = PreviewSubdivisionLevel;
+		BoneParams.BoneWeightThreshold = static_cast<uint8>(SubdivisionSettings.PreviewBoneWeightThreshold * 255);
+		BoneParams.NeighborHopCount = SubdivisionSettings.PreviewBoneHopCount;
+		BoneParams.MaxSubdivisionLevel = SubdivisionSettings.PreviewSubdivisionLevel;
 
 		if (!Processor.ProcessBoneRegion(TopologyResult, BoneParams))
 		{
 			// ProcessBoneRegion 실패 시 ProcessUniform으로 fallback
-			if (!Processor.ProcessUniform(TopologyResult, PreviewSubdivisionLevel))
+			if (!Processor.ProcessUniform(TopologyResult, SubdivisionSettings.PreviewSubdivisionLevel))
 			{
 				UE_LOG(LogFleshRingAsset, Warning, TEXT("GeneratePreviewMesh: Subdivision 실패"));
 				return;
@@ -2649,7 +2646,7 @@ void UFleshRingAsset::GeneratePreviewMesh()
 	else
 	{
 		// 링이 없거나 본 정보가 없으면 균일 subdivision (fallback)
-		if (!Processor.ProcessUniform(TopologyResult, PreviewSubdivisionLevel))
+		if (!Processor.ProcessUniform(TopologyResult, SubdivisionSettings.PreviewSubdivisionLevel))
 		{
 			UE_LOG(LogFleshRingAsset, Warning, TEXT("GeneratePreviewMesh: Subdivision 실패"));
 			return;
@@ -2736,9 +2733,9 @@ void UFleshRingAsset::GeneratePreviewMesh()
 	FString MeshName = FString::Printf(TEXT("%s_Preview_%s"),
 		*SourceMesh->GetName(),
 		*FGuid::NewGuid().ToString(EGuidFormats::Short));
-	PreviewSubdividedMesh = DuplicateObject<USkeletalMesh>(SourceMesh, GetTransientPackage(), FName(*MeshName));
+	SubdivisionSettings.PreviewSubdividedMesh = DuplicateObject<USkeletalMesh>(SourceMesh, GetTransientPackage(), FName(*MeshName));
 
-	if (!PreviewSubdividedMesh)
+	if (!SubdivisionSettings.PreviewSubdividedMesh)
 	{
 		UE_LOG(LogFleshRingAsset, Warning, TEXT("GeneratePreviewMesh: 메시 복제 실패"));
 		return;
@@ -2746,13 +2743,13 @@ void UFleshRingAsset::GeneratePreviewMesh()
 
 	// 복제된 메시의 기존 렌더 리소스 완전 해제 (렌더 스레드 동기화)
 	FlushRenderingCommands();
-	PreviewSubdividedMesh->ReleaseResources();
-	PreviewSubdividedMesh->ReleaseResourcesFence.Wait();
+	SubdivisionSettings.PreviewSubdividedMesh->ReleaseResources();
+	SubdivisionSettings.PreviewSubdividedMesh->ReleaseResourcesFence.Wait();
 
 	// 기존 MeshDescription 제거
-	if (PreviewSubdividedMesh->HasMeshDescription(0))
+	if (SubdivisionSettings.PreviewSubdividedMesh->HasMeshDescription(0))
 	{
-		PreviewSubdividedMesh->ClearMeshDescription(0);
+		SubdivisionSettings.PreviewSubdividedMesh->ClearMeshDescription(0);
 	}
 
 	// 6. MeshDescription 생성
@@ -2839,54 +2836,54 @@ void UFleshRingAsset::GeneratePreviewMesh()
 		SkinWeights.Set(VertexID, BoneWeightArray);
 	}
 
-	PreviewSubdividedMesh->CreateMeshDescription(0, MoveTemp(MeshDescription));
+	SubdivisionSettings.PreviewSubdividedMesh->CreateMeshDescription(0, MoveTemp(MeshDescription));
 
 	// ReleaseResources는 위에서 이미 호출됨
 	USkeletalMesh::FCommitMeshDescriptionParams CommitParams;
 	CommitParams.bMarkPackageDirty = false;
-	PreviewSubdividedMesh->CommitMeshDescription(0, CommitParams);
-	PreviewSubdividedMesh->Build();
-	PreviewSubdividedMesh->InitResources();
+	SubdivisionSettings.PreviewSubdividedMesh->CommitMeshDescription(0, CommitParams);
+	SubdivisionSettings.PreviewSubdividedMesh->Build();
+	SubdivisionSettings.PreviewSubdividedMesh->InitResources();
 
 	// 렌더 스레드가 리소스 초기화를 완료할 때까지 대기
 	FlushRenderingCommands();
 
 	FBox BoundingBox(ForceInit);
 	for (int32 i = 0; i < NewVertexCount; ++i) { BoundingBox += NewPositions[i]; }
-	PreviewSubdividedMesh->SetImportedBounds(FBoxSphereBounds(BoundingBox));
-	PreviewSubdividedMesh->CalculateExtendedBounds();
+	SubdivisionSettings.PreviewSubdividedMesh->SetImportedBounds(FBoxSphereBounds(BoundingBox));
+	SubdivisionSettings.PreviewSubdividedMesh->CalculateExtendedBounds();
 
 	// ★ 캐시 해시 업데이트
-	CachedPreviewBoneConfigHash = CalculatePreviewBoneConfigHash();
+	SubdivisionSettings.CachedPreviewBoneConfigHash = CalculatePreviewBoneConfigHash();
 
 	// ★ 성능 측정 종료
 	const double EndTime = FPlatformTime::Seconds();
 	const double ElapsedMs = (EndTime - StartTime) * 1000.0;
 
 	UE_LOG(LogFleshRingAsset, Log, TEXT("GeneratePreviewMesh 완료: %d vertices, %d triangles (%.2fms, CacheHash=%u)"),
-		NewVertexCount, TopologyResult.SubdividedTriangleCount, ElapsedMs, CachedPreviewBoneConfigHash);
+		NewVertexCount, TopologyResult.SubdividedTriangleCount, ElapsedMs, SubdivisionSettings.CachedPreviewBoneConfigHash);
 }
 
 void UFleshRingAsset::ClearPreviewMesh()
 {
-	if (PreviewSubdividedMesh)
+	if (SubdivisionSettings.PreviewSubdividedMesh)
 	{
 		// ★ 즉시 파괴하지 않고 포인터만 null로 설정
 		// 렌더 스레드가 아직 메시를 사용 중일 수 있으므로 GC가 안전하게 정리하게 함
 		// (ConditionalBeginDestroy()를 호출하면 렌더 스레드 크래시 발생 가능)
-		PreviewSubdividedMesh = nullptr;
+		SubdivisionSettings.PreviewSubdividedMesh = nullptr;
 	}
 }
 
 bool UFleshRingAsset::NeedsPreviewMeshRegeneration() const
 {
-	if (!bEnableSubdivision)
+	if (!SubdivisionSettings.bEnableSubdivision)
 	{
 		return false;
 	}
 
 	// 메시가 없으면 재생성 필요
-	if (PreviewSubdividedMesh == nullptr)
+	if (SubdivisionSettings.PreviewSubdividedMesh == nullptr)
 	{
 		return true;
 	}
@@ -2912,7 +2909,7 @@ void UFleshRingAsset::SetEditorSelectedRingIndex(int32 RingIndex, EFleshRingSele
 void UFleshRingAsset::InvalidatePreviewMeshCache()
 {
 	// ★ MAX_uint32로 설정하여 계산된 해시와 절대 일치하지 않도록 함
-	CachedPreviewBoneConfigHash = MAX_uint32;
+	SubdivisionSettings.CachedPreviewBoneConfigHash = MAX_uint32;
 }
 
 uint32 UFleshRingAsset::CalculatePreviewBoneConfigHash() const
@@ -2926,10 +2923,10 @@ uint32 UFleshRingAsset::CalculatePreviewBoneConfigHash() const
 	}
 
 	// subdivision 파라미터 해시
-	Hash = HashCombine(Hash, GetTypeHash(PreviewSubdivisionLevel));
-	Hash = HashCombine(Hash, GetTypeHash(PreviewBoneHopCount));
-	Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(PreviewBoneWeightThreshold * 255)));
-	Hash = HashCombine(Hash, GetTypeHash(MinEdgeLength));
+	Hash = HashCombine(Hash, GetTypeHash(SubdivisionSettings.PreviewSubdivisionLevel));
+	Hash = HashCombine(Hash, GetTypeHash(SubdivisionSettings.PreviewBoneHopCount));
+	Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(SubdivisionSettings.PreviewBoneWeightThreshold * 255)));
+	Hash = HashCombine(Hash, GetTypeHash(SubdivisionSettings.MinEdgeLength));
 
 	return Hash;
 }
@@ -2942,6 +2939,6 @@ bool UFleshRingAsset::IsPreviewMeshCacheValid() const
 	}
 
 	// 해시 비교
-	return CachedPreviewBoneConfigHash == CalculatePreviewBoneConfigHash();
+	return SubdivisionSettings.CachedPreviewBoneConfigHash == CalculatePreviewBoneConfigHash();
 }
 #endif

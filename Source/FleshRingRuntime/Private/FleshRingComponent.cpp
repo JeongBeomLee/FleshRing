@@ -318,7 +318,7 @@ void UFleshRingComponent::ResolveTargetMesh()
 		// ★ 에디터 프리뷰 모드: PreviewSubdividedMesh가 존재하고 에디터 월드일 때만 스킵
 		// PIE/런타임(IsGameWorld)에서는 SubdividedMesh를 사용해야 함
 		// (SetAsset()에서 PreviewSubdividedMesh가 나중에 적용되므로 여기서 미리 스킵)
-		if (FleshRingAsset->PreviewSubdividedMesh != nullptr && GetWorld() && !GetWorld()->IsGameWorld())
+		if (FleshRingAsset->SubdivisionSettings.PreviewSubdividedMesh != nullptr && GetWorld() && !GetWorld()->IsGameWorld())
 		{
 			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: PreviewSubdividedMesh exists, skipping mesh changes (editor preview mode)"));
 			return;
@@ -326,13 +326,13 @@ void UFleshRingComponent::ResolveTargetMesh()
 
 		UE_LOG(LogFleshRingComponent, Log, TEXT("ResolveTargetMesh: HasSubdividedMesh=%d, SubdividedMesh=%p, CurrentMesh='%s'"),
 			FleshRingAsset->HasSubdividedMesh(),
-			FleshRingAsset->SubdividedMesh.Get(),
+			FleshRingAsset->SubdivisionSettings.SubdividedMesh.Get(),
 			CurrentMesh ? *CurrentMesh->GetName() : TEXT("null"));
 
 		if (FleshRingAsset->HasSubdividedMesh())
 		{
 			// SubdividedMesh가 있으면 적용
-			USkeletalMesh* SubdivMesh = FleshRingAsset->SubdividedMesh;
+			USkeletalMesh* SubdivMesh = FleshRingAsset->SubdivisionSettings.SubdividedMesh;
 			if (CurrentMesh != SubdivMesh)
 			{
 				// 스켈레톤 유효성 검사 (Undo/Redo 크래시 방지)
@@ -919,7 +919,7 @@ void UFleshRingComponent::ApplyAsset()
 			USkeletalMesh* ActualMesh = TargetMesh->GetSkeletalMeshAsset();
 
 			// SubdividedMesh가 적용된 경우는 정상이므로 검증 통과
-			bool bIsSubdividedMesh = FleshRingAsset->HasSubdividedMesh() && ActualMesh == FleshRingAsset->SubdividedMesh;
+			bool bIsSubdividedMesh = FleshRingAsset->HasSubdividedMesh() && ActualMesh == FleshRingAsset->SubdivisionSettings.SubdividedMesh;
 
 			if (ExpectedMesh && ActualMesh && ExpectedMesh != ActualMesh && !bIsSubdividedMesh)
 			{

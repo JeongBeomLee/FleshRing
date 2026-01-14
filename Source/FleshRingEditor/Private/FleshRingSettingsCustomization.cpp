@@ -752,8 +752,8 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		return static_cast<EFleshRingInfluenceMode>(ModeValue) == EFleshRingInfluenceMode::Manual;
 	});
 
-	// SDF 모드 동적 체크용 TAttribute (SDF Settings에 사용 - Manual이 아닐 때 활성화)
-	TAttribute<bool> IsSdfModeAttr = TAttribute<bool>::Create([InfluenceModeHandle]() -> bool
+	// Auto(SDF) 모드 동적 체크용 TAttribute (SDF Bounds Expand에 사용)
+	TAttribute<bool> IsAutoModeAttr = TAttribute<bool>::Create([InfluenceModeHandle]() -> bool
 	{
 		if (!InfluenceModeHandle.IsValid())
 		{
@@ -761,7 +761,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		}
 		uint8 ModeValue = 0;
 		InfluenceModeHandle->GetValue(ModeValue);
-		return static_cast<EFleshRingInfluenceMode>(ModeValue) != EFleshRingInfluenceMode::Manual;
+		return static_cast<EFleshRingInfluenceMode>(ModeValue) == EFleshRingInfluenceMode::Auto;
 	});
 
 	// VirtualBand 모드 동적 체크용 TAttribute
@@ -776,20 +776,51 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		return static_cast<EFleshRingInfluenceMode>(ModeValue) == EFleshRingInfluenceMode::ProceduralBand;
 	});
 
-	// Ring Transform 그룹에 넣을 프로퍼티들 수집
+	// Ring 그룹에 넣을 프로퍼티들 수집
+	TSharedPtr<IPropertyHandle> RingMeshHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingMesh));
 	TSharedPtr<IPropertyHandle> RingRadiusHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingRadius));
 	TSharedPtr<IPropertyHandle> RingThicknessHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingThickness));
 	TSharedPtr<IPropertyHandle> RingHeightHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingHeight));
 	TSharedPtr<IPropertyHandle> RingOffsetHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingOffset));
 	TSharedPtr<IPropertyHandle> RingEulerHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingEulerRotation));
 
-	// Ring Transform 그룹에 들어갈 프로퍼티 이름들
+	// Ring 그룹에 들어갈 프로퍼티 이름들
 	TSet<FName> RingGroupProperties;
+	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingMesh));
+	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, InfluenceMode));
 	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingRadius));
 	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingThickness));
 	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingHeight));
 	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingOffset));
 	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingEulerRotation));
+
+	// SDF 그룹 프로퍼티 핸들
+	TSharedPtr<IPropertyHandle> SDFBoundsExpandXHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SDFBoundsExpandX));
+	TSharedPtr<IPropertyHandle> SDFBoundsExpandYHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SDFBoundsExpandY));
+
+	// SDF 그룹에 들어갈 프로퍼티 이름들
+	TSet<FName> SDFGroupProperties;
+	SDFGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SDFBoundsExpandX));
+	SDFGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SDFBoundsExpandY));
+
+	// Mesh Transform 그룹 프로퍼티 핸들
+	TSharedPtr<IPropertyHandle> MeshOffsetHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshOffset));
+	TSharedPtr<IPropertyHandle> MeshEulerRotationHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshEulerRotation));
+	// MeshScaleHandle은 클래스 멤버로 이미 존재 (비율 잠금 기능용)
+	MeshScaleHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshScale));
+
+	// Mesh Transform 그룹에 들어갈 프로퍼티 이름들
+	TSet<FName> MeshTransformGroupProperties;
+	MeshTransformGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshOffset));
+	MeshTransformGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshEulerRotation));
+	MeshTransformGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshScale));
+
+	// Virtual Band 그룹 프로퍼티 핸들
+	TSharedPtr<IPropertyHandle> ProceduralBandHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, ProceduralBand));
+
+	// Virtual Band 그룹에 들어갈 프로퍼티 이름들
+	TSet<FName> VirtualBandGroupProperties;
+	VirtualBandGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, ProceduralBand));
 
 	// Smoothing 프로퍼티 핸들 개별 획득
 	// Post Process 최상위 토글
@@ -840,6 +871,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HeatPropagationIterations));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HeatPropagationLambda));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingBoundsZBottom));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bIncludeBulgeVerticesAsSeeds));
 
 	// PBD 프로퍼티 핸들 개별 획득
 	TSharedPtr<IPropertyHandle> bEnablePBDEdgeConstraintHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnablePBDEdgeConstraint));
@@ -853,6 +885,35 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	PBDGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PBDStiffness));
 	PBDGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PBDIterations));
 	PBDGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bPBDUseDeformAmountWeight));
+
+	// Deformation (Tightness + Bulge) 프로퍼티 핸들 획득
+	TSharedPtr<IPropertyHandle> TightnessStrengthHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, TightnessStrength));
+	TSharedPtr<IPropertyHandle> FalloffTypeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, FalloffType));
+	TSharedPtr<IPropertyHandle> bEnableBulgeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableBulge));
+	TSharedPtr<IPropertyHandle> BulgeDirectionHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeDirection));
+	TSharedPtr<IPropertyHandle> BulgeFalloffHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeFalloff));
+	TSharedPtr<IPropertyHandle> BulgeIntensityHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeIntensity));
+	TSharedPtr<IPropertyHandle> BulgeAxialRangeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeAxialRange));
+	TSharedPtr<IPropertyHandle> BulgeRadialRangeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeRadialRange));
+	TSharedPtr<IPropertyHandle> UpperBulgeStrengthHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, UpperBulgeStrength));
+	TSharedPtr<IPropertyHandle> LowerBulgeStrengthHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, LowerBulgeStrength));
+	TSharedPtr<IPropertyHandle> BulgeRadialRatioHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeRadialRatio));
+
+	// Deformation 그룹에 들어갈 프로퍼티 이름들
+	TSet<FName> DeformationGroupProperties;
+	// Tightness
+	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, TightnessStrength));
+	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, FalloffType));
+	// Bulge
+	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableBulge));
+	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeDirection));
+	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeFalloff));
+	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeIntensity));
+	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeAxialRange));
+	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeRadialRange));
+	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, UpperBulgeStrength));
+	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, LowerBulgeStrength));
+	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeRadialRatio));
 
 	// 나머지 프로퍼티들 먼저 표시 (Ring 그룹 제외)
 	uint32 NumChildren;
@@ -900,240 +961,27 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			continue;
 		}
 
-		// Transform 프로퍼티들은 선형 드래그 감도 적용 + 기본 리셋 화살표
-		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshOffset))
+		// Deformation 그룹에 넣을 프로퍼티는 여기서 스킵
+		if (DeformationGroupProperties.Contains(PropertyName))
 		{
-			ChildBuilder.AddProperty(ChildHandle)
-				.CustomWidget()
-				.NameContent()
-				[
-					ChildHandle->CreatePropertyNameWidget()
-				]
-				.ValueContent()
-				.MinDesiredWidth(300.0f)
-				[
-					CreateLinearVectorWidget(ChildHandle, 0.1f)
-				]
-				.OverrideResetToDefault(
-					FResetToDefaultOverride::Create(
-						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-							FVector Value;
-							Handle->GetValue(Value);
-							return !Value.IsNearlyZero();
-						}),
-						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-							Handle->SetValue(FVector::ZeroVector);
-						})
-					)
-				);
-			continue;
-		}
-		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshEulerRotation))
-		{
-			ChildBuilder.AddProperty(ChildHandle)
-				.CustomWidget()
-				.NameContent()
-				[
-					ChildHandle->CreatePropertyNameWidget()
-				]
-				.ValueContent()
-				.MinDesiredWidth(300.0f)
-				[
-					CreateLinearRotatorWidget(ChildHandle, 1.0f)
-				]
-				.OverrideResetToDefault(
-					FResetToDefaultOverride::Create(
-						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-							FRotator Value;
-							Handle->GetValue(Value);
-							return !Value.Equals(FRotator(-90.0f, 0.0f, 0.0f), 0.01f);
-						}),
-						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-							Handle->SetValue(FRotator(-90.0f, 0.0f, 0.0f));
-						})
-					)
-				);
-			continue;
-		}
-		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshScale))
-		{
-			ChildBuilder.AddProperty(ChildHandle)
-				.CustomWidget()
-				.NameContent()
-				[
-					SNew(SHorizontalBox)
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					.VAlign(VAlign_Center)
-					[
-						ChildHandle->CreatePropertyNameWidget()
-					]
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					.VAlign(VAlign_Center)
-					.Padding(4, 0, 0, 0)
-					[
-						SNew(SButton)
-						.ButtonStyle(FAppStyle::Get(), "NoBorder")
-						.OnClicked(this, &FFleshRingSettingsCustomization::OnMeshScaleLockClicked)
-						.ToolTipText_Lambda([this]()
-						{
-							return bMeshScaleLocked
-								? LOCTEXT("UnlockScale", "Unlock Scale (비율 유지 해제)")
-								: LOCTEXT("LockScale", "Lock Scale (비율 유지)");
-						})
-						.ContentPadding(FMargin(2.0f))
-						[
-							SNew(SImage)
-							.Image_Lambda([this]()
-							{
-								return bMeshScaleLocked
-									? FAppStyle::GetBrush("Icons.Lock")
-									: FAppStyle::GetBrush("Icons.Unlock");
-							})
-							.ColorAndOpacity(FSlateColor::UseForeground())
-						]
-					]
-				]
-				.ValueContent()
-				.MinDesiredWidth(300.0f)
-				[
-					CreateMeshScaleWidget(ChildHandle, 0.0025f)
-				]
-				.OverrideResetToDefault(
-					FResetToDefaultOverride::Create(
-						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-							FVector Value;
-							Handle->GetValue(Value);
-							return !Value.Equals(FVector::OneVector, 0.0001f);
-						}),
-						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-							Handle->SetValue(FVector::OneVector);
-						})
-					)
-				);
 			continue;
 		}
 
-		// InfluenceMode - 기본값: Auto
-		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, InfluenceMode))
+		// SDF 그룹에 넣을 프로퍼티는 여기서 스킵
+		if (SDFGroupProperties.Contains(PropertyName))
 		{
-			ChildBuilder.AddProperty(ChildHandle)
-				.OverrideResetToDefault(
-					FResetToDefaultOverride::Create(
-						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-							uint8 Value;
-							Handle->GetValue(Value);
-							return Value != static_cast<uint8>(EFleshRingInfluenceMode::Auto);
-						}),
-						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-							Handle->SetValue(static_cast<uint8>(EFleshRingInfluenceMode::Auto));
-						})
-					)
-				);
 			continue;
 		}
 
-		// BulgeIntensity - 기본값: 1.0
-		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeIntensity))
+		// Mesh Transform 그룹에 넣을 프로퍼티는 여기서 스킵
+		if (MeshTransformGroupProperties.Contains(PropertyName))
 		{
-			ChildBuilder.AddProperty(ChildHandle)
-				.OverrideResetToDefault(
-					FResetToDefaultOverride::Create(
-						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-							float Value;
-							Handle->GetValue(Value);
-							return !FMath::IsNearlyEqual(Value, 1.0f);
-						}),
-						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-							Handle->SetValue(1.0f);
-						})
-					)
-				);
 			continue;
 		}
 
-		// BulgeAxialRange - 기본값: 5.0
-		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeAxialRange))
+		// Virtual Band 그룹에 넣을 프로퍼티는 여기서 스킵
+		if (VirtualBandGroupProperties.Contains(PropertyName))
 		{
-			ChildBuilder.AddProperty(ChildHandle)
-				.OverrideResetToDefault(
-					FResetToDefaultOverride::Create(
-						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-							float Value;
-							Handle->GetValue(Value);
-							return !FMath::IsNearlyEqual(Value, 5.0f);
-						}),
-						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-							Handle->SetValue(5.0f);
-						})
-					)
-				);
-			continue;
-		}
-
-		// BulgeRadialRange - 기본값: 1.0
-		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeRadialRange))
-		{
-			ChildBuilder.AddProperty(ChildHandle)
-				.OverrideResetToDefault(
-					FResetToDefaultOverride::Create(
-						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-							float Value;
-							Handle->GetValue(Value);
-							return !FMath::IsNearlyEqual(Value, 1.0f);
-						}),
-						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-							Handle->SetValue(1.0f);
-						})
-					)
-				);
-			continue;
-		}
-
-		// TightnessStrength - 기본값: 1.0
-		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, TightnessStrength))
-		{
-			ChildBuilder.AddProperty(ChildHandle)
-				.OverrideResetToDefault(
-					FResetToDefaultOverride::Create(
-						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-							float Value;
-							Handle->GetValue(Value);
-							return !FMath::IsNearlyEqual(Value, 1.0f);
-						}),
-						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-							Handle->SetValue(1.0f);
-						})
-					)
-				);
-			continue;
-		}
-
-		// FalloffType - 기본값: Linear
-		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, FalloffType))
-		{
-			ChildBuilder.AddProperty(ChildHandle)
-				.OverrideResetToDefault(
-					FResetToDefaultOverride::Create(
-						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-							uint8 Value;
-							Handle->GetValue(Value);
-							return Value != static_cast<uint8>(EFalloffType::Linear);
-						}),
-						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-							Handle->SetValue(static_cast<uint8>(EFalloffType::Linear));
-						})
-					)
-				);
-			continue;
-		}
-
-		// VirtualBand - InfluenceMode가 VirtualBand일 때만 활성화
-		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, ProceduralBand))
-		{
-			ChildBuilder.AddProperty(ChildHandle)
-				.IsEnabled(IsProceduralBandModeAttr);
 			continue;
 		}
 
@@ -1141,24 +989,164 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		ChildBuilder.AddProperty(ChildHandle);
 	}
 
-	// Ring Transform 그룹 생성 (Auto 모드일 때 헤더 텍스트도 어둡게)
-	IDetailGroup& RingGroup = ChildBuilder.AddGroup(TEXT("RingTransform"), LOCTEXT("RingTransformGroup", "Ring Transform"));
-	RingGroup.HeaderRow()
+	// =====================================
+	// Ring 그룹
+	// =====================================
+	IDetailGroup& RingDefinitionGroup = ChildBuilder.AddGroup(TEXT("RingDefinition"), LOCTEXT("RingDefinitionGroup", "Ring"));
+
+	if (RingMeshHandle.IsValid())
+	{
+		RingDefinitionGroup.AddPropertyRow(RingMeshHandle.ToSharedRef());
+	}
+
+	// ----- Mesh Transform 서브그룹 (RingMesh와 InfluenceMode 사이) -----
+	IDetailGroup& MeshTransformSubGroup = RingDefinitionGroup.AddGroup(TEXT("MeshTransform"), LOCTEXT("MeshTransformSubGroup", "Mesh Transform"));
+
+	if (MeshOffsetHandle.IsValid())
+	{
+		MeshTransformSubGroup.AddPropertyRow(MeshOffsetHandle.ToSharedRef())
+			.CustomWidget()
+			.NameContent()
+			[
+				MeshOffsetHandle->CreatePropertyNameWidget()
+			]
+			.ValueContent()
+			.MinDesiredWidth(300.0f)
+			[
+				CreateLinearVectorWidget(MeshOffsetHandle.ToSharedRef(), 0.1f)
+			]
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						FVector Value;
+						Handle->GetValue(Value);
+						return !Value.IsNearlyZero();
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(FVector::ZeroVector);
+					})
+				)
+			);
+	}
+	if (MeshEulerRotationHandle.IsValid())
+	{
+		MeshTransformSubGroup.AddPropertyRow(MeshEulerRotationHandle.ToSharedRef())
+			.CustomWidget()
+			.NameContent()
+			[
+				MeshEulerRotationHandle->CreatePropertyNameWidget()
+			]
+			.ValueContent()
+			.MinDesiredWidth(300.0f)
+			[
+				CreateLinearRotatorWidget(MeshEulerRotationHandle.ToSharedRef(), 1.0f)
+			]
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						FRotator Value;
+						Handle->GetValue(Value);
+						return !Value.Equals(FRotator(-90.0f, 0.0f, 0.0f), 0.01f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(FRotator(-90.0f, 0.0f, 0.0f));
+					})
+				)
+			);
+	}
+	if (MeshScaleHandle.IsValid())
+	{
+		MeshTransformSubGroup.AddPropertyRow(MeshScaleHandle.ToSharedRef())
+			.CustomWidget()
+			.NameContent()
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					MeshScaleHandle->CreatePropertyNameWidget()
+				]
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				.Padding(4, 0, 0, 0)
+				[
+					SNew(SButton)
+					.ButtonStyle(FAppStyle::Get(), "NoBorder")
+					.OnClicked(this, &FFleshRingSettingsCustomization::OnMeshScaleLockClicked)
+					.ToolTipText_Lambda([this]()
+					{
+						return bMeshScaleLocked
+							? LOCTEXT("UnlockScale", "Unlock Scale (비율 유지 해제)")
+							: LOCTEXT("LockScale", "Lock Scale (비율 유지)");
+					})
+					.ContentPadding(FMargin(2.0f))
+					[
+						SNew(SImage)
+						.Image_Lambda([this]()
+						{
+							return bMeshScaleLocked
+								? FAppStyle::GetBrush("Icons.Lock")
+								: FAppStyle::GetBrush("Icons.Unlock");
+						})
+						.ColorAndOpacity(FSlateColor::UseForeground())
+					]
+				]
+			]
+			.ValueContent()
+			.MinDesiredWidth(300.0f)
+			[
+				CreateMeshScaleWidget(MeshScaleHandle.ToSharedRef(), 0.0025f)
+			]
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						FVector Value;
+						Handle->GetValue(Value);
+						return !Value.Equals(FVector::OneVector, 0.0001f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(FVector::OneVector);
+					})
+				)
+			);
+	}
+
+	if (InfluenceModeHandle.IsValid())
+	{
+		RingDefinitionGroup.AddPropertyRow(InfluenceModeHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						uint8 Value;
+						Handle->GetValue(Value);
+						return Value != static_cast<uint8>(EFleshRingInfluenceMode::Auto);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(static_cast<uint8>(EFleshRingInfluenceMode::Auto));
+					})
+				)
+			);
+	}
+
+	// ----- Ring Transform 서브그룹 (Manual 모드용) -----
+	IDetailGroup& RingTransformSubGroup = RingDefinitionGroup.AddGroup(TEXT("RingTransform"), LOCTEXT("RingTransformSubGroup", "Ring Transform"));
+	RingTransformSubGroup.HeaderRow()
 		.NameContent()
 		[
 			SNew(STextBlock)
-			.Text(LOCTEXT("RingTransformHeader", "Ring Transform"))
-			.Font(IDetailLayoutBuilder::GetDetailFontBold())
+			.Text(LOCTEXT("RingTransformSubHeader", "Ring Transform"))
+			.Font(IDetailLayoutBuilder::GetDetailFont())
 			.ColorAndOpacity_Lambda([IsManualModeAttr]() -> FSlateColor
 			{
 				return IsManualModeAttr.Get() ? FSlateColor::UseForeground() : FSlateColor::UseSubduedForeground();
 			})
 		];
 
-	// Ring 그룹에 프로퍼티 추가
 	if (RingRadiusHandle.IsValid())
 	{
-		RingGroup.AddPropertyRow(RingRadiusHandle.ToSharedRef())
+		RingTransformSubGroup.AddPropertyRow(RingRadiusHandle.ToSharedRef())
 			.IsEnabled(IsManualModeAttr)
 			.OverrideResetToDefault(
 				FResetToDefaultOverride::Create(
@@ -1175,7 +1163,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	}
 	if (RingThicknessHandle.IsValid())
 	{
-		RingGroup.AddPropertyRow(RingThicknessHandle.ToSharedRef())
+		RingTransformSubGroup.AddPropertyRow(RingThicknessHandle.ToSharedRef())
 			.IsEnabled(IsManualModeAttr)
 			.OverrideResetToDefault(
 				FResetToDefaultOverride::Create(
@@ -1192,7 +1180,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	}
 	if (RingHeightHandle.IsValid())
 	{
-		RingGroup.AddPropertyRow(RingHeightHandle.ToSharedRef())
+		RingTransformSubGroup.AddPropertyRow(RingHeightHandle.ToSharedRef())
 			.IsEnabled(IsManualModeAttr)
 			.OverrideResetToDefault(
 				FResetToDefaultOverride::Create(
@@ -1209,7 +1197,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	}
 	if (RingOffsetHandle.IsValid())
 	{
-		RingGroup.AddPropertyRow(RingOffsetHandle.ToSharedRef())
+		RingTransformSubGroup.AddPropertyRow(RingOffsetHandle.ToSharedRef())
 			.IsEnabled(IsManualModeAttr)
 			.CustomWidget()
 			.NameContent()
@@ -1236,7 +1224,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	}
 	if (RingEulerHandle.IsValid())
 	{
-		RingGroup.AddPropertyRow(RingEulerHandle.ToSharedRef())
+		RingTransformSubGroup.AddPropertyRow(RingEulerHandle.ToSharedRef())
 			.IsEnabled(IsManualModeAttr)
 			.CustomWidget()
 			.NameContent()
@@ -1257,6 +1245,271 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 					}),
 					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
 						Handle->SetValue(FRotator(-90.0f, 0.0f, 0.0f));
+					})
+				)
+			);
+	}
+
+	// ----- Virtual Band 서브그룹 (ProceduralBand 모드용) -----
+	IDetailGroup& VirtualBandSubGroup = RingDefinitionGroup.AddGroup(TEXT("VirtualBand"), LOCTEXT("VirtualBandSubGroup", "Virtual Band"));
+	VirtualBandSubGroup.HeaderRow()
+		.NameContent()
+		[
+			SNew(STextBlock)
+			.Text(LOCTEXT("VirtualBandSubHeader", "Virtual Band"))
+			.Font(IDetailLayoutBuilder::GetDetailFont())
+			.ColorAndOpacity_Lambda([IsProceduralBandModeAttr]() -> FSlateColor
+			{
+				return IsProceduralBandModeAttr.Get() ? FSlateColor::UseForeground() : FSlateColor::UseSubduedForeground();
+			})
+		];
+
+	// ProceduralBand 구조체의 자식 프로퍼티들을 그룹별로 추가
+	if (ProceduralBandHandle.IsValid())
+	{
+		// 공통 프로퍼티 (전체 적용) - 최상위에 바로 표시
+		TSharedPtr<IPropertyHandle> BandThicknessHandle = ProceduralBandHandle->GetChildHandle(TEXT("BandThickness"));
+		TSharedPtr<IPropertyHandle> RadialSegmentsHandle = ProceduralBandHandle->GetChildHandle(TEXT("RadialSegments"));
+		TSharedPtr<IPropertyHandle> HeightSegmentsHandle = ProceduralBandHandle->GetChildHandle(TEXT("HeightSegments"));
+
+		if (BandThicknessHandle.IsValid())
+		{
+			VirtualBandSubGroup.AddPropertyRow(BandThicknessHandle.ToSharedRef())
+				.IsEnabled(IsProceduralBandModeAttr);
+		}
+		if (RadialSegmentsHandle.IsValid())
+		{
+			VirtualBandSubGroup.AddPropertyRow(RadialSegmentsHandle.ToSharedRef())
+				.IsEnabled(IsProceduralBandModeAttr);
+		}
+		if (HeightSegmentsHandle.IsValid())
+		{
+			VirtualBandSubGroup.AddPropertyRow(HeightSegmentsHandle.ToSharedRef())
+				.IsEnabled(IsProceduralBandModeAttr);
+		}
+
+		// Mid 서브그룹
+		IDetailGroup& MidBandGroup = VirtualBandSubGroup.AddGroup(TEXT("MidBand"), LOCTEXT("MidBandGroup", "Mid"));
+
+		TSharedPtr<IPropertyHandle> MidUpperRadiusHandle = ProceduralBandHandle->GetChildHandle(TEXT("MidUpperRadius"));
+		TSharedPtr<IPropertyHandle> MidLowerRadiusHandle = ProceduralBandHandle->GetChildHandle(TEXT("MidLowerRadius"));
+		TSharedPtr<IPropertyHandle> BandHeightHandle = ProceduralBandHandle->GetChildHandle(TEXT("BandHeight"));
+
+		if (MidUpperRadiusHandle.IsValid())
+		{
+			MidBandGroup.AddPropertyRow(MidUpperRadiusHandle.ToSharedRef())
+				.IsEnabled(IsProceduralBandModeAttr);
+		}
+		if (MidLowerRadiusHandle.IsValid())
+		{
+			MidBandGroup.AddPropertyRow(MidLowerRadiusHandle.ToSharedRef())
+				.IsEnabled(IsProceduralBandModeAttr);
+		}
+		if (BandHeightHandle.IsValid())
+		{
+			MidBandGroup.AddPropertyRow(BandHeightHandle.ToSharedRef())
+				.IsEnabled(IsProceduralBandModeAttr);
+		}
+
+		// Upper/Lower 서브그룹 (구조체 그대로 추가)
+		TSharedPtr<IPropertyHandle> UpperHandle = ProceduralBandHandle->GetChildHandle(TEXT("Upper"));
+		TSharedPtr<IPropertyHandle> LowerHandle = ProceduralBandHandle->GetChildHandle(TEXT("Lower"));
+
+		if (UpperHandle.IsValid())
+		{
+			VirtualBandSubGroup.AddPropertyRow(UpperHandle.ToSharedRef())
+				.IsEnabled(IsProceduralBandModeAttr);
+		}
+		if (LowerHandle.IsValid())
+		{
+			VirtualBandSubGroup.AddPropertyRow(LowerHandle.ToSharedRef())
+				.IsEnabled(IsProceduralBandModeAttr);
+		}
+	}
+
+	// =====================================
+	// Deformation 그룹 (Tightness + Bulge)
+	// =====================================
+	IDetailGroup& DeformationGroup = ChildBuilder.AddGroup(TEXT("Deformation"), LOCTEXT("DeformationGroup", "Deformation"));
+
+	// ----- Tightness 서브그룹 -----
+	IDetailGroup& TightnessGroup = DeformationGroup.AddGroup(TEXT("Tightness"), LOCTEXT("TightnessGroup", "Tightness"));
+
+	if (TightnessStrengthHandle.IsValid())
+	{
+		TightnessGroup.AddPropertyRow(TightnessStrengthHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyEqual(Value, 1.0f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(1.0f);
+					})
+				)
+			);
+	}
+	if (FalloffTypeHandle.IsValid())
+	{
+		TightnessGroup.AddPropertyRow(FalloffTypeHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						uint8 Value;
+						Handle->GetValue(Value);
+						return Value != static_cast<uint8>(EFalloffType::Linear);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(static_cast<uint8>(EFalloffType::Linear));
+					})
+				)
+			);
+	}
+	// SDF Bounds Expand (Auto 모드일 때만 표시)
+	if (SDFBoundsExpandXHandle.IsValid())
+	{
+		TightnessGroup.AddPropertyRow(SDFBoundsExpandXHandle.ToSharedRef())
+			.IsEnabled(IsAutoModeAttr)
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyZero(Value);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(0.0f);
+					})
+				)
+			);
+	}
+	if (SDFBoundsExpandYHandle.IsValid())
+	{
+		TightnessGroup.AddPropertyRow(SDFBoundsExpandYHandle.ToSharedRef())
+			.IsEnabled(IsAutoModeAttr)
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyZero(Value);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(0.0f);
+					})
+				)
+			);
+	}
+
+	// ----- Bulge 서브그룹 -----
+	IDetailGroup& BulgeGroup = DeformationGroup.AddGroup(TEXT("Bulge"), LOCTEXT("BulgeGroup", "Bulge"));
+
+	if (bEnableBulgeHandle.IsValid())
+	{
+		BulgeGroup.AddPropertyRow(bEnableBulgeHandle.ToSharedRef());
+	}
+	if (BulgeDirectionHandle.IsValid())
+	{
+		BulgeGroup.AddPropertyRow(BulgeDirectionHandle.ToSharedRef());
+	}
+	if (BulgeFalloffHandle.IsValid())
+	{
+		BulgeGroup.AddPropertyRow(BulgeFalloffHandle.ToSharedRef());
+	}
+	if (BulgeIntensityHandle.IsValid())
+	{
+		BulgeGroup.AddPropertyRow(BulgeIntensityHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyEqual(Value, 1.0f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(1.0f);
+					})
+				)
+			);
+	}
+	if (BulgeAxialRangeHandle.IsValid())
+	{
+		BulgeGroup.AddPropertyRow(BulgeAxialRangeHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyEqual(Value, 5.0f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(5.0f);
+					})
+				)
+			);
+	}
+	if (BulgeRadialRangeHandle.IsValid())
+	{
+		BulgeGroup.AddPropertyRow(BulgeRadialRangeHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyEqual(Value, 1.0f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(1.0f);
+					})
+				)
+			);
+	}
+	if (UpperBulgeStrengthHandle.IsValid())
+	{
+		BulgeGroup.AddPropertyRow(UpperBulgeStrengthHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyEqual(Value, 1.0f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(1.0f);
+					})
+				)
+			);
+	}
+	if (LowerBulgeStrengthHandle.IsValid())
+	{
+		BulgeGroup.AddPropertyRow(LowerBulgeStrengthHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyEqual(Value, 1.0f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(1.0f);
+					})
+				)
+			);
+	}
+	if (BulgeRadialRatioHandle.IsValid())
+	{
+		BulgeGroup.AddPropertyRow(BulgeRadialRatioHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyEqual(Value, 0.7f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(0.7f);
 					})
 				)
 			);
