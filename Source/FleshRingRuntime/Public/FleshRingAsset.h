@@ -159,6 +159,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "FleshRing|Subdivision")
 	bool HasSubdividedMesh() const { return SubdivisionSettings.SubdividedMesh != nullptr; }
 
+	/** 베이크된 메시가 생성되어 있는지 */
+	UFUNCTION(BlueprintPure, Category = "FleshRing|Baked")
+	bool HasBakedMesh() const { return SubdivisionSettings.BakedMesh != nullptr; }
+
 	/** Subdivision 파라미터 변경으로 재생성 필요한지 */
 	UFUNCTION(BlueprintPure, Category = "FleshRing|Subdivision")
 	bool NeedsSubdivisionRegeneration() const;
@@ -214,10 +218,47 @@ public:
 	 * 프리뷰 메시 캐시가 유효한지 확인
 	 */
 	bool IsPreviewMeshCacheValid() const;
+
+	// =====================================
+	// Baked Mesh (변형 적용 완료된 런타임용 메시)
+	// =====================================
+
+	/**
+	 * 베이크된 메시 생성 (에디터 전용)
+	 * 변형(Tightness, Bulge, Smoothing)이 적용된 최종 메시 생성
+	 * 런타임에서는 이 메시를 사용하여 Deformer 없이 동작
+	 *
+	 * @param SourceComponent - GPU 변형 결과를 제공하는 FleshRingComponent
+	 * @return 성공 여부
+	 */
+	bool GenerateBakedMesh(UFleshRingComponent* SourceComponent);
+
+	/** 베이크 메시 제거 */
+	void ClearBakedMesh();
+
+	/** 베이크 파라미터 변경으로 재생성 필요한지 */
+	bool NeedsBakeRegeneration() const;
+
+	/** 베이크 파라미터 해시 계산 (Ring 설정 + 변형 파라미터 포함) */
+	uint32 CalculateBakeParamsHash() const;
+
+	/**
+	 * 에셋 내 누적된 고아 메시 정리
+	 * 이전 버전에서 BakedMesh_1, BakedMesh_2... 등이 누적된 경우 호출
+	 * 현재 사용 중인 SubdividedMesh, BakedMesh, PreviewSubdividedMesh 외의 SkeletalMesh 제거
+	 * @return 제거된 고아 메시 개수
+	 */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "FleshRing|Maintenance")
+	int32 CleanupOrphanedMeshes();
 #endif
 
 	/** 에셋 로드 후 호출 - 에디터 선택 상태 초기화 */
 	virtual void PostLoad() override;
+
+#if WITH_EDITOR
+	/** 에셋 저장 전 호출 - 자동 베이크 수행 */
+	virtual void PreSave(FObjectPreSaveContext SaveContext) override;
+#endif
 
 #if WITH_EDITOR
 	/** 에디터에서 프로퍼티 변경 시 호출 */

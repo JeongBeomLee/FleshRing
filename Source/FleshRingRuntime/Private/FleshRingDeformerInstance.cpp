@@ -293,6 +293,10 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				const FSkeletalMeshLODRenderData& RenderLODData = RenderData->LODRenderData[LODIndex];
 				const uint32 NumVerts = RenderLODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
 
+				// ★ 디버그: 캐싱되는 메시 정보 출력
+				UE_LOG(LogFleshRing, Log, TEXT("EnqueueWork: Caching source positions from mesh '%s' with %u vertices"),
+					*SkelMesh->GetName(), NumVerts);
+
 				CurrentLODData.CachedSourcePositions.SetNum(NumVerts * 3);
 				for (uint32 i = 0; i < NumVerts; ++i)
 				{
@@ -508,15 +512,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				// 성능 제한은 CollisionShader에서 MaxPairsToProcess로 처리
 				DispatchData.CollisionTriangleIndices = MeshIndices;
 
-				// [조건부 로그] 첫 프레임만
-				static TSet<int32> LoggedCollisionRings;
-				if (!LoggedCollisionRings.Contains(RingIndex) && DispatchData.CollisionTriangleIndices.Num() > 0)
-				{
-					UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] Collision triangles: %d (ALL mesh triangles for stocking-skin detection)"),
-						RingIndex, DispatchData.CollisionTriangleIndices.Num() / 3);
-					LoggedCollisionRings.Add(RingIndex);
 				}
-			}
 		}
 
 		// Ring별 InfluenceMode 확인
@@ -599,68 +595,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				else
 					DispatchData.SDFLocalRingAxis = FVector3f(0, 0, 1);
 
-				// [조건부 로그] 첫 프레임만 출력
-				static bool bLoggedSDFMode = false;
-				if (!bLoggedSDFMode)
-				{
-					//// [DEBUG] SDFExtent로 링 메시의 실제 방향 확인
-					UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] SDFExtent=(%.2f, %.2f, %.2f) -> MinAxis=%s"),
-						RingIndex,
-						SDFExtent.X, SDFExtent.Y, SDFExtent.Z,
-						(SDFExtent.Z < SDFExtent.X && SDFExtent.Z < SDFExtent.Y) ? TEXT("Z") :
-						(SDFExtent.Y < SDFExtent.X) ? TEXT("Y") : TEXT("X"));
-
-					// LocalToComponent 회전 확인
-					FQuat Rot = SDFCache->LocalToComponent.GetRotation();
-					FVector Euler = Rot.Euler();
-					UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] LocalToComponent: Rot=(%.1f, %.1f, %.1f)deg, Scale=%s"),
-						RingIndex,
-						Euler.X, Euler.Y, Euler.Z,
-						*SDFCache->LocalToComponent.GetScale3D().ToString());
-
-					UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] SDFLocalRingAxis=(%.2f, %.2f, %.2f), SDFLocalRingCenter=(%.1f, %.1f, %.1f)"),
-						RingIndex,
-						DispatchData.SDFLocalRingAxis.X, DispatchData.SDFLocalRingAxis.Y, DispatchData.SDFLocalRingAxis.Z,
-						DispatchData.SDFLocalRingCenter.X, DispatchData.SDFLocalRingCenter.Y, DispatchData.SDFLocalRingCenter.Z);
-
-					bLoggedSDFMode = true;
 				}
-			}
-			else
-			{
-				// [조건부 로그] 첫 프레임만 출력
-				static bool bLoggedManualMode = false;
-				if (!bLoggedManualMode)
-				{
-					// InfluenceMode 이름 결정
-					const TCHAR* InfluenceModeStr = TEXT("Manual");
-					if (RingInfluenceMode == EFleshRingInfluenceMode::Auto)
-					{
-						InfluenceModeStr = TEXT("Auto");
-					}
-					else if (RingInfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
-					{
-						InfluenceModeStr = TEXT("ProceduralBand");
-					}
-
-					UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] Manual Mode (InfluenceMode=%s, SDFValid=%s)"),
-						RingIndex, InfluenceModeStr,
-						(SDFCache && SDFCache->IsValid()) ? TEXT("Yes") : TEXT("No"));
-					bLoggedManualMode = true;
-				}
-			}
-		}
-
-		// [조건부 로그] 첫 프레임만 출력
-		static bool bLoggedRingInfo = false;
-		if (!bLoggedRingInfo)
-		{
-			UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d]: AffectedVerts=%d, TightnessStrength=%.3f, RingCenter=(%.1f,%.1f,%.1f), RingAxis=(%.3f,%.3f,%.3f), RingRadius=%.2f"),
-				RingIndex, DispatchData.Params.NumAffectedVertices, DispatchData.Params.TightnessStrength,
-				DispatchData.Params.RingCenter.X, DispatchData.Params.RingCenter.Y, DispatchData.Params.RingCenter.Z,
-				DispatchData.Params.RingAxis.X, DispatchData.Params.RingAxis.Y, DispatchData.Params.RingAxis.Z,
-				DispatchData.Params.RingRadius);
-			bLoggedRingInfo = true;
 		}
 
 		RingDispatchDataPtr->Add(MoveTemp(DispatchData));
@@ -862,28 +797,11 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				}
 			}
 
-			// [조건부 로그] 첫 프레임만 출력 (OriginalIdx 사용)
-			static TSet<int32> LoggedRings;
-			if (!LoggedRings.Contains(OriginalIdx))
-			{
-				UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] Ring[%d] Bulge 데이터 준비 완료: %d vertices, Strength=%.2f, Direction=%d (Detected=%d)"),
-					OriginalIdx, DispatchData.BulgeIndices.Num(), RingBulgeStrength,
-					DispatchData.BulgeAxisDirection, DispatchData.DetectedBulgeDirection);
-				LoggedRings.Add(OriginalIdx);
 			}
-		}
 	}
 
 	// TightenedBindPose 캐싱 여부 결정
 	bool bNeedTightnessCaching = !CurrentLODData.bTightenedBindPoseCached;
-
-	// [조건부 로그] 첫 프레임만 출력
-	static bool bLoggedCaching = false;
-	if (!bLoggedCaching)
-	{
-		UE_LOG(LogFleshRing, Log, TEXT("[DEBUG] bNeedTightnessCaching=%d (first frame = will run TightnessCS)"), bNeedTightnessCaching ? 1 : 0);
-		bLoggedCaching = true;
-	}
 
 	if (bNeedTightnessCaching)
 	{
@@ -1106,6 +1024,251 @@ EMeshDeformerOutputBuffer UFleshRingDeformerInstance::GetOutputBuffers() const
 	return EMeshDeformerOutputBuffer::SkinnedMeshPosition | EMeshDeformerOutputBuffer::SkinnedMeshTangents;
 }
 
+#if WITH_EDITORONLY_DATA
+bool UFleshRingDeformerInstance::HasCachedDeformedGeometry(int32 LODIndex) const
+{
+	if (!LODData.IsValidIndex(LODIndex))
+	{
+		return false;
+	}
+
+	const FLODDeformationData& Data = LODData[LODIndex];
+	return Data.bTightenedBindPoseCached &&
+		Data.CachedTightenedBindPoseShared.IsValid() &&
+		Data.CachedTightenedBindPoseShared->IsValid();
+}
+
+bool UFleshRingDeformerInstance::ReadbackDeformedGeometry(
+	TArray<FVector3f>& OutPositions,
+	TArray<FVector3f>& OutNormals,
+	TArray<FVector4f>& OutTangents,
+	int32 LODIndex)
+{
+	if (!HasCachedDeformedGeometry(LODIndex))
+	{
+		UE_LOG(LogFleshRing, Warning, TEXT("ReadbackDeformedGeometry: No cached deformed geometry for LOD %d"), LODIndex);
+		return false;
+	}
+
+	const FLODDeformationData& Data = LODData[LODIndex];
+	const uint32 NumVertices = Data.CachedTightnessVertexCount;
+
+	if (NumVertices == 0)
+	{
+		UE_LOG(LogFleshRing, Warning, TEXT("ReadbackDeformedGeometry: NumVertices is 0"));
+		return false;
+	}
+
+	// GPU 작업 완료 대기
+	FlushRenderingCommands();
+
+	// ===== Position Readback =====
+	bool bPositionSuccess = false;
+	if (Data.CachedTightenedBindPoseShared.IsValid() && Data.CachedTightenedBindPoseShared->IsValid())
+	{
+		TRefCountPtr<FRDGPooledBuffer> PooledBuffer = *Data.CachedTightenedBindPoseShared;
+		FBufferRHIRef BufferRHI = PooledBuffer->GetRHI();
+
+		if (BufferRHI.IsValid())
+		{
+			// ★ RDG 버퍼 풀링으로 인해 버퍼 크기가 요청보다 클 수 있음
+			// BufferRHI->GetSize()가 아닌 CachedTightnessVertexCount를 사용해야 함
+			const uint32 ActualBufferSize = BufferRHI->GetSize();
+			const uint32 AllocatedVertexCount = ActualBufferSize / (3 * sizeof(float));
+
+			// 실제로 의미있는 데이터 수는 캐싱 시점에 저장된 값
+			const uint32 CachedVertexCount = Data.CachedTightnessVertexCount;
+
+			// 버퍼가 충분한지 확인
+			if (AllocatedVertexCount < CachedVertexCount)
+			{
+				UE_LOG(LogFleshRing, Error, TEXT("ReadbackDeformedGeometry: Buffer too small! Allocated=%u, Cached=%u"),
+					AllocatedVertexCount, CachedVertexCount);
+				return false;
+			}
+
+			// 디버그 로그 (크기가 다른 경우에만)
+			if (CachedVertexCount != NumVertices)
+			{
+				UE_LOG(LogFleshRing, Warning, TEXT("ReadbackDeformedGeometry: CachedVertexCount (%u) != expected (%u)"),
+					CachedVertexCount, NumVertices);
+			}
+
+			// ★ 캐싱된 버텍스 수만큼만 읽기 (RDG 풀링된 여분 데이터 무시)
+			const uint32 VertexCountToRead = CachedVertexCount;
+			const uint32 SizeToRead = VertexCountToRead * 3 * sizeof(float);
+
+			TArray<float> TempPositions;
+			TempPositions.SetNumUninitialized(VertexCountToRead * 3);
+
+			// UE5.7 동기 Readback 방식: RenderThread에서 Lock/Unlock 수행
+			TArray<float>* DestPtr = &TempPositions;
+			uint32 ReadSize = SizeToRead;
+			ENQUEUE_RENDER_COMMAND(ReadbackPositions)(
+				[BufferRHI, ReadSize, DestPtr](FRHICommandListImmediate& RHICmdList)
+				{
+					void* MappedData = RHICmdList.LockBuffer(BufferRHI, 0, ReadSize, RLM_ReadOnly);
+					if (MappedData)
+					{
+						FMemory::Memcpy(DestPtr->GetData(), MappedData, ReadSize);
+						RHICmdList.UnlockBuffer(BufferRHI);
+					}
+				});
+			FlushRenderingCommands();
+
+			OutPositions.SetNum(VertexCountToRead);
+			for (uint32 i = 0; i < VertexCountToRead; ++i)
+			{
+				OutPositions[i] = FVector3f(
+					TempPositions[i * 3 + 0],
+					TempPositions[i * 3 + 1],
+					TempPositions[i * 3 + 2]);
+			}
+			bPositionSuccess = true;
+		}
+	}
+
+	if (!bPositionSuccess)
+	{
+		UE_LOG(LogFleshRing, Warning, TEXT("ReadbackDeformedGeometry: Position readback failed"));
+		return false;
+	}
+
+	// ===== Normal Readback =====
+	// ★ Normal 버퍼는 float3 형식! (셰이더에서 버텍스당 3 float로 저장)
+	bool bNormalSuccess = false;
+	if (Data.CachedNormalsShared.IsValid() && Data.CachedNormalsShared->IsValid())
+	{
+		TRefCountPtr<FRDGPooledBuffer> PooledBuffer = *Data.CachedNormalsShared;
+		FBufferRHIRef BufferRHI = PooledBuffer->GetRHI();
+
+		if (BufferRHI.IsValid())
+		{
+			// ★ Normal 버퍼는 float3 형식 (버텍스당 3 float)
+			const uint32 ActualBufferSize = BufferRHI->GetSize();
+			const uint32 AllocatedVertexCount = ActualBufferSize / (3 * sizeof(float));  // float3!
+			const uint32 CachedVertexCount = Data.CachedTightnessVertexCount;
+
+			// 버퍼가 충분한지 확인
+			if (AllocatedVertexCount < CachedVertexCount)
+			{
+				UE_LOG(LogFleshRing, Warning, TEXT("ReadbackDeformedGeometry: Normal buffer too small! Allocated=%u, Cached=%u"),
+					AllocatedVertexCount, CachedVertexCount);
+				// Normal은 선택사항이므로 에러 아님
+			}
+
+			// ★ 캐싱된 버텍스 수만큼만 읽기
+			const uint32 VertexCountToRead = FMath::Min(CachedVertexCount, AllocatedVertexCount);
+			const uint32 SizeToRead = VertexCountToRead * 3 * sizeof(float);  // float3!
+
+			TArray<float> TempNormals;
+			TempNormals.SetNumUninitialized(VertexCountToRead * 3);  // float3!
+
+			// UE5.7 동기 Readback 방식
+			TArray<float>* DestPtr = &TempNormals;
+			uint32 ReadSize = SizeToRead;
+			ENQUEUE_RENDER_COMMAND(ReadbackNormals)(
+				[BufferRHI, ReadSize, DestPtr](FRHICommandListImmediate& RHICmdList)
+				{
+					void* MappedData = RHICmdList.LockBuffer(BufferRHI, 0, ReadSize, RLM_ReadOnly);
+					if (MappedData)
+					{
+						FMemory::Memcpy(DestPtr->GetData(), MappedData, ReadSize);
+						RHICmdList.UnlockBuffer(BufferRHI);
+					}
+				});
+			FlushRenderingCommands();
+
+			OutNormals.SetNum(VertexCountToRead);
+			for (uint32 i = 0; i < VertexCountToRead; ++i)
+			{
+				OutNormals[i] = FVector3f(
+					TempNormals[i * 3 + 0],  // float3!
+					TempNormals[i * 3 + 1],
+					TempNormals[i * 3 + 2]);
+			}
+			bNormalSuccess = true;
+		}
+	}
+
+	if (!bNormalSuccess)
+	{
+		UE_LOG(LogFleshRing, Warning, TEXT("ReadbackDeformedGeometry: Normal readback failed (may be disabled)"));
+		// Normal은 선택사항이므로 에러 아님, 빈 배열 반환
+		OutNormals.Empty();
+	}
+
+	// ===== Tangent Readback =====
+	bool bTangentSuccess = false;
+	if (Data.CachedTangentsShared.IsValid() && Data.CachedTangentsShared->IsValid())
+	{
+		TRefCountPtr<FRDGPooledBuffer> PooledBuffer = *Data.CachedTangentsShared;
+		FBufferRHIRef BufferRHI = PooledBuffer->GetRHI();
+
+		if (BufferRHI.IsValid())
+		{
+			// ★ Position과 동일하게 CachedTightnessVertexCount 사용 (RDG 버퍼 풀링 대응)
+			const uint32 ActualBufferSize = BufferRHI->GetSize();
+			const uint32 AllocatedVertexCount = ActualBufferSize / (4 * sizeof(float));
+			const uint32 CachedVertexCount = Data.CachedTightnessVertexCount;
+
+			// 버퍼가 충분한지 확인
+			if (AllocatedVertexCount < CachedVertexCount)
+			{
+				UE_LOG(LogFleshRing, Warning, TEXT("ReadbackDeformedGeometry: Tangent buffer too small! Allocated=%u, Cached=%u"),
+					AllocatedVertexCount, CachedVertexCount);
+				// Tangent은 선택사항이므로 에러 아님
+			}
+
+			// ★ 캐싱된 버텍스 수만큼만 읽기
+			const uint32 VertexCountToRead = FMath::Min(CachedVertexCount, AllocatedVertexCount);
+			const uint32 SizeToRead = VertexCountToRead * 4 * sizeof(float);
+
+			TArray<float> TempTangents;
+			TempTangents.SetNumUninitialized(VertexCountToRead * 4);
+
+			// UE5.7 동기 Readback 방식
+			TArray<float>* DestPtr = &TempTangents;
+			uint32 ReadSize = SizeToRead;
+			ENQUEUE_RENDER_COMMAND(ReadbackTangents)(
+				[BufferRHI, ReadSize, DestPtr](FRHICommandListImmediate& RHICmdList)
+				{
+					void* MappedData = RHICmdList.LockBuffer(BufferRHI, 0, ReadSize, RLM_ReadOnly);
+					if (MappedData)
+					{
+						FMemory::Memcpy(DestPtr->GetData(), MappedData, ReadSize);
+						RHICmdList.UnlockBuffer(BufferRHI);
+					}
+				});
+			FlushRenderingCommands();
+
+			OutTangents.SetNum(VertexCountToRead);
+			for (uint32 i = 0; i < VertexCountToRead; ++i)
+			{
+				OutTangents[i] = FVector4f(
+					TempTangents[i * 4 + 0],
+					TempTangents[i * 4 + 1],
+					TempTangents[i * 4 + 2],
+					TempTangents[i * 4 + 3]);
+			}
+			bTangentSuccess = true;
+		}
+	}
+
+	if (!bTangentSuccess)
+	{
+		UE_LOG(LogFleshRing, Warning, TEXT("ReadbackDeformedGeometry: Tangent readback failed (may be disabled)"));
+		// Tangent도 선택사항이므로 에러 아님, 빈 배열 반환
+		OutTangents.Empty();
+	}
+
+	UE_LOG(LogFleshRing, Log, TEXT("ReadbackDeformedGeometry: Success - %d vertices, Normals=%d, Tangents=%d"),
+		OutPositions.Num(), OutNormals.Num(), OutTangents.Num());
+
+	return true;
+}
+#endif
+
 void UFleshRingDeformerInstance::InvalidateTightnessCache(int32 DirtyRingIndex)
 {
     // 1. AffectedVertices 재등록 (Ring 트랜스폼 변경 시 영향받는 정점이 달라질 수 있음)
@@ -1159,13 +1322,90 @@ void UFleshRingDeformerInstance::InvalidateTightnessCache(int32 DirtyRingIndex)
     {
         FleshRingComponent->InvalidateDebugCaches(DirtyRingIndex);
     }
+}
 
-    if (DirtyRingIndex == INDEX_NONE)
-    {
-        UE_LOG(LogFleshRing, Log, TEXT("TightnessCache invalidated for ALL rings"));
-    }
-    else
-    {
-        UE_LOG(LogFleshRing, Log, TEXT("TightnessCache invalidated for Ring[%d] only"), DirtyRingIndex);
-    }
+void UFleshRingDeformerInstance::InvalidateForMeshChange()
+{
+	// ★ 메시 변경 시 완전 재초기화
+	// 기존 GPU 버퍼 해제 + NumLODs/LODData 재설정 + AffectedVertices 재등록
+
+	// Step 1: 기존 리소스 완전 해제
+	ReleaseResources();
+
+	// Step 2: 새 메시에서 LOD 구조 재초기화
+	USkeletalMeshComponent* SkelMesh = Cast<USkeletalMeshComponent>(MeshComponent.Get());
+	if (SkelMesh)
+	{
+		USkeletalMesh* Mesh = SkelMesh->GetSkeletalMeshAsset();
+
+		// ★ 디버그: 어떤 메시로 재초기화하는지 출력
+		if (Mesh)
+		{
+			const FSkeletalMeshRenderData* TempRenderData = Mesh->GetResourceForRendering();
+			if (TempRenderData && TempRenderData->LODRenderData.Num() > 0)
+			{
+				const uint32 TempNumVerts = TempRenderData->LODRenderData[0].StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
+				UE_LOG(LogFleshRing, Log, TEXT("InvalidateForMeshChange: Reinitializing for mesh '%s' with %u vertices"),
+					*Mesh->GetName(), TempNumVerts);
+			}
+		}
+		if (Mesh)
+		{
+			const FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
+			if (RenderData)
+			{
+				const int32 NewNumLODs = RenderData->LODRenderData.Num();
+
+				// LOD 개수가 다르면 배열 재생성
+				if (NewNumLODs != NumLODs)
+				{
+					UE_LOG(LogFleshRing, Log, TEXT("InvalidateForMeshChange: LOD count changed %d -> %d"), NumLODs, NewNumLODs);
+					LODData.Empty();
+					NumLODs = NewNumLODs;
+					LODData.SetNum(NumLODs);
+				}
+				else
+				{
+					// LOD 개수가 같아도 모든 데이터 초기화
+					for (FLODDeformationData& Data : LODData)
+					{
+						Data.CachedSourcePositions.Empty();
+						Data.bSourcePositionsCached = false;
+						Data.bTightenedBindPoseCached = false;
+						Data.CachedTightnessVertexCount = 0;
+						Data.bAffectedVerticesRegistered = false;
+						Data.AffectedVerticesManager.MarkAllRingsDirty();
+					}
+				}
+
+				// Step 3: 각 LOD에 대해 AffectedVertices 재등록
+				if (FleshRingComponent.IsValid())
+				{
+					int32 SuccessCount = 0;
+					for (int32 LODIndex = 0; LODIndex < NumLODs; ++LODIndex)
+					{
+						LODData[LODIndex].bAffectedVerticesRegistered =
+							LODData[LODIndex].AffectedVerticesManager.RegisterAffectedVertices(
+								FleshRingComponent.Get(), SkelMesh, LODIndex);
+
+						if (LODData[LODIndex].bAffectedVerticesRegistered)
+						{
+							SuccessCount++;
+						}
+					}
+
+					UE_LOG(LogFleshRing, Log, TEXT("InvalidateForMeshChange: AffectedVertices re-registered for %d/%d LODs"),
+						SuccessCount, NumLODs);
+				}
+			}
+		}
+	}
+
+	// Step 4: GPU 명령 플러시하여 버퍼 해제 완료 보장
+	FlushRenderingCommands();
+
+	// LOD 변경 추적 리셋
+	LastLodIndex = INDEX_NONE;
+
+	UE_LOG(LogFleshRing, Log, TEXT("InvalidateForMeshChange: Complete reinitialization for new mesh"));
 }

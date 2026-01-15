@@ -20,7 +20,6 @@
 #if WITH_EDITOR
 #include "DrawDebugHelpers.h"
 #include "Engine/TextureRenderTarget2D.h"
-#include "Engine/StaticMesh.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Components/StaticMeshComponent.h"
 #include "Rendering/SkeletalMeshRenderData.h"
@@ -102,23 +101,27 @@ void UFleshRingComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
-	if (bEnableFleshRing)
+	if (bEnableFleshRing && FleshRingAsset)
 	{
-		ResolveTargetMesh();
-
-		// SDF를 먼저 생성하고 완료 대기
-		// AffectedVertices 등록 시 SDF Bounds 사용 가능하도록
-		GenerateSDF();
-		FlushRenderingCommands();  // SDF 생성 완료 대기
-
-		// 유효한 SDF 캐시가 있거나 Manual 모드 Ring이 있으면 Deformer 설정
-		// (Auto 모드 SDF 실패는 여전히 개별 스킵, Manual 모드는 SDF 없이 작동)
-		if (HasAnyValidSDFCaches() || HasAnyNonSDFRings())
+		// ★ 런타임 로직: 베이크된 메시가 있으면 적용, 없으면 아무것도 안 함
+		// - Deformer(실시간 GPU 변형)는 에디터 프리뷰용으로만 사용
+		// - 런타임에서는 베이크된 결과만 사용
+		if (FleshRingAsset->HasBakedMesh())
 		{
-			SetupDeformer();
+			if (!ResolvedTargetMesh.IsValid())
+			{
+				FindTargetMeshOnly();
+			}
+			ApplyBakedMesh();
+			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Using baked mesh for runtime"));
 		}
-
-		// Ring 메시는 OnRegister()에서 이미 설정됨
+		else
+		{
+			// ★ 베이크된 메시 없음: 원본 메시 그대로 사용
+			// - 스켈레탈 메시는 원본 그대로 애니메이션됨
+			// - Ring 메시는 OnRegister()에서 이미 본에 부착됨
+			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: No baked mesh, using original mesh with ring attachments"));
+		}
 	}
 }
 
@@ -154,7 +157,21 @@ void UFleshRingComponent::OnRegister()
 
 	// 에디터 및 런타임 모두에서 Ring 메시 설정
 	// OnRegister는 컴포넌트가 월드에 등록될 때 호출됨 (에디터 포함)
-	ResolveTargetMesh();
+	//
+	// ★ 게임 월드에서는 메시 변경 없이 대상만 찾음
+	// SetSkeletalMesh()가 OnRegister 시점에 호출되면 애니메이션 초기화를 방해함
+	// 메시 변경이 필요한 경우 BeginPlay에서 처리
+	bool bIsGameWorld = GetWorld() && GetWorld()->IsGameWorld();
+	if (bIsGameWorld)
+	{
+		// 대상 메시만 찾음 (메시 변경 없음)
+		FindTargetMeshOnly();
+	}
+	else
+	{
+		// 에디터: 전체 처리 (프리뷰 메시 적용 등)
+		ResolveTargetMesh();
+	}
 	SetupRingMeshes();
 }
 
@@ -256,7 +273,7 @@ void UFleshRingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 #endif
 }
 
-void UFleshRingComponent::ResolveTargetMesh()
+void UFleshRingComponent::FindTargetMeshOnly()
 {
 	// 수동 지정 모드
 	if (bUseCustomTarget)
@@ -271,7 +288,6 @@ void UFleshRingComponent::ResolveTargetMesh()
 		{
 			UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: bUseCustomTarget is true but CustomTargetMesh is null"));
 		}
-		// SubdividedMesh 적용을 위해 return하지 않고 아래로 계속
 	}
 	else
 	{
@@ -305,6 +321,12 @@ void UFleshRingComponent::ResolveTargetMesh()
 				SkeletalMeshComponents.Num());
 		}
 	}
+}
+
+void UFleshRingComponent::ResolveTargetMesh()
+{
+	// 대상 메시 찾기
+	FindTargetMeshOnly();
 
 	// SubdividedMesh 또는 원본 메시 적용
 	UE_LOG(LogFleshRingComponent, Log, TEXT("ResolveTargetMesh: Checking SubdividedMesh... ResolvedTargetMesh.IsValid()=%d, FleshRingAsset=%p"),
@@ -481,6 +503,55 @@ void UFleshRingComponent::CleanupDeformer()
 		Cache.Reset();
 	}
 	RingSDFCaches.Empty();
+
+	// 베이크 모드 플래그 리셋
+	bUsingBakedMesh = false;
+}
+
+void UFleshRingComponent::ReinitializeDeformer()
+{
+	USkeletalMeshComponent* TargetMesh = ResolvedTargetMesh.Get();
+	if (!TargetMesh)
+	{
+		UE_LOG(LogFleshRingComponent, Warning, TEXT("ReinitializeDeformer: No target mesh"));
+		return;
+	}
+
+	// 1. 진행 중인 렌더 작업 완료 대기
+	FlushRenderingCommands();
+
+	// 2. 이전 DeformerInstance 명시적 파괴
+	if (InternalDeformer)
+	{
+		if (UMeshDeformerInstance* OldInstance = TargetMesh->GetMeshDeformerInstance())
+		{
+			OldInstance->MarkAsGarbage();
+			OldInstance->ConditionalBeginDestroy();
+		}
+		TargetMesh->SetMeshDeformer(nullptr);
+	}
+
+	// 3. Render State 재생성 트리거
+	TargetMesh->MarkRenderStateDirty();
+	FlushRenderingCommands();
+
+	// 4. 새 Deformer 생성 (기존 InternalDeformer 객체는 재사용하지 않고 새로 생성)
+	InternalDeformer = NewObject<UFleshRingDeformer>(this, TEXT("InternalFleshRingDeformer"));
+	if (!InternalDeformer)
+	{
+		UE_LOG(LogFleshRingComponent, Error, TEXT("ReinitializeDeformer: Failed to create new deformer"));
+		return;
+	}
+
+	// 5. 새 Deformer 등록
+	TargetMesh->SetMeshDeformer(InternalDeformer);
+	TargetMesh->SetBoundsScale(BoundsScale);
+	TargetMesh->MarkRenderStateDirty();
+	TargetMesh->MarkRenderDynamicDataDirty();
+
+	UE_LOG(LogFleshRingComponent, Log, TEXT("ReinitializeDeformer: Deformer recreated for mesh '%s' (%d vertices)"),
+		*TargetMesh->GetSkeletalMeshAsset()->GetName(),
+		TargetMesh->GetSkeletalMeshAsset()->GetResourceForRendering()->LODRenderData[0].StaticVertexBuffers.PositionVertexBuffer.GetNumVertices());
 }
 
 void UFleshRingComponent::GenerateSDF()
@@ -730,6 +801,23 @@ void UFleshRingComponent::InitializeForEditorPreview()
 	UE_LOG(LogFleshRingComponent, Log, TEXT("InitializeForEditorPreview: Completed"));
 }
 
+void UFleshRingComponent::ForceInitializeForEditorPreview()
+{
+	UE_LOG(LogFleshRingComponent, Log, TEXT("ForceInitializeForEditorPreview: Resetting and reinitializing..."));
+
+	// 초기화 플래그 리셋
+	bEditorPreviewInitialized = false;
+
+	// 기존 Deformer 정리 (메시 변경 시 버텍스 수 불일치 방지)
+	if (InternalDeformer)
+	{
+		CleanupDeformer();
+	}
+
+	// 재초기화
+	InitializeForEditorPreview();
+}
+
 void UFleshRingComponent::UpdateRingTransforms()
 {
 	if (!FleshRingAsset || !ResolvedTargetMesh.IsValid())
@@ -937,6 +1025,147 @@ void UFleshRingComponent::ApplyAsset()
 	}
 }
 
+void UFleshRingComponent::SwapFleshRingAsset(UFleshRingAsset* NewAsset)
+{
+	// nullptr 전달 시 원본 메시로 복원 + 에셋 해제
+	if (!NewAsset)
+	{
+		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: SwapFleshRingAsset(nullptr) - restoring original mesh"));
+
+		// 기존 에셋 정리
+		CleanupRingMeshes();
+		if (InternalDeformer)
+		{
+			CleanupDeformer();
+		}
+
+		// 원본 메시 복원
+		// SetSkeletalMeshAsset은 애니메이션 상태를 자동으로 보존함
+		USkeletalMeshComponent* TargetMesh = ResolvedTargetMesh.Get();
+		if (TargetMesh && CachedOriginalMesh.IsValid())
+		{
+			TargetMesh->SetSkeletalMeshAsset(CachedOriginalMesh.Get());
+		}
+
+		FleshRingAsset = nullptr;
+		bUsingBakedMesh = false;
+
+		return;
+	}
+
+	// 베이크된 메시가 없으면 일반 ApplyAsset 사용
+	if (!NewAsset->HasBakedMesh())
+	{
+		UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: NewAsset has no baked mesh, using regular ApplyAsset"));
+		FleshRingAsset = NewAsset;
+		ApplyAsset();
+		return;
+	}
+
+	// 기존 에셋 정리
+	CleanupRingMeshes();
+	if (InternalDeformer)
+	{
+		CleanupDeformer();
+	}
+
+	// 새 에셋 설정
+	FleshRingAsset = NewAsset;
+
+	// 베이크된 메시 적용
+	// ResolvedTargetMesh가 이미 유효하면 ResolveTargetMesh 호출 불필요
+	// (ResolveTargetMesh는 SubdividedMesh를 적용하려 하므로 애니메이션이 리셋됨)
+	if (!ResolvedTargetMesh.IsValid())
+	{
+		ResolveTargetMesh();
+	}
+	ApplyBakedMesh();
+
+	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Swapped to baked asset '%s'"), *NewAsset->GetName());
+}
+
+void UFleshRingComponent::ApplyBakedMesh()
+{
+	if (!FleshRingAsset || !FleshRingAsset->HasBakedMesh())
+	{
+		UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: ApplyBakedMesh called but no baked mesh available"));
+		return;
+	}
+
+	USkeletalMeshComponent* TargetMesh = ResolvedTargetMesh.Get();
+	if (!TargetMesh)
+	{
+		UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: ApplyBakedMesh - no target mesh"));
+		return;
+	}
+
+	// 원본 메시 저장 (나중에 복원용)
+	if (!CachedOriginalMesh.IsValid())
+	{
+		CachedOriginalMesh = TargetMesh->GetSkeletalMeshAsset();
+	}
+
+	// 베이크된 메시 적용
+	// SetSkeletalMeshAsset은 애니메이션 상태를 자동으로 보존함
+	USkeletalMesh* BakedMesh = FleshRingAsset->SubdivisionSettings.BakedMesh;
+	TargetMesh->SetSkeletalMeshAsset(BakedMesh);
+
+	// Bounds 확장 (변형이 이미 적용되어 있지만 안전을 위해)
+	TargetMesh->SetBoundsScale(BoundsScale);
+
+	// 렌더 스테이트 갱신
+	TargetMesh->MarkRenderStateDirty();
+
+	// Ring 메시 설정 및 베이크된 트랜스폼 적용
+	SetupRingMeshes();
+	ApplyBakedRingTransforms();
+
+	// 베이크 모드 플래그 설정
+	bUsingBakedMesh = true;
+
+	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Applied baked mesh '%s'"),
+		BakedMesh ? *BakedMesh->GetName() : TEXT("null"));
+}
+
+void UFleshRingComponent::ApplyBakedRingTransforms()
+{
+	if (!FleshRingAsset)
+	{
+		return;
+	}
+
+	const TArray<FTransform>& BakedTransforms = FleshRingAsset->SubdivisionSettings.BakedRingTransforms;
+
+	// 베이크된 트랜스폼이 없으면 스킵 (기본 본 위치 사용)
+	if (BakedTransforms.Num() == 0)
+	{
+		return;
+	}
+
+	// 각 Ring 메시에 베이크된 트랜스폼 적용
+	for (int32 RingIndex = 0; RingIndex < RingMeshComponents.Num(); ++RingIndex)
+	{
+		UFleshRingMeshComponent* MeshComp = RingMeshComponents[RingIndex];
+		if (!MeshComp)
+		{
+			continue;
+		}
+
+		if (BakedTransforms.IsValidIndex(RingIndex))
+		{
+			// 베이크된 트랜스폼은 컴포넌트 스페이스 기준
+			// 본에 부착된 상태이므로 상대 트랜스폼으로 설정
+			const FTransform& BakedTransform = BakedTransforms[RingIndex];
+			MeshComp->SetRelativeTransform(BakedTransform);
+
+			UE_LOG(LogFleshRingComponent, Verbose, TEXT("FleshRingComponent: Ring[%d] applied baked transform: Loc=%s Rot=%s"),
+				RingIndex,
+				*BakedTransform.GetLocation().ToString(),
+				*BakedTransform.GetRotation().Rotator().ToString());
+		}
+	}
+}
+
 void UFleshRingComponent::SetupRingMeshes()
 {
 	// 기존 Ring 메시 정리
@@ -1141,8 +1370,9 @@ void UFleshRingComponent::DrawDebugVisualization()
 	// NOTE: DebugSlicePlaneActors는 Ring 인덱스 기반 배열이므로 NumRings와 비교
 	if (DebugSlicePlaneActors.Num() != NumRings)
 	{
-		UE_LOG(LogFleshRingComponent, Warning, TEXT("[DEBUG] SlicePlane RECREATE: DebugSlicePlaneActors=%d, NumRings=%d"),
-			DebugSlicePlaneActors.Num(), NumRings);
+		// [DEBUG] SlicePlane 재생성 로그 (필요시 주석 해제)
+		// UE_LOG(LogFleshRingComponent, Warning, TEXT("[DEBUG] SlicePlane RECREATE: DebugSlicePlaneActors=%d, NumRings=%d"),
+		// 	DebugSlicePlaneActors.Num(), NumRings);
 
 		for (AActor* PlaneActor : DebugSlicePlaneActors)
 		{

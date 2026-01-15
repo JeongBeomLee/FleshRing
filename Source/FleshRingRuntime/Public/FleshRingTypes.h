@@ -189,6 +189,31 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 	UPROPERTY(Transient)
 	uint32 CachedPreviewBoneConfigHash = 0;
 
+	// ===== 베이크된 메시 (런타임용, 변형 적용 완료) =====
+
+	/**
+	 * 변형이 적용된 베이크 메시 (런타임용)
+	 * Tightness + Bulge + Smoothing이 모두 적용된 최종 상태
+	 * GenerateBakedMesh()로 생성됨
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Baked Mesh")
+	TObjectPtr<USkeletalMesh> BakedMesh;
+
+	/**
+	 * 베이크된 Ring 트랜스폼 배열 (링 메시 배치용)
+	 * 런타임에서 이 위치에 Ring 메시를 배치
+	 */
+	UPROPERTY()
+	TArray<FTransform> BakedRingTransforms;
+
+	/**
+	 * 베이크 시점의 파라미터 해시
+	 * Ring 설정, Tightness, Bulge 등 모든 파라미터 포함
+	 * 재생성 필요 여부 판단용
+	 */
+	UPROPERTY()
+	uint32 BakeParamsHash = 0;
+
 	FSubdivisionSettings()
 		: bEnableSubdivision(false)
 		, MinEdgeLength(1.0f)
@@ -200,6 +225,8 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 		, SubdivisionParamsHash(0)
 		, PreviewSubdividedMesh(nullptr)
 		, CachedPreviewBoneConfigHash(0)
+		, BakedMesh(nullptr)
+		, BakeParamsHash(0)
 	{
 	}
 };

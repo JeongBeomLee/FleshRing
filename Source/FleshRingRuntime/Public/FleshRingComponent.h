@@ -139,6 +139,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "FleshRing")
 	void ApplyAsset();
 
+	/**
+	 * 런타임에서 FleshRingAsset 교체
+	 * 베이크된 에셋 간 전환 시 애니메이션 끊김 없이 즉시 교체
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FleshRing")
+	void SwapFleshRingAsset(UFleshRingAsset* NewAsset);
+
+	/** 베이크 모드로 동작 중인지 여부 (Deformer 없이 BakedMesh 사용) */
+	UFUNCTION(BlueprintPure, Category = "FleshRing")
+	bool IsUsingBakedMesh() const { return bUsingBakedMesh; }
+
 	// =====================================
 	// Target Settings (런타임 오버라이드)
 	// =====================================
@@ -223,11 +234,26 @@ public:
 	UFleshRingDeformer* GetDeformer() const { return InternalDeformer; }
 
 	/**
+	 * Deformer 재초기화 (메시 교체 시 GPU 버퍼 재할당)
+	 * 베이킹 등 메시가 변경될 때 호출하여 Deformer의 GPU 버퍼를
+	 * 새 메시 크기에 맞게 재할당합니다.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FleshRing|Editor")
+	void ReinitializeDeformer();
+
+	/**
 	 * 에디터 프리뷰 환경에서 Deformer를 초기화합니다.
 	 * BeginPlay()가 호출되지 않는 에디터 환경에서 사용합니다.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing|Editor")
 	void InitializeForEditorPreview();
+
+	/**
+	 * 에디터 프리뷰 강제 재초기화 (이미 초기화된 상태여도 다시 수행)
+	 * 서브디비전 OFF 상태에서 베이크 시 Deformer 설정을 위해 사용
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FleshRing|Editor")
+	void ForceInitializeForEditorPreview();
 
 	/**
 	 * Ring 트랜스폼만 업데이트 (Deformer 유지, SDF 텍스처 유지)
@@ -301,6 +327,9 @@ private:
 	/** 에디터 프리뷰 초기화 완료 여부 */
 	bool bEditorPreviewInitialized = false;
 
+	/** 베이크 모드로 동작 중인지 여부 (런타임에서 BakedMesh 사용 시 true) */
+	bool bUsingBakedMesh = false;
+
 	/** 자동/수동 검색된 실제 대상 */
 	UPROPERTY(Transient)
 	TWeakObjectPtr<USkeletalMeshComponent> ResolvedTargetMesh;
@@ -330,7 +359,10 @@ private:
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UFleshRingMeshComponent>> RingMeshComponents;
 
-	/** 대상 SkeletalMeshComponent 검색 및 설정 */
+	/** 대상 SkeletalMeshComponent 검색만 수행 (메시 변경 없음) */
+	void FindTargetMeshOnly();
+
+	/** 대상 SkeletalMeshComponent 검색 및 메시 설정 (SubdividedMesh 적용 등) */
 	void ResolveTargetMesh();
 
 	/** Deformer 생성 및 등록 */
@@ -357,6 +389,12 @@ private:
 
 	/** Ring 메시 가시성 업데이트 */
 	void UpdateRingMeshVisibility();
+
+	/** 베이크된 메시 적용 (BakedMesh + BakedRingTransforms) */
+	void ApplyBakedMesh();
+
+	/** 베이크된 Ring 트랜스폼 적용 (Ring 메시 위치 복원) */
+	void ApplyBakedRingTransforms();
 
 	// =====================================
 	// Debug Drawing (에디터 전용)

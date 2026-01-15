@@ -44,6 +44,13 @@ public:
 	void InvalidateTightnessCache(int32 DirtyRingIndex = INDEX_NONE);
 
 	/**
+	 * 메시 변경 시 전체 캐시 무효화 (베이킹용)
+	 * 소스 포지션 캐시와 TightenedBindPose 캐시를 모두 무효화하여
+	 * 다음 프레임에서 새 메시 기준으로 버퍼를 재생성하도록 함
+	 */
+	void InvalidateForMeshChange();
+
+	/**
 	 * 디버그용: LOD별 AffectedVertices 데이터 반환
 	 * @param LODIndex - LOD 인덱스 (0 = 최고 품질)
 	 * @return 해당 LOD의 Ring별 Affected 데이터 배열, 없으면 nullptr
@@ -161,6 +168,29 @@ public:
 
 #if WITH_EDITORONLY_DATA
 	virtual bool RequestReadbackDeformerGeometry(TUniquePtr<FMeshDeformerGeometryReadbackRequest> InRequest) override { return false; }
+
+	/**
+	 * 베이크용 GPU 변형 결과 Readback
+	 * TightenedBindPose + Normals + Tangents를 CPU로 읽어옴
+	 *
+	 * @param OutPositions - 변형된 버텍스 위치 (float3 packed)
+	 * @param OutNormals - 재계산된 노멀 (float3 packed)
+	 * @param OutTangents - 재계산된 탄젠트 (float4 packed)
+	 * @param LODIndex - LOD 인덱스
+	 * @return 성공 여부
+	 */
+	bool ReadbackDeformedGeometry(
+		TArray<FVector3f>& OutPositions,
+		TArray<FVector3f>& OutNormals,
+		TArray<FVector4f>& OutTangents,
+		int32 LODIndex = 0);
+
+	/**
+	 * TightenedBindPose가 캐싱되어 있는지 확인
+	 * @param LODIndex - LOD 인덱스
+	 * @return 캐싱되어 있으면 true
+	 */
+	bool HasCachedDeformedGeometry(int32 LODIndex = 0) const;
 #endif
 
 private:

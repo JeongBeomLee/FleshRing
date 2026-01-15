@@ -52,6 +52,12 @@ public class FleshRingRuntime : ModuleRules
 			}
             );
 
+		// 에디터 빌드에서만 UnrealEd 종속성 추가 (GEditor 사용을 위해)
+		if (Target.bBuildEditor)
+		{
+			PrivateDependencyModuleNames.Add("UnrealEd");
+		}
+
 
 		DynamicallyLoadedModuleNames.AddRange(
 			new string[]
