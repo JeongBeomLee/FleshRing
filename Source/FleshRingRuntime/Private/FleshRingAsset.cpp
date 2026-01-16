@@ -3285,6 +3285,22 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 	UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Success - %d vertices, %d rings, Hash=%u"),
 		SourceVertexCount, Rings.Num(), SubdivisionSettings.BakeParamsHash);
 
+	// ★ 베이크 성공 후 SubdividedMesh 정리 (더 이상 필요 없음)
+	// BakedMesh가 SubdividedMesh의 변형 결과를 포함하므로 중복 저장 불필요
+	if (SubdivisionSettings.SubdividedMesh)
+	{
+		USkeletalMesh* OldSubdivMesh = SubdivisionSettings.SubdividedMesh;
+		OldSubdivMesh->Rename(nullptr, GetTransientPackage(),
+			REN_DontCreateRedirectors | REN_NonTransactional);
+		OldSubdivMesh->ClearFlags(RF_Public | RF_Standalone);
+		OldSubdivMesh->SetFlags(RF_Transient);
+		SubdivisionSettings.SubdividedMesh = nullptr;
+		SubdivisionSettings.SubdivisionParamsHash = 0;
+
+		UE_LOG(LogFleshRingAsset, Log,
+			TEXT("GenerateBakedMesh: Cleared SubdividedMesh (no longer needed after bake)"));
+	}
+
 	// 에셋 변경 통지
 	MarkPackageDirty();
 	OnAssetChanged.Broadcast(this);
