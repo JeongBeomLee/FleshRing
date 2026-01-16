@@ -3058,8 +3058,8 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 		}
 	}
 
-	// 기존 BakedMesh 정리
-	ClearBakedMesh();
+	// ★ 수정: 기존 BakedMesh 정리를 나중에 수행 (새 메시 생성 성공 후)
+	// 먼저 정리하면, 새 메시 생성 실패 시 이전 메시도 없어짐
 
 	// =====================================
 	// MeshDescription 기반 방식 (SubdividedMesh와 동일)
@@ -3129,17 +3129,19 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 			);
 		};
 
-		// MeshDescription 버텍스를 양자화된 위치로 인덱싱
-		TMap<FIntVector, FVertexID> QuantizedPosToVertex;
-		QuantizedPosToVertex.Reserve(MeshDescVertexCount);
+		// ★ 수정: UV seam에서 같은 위치에 여러 버텍스가 있을 수 있으므로 TArray 사용
+		// MeshDescription 버텍스를 양자화된 위치로 인덱싱 (위치당 여러 버텍스 허용)
+		TMap<FIntVector, TArray<FVertexID>> QuantizedPosToVertices;
+		QuantizedPosToVertices.Reserve(MeshDescVertexCount);
 
 		for (const FVertexID VertexID : MeshDesc->Vertices().GetElementIDs())
 		{
 			FIntVector QuantizedPos = QuantizePosition(VertexPositions[VertexID]);
-			QuantizedPosToVertex.Add(QuantizedPos, VertexID);
+			QuantizedPosToVertices.FindOrAdd(QuantizedPos).Add(VertexID);
 		}
 
 		// RenderData 버텍스 → MeshDescription 버텍스 매핑 (O(n) 복잡도)
+		// ★ 같은 위치의 모든 MeshDescription 버텍스에 동일한 RenderIdx 매핑
 		TMap<FVertexID, uint32> VertexToFirstRenderIdx;
 		VertexToFirstRenderIdx.Reserve(MeshDescVertexCount);
 
@@ -3148,14 +3150,17 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 			FVector3f RenderPos = SrcPosBuffer.VertexPosition(RenderIdx);
 			FIntVector QuantizedPos = QuantizePosition(RenderPos);
 
-			// 해시맵에서 O(1) 룩업
-			FVertexID* FoundVertexID = QuantizedPosToVertex.Find(QuantizedPos);
-			if (FoundVertexID)
+			// 해시맵에서 O(1) 룩업 - 같은 위치의 모든 버텍스에 매핑
+			TArray<FVertexID>* FoundVertexIDs = QuantizedPosToVertices.Find(QuantizedPos);
+			if (FoundVertexIDs)
 			{
-				// 첫 번째 매핑만 저장 (같은 위치의 여러 RenderData 버텍스 중 하나만 필요)
-				if (!VertexToFirstRenderIdx.Contains(*FoundVertexID))
+				for (const FVertexID& VertexID : *FoundVertexIDs)
 				{
-					VertexToFirstRenderIdx.Add(*FoundVertexID, RenderIdx);
+					// 첫 번째 매핑만 저장 (같은 위치의 여러 RenderData 버텍스 중 하나만 필요)
+					if (!VertexToFirstRenderIdx.Contains(VertexID))
+					{
+						VertexToFirstRenderIdx.Add(VertexID, RenderIdx);
+					}
 				}
 			}
 		}
@@ -3172,38 +3177,43 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 
 		UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Mapped %d/%d vertices"),
 			VertexToFirstRenderIdx.Num(), MeshDescVertexCount);
-	}
 
-	// =====================================
-	// 노멀/탄젠트 업데이트 (VertexInstance 기반)
-	// MeshDescription에서 노멀/탄젠트는 VertexInstance에 저장됨
-	// =====================================
-	if (bHasNormals && bHasTangents)
-	{
-		FSkeletalMeshAttributes MeshAttributes(*MeshDesc);
-		TVertexInstanceAttributesRef<FVector3f> InstanceNormals = MeshAttributes.GetVertexInstanceNormals();
-		TVertexInstanceAttributesRef<FVector3f> InstanceTangents = MeshAttributes.GetVertexInstanceTangents();
-		TVertexInstanceAttributesRef<float> InstanceBinormalSigns = MeshAttributes.GetVertexInstanceBinormalSigns();
-
-		// VertexInstance를 순회하며 노멀/탄젠트 업데이트
-		int32 InstanceIdx = 0;
-		for (const FVertexInstanceID InstanceID : MeshDesc->VertexInstances().GetElementIDs())
+		// =====================================
+		// 노멀/탄젠트 업데이트 (VertexInstance 기반)
+		// MeshDescription에서 노멀/탄젠트는 VertexInstance에 저장됨
+		// ★ 수정: 순차 인덱싱 대신 VertexID 기반 매핑 사용
+		// =====================================
+		if (bHasNormals && bHasTangents)
 		{
-			if (InstanceIdx < (int32)SourceVertexCount)
-			{
-				const FVector3f& Normal = DeformedNormals[InstanceIdx];
-				// GPU에서 재계산된 노멀이 유효한 경우만 적용
-				if (!Normal.IsNearlyZero())
-				{
-					FVector3f Tangent(DeformedTangents[InstanceIdx].X, DeformedTangents[InstanceIdx].Y, DeformedTangents[InstanceIdx].Z);
-					float BinormalSign = DeformedTangents[InstanceIdx].W;
+			FSkeletalMeshAttributes MeshAttributes(*MeshDesc);
+			TVertexInstanceAttributesRef<FVector3f> InstanceNormals = MeshAttributes.GetVertexInstanceNormals();
+			TVertexInstanceAttributesRef<FVector3f> InstanceTangents = MeshAttributes.GetVertexInstanceTangents();
+			TVertexInstanceAttributesRef<float> InstanceBinormalSigns = MeshAttributes.GetVertexInstanceBinormalSigns();
 
-					InstanceNormals[InstanceID] = Normal;
-					InstanceTangents[InstanceID] = Tangent;
-					InstanceBinormalSigns[InstanceID] = BinormalSign;
+			// VertexInstance를 순회하며 노멀/탄젠트 업데이트
+			// ★ VertexInstance의 부모 VertexID를 통해 RenderData 인덱스 찾기
+			for (const FVertexInstanceID InstanceID : MeshDesc->VertexInstances().GetElementIDs())
+			{
+				FVertexID VertexID = MeshDesc->GetVertexInstanceVertex(InstanceID);
+				uint32* RenderIdxPtr = VertexToFirstRenderIdx.Find(VertexID);
+
+				if (RenderIdxPtr && *RenderIdxPtr < SourceVertexCount)
+				{
+					uint32 RenderIdx = *RenderIdxPtr;
+					const FVector3f& Normal = DeformedNormals[RenderIdx];
+					// GPU에서 재계산된 노멀이 유효한 경우만 적용
+					if (!Normal.IsNearlyZero())
+					{
+						FVector3f Tangent(DeformedTangents[RenderIdx].X, DeformedTangents[RenderIdx].Y, DeformedTangents[RenderIdx].Z);
+						float BinormalSign = DeformedTangents[RenderIdx].W;
+
+						InstanceNormals[InstanceID] = Normal;
+						InstanceTangents[InstanceID] = Tangent;
+						InstanceBinormalSigns[InstanceID] = BinormalSign;
+					}
 				}
+				// 매핑 안 된 VertexInstance는 원본 노멀 유지 (얼굴 등 영향받지 않는 영역)
 			}
-			++InstanceIdx;
 		}
 	}
 
@@ -3255,6 +3265,18 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 		RingRelativeTransform.SetScale3D(Ring.MeshScale);
 		SubdivisionSettings.BakedRingTransforms.Add(RingRelativeTransform);
 	}
+
+	// ★ 새 메시가 완전히 준비되었으므로 이제 이전 BakedMesh 정리
+	// (생성 실패 시에도 이전 메시가 유지됨)
+	if (SubdivisionSettings.BakedMesh)
+	{
+		USkeletalMesh* OldMesh = SubdivisionSettings.BakedMesh;
+		OldMesh->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);
+		OldMesh->ClearFlags(RF_Public | RF_Standalone);
+		OldMesh->SetFlags(RF_Transient);
+		UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Cleaned up previous BakedMesh"));
+	}
+	SubdivisionSettings.BakedRingTransforms.Empty();
 
 	// 결과 저장
 	SubdivisionSettings.BakedMesh = NewBakedMesh;
