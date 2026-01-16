@@ -57,6 +57,15 @@ public:
 	/** PreviewScene의 FleshRingComponent 반환 (Subdivision 데이터 접근용) */
 	UFleshRingComponent* GetPreviewFleshRingComponent() const;
 
+	/** PreviewScene 강제 틱 (모달 다이얼로그에서 뷰포트 렌더링용) */
+	void TickPreviewScene(float DeltaTime);
+
+	/** 베이크 오버레이 표시/숨김 (입력 차단 + 진행 표시) */
+	void ShowBakeOverlay(bool bShow, const FText& Message = FText::GetEmpty());
+
+	/** 베이크 오버레이 상태 */
+	bool IsBakeOverlayVisible() const { return bBakeOverlayVisible; }
+
 private:
 	/** Skeleton Tree 탭 생성 */
 	TSharedRef<SDockTab> SpawnTab_SkeletonTree(const FSpawnTabArgs& Args);
@@ -133,4 +142,10 @@ private:
 
 	/** 뷰포트에서 Ring 선택 중 플래그 (순환 호출 방지) */
 	bool bSyncingFromViewport = false;
+
+	/** 베이크 오버레이 표시 상태 */
+	bool bBakeOverlayVisible = false;
+
+	/** 베이크 오버레이 윈도우 */
+	TSharedPtr<SWindow> BakeOverlayWindow;
 };

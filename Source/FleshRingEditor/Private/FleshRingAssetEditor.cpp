@@ -18,6 +18,12 @@
 #include "Modules/ModuleManager.h"
 #include "UObject/UObjectGlobals.h"
 #include "Editor.h"
+#include "Widgets/SWindow.h"
+#include "Widgets/Text/STextBlock.h"
+#include "Widgets/Layout/SBox.h"
+#include "Widgets/Images/SThrobber.h"
+#include "Framework/Application/SlateApplication.h"
+#include "Styling/AppStyle.h"
 
 #define LOCTEXT_NAMESPACE "FleshRingAssetEditor"
 
@@ -500,6 +506,27 @@ UFleshRingComponent* FFleshRingAssetEditor::GetPreviewFleshRingComponent() const
 	return nullptr;
 }
 
+void FFleshRingAssetEditor::TickPreviewScene(float DeltaTime)
+{
+	if (ViewportWidget.IsValid())
+	{
+		// PreviewScene 틱 (월드 및 컴포넌트 업데이트)
+		TSharedPtr<FFleshRingPreviewScene> PreviewScene = ViewportWidget->GetPreviewScene();
+		if (PreviewScene.IsValid())
+		{
+			PreviewScene->GetWorld()->Tick(LEVELTICK_All, DeltaTime);
+		}
+
+		// 뷰포트 클라이언트 틱 (렌더링 트리거)
+		TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient();
+		if (ViewportClient.IsValid())
+		{
+			ViewportClient->Tick(DeltaTime);
+			ViewportClient->Invalidate();
+		}
+	}
+}
+
 void FFleshRingAssetEditor::OnObjectTransacted(UObject* Object, const FTransactionObjectEvent& TransactionEvent)
 {
 	// Undo/Redo 시 EditingAsset이 변경되었으면 뷰포트 갱신
@@ -954,6 +981,85 @@ void FFleshRingAssetEditor::OnRingSelectionChangedFromDetails(int32 RingIndex)
 	bSyncingFromViewport = true;
 	ApplySelectionFromAsset();
 	bSyncingFromViewport = false;
+}
+
+void FFleshRingAssetEditor::ShowBakeOverlay(bool bShow, const FText& Message)
+{
+	if (bShow && !bBakeOverlayVisible)
+	{
+		// 오버레이 윈도우 생성
+		TSharedPtr<SWindow> ParentWindow = FSlateApplication::Get().FindWidgetWindow(ViewportWidget.ToSharedRef());
+		if (!ParentWindow.IsValid())
+		{
+			// 폴백: 활성 윈도우 사용
+			ParentWindow = FSlateApplication::Get().GetActiveTopLevelWindow();
+		}
+
+		if (ParentWindow.IsValid())
+		{
+			FText DisplayMessage = Message.IsEmpty() ? LOCTEXT("BakingOverlay", "Baking mesh...\nPlease wait.") : Message;
+
+			BakeOverlayWindow = SNew(SWindow)
+				.Type(EWindowType::Normal)
+				.Style(&FAppStyle::Get().GetWidgetStyle<FWindowStyle>("Window"))
+				.Title(LOCTEXT("BakeOverlayTitle", "Baking"))
+				.SizingRule(ESizingRule::FixedSize)
+				.ClientSize(FVector2D(300, 100))
+				.SupportsMaximize(false)
+				.SupportsMinimize(false)
+				.HasCloseButton(false)
+				.CreateTitleBar(true)
+				.IsTopmostWindow(true)
+				.FocusWhenFirstShown(true)
+				[
+					SNew(SBox)
+					.HAlign(HAlign_Center)
+					.VAlign(VAlign_Center)
+					.Padding(20.f)
+					[
+						SNew(SVerticalBox)
+						+ SVerticalBox::Slot()
+						.AutoHeight()
+						.HAlign(HAlign_Center)
+						[
+							SNew(SCircularThrobber)
+							.Radius(16.f)
+						]
+						+ SVerticalBox::Slot()
+						.AutoHeight()
+						.HAlign(HAlign_Center)
+						.Padding(0, 10, 0, 0)
+						[
+							SNew(STextBlock)
+							.Text(DisplayMessage)
+							.Justification(ETextJustify::Center)
+						]
+					]
+				];
+
+			FSlateApplication::Get().AddWindowAsNativeChild(BakeOverlayWindow.ToSharedRef(), ParentWindow.ToSharedRef(), true);
+
+			// 부모 윈도우 중앙에 배치
+			FVector2D ParentSize = ParentWindow->GetClientSizeInScreen();
+			FVector2D ParentPos = ParentWindow->GetPositionInScreen();
+			FVector2D OverlaySize = BakeOverlayWindow->GetClientSizeInScreen();
+			FVector2D CenteredPos = ParentPos + (ParentSize - OverlaySize) * 0.5f;
+			BakeOverlayWindow->MoveWindowTo(CenteredPos);
+		}
+
+		bBakeOverlayVisible = true;
+	}
+	else if (!bShow && bBakeOverlayVisible)
+	{
+		// 오버레이 윈도우 제거
+		if (BakeOverlayWindow.IsValid())
+		{
+			BakeOverlayWindow->RequestDestroyWindow();
+			BakeOverlayWindow.Reset();
+		}
+
+		bBakeOverlayVisible = false;
+	}
 }
 
 #undef LOCTEXT_NAMESPACE
