@@ -80,6 +80,8 @@ uint NumAffectedVertices;   // Number of affected vertices to process
                             // 처리할 영향받는 버텍스 수
 uint NumTotalVertices;      // Total mesh vertex count (for bounds check)
                             // 전체 메시 버텍스 수 (범위 체크용)
+uint bUseGeometricMethod;   // 0 = Surface Rotation, 1 = Geometric (Face Normal Average)
+                            // 0 = 표면 회전 방식, 1 = 지오메트릭 방식 (Face Normal 평균)
 
 // Thread Group Size
 #ifndef THREADGROUP_SIZE
@@ -259,130 +261,152 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
-    // Get original smooth vertex normal (this is what we want to preserve and rotate)
-    // 원본 스무스 버텍스 노멀 가져오기 (보존하고 회전시킬 대상)
-    float3 OriginalVertexNormal = ReadOriginalNormal(VertexIndex);
-
-    // If original normal is invalid, we can't do anything
-    // 원본 노멀이 유효하지 않으면 처리 불가
-    float OriginalNormalLenSq = dot(OriginalVertexNormal, OriginalVertexNormal);
-    if (OriginalNormalLenSq < 1e-8f)
-    {
-        WriteNormal(VertexIndex, float3(0, 0, 1));  // Fallback
-        return;
-    }
-    OriginalVertexNormal = normalize(OriginalVertexNormal);
-
-    // ========================================
-    // Step 1: Get adjacent triangle range
-    // 1단계: 인접 삼각형 범위 가져오기
-    // ========================================
+    // Get adjacent triangle range
+    // 인접 삼각형 범위 가져오기
     uint AdjStart = AdjacencyOffsets[ThreadIndex];
     uint AdjEnd = AdjacencyOffsets[ThreadIndex + 1];
 
-    // No adjacent triangles - use original normal
-    // 인접 삼각형 없음 - 원본 노멀 사용
-    if (AdjStart >= AdjEnd)
-    {
-        WriteNormal(VertexIndex, OriginalVertexNormal);
-        return;
-    }
-
     // ========================================
-    // Step 2: Accumulate BOTH original and deformed face normals
-    // 2단계: 원본과 변형된 Face Normal 모두 누적
+    // Branch by method for optimal performance
+    // 최적 성능을 위해 방식별 분기
     // ========================================
-    float3 OriginalFaceNormalSum = float3(0, 0, 0);
-    float3 DeformedFaceNormalSum = float3(0, 0, 0);
-    uint ValidFaceCount = 0;
-
-    for (uint i = AdjStart; i < AdjEnd; i++)
+    if (bUseGeometricMethod != 0)
     {
-        // Get triangle index
-        // 삼각형 인덱스 가져오기
-        uint TriIndex = AdjacencyTriangles[i];
+        // ========================================
+        // Geometric Method: Deformed face normal average only
+        // 지오메트릭 방식: 변형된 Face Normal 평균만 계산
+        // ========================================
+        // Original 데이터 읽기/계산 완전 생략 → 메모리 대역폭 절약
 
-        // Get triangle vertex indices (3 indices per triangle)
-        // 삼각형 버텍스 인덱스 가져오기 (삼각형당 3개)
-        uint I0 = IndexBuffer[TriIndex * 3 + 0];
-        uint I1 = IndexBuffer[TriIndex * 3 + 1];
-        uint I2 = IndexBuffer[TriIndex * 3 + 2];
-
-        // Bounds check for vertex indices
-        // 버텍스 인덱스 범위 체크
-        if (I0 >= NumTotalVertices || I1 >= NumTotalVertices || I2 >= NumTotalVertices)
+        // No adjacent triangles - use default normal
+        // 인접 삼각형 없음 - 기본 노멀 사용
+        if (AdjStart >= AdjEnd)
         {
-            continue;
+            WriteNormal(VertexIndex, float3(0, 0, 1));
+            return;
         }
 
-        // Get ORIGINAL vertex positions (bind pose)
-        // 원본 버텍스 위치 가져오기 (바인드 포즈)
-        float3 OrigP0 = ReadOriginalPosition(I0);
-        float3 OrigP1 = ReadOriginalPosition(I1);
-        float3 OrigP2 = ReadOriginalPosition(I2);
+        float3 DeformedFaceNormalSum = float3(0, 0, 0);
 
-        // Get DEFORMED vertex positions
-        // 변형된 버텍스 위치 가져오기
-        float3 DefP0 = ReadDeformedPosition(I0);
-        float3 DefP1 = ReadDeformedPosition(I1);
-        float3 DefP2 = ReadDeformedPosition(I2);
-
-        // Compute original face normal (unnormalized for area weighting)
-        // 원본 Face Normal 계산 (면적 가중을 위해 정규화하지 않음)
-        float3 OrigFaceNormal = ComputeFaceNormal(OrigP0, OrigP1, OrigP2);
-
-        // Compute deformed face normal (unnormalized for area weighting)
-        // 변형된 Face Normal 계산 (면적 가중을 위해 정규화하지 않음)
-        float3 DefFaceNormal = ComputeFaceNormal(DefP0, DefP1, DefP2);
-
-        // Check for degenerate triangles (either original or deformed)
-        // 퇴화 삼각형 체크 (원본 또는 변형 모두)
-        float OrigFaceNormalLenSq = dot(OrigFaceNormal, OrigFaceNormal);
-        float DefFaceNormalLenSq = dot(DefFaceNormal, DefFaceNormal);
-        if (OrigFaceNormalLenSq < 1e-12f || DefFaceNormalLenSq < 1e-12f)
+        for (uint i = AdjStart; i < AdjEnd; i++)
         {
-            continue;
+            uint TriIndex = AdjacencyTriangles[i];
+
+            uint I0 = IndexBuffer[TriIndex * 3 + 0];
+            uint I1 = IndexBuffer[TriIndex * 3 + 1];
+            uint I2 = IndexBuffer[TriIndex * 3 + 2];
+
+            if (I0 >= NumTotalVertices || I1 >= NumTotalVertices || I2 >= NumTotalVertices)
+            {
+                continue;
+            }
+
+            // Deformed positions only (Original 생략)
+            float3 DefP0 = ReadDeformedPosition(I0);
+            float3 DefP1 = ReadDeformedPosition(I1);
+            float3 DefP2 = ReadDeformedPosition(I2);
+
+            float3 DefFaceNormal = ComputeFaceNormal(DefP0, DefP1, DefP2);
+
+            // Check for degenerate triangle
+            if (dot(DefFaceNormal, DefFaceNormal) < 1e-12f)
+            {
+                continue;
+            }
+
+            DeformedFaceNormalSum += DefFaceNormal;
         }
 
-        // Accumulate both (area-weighted: larger triangles contribute more)
-        // 둘 다 누적 (면적 가중: 큰 삼각형이 더 많이 기여)
-        OriginalFaceNormalSum += OrigFaceNormal;
-        DeformedFaceNormalSum += DefFaceNormal;
-        ValidFaceCount++;
+        // Normalize and write
+        float3 FinalNormal = SafeNormalize(DeformedFaceNormalSum, float3(0, 0, 1));
+        WriteNormal(VertexIndex, FinalNormal);
     }
-
-    // ========================================
-    // Step 3: Calculate rotation and apply to original vertex normal
-    // 3단계: 회전 계산 및 원본 버텍스 노멀에 적용
-    // ========================================
-    if (ValidFaceCount == 0)
+    else
     {
-        // No valid faces - use original normal
-        // 유효한 면 없음 - 원본 노멀 사용
-        WriteNormal(VertexIndex, OriginalVertexNormal);
-        return;
+        // ========================================
+        // Surface Rotation Method: Original + Deformed 모두 필요
+        // 표면 회전 방식: 원본과 변형 Face Normal 비교하여 회전량 계산
+        // ========================================
+
+        // Get original smooth vertex normal (회전시킬 대상)
+        float3 OriginalVertexNormal = ReadOriginalNormal(VertexIndex);
+
+        // If original normal is invalid, fallback
+        float OriginalNormalLenSq = dot(OriginalVertexNormal, OriginalVertexNormal);
+        if (OriginalNormalLenSq < 1e-8f)
+        {
+            WriteNormal(VertexIndex, float3(0, 0, 1));
+            return;
+        }
+        OriginalVertexNormal = normalize(OriginalVertexNormal);
+
+        // No adjacent triangles - use original normal
+        if (AdjStart >= AdjEnd)
+        {
+            WriteNormal(VertexIndex, OriginalVertexNormal);
+            return;
+        }
+
+        float3 OriginalFaceNormalSum = float3(0, 0, 0);
+        float3 DeformedFaceNormalSum = float3(0, 0, 0);
+        uint ValidFaceCount = 0;
+
+        for (uint i = AdjStart; i < AdjEnd; i++)
+        {
+            uint TriIndex = AdjacencyTriangles[i];
+
+            uint I0 = IndexBuffer[TriIndex * 3 + 0];
+            uint I1 = IndexBuffer[TriIndex * 3 + 1];
+            uint I2 = IndexBuffer[TriIndex * 3 + 2];
+
+            if (I0 >= NumTotalVertices || I1 >= NumTotalVertices || I2 >= NumTotalVertices)
+            {
+                continue;
+            }
+
+            // Original positions (Surface Rotation에서만 필요)
+            float3 OrigP0 = ReadOriginalPosition(I0);
+            float3 OrigP1 = ReadOriginalPosition(I1);
+            float3 OrigP2 = ReadOriginalPosition(I2);
+
+            // Deformed positions
+            float3 DefP0 = ReadDeformedPosition(I0);
+            float3 DefP1 = ReadDeformedPosition(I1);
+            float3 DefP2 = ReadDeformedPosition(I2);
+
+            float3 OrigFaceNormal = ComputeFaceNormal(OrigP0, OrigP1, OrigP2);
+            float3 DefFaceNormal = ComputeFaceNormal(DefP0, DefP1, DefP2);
+
+            // Check for degenerate triangles
+            float OrigFaceNormalLenSq = dot(OrigFaceNormal, OrigFaceNormal);
+            float DefFaceNormalLenSq = dot(DefFaceNormal, DefFaceNormal);
+            if (OrigFaceNormalLenSq < 1e-12f || DefFaceNormalLenSq < 1e-12f)
+            {
+                continue;
+            }
+
+            OriginalFaceNormalSum += OrigFaceNormal;
+            DeformedFaceNormalSum += DefFaceNormal;
+            ValidFaceCount++;
+        }
+
+        if (ValidFaceCount == 0)
+        {
+            WriteNormal(VertexIndex, OriginalVertexNormal);
+            return;
+        }
+
+        float3 OriginalFaceNormalAvg = SafeNormalize(OriginalFaceNormalSum, float3(0, 0, 1));
+        float3 DeformedFaceNormalAvg = SafeNormalize(DeformedFaceNormalSum, float3(0, 0, 1));
+
+        // Apply rotation from original to deformed face normal
+        float3 RotatedNormal = RotateVectorByNormalChange(
+            OriginalVertexNormal,
+            OriginalFaceNormalAvg,
+            DeformedFaceNormalAvg
+        );
+
+        float3 FinalNormal = SafeNormalize(RotatedNormal, OriginalVertexNormal);
+        WriteNormal(VertexIndex, FinalNormal);
     }
-
-    // Normalize the accumulated face normals
-    // 누적된 Face Normal 정규화
-    float3 OriginalFaceNormalAvg = SafeNormalize(OriginalFaceNormalSum, float3(0, 0, 1));
-    float3 DeformedFaceNormalAvg = SafeNormalize(DeformedFaceNormalSum, float3(0, 0, 1));
-
-    // Calculate the rotation that would transform original face normal to deformed face normal
-    // And apply this same rotation to the original vertex normal
-    // 원본 Face Normal을 변형된 Face Normal로 변환하는 회전을 계산하고
-    // 이 회전을 원본 버텍스 노멀에 적용
-    float3 RotatedNormal = RotateVectorByNormalChange(
-        OriginalVertexNormal,
-        OriginalFaceNormalAvg,
-        DeformedFaceNormalAvg
-    );
-
-    // Ensure the result is normalized
-    // 결과가 정규화되었는지 확인
-    float3 FinalNormal = SafeNormalize(RotatedNormal, OriginalVertexNormal);
-
-    // Write the rotated normal
-    // 회전된 노멀 쓰기
-    WriteNormal(VertexIndex, FinalNormal);
 }

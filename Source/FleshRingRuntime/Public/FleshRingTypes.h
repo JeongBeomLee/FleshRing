@@ -112,6 +112,30 @@ enum class EFleshRingLayerType : uint8
 	Unknown		UMETA(DisplayName = "Unknown")
 };
 
+/**
+ * 노멀 재계산 방식
+ * TBN 정확성 vs 부드러움 트레이드오프
+ */
+UENUM(BlueprintType)
+enum class ENormalRecomputeMethod : uint8
+{
+	/**
+	 * Geometric Normal (Face Normal 평균)
+	 * - 실제 변형된 지오메트리에서 노멀 계산
+	 * - TBN이 표면과 정확히 일치 → Normal Map 변환 정확
+	 * - Laplacian 의존성 낮음 (2회면 충분)
+	 */
+	Geometric	UMETA(DisplayName = "Geometric (Recommended)"),
+
+	/**
+	 * Surface Rotation (기존 방식)
+	 * - 원본 Smooth Normal을 면 회전량만큼 회전
+	 * - Smooth Normal의 "캐릭터" 보존
+	 * - 변형이 noisy하면 결과도 noisy → Laplacian 10회+ 필요
+	 */
+	SurfaceRotation	UMETA(DisplayName = "Surface Rotation (Legacy)")
+};
+
 // =====================================
 // 구조체 정의
 // =====================================
@@ -703,7 +727,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	float TaubinMu = -0.53f;
 
 	/** 스무딩 반복 횟수 (Taubin: 각 반복 = λ+μ 2패스) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides, ClampMin = "1", ClampMax = "10"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides, ClampMin = "1", ClampMax = "20"))
 	int32 SmoothingIterations = 2;
 
 	/**

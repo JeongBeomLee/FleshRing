@@ -1751,8 +1751,8 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 						ERDGInitialDataFlags::None
 					);
 
-					// NormalRecomputeCS 디스패치 (표면 회전 방식)
-					FNormalRecomputeDispatchParams NormalParams(NumAffected, ActualNumVertices);
+					// NormalRecomputeCS 디스패치
+					FNormalRecomputeDispatchParams NormalParams(NumAffected, ActualNumVertices, WorkItem.bUseGeometricNormalMethod);
 
 					DispatchFleshRingNormalRecomputeCS(
 						GraphBuilder,

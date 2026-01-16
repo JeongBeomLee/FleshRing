@@ -242,6 +242,9 @@ struct FFleshRingWorkItem
 	// ===== Normal/Tangent Recompute 플래그 =====
 	// 노멀 재계산 활성화 여부 (FleshRingAsset에서 설정)
 	bool bEnableNormalRecompute = true;
+	// 노멀 재계산 방식: true = Geometric (Face Normal 평균), false = Surface Rotation (기존)
+	// Geometric 방식은 TBN이 실제 표면과 일치하여 Normal Map 변환이 정확함
+	bool bUseGeometricNormalMethod = true;
 	// 탄젠트 재계산 활성화 여부 (FleshRingAsset에서 설정, 노멀 재계산이 켜져있어야 동작)
 	bool bEnableTangentRecompute = true;
 
