@@ -136,128 +136,6 @@ bool UFleshRingAsset::IsValid() const
 // Material Layer Utilities
 // =====================================
 
-void UFleshRingAsset::AutoPopulateMaterialLayers()
-{
-	// 타겟 메시가 필요함
-	if (TargetSkeletalMesh.IsNull())
-	{
-		UE_LOG(LogFleshRingAsset, Warning, TEXT("AutoPopulateMaterialLayers: TargetSkeletalMesh is not set"));
-		return;
-	}
-
-	USkeletalMesh* Mesh = TargetSkeletalMesh.LoadSynchronous();
-	if (!Mesh)
-	{
-		UE_LOG(LogFleshRingAsset, Warning, TEXT("AutoPopulateMaterialLayers: Failed to load TargetSkeletalMesh"));
-		return;
-	}
-
-	// 기존 슬롯 인덱스 수집 (중복 방지)
-	TSet<int32> ExistingSlotIndices;
-	for (const FMaterialLayerMapping& Mapping : MaterialLayerMappings)
-	{
-		ExistingSlotIndices.Add(Mapping.MaterialSlotIndex);
-	}
-
-	// 머티리얼 슬롯 순회
-	const TArray<FSkeletalMaterial>& Materials = Mesh->GetMaterials();
-	for (int32 SlotIndex = 0; SlotIndex < Materials.Num(); ++SlotIndex)
-	{
-		// 이미 매핑된 슬롯은 스킵
-		if (ExistingSlotIndices.Contains(SlotIndex))
-		{
-			continue;
-		}
-
-		const FSkeletalMaterial& SkeletalMaterial = Materials[SlotIndex];
-		FName SlotName = SkeletalMaterial.MaterialSlotName;
-		FString MaterialName = SlotName.ToString();
-
-		// 머티리얼 인스턴스 이름도 고려
-		if (SkeletalMaterial.MaterialInterface)
-		{
-			MaterialName = SkeletalMaterial.MaterialInterface->GetName();
-		}
-
-		// 키워드 기반 레이어 타입 추측
-		EFleshRingLayerType DetectedType = EFleshRingLayerType::Unknown;
-		FString LowerName = MaterialName.ToLower();
-
-		// Stocking 키워드 (우선)
-		static const TArray<FString> StockingKeywords = {
-			TEXT("stocking"), TEXT("tight"), TEXT("pantyhose"),
-			TEXT("hosiery"), TEXT("nylon"), TEXT("sock"), TEXT("legging")
-		};
-		for (const FString& Keyword : StockingKeywords)
-		{
-			if (LowerName.Contains(Keyword))
-			{
-				DetectedType = EFleshRingLayerType::Stocking;
-				break;
-			}
-		}
-
-		// Underwear 키워드
-		if (DetectedType == EFleshRingLayerType::Unknown)
-		{
-			static const TArray<FString> UnderwearKeywords = {
-				TEXT("underwear"), TEXT("bra"), TEXT("panty"), TEXT("panties"),
-				TEXT("lingerie"), TEXT("bikini"), TEXT("brief"), TEXT("thong")
-			};
-			for (const FString& Keyword : UnderwearKeywords)
-			{
-				if (LowerName.Contains(Keyword))
-				{
-					DetectedType = EFleshRingLayerType::Underwear;
-					break;
-				}
-			}
-		}
-
-		// Outerwear 키워드
-		if (DetectedType == EFleshRingLayerType::Unknown)
-		{
-			static const TArray<FString> OuterwearKeywords = {
-				TEXT("cloth"), TEXT("dress"), TEXT("shirt"), TEXT("skirt"),
-				TEXT("jacket"), TEXT("coat"), TEXT("pants"), TEXT("jeans")
-			};
-			for (const FString& Keyword : OuterwearKeywords)
-			{
-				if (LowerName.Contains(Keyword))
-				{
-					DetectedType = EFleshRingLayerType::Outerwear;
-					break;
-				}
-			}
-		}
-
-		// Skin 키워드 (기본값으로 사용하기 좋음)
-		if (DetectedType == EFleshRingLayerType::Unknown)
-		{
-			static const TArray<FString> SkinKeywords = {
-				TEXT("skin"), TEXT("body"), TEXT("flesh"), TEXT("face"),
-				TEXT("hand"), TEXT("leg"), TEXT("arm"), TEXT("foot"), TEXT("head")
-			};
-			for (const FString& Keyword : SkinKeywords)
-			{
-				if (LowerName.Contains(Keyword))
-				{
-					DetectedType = EFleshRingLayerType::Skin;
-					break;
-				}
-			}
-		}
-
-		// 매핑 추가
-		MaterialLayerMappings.Add(FMaterialLayerMapping(SlotIndex, SlotName, DetectedType));
-	}
-
-#if WITH_EDITOR
-	// 에디터에서 변경 알림
-	Modify();
-#endif
-}
-
 EFleshRingLayerType UFleshRingAsset::GetLayerTypeForMaterialSlot(int32 MaterialSlotIndex) const
 {
 	for (const FMaterialLayerMapping& Mapping : MaterialLayerMappings)
@@ -270,13 +148,124 @@ EFleshRingLayerType UFleshRingAsset::GetLayerTypeForMaterialSlot(int32 MaterialS
 	return EFleshRingLayerType::Unknown;
 }
 
-void UFleshRingAsset::ClearMaterialLayerMappings()
+void UFleshRingAsset::SyncMaterialLayerMappings()
 {
-	MaterialLayerMappings.Empty();
+	// 타겟 메시 없으면 배열 비움
+	if (TargetSkeletalMesh.IsNull())
+	{
+		MaterialLayerMappings.Empty();
+		return;
+	}
+
+	USkeletalMesh* Mesh = TargetSkeletalMesh.LoadSynchronous();
+	if (!Mesh)
+	{
+		MaterialLayerMappings.Empty();
+		return;
+	}
+
+	const TArray<FSkeletalMaterial>& Materials = Mesh->GetMaterials();
+	const int32 NumSlots = Materials.Num();
+
+	// 기존 매핑에서 LayerType 보존용 맵 생성
+	TMap<int32, EFleshRingLayerType> ExistingLayerTypes;
+	for (const FMaterialLayerMapping& Mapping : MaterialLayerMappings)
+	{
+		ExistingLayerTypes.Add(Mapping.MaterialSlotIndex, Mapping.LayerType);
+	}
+
+	// 배열 재구성 (메시 슬롯 수와 동기화)
+	MaterialLayerMappings.SetNum(NumSlots);
+
+	for (int32 SlotIndex = 0; SlotIndex < NumSlots; ++SlotIndex)
+	{
+		const FSkeletalMaterial& SkeletalMaterial = Materials[SlotIndex];
+		FMaterialLayerMapping& Mapping = MaterialLayerMappings[SlotIndex];
+
+		Mapping.MaterialSlotIndex = SlotIndex;
+		Mapping.MaterialSlotName = SkeletalMaterial.MaterialSlotName;
+
+		// 기존 LayerType 보존, 없으면 자동 감지
+		if (const EFleshRingLayerType* ExistingType = ExistingLayerTypes.Find(SlotIndex))
+		{
+			Mapping.LayerType = *ExistingType;
+		}
+		else
+		{
+			Mapping.LayerType = DetectLayerTypeFromMaterialName(SkeletalMaterial);
+		}
+	}
 
 #if WITH_EDITOR
 	Modify();
 #endif
+}
+
+EFleshRingLayerType UFleshRingAsset::DetectLayerTypeFromMaterialName(const FSkeletalMaterial& Material)
+{
+	FString MaterialName = Material.MaterialSlotName.ToString();
+	if (Material.MaterialInterface)
+	{
+		MaterialName = Material.MaterialInterface->GetName();
+	}
+	FString LowerName = MaterialName.ToLower();
+
+	// Stocking 키워드 (우선)
+	static const TArray<FString> StockingKeywords = {
+		TEXT("stocking"), TEXT("tight"), TEXT("pantyhose"),
+		TEXT("hosiery"), TEXT("nylon"), TEXT("sock"), TEXT("legging")
+	};
+	for (const FString& Keyword : StockingKeywords)
+	{
+		if (LowerName.Contains(Keyword))
+		{
+			return EFleshRingLayerType::Stocking;
+		}
+	}
+
+	// Underwear 키워드
+	static const TArray<FString> UnderwearKeywords = {
+		TEXT("underwear"), TEXT("bra"), TEXT("panty"), TEXT("panties"),
+		TEXT("lingerie"), TEXT("bikini"), TEXT("brief"), TEXT("thong")
+	};
+	for (const FString& Keyword : UnderwearKeywords)
+	{
+		if (LowerName.Contains(Keyword))
+		{
+			return EFleshRingLayerType::Underwear;
+
+
+
+		}
+	}
+
+	// Outerwear 키워드
+	static const TArray<FString> OuterwearKeywords = {
+		TEXT("cloth"), TEXT("dress"), TEXT("shirt"), TEXT("skirt"),
+		TEXT("jacket"), TEXT("coat"), TEXT("pants"), TEXT("jeans")
+	};
+	for (const FString& Keyword : OuterwearKeywords)
+	{
+		if (LowerName.Contains(Keyword))
+		{
+			return EFleshRingLayerType::Outerwear;
+		}
+	}
+
+	// Skin 키워드
+	static const TArray<FString> SkinKeywords = {
+		TEXT("skin"), TEXT("body"), TEXT("flesh"), TEXT("face"),
+		TEXT("hand"), TEXT("leg"), TEXT("arm"), TEXT("foot"), TEXT("head")
+	};
+	for (const FString& Keyword : SkinKeywords)
+	{
+		if (LowerName.Contains(Keyword))
+		{
+			return EFleshRingLayerType::Skin;
+		}
+	}
+
+	return EFleshRingLayerType::Unknown;
 }
 
 bool UFleshRingAsset::NeedsSubdivisionRegeneration() const
@@ -1299,6 +1288,12 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 		{
 			bNeedsFullRefresh = true;
 
+			// ★ TargetSkeletalMesh 변경 시 Material Layer Mappings 동기화
+			if (PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, TargetSkeletalMesh))
+			{
+				SyncMaterialLayerMappings();
+			}
+
 			// ★ BoneName 변경 시 프리뷰 메시 캐시 무효화 (본 영역이 달라지므로)
 			if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BoneName))
 			{
@@ -1307,9 +1302,18 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 		}
 
 		// ★ Manual 모드 Ring 파라미터 변경 시 디버그 시각화 갱신
+		// ★ AffectedLayerMask 변경 시 Affected Vertices 재수집 필요
 		if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingRadius) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingThickness) ||
-			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingHeight))
+			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingHeight) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, AffectedLayerMask))
+		{
+			bNeedsFullRefresh = true;
+		}
+
+		// ★ Material Layer Mappings의 LayerType 변경 시 CachedVertexLayerTypes 재빌드 필요
+		if (PropName == GET_MEMBER_NAME_CHECKED(FMaterialLayerMapping, LayerType) ||
+			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, MaterialLayerMappings))
 		{
 			bNeedsFullRefresh = true;
 		}

@@ -49,10 +49,11 @@ public:
 
 	/**
 	 * 머티리얼-레이어 매핑 배열
-	 * 각 머티리얼 슬롯이 어느 레이어(Skin, Stocking 등)에 속하는지 정의
-	 * 스타킹 레이어가 항상 스킨 레이어 바깥에 위치하도록 보장
+	 * TargetSkeletalMesh 설정 시 자동으로 채워짐
+	 * 각 슬롯의 Layer Type만 수정 가능
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Material Layer Settings")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, EditFixedSize, Category = "Material Layer Settings",
+		meta = (TitleProperty = "MaterialSlotName"))
 	TArray<FMaterialLayerMapping> MaterialLayerMappings;
 
 	/**
@@ -151,14 +152,6 @@ public:
 	// =====================================
 
 	/**
-	 * 타겟 메시의 머티리얼 슬롯에서 레이어 매핑 자동 생성
-	 * 머티리얼 이름 키워드 기반으로 초기 레이어 타입 추측
-	 * 기존 매핑은 유지하고 새 슬롯만 추가
-	 */
-	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Material Layer Settings")
-	void AutoPopulateMaterialLayers();
-
-	/**
 	 * 머티리얼 슬롯 인덱스로 레이어 타입 조회
 	 * @param MaterialSlotIndex - 조회할 머티리얼 슬롯 인덱스
 	 * @return 해당 슬롯의 레이어 타입 (매핑 없으면 Unknown)
@@ -166,11 +159,20 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Material Layer Settings")
 	EFleshRingLayerType GetLayerTypeForMaterialSlot(int32 MaterialSlotIndex) const;
 
+private:
 	/**
-	 * 모든 머티리얼 레이어 매핑 초기화
+	 * Material Layer Mappings를 TargetSkeletalMesh의 슬롯과 동기화
+	 * - 기존 매핑의 LayerType은 보존
+	 * - 새 슬롯은 자동 감지된 LayerType으로 추가
+	 * - 삭제된 슬롯은 제거
+	 * TargetSkeletalMesh 변경 시 PostEditChangeProperty에서 자동 호출됨
 	 */
-	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Material Layer Settings")
-	void ClearMaterialLayerMappings();
+	void SyncMaterialLayerMappings();
+
+	/** 머티리얼 이름에서 레이어 타입 자동 감지 */
+	static EFleshRingLayerType DetectLayerTypeFromMaterialName(const FSkeletalMaterial& Material);
+
+public:
 
 	/** Subdivided 메시가 생성되어 있는지 */
 	UFUNCTION(BlueprintPure, Category = "FleshRing|Subdivision")

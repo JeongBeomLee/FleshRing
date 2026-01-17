@@ -1159,9 +1159,10 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 		// HitProxy 설정 (Ring 기즈모용)
 		PDI->SetHitProxy(new HFleshRingGizmoHitProxy(i));
 
-		// Ring 밴드 시각화 (직사각형 단면 원환체)
-		// RingRadius = 링 중심선, RingThickness = 반경방향 ±두께 (양방향)
-		float InnerRadius = FMath::Max(0.0f, Ring.RingRadius - Ring.RingThickness);
+		// Ring 밴드 시각화 (직사각형 단면 원환체 = Hollow Cylinder)
+		// RingRadius = 내부 반지름 (링이 살을 누르는 표면)
+		// RingThickness = 벽 두께 (안쪽→바깥쪽 한 방향)
+		float InnerRadius = Ring.RingRadius;
 		float OuterRadius = Ring.RingRadius + Ring.RingThickness;
 		float HalfHeight = Ring.RingHeight / 2.0f;
 

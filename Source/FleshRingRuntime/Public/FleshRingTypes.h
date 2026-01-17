@@ -113,6 +113,22 @@ enum class EFleshRingLayerType : uint8
 };
 
 /**
+ * 레이어 선택 비트마스크 (Tightness 영향 대상 레이어 지정)
+ * 여러 레이어를 동시에 선택 가능 (예: Skin | Stocking)
+ */
+UENUM(BlueprintType, Meta = (Bitflags, UseEnumValuesAsMaskValuesInEditor = "true"))
+enum class EFleshRingLayerMask : uint8
+{
+	None       = 0        UMETA(Hidden),
+	Skin       = 1 << 0,  // 0x01
+	Stocking   = 1 << 1,  // 0x02
+	Underwear  = 1 << 2,  // 0x04
+	Outerwear  = 1 << 3,  // 0x08
+	All        = Skin | Stocking | Underwear | Outerwear UMETA(Hidden)
+};
+ENUM_CLASS_FLAGS(EFleshRingLayerMask);
+
+/**
  * 노멀 재계산 방식
  * TBN 정확성 vs 부드러움 트레이드오프
  */
@@ -305,8 +321,8 @@ struct FLESHRINGRUNTIME_API FMaterialLayerMapping
 {
 	GENERATED_BODY()
 
-	/** 대상 머티리얼 (슬롯 인덱스로 참조) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layer")
+	/** 대상 머티리얼 슬롯 인덱스 (자동 설정됨, 수정 불가) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Layer")
 	int32 MaterialSlotIndex = 0;
 
 	/** 머티리얼 슬롯 이름 (표시용, 자동 설정됨) */
@@ -609,6 +625,15 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
 	EFalloffType FalloffType = EFalloffType::Linear;
 
+	/**
+	 * Tightness 효과가 적용될 메시 레이어
+	 * 선택되지 않은 레이어의 버텍스는 영향 범위에 있어도 수집되지 않음
+	 * 기본값: Skin만 (옷 메시 제외)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring",
+		meta = (Bitmask, BitmaskEnum = "/Script/FleshRingRuntime.EFleshRingLayerMask"))
+	int32 AffectedLayerMask = static_cast<int32>(EFleshRingLayerMask::Skin);
+
 	/** 가상 밴드 설정 (VirtualBand 모드에서만 사용) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Virtual Band", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::ProceduralBand"))
 	FProceduralBandSettings ProceduralBand;
@@ -820,6 +845,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		, LowerBulgeStrength(1.0f)
 		, TightnessStrength(1.0f)
 		, FalloffType(EFalloffType::Linear)
+		, AffectedLayerMask(static_cast<int32>(EFleshRingLayerMask::Skin))
 		, bEnablePostProcess(true)
 		, SmoothingVolumeMode(ESmoothingVolumeMode::BoundsExpand)
 		, MaxSmoothingHops(5)
@@ -867,5 +893,27 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	FString GetDisplayName(int32 Index) const
 	{
 		return RingName.IsNone() ? FString::Printf(TEXT("FleshRing_%d"), Index) : RingName.ToString();
+	}
+
+	/**
+	 * 레이어 타입이 AffectedLayerMask에 포함되는지 확인
+	 * @param LayerType 확인할 레이어 타입
+	 * @return true면 해당 레이어의 버텍스가 Tightness 영향을 받음
+	 */
+	bool IsLayerAffected(EFleshRingLayerType LayerType) const
+	{
+		switch (LayerType)
+		{
+		case EFleshRingLayerType::Skin:
+			return (AffectedLayerMask & static_cast<int32>(EFleshRingLayerMask::Skin)) != 0;
+		case EFleshRingLayerType::Stocking:
+			return (AffectedLayerMask & static_cast<int32>(EFleshRingLayerMask::Stocking)) != 0;
+		case EFleshRingLayerType::Underwear:
+			return (AffectedLayerMask & static_cast<int32>(EFleshRingLayerMask::Underwear)) != 0;
+		case EFleshRingLayerType::Outerwear:
+			return (AffectedLayerMask & static_cast<int32>(EFleshRingLayerMask::Outerwear)) != 0;
+		default:
+			return false; // Unknown 레이어는 기본적으로 제외
+		}
 	}
 };

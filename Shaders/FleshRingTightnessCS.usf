@@ -237,29 +237,68 @@ float CalculateFalloff(float Distance, float MaxDistance, uint InFalloffType)
     }
 }
 
+// ============================================================================
 // Manual 모드용 GPU Influence 계산
 // CPU의 FDistanceBasedVertexSelector::SelectVertices() Manual 분기와 동일 로직
+// ============================================================================
+//
+// [Influence 계산 흐름]
+//
+//  1. 버텍스 위치 → 링 중심 기준 분해
+//     - AxisDist: 축 방향 거리 (링 위/아래 얼마나 떨어졌나)
+//     - RadialDist: 반경 방향 거리 (링 축에서 얼마나 떨어졌나)
+//
+//  2. 범위 체크 (Zone)
+//     - RadialDist > MaxDistance 또는 AxisDist > HalfWidth → 영향권 밖
+//
+//  3. Falloff 계산
+//     - RadialInfluence: 링 표면(RingRadius)에서 멀수록 감소
+//     - AxialInfluence: 링 중심 높이에서 멀수록 감소
+//
+//  4. 최종 Influence = RadialInfluence × AxialInfluence
+//
+// [문제점]
+//  - 링 내부표면(RingRadius) 위치에 따라 Skin/Stocking의 Influence가 다름
+//  - 링이 Stocking 위치에 있으면 → Stocking이 내부표면에 가까움 → 더 높은 Influence
+//  - → Stocking이 더 많이 이동 → 레이어 역전!
+//
+// ============================================================================
 float CalculateManualInfluence(float3 VertexPos)
 {
+    // Step 1: 버텍스 위치를 링 좌표계로 분해
     float3 ToVertex = VertexPos - RingCenter;
+
+    // 축 방향 성분 (링 위/아래 방향)
     float AxisDist = dot(ToVertex, RingAxis);
+
+    // 반경 방향 벡터 (축에 수직, 바깥 방향)
     float3 RadialVec = ToVertex - RingAxis * AxisDist;
     float RadialDist = length(RadialVec);
 
-    float MaxDistance = RingRadius + RingThickness;
-    float HalfWidth = RingHeight * 0.5;
+    // Step 2: 영향 범위(Zone) 체크
+    float MaxDistance = RingRadius + RingThickness;     // 수평 범위
+    float HalfHeight = RingHeight * 0.5;                // 수직 범위
 
-    // 범위 밖 체크 (early out)
-    if (RadialDist > MaxDistance || abs(AxisDist) > HalfWidth)
+    // 수평 범위 or 수직 범위 초과 -> influence = 0 
+    // TODO: RadialDist < RingRadius (링 구멍 안쪽) 체크 없는 상태임. 우선순위 하
+    if (RadialDist > MaxDistance || abs(AxisDist) > HalfHeight)
         return 0.0;
 
-    // 링 표면으로부터의 거리
+    // Step 3: Falloff 계산
+    // 링 내부표면(RingRadius = 내부 반지름)으로부터의 거리
+    // → 내부표면 위에 있으면 0, 멀수록 증가
+    // TODO: abs() 때문에 구멍 안쪽 버텍스도 내부 표면에 가까우면 높은 Influence를 받는 상태임. 수정 필요할 수도
     float DistFromSurface = abs(RadialDist - RingRadius);
 
-    // Radial × Axial falloff 조합
+    // RadialInfluence: 내부표면에 가까울수록 1.0, RingThickness 거리에서 0.0
     float RadialInfluence = CalculateFalloff(DistFromSurface, RingThickness, FalloffType);
-    float AxialInfluence = CalculateFalloff(abs(AxisDist), HalfWidth, FalloffType);
 
+    // AxialInfluence: 링 중심 높이에 가까울수록 1.0, HalfHeight 거리에서 0.0
+    float AxialInfluence = CalculateFalloff(abs(AxisDist), HalfHeight, FalloffType);
+
+    // ========================================
+    // Step 4: 최종 Influence (곱셈 조합)
+    // ========================================
     return RadialInfluence * AxialInfluence;
 }
 
@@ -397,6 +436,39 @@ float3 ApplyTightnessDeformation(float3 Pos, float3 Center, float3 Axis, float I
         return Pos;
 
     float3 InwardDir = -RadialVec / RadialDist;
+    return Pos + InwardDir * Strength * Influence;
+}
+
+// Manual 모드: 원통형 + 토러스 블렌딩 압축 (테스트용)
+// TorusBlendRatio: 0 = 순수 원통형(기존), 1 = 순수 토러스 노말
+// 토러스 노말은 링 가장자리에서 살이 링 중심 방향으로 모이는 효과
+float3 ApplyTightnessDeformation_TorusBlend(float3 Pos, float3 Center, float3 Axis, float Influence, float Strength)
+{
+    float3 ToVertex = Pos - Center;
+    float AxisDist = dot(ToVertex, Axis);
+    float3 RadialVec = ToVertex - Axis * AxisDist;
+    float RadialDist = length(RadialVec);
+
+    if (RadialDist < 0.001)
+        return Pos;
+
+    // 원통형 방향 (기존 방식: 축 방향으로 안쪽)
+    float3 RadialDir = RadialVec / RadialDist;
+    float3 CylinderDir = -RadialDir;
+
+    // 토러스 튜브 중심점 계산 (버텍스와 같은 높이, RingRadius 거리)
+    float3 TubeCenter = Center + RadialDir * RingRadius + Axis * AxisDist;
+
+    // 토러스 노말 방향 (튜브 중심에서 버텍스 방향의 반대 = 안쪽)
+    float3 TorusVec = Pos - TubeCenter;
+    float TorusVecLen = length(TorusVec);
+    float3 TorusDir = (TorusVecLen > 0.001) ? -TorusVec / TorusVecLen : CylinderDir;
+
+    // 블렌딩 (0 = 순수 원통형, 1 = 순수 토러스)
+    // TODO: 파라미터화 - 현재 테스트용 하드코딩
+    float TorusBlendRatio = 0.3;
+    float3 InwardDir = normalize(lerp(CylinderDir, TorusDir, TorusBlendRatio));
+
     return Pos + InwardDir * Strength * Influence;
 }
 
@@ -846,6 +918,8 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
             return;
         }
 
+        // 토러스 블렌딩 테스트: 기존 함수 대신 _TorusBlend 버전 사용
+        // 테스트 후 원복하려면 ApplyTightnessDeformation으로 변경
         NewPos = ApplyTightnessDeformation(
             Pos,
             RingCenter,

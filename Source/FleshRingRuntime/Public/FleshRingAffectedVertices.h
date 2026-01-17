@@ -617,6 +617,15 @@ struct FVertexSelectionContext
      */
     const TMap<FIntVector, TArray<uint32>>* CachedPositionToVertices;
 
+    // ===== Layer Data (Optional - nullptr if layer filtering disabled) =====
+
+    /**
+     * Per-vertex layer types for filtering (full mesh size array)
+     * 전체 메시 버텍스의 레이어 타입 배열
+     * nullptr이면 레이어 필터링 비활성화 (모든 버텍스 선택)
+     */
+    const TArray<EFleshRingLayerType>* VertexLayerTypes;
+
     FVertexSelectionContext(
         const FFleshRingSettings& InRingSettings,
         int32 InRingIndex,
@@ -624,7 +633,8 @@ struct FVertexSelectionContext
         const TArray<FVector3f>& InAllVertices,
         const FRingSDFCache* InSDFCache = nullptr,
         const FVertexSpatialHash* InSpatialHash = nullptr,
-        const TMap<FIntVector, TArray<uint32>>* InCachedPositionToVertices = nullptr)
+        const TMap<FIntVector, TArray<uint32>>* InCachedPositionToVertices = nullptr,
+        const TArray<EFleshRingLayerType>* InVertexLayerTypes = nullptr)
         : RingSettings(InRingSettings)
         , RingIndex(InRingIndex)
         , BoneTransform(InBoneTransform)
@@ -632,6 +642,7 @@ struct FVertexSelectionContext
         , SDFCache(InSDFCache)
         , SpatialHash(InSpatialHash)
         , CachedPositionToVertices(InCachedPositionToVertices)
+        , VertexLayerTypes(InVertexLayerTypes)
     {
     }
 };
@@ -922,6 +933,16 @@ public:
      * 토폴로지 캐시 무효화 (메시 변경 시 호출)
      */
     void InvalidateTopologyCache();
+
+    /**
+     * Rebuild vertex layer types from MaterialLayerMappings
+     * MaterialLayerMappings에서 버텍스 레이어 타입 재빌드
+     * Called every RegisterAffectedVertices to reflect MaterialLayerMappings changes
+     * @param Component - FleshRingComponent with asset settings
+     * @param SkeletalMesh - Source skeletal mesh component
+     * @param LODIndex - LOD index to use
+     */
+    void RebuildVertexLayerTypes(const UFleshRingComponent* Component, const USkeletalMeshComponent* SkeletalMesh, int32 LODIndex);
 
     /**
      * Check if topology cache is built

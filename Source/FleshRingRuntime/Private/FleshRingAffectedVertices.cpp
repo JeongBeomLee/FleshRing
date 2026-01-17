@@ -372,6 +372,16 @@ void FDistanceBasedVertexSelector::SelectVertices(
 
         for (int32 VertexIdx : CandidateIndices)
         {
+            // === Layer Type Filtering ===
+            if (Context.VertexLayerTypes && Context.VertexLayerTypes->IsValidIndex(VertexIdx))
+            {
+                const EFleshRingLayerType LayerType = (*Context.VertexLayerTypes)[VertexIdx];
+                if (!Context.RingSettings.IsLayerAffected(LayerType))
+                {
+                    continue; // 지정된 레이어가 아니면 스킵
+                }
+            }
+
             const FVector VertexPos = FVector(AllVertices[VertexIdx]);
 
             // Component Space → Local Space 변환
@@ -456,6 +466,16 @@ void FDistanceBasedVertexSelector::SelectVertices(
         // 후보만 순회 (기존: 전체 순회)
         for (int32 VertexIdx : CandidateIndices)
         {
+            // === Layer Type Filtering ===
+            if (Context.VertexLayerTypes && Context.VertexLayerTypes->IsValidIndex(VertexIdx))
+            {
+                const EFleshRingLayerType LayerType = (*Context.VertexLayerTypes)[VertexIdx];
+                if (!Context.RingSettings.IsLayerAffected(LayerType))
+                {
+                    continue; // 지정된 레이어가 아니면 스킵
+                }
+            }
+
             const FVector VertexPos = FVector(AllVertices[VertexIdx]);
             const FVector ToVertex = VertexPos - RingCenter;
             const float AxisDistance = FVector::DotProduct(ToVertex, RingAxis);
@@ -776,6 +796,16 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
 
     for (int32 VertexIdx : CandidateIndices)
     {
+        // === Layer Type Filtering ===
+        if (Context.VertexLayerTypes && Context.VertexLayerTypes->IsValidIndex(VertexIdx))
+        {
+            const EFleshRingLayerType LayerType = (*Context.VertexLayerTypes)[VertexIdx];
+            if (!Context.RingSettings.IsLayerAffected(LayerType))
+            {
+                continue; // 지정된 레이어가 아니면 스킵
+            }
+        }
+
         const FVector VertexPos = FVector(AllVertices[VertexIdx]);
 
         // Component Space → Local Space 변환
@@ -1055,6 +1085,16 @@ void FVirtualBandVertexSelector::SelectVertices(
 
     for (int32 VertexIdx = 0; VertexIdx < AllVertices.Num(); ++VertexIdx)
     {
+        // === Layer Type Filtering ===
+        if (Context.VertexLayerTypes && Context.VertexLayerTypes->IsValidIndex(VertexIdx))
+        {
+            const EFleshRingLayerType LayerType = (*Context.VertexLayerTypes)[VertexIdx];
+            if (!Context.RingSettings.IsLayerAffected(LayerType))
+            {
+                continue; // 지정된 레이어가 아니면 스킵
+            }
+        }
+
         const FVector VertexPos = FVector(AllVertices[VertexIdx]);
         const FVector ToVertex = VertexPos - BandCenter;
 
@@ -1365,72 +1405,6 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
                 TEXT("RegisterAffectedVertices: Failed to extract mesh indices, Normal recomputation will be disabled"));
         }
 
-        // Build per-vertex layer types
-        // 버텍스별 레이어 타입 빌드
-        bool bUsedAssetMapping = false;
-
-        // 에셋에서 매핑 가져오기
-        if (Component->FleshRingAsset->MaterialLayerMappings.Num() > 0)
-        {
-            const UFleshRingAsset* Asset = Component->FleshRingAsset;
-
-            // 섹션별로 레이어 타입 할당
-            USkeletalMesh* Mesh = SkeletalMesh->GetSkeletalMeshAsset();
-            if (Mesh)
-            {
-                const FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
-                if (RenderData && LODIndex < RenderData->LODRenderData.Num())
-                {
-                    const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[LODIndex];
-                    const int32 NumVertices = static_cast<int32>(LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices());
-
-                    CachedVertexLayerTypes.SetNum(NumVertices);
-                    for (int32 i = 0; i < NumVertices; ++i)
-                    {
-                        CachedVertexLayerTypes[i] = EFleshRingLayerType::Unknown;
-                    }
-
-                    // 각 섹션의 머티리얼 슬롯에서 레이어 타입 가져오기
-                    for (int32 SectionIdx = 0; SectionIdx < LODData.RenderSections.Num(); ++SectionIdx)
-                    {
-                        const FSkelMeshRenderSection& Section = LODData.RenderSections[SectionIdx];
-                        const int32 MaterialSlotIndex = static_cast<int32>(Section.MaterialIndex);
-
-                        // 에셋에서 이 머티리얼 슬롯의 레이어 타입 조회
-                        EFleshRingLayerType LayerType = Asset->GetLayerTypeForMaterialSlot(MaterialSlotIndex);
-
-                        // 섹션의 모든 버텍스에 할당
-                        const int32 BaseVertexIndex = static_cast<int32>(Section.BaseVertexIndex);
-                        const int32 NumSectionVertices = static_cast<int32>(Section.NumVertices);
-
-                        for (int32 i = 0; i < NumSectionVertices; ++i)
-                        {
-                            const int32 VertexIndex = BaseVertexIndex + i;
-                            if (VertexIndex < NumVertices)
-                            {
-                                CachedVertexLayerTypes[VertexIndex] = LayerType;
-                            }
-                        }
-                    }
-
-                    bUsedAssetMapping = true;
-                }
-            }
-        }
-
-        // 에셋 매핑이 없으면 키워드 기반 자동 감지 폴백
-        if (!bUsedAssetMapping)
-        {
-            if (!FleshRingLayerUtils::BuildVertexLayerTypes(SkeletalMesh, LODIndex, CachedVertexLayerTypes))
-            {
-                CachedVertexLayerTypes.SetNum(CachedMeshVertices.Num());
-                for (int32 i = 0; i < CachedMeshVertices.Num(); ++i)
-                {
-                    CachedVertexLayerTypes[i] = EFleshRingLayerType::Unknown;
-                }
-            }
-        }
-
         // 토폴로지 캐시 빌드 (메시 데이터 캐싱과 함께)
         // 라플라시안 스무딩 여부와 무관하게 항상 빌드하여 모든 함수에서 캐시 활용
         // 이전에는 BuildLaplacianAdjacencyData() 내부에서만 빌드되어
@@ -1445,6 +1419,12 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             TEXT("RegisterAffectedVertices: Cached mesh data (%d vertices, %d indices, SpatialHash built, TopologyCache=%s)"),
             CachedMeshVertices.Num(), CachedMeshIndices.Num(), bTopologyCacheBuilt ? TEXT("Yes") : TEXT("No"));
     }
+
+    // ================================================================
+    // Layer Types 재빌드 (매번 호출 - MaterialLayerMappings 변경 즉시 반영)
+    // Rebuild layer types every time to reflect MaterialLayerMappings changes
+    // ================================================================
+    RebuildVertexLayerTypes(Component, SkeletalMesh, LODIndex);
 
     // 로컬 참조용 (이후 코드와 호환)
     const TArray<FVector3f>& MeshVertices = CachedMeshVertices;
@@ -1606,7 +1586,8 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             MeshVertices,
             SDFCache,  // nullptr이면 SDF 미사용 (Distance 기반 Selector는 무시)
             &VertexSpatialHash,  // O(1) 버텍스 쿼리용 Spatial Hash
-            bTopologyCacheBuilt ? &CachedPositionToVertices : nullptr  // UV seam 용접용 캐시 (빌드됨 시에만)
+            bTopologyCacheBuilt ? &CachedPositionToVertices : nullptr,  // UV seam 용접용 캐시 (빌드됨 시에만)
+            &CachedVertexLayerTypes  // 레이어 기반 버텍스 필터링용
         );
 
         // Ring별 InfluenceMode에 따라 Selector 결정
@@ -2060,6 +2041,85 @@ void FFleshRingAffectedVerticesManager::InvalidateTopologyCache()
 
     UE_LOG(LogFleshRingVertices, Verbose,
         TEXT("InvalidateTopologyCache: Topology cache cleared"));
+}
+
+void FFleshRingAffectedVerticesManager::RebuildVertexLayerTypes(const UFleshRingComponent* Component, const USkeletalMeshComponent* SkeletalMesh, int32 LODIndex)
+{
+    if (!Component || !Component->FleshRingAsset || !SkeletalMesh)
+    {
+        UE_LOG(LogFleshRingVertices, Warning,
+            TEXT("RebuildVertexLayerTypes: Missing Component, Asset, or SkeletalMesh"));
+        return;
+    }
+
+    bool bUsedAssetMapping = false;
+
+    // 에셋에서 매핑 가져오기
+    if (Component->FleshRingAsset->MaterialLayerMappings.Num() > 0)
+    {
+        const UFleshRingAsset* Asset = Component->FleshRingAsset;
+
+        // 섹션별로 레이어 타입 할당
+        USkeletalMesh* Mesh = SkeletalMesh->GetSkeletalMeshAsset();
+        if (Mesh)
+        {
+            const FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
+            if (RenderData && LODIndex < RenderData->LODRenderData.Num())
+            {
+                const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[LODIndex];
+                const int32 NumVertices = static_cast<int32>(LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices());
+
+                CachedVertexLayerTypes.SetNum(NumVertices);
+                for (int32 i = 0; i < NumVertices; ++i)
+                {
+                    CachedVertexLayerTypes[i] = EFleshRingLayerType::Unknown;
+                }
+
+                // 각 섹션의 머티리얼 슬롯에서 레이어 타입 가져오기
+                for (int32 SectionIdx = 0; SectionIdx < LODData.RenderSections.Num(); ++SectionIdx)
+                {
+                    const FSkelMeshRenderSection& Section = LODData.RenderSections[SectionIdx];
+                    const int32 MaterialSlotIndex = static_cast<int32>(Section.MaterialIndex);
+
+                    // 에셋에서 이 머티리얼 슬롯의 레이어 타입 조회
+                    EFleshRingLayerType LayerType = Asset->GetLayerTypeForMaterialSlot(MaterialSlotIndex);
+
+                    // 섹션의 모든 버텍스에 할당
+                    const int32 BaseVertexIndex = static_cast<int32>(Section.BaseVertexIndex);
+                    const int32 NumSectionVertices = static_cast<int32>(Section.NumVertices);
+
+                    for (int32 i = 0; i < NumSectionVertices; ++i)
+                    {
+                        const int32 VertexIndex = BaseVertexIndex + i;
+                        if (VertexIndex < NumVertices)
+                        {
+                            CachedVertexLayerTypes[VertexIndex] = LayerType;
+                        }
+                    }
+                }
+
+                bUsedAssetMapping = true;
+                UE_LOG(LogFleshRingVertices, Log,
+                    TEXT("RebuildVertexLayerTypes: Rebuilt from MaterialLayerMappings (%d vertices, %d sections)"),
+                    NumVertices, LODData.RenderSections.Num());
+            }
+        }
+    }
+
+    // 에셋 매핑이 없으면 키워드 기반 자동 감지 폴백
+    if (!bUsedAssetMapping)
+    {
+        if (!FleshRingLayerUtils::BuildVertexLayerTypes(SkeletalMesh, LODIndex, CachedVertexLayerTypes))
+        {
+            CachedVertexLayerTypes.SetNum(CachedMeshVertices.Num());
+            for (int32 i = 0; i < CachedMeshVertices.Num(); ++i)
+            {
+                CachedVertexLayerTypes[i] = EFleshRingLayerType::Unknown;
+            }
+        }
+        UE_LOG(LogFleshRingVertices, Log,
+            TEXT("RebuildVertexLayerTypes: Used keyword-based auto-detection fallback"));
+    }
 }
 
 // ============================================================================
