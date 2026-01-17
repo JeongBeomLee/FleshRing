@@ -9,6 +9,7 @@
 #include "FleshRingAssetDetailCustomization.h"
 #include "FleshRingSettingsCustomization.h"
 #include "FSubdivisionSettingsCustomization.h"
+#include "FMaterialLayerMappingCustomization.h"
 #include "FleshRingComponent.h"
 #include "FleshRingAsset.h"
 #include "PropertyEditorModule.h"
@@ -73,6 +74,12 @@ void FFleshRingEditorModule::StartupModule()
 	PropertyModule.RegisterCustomPropertyTypeLayout(
 		FSubdivisionSettings::StaticStruct()->GetFName(),
 		FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FSubdivisionSettingsCustomization::MakeInstance)
+	);
+
+	// FMaterialLayerMapping Property Type Customization 등록 (머티리얼 썸네일 표시)
+	PropertyModule.RegisterCustomPropertyTypeLayout(
+		FMaterialLayerMapping::StaticStruct()->GetFName(),
+		FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FMaterialLayerMappingCustomization::MakeInstance)
 	);
 
 	// 등록 Detail View 갱신
