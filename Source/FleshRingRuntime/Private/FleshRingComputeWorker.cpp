@@ -798,15 +798,22 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				);
 
 				// ========================================
-				// 4. IsSeed Flags 버퍼 (1=Seed, 0=Non-Seed)
-				// ExtendedIsAnchor: Seed(앵커)=1, Non-Seed=0
-				// bIncludeBulgeVerticesAsSeeds가 true면 Bulge 버텍스도 Seed로 마킹
+				// 4. Seed/Barrier Flags 분리
 				// ========================================
-				TArray<uint32> IsSeedFlagsData;
-				IsSeedFlagsData.SetNumUninitialized(NumExtendedVertices);
-				FMemory::Memcpy(IsSeedFlagsData.GetData(), DispatchData.ExtendedIsAnchor.GetData(), NumExtendedVertices * sizeof(uint32));
+				// 셰이더가 기대하는 구조:
+				//   - IsSeedFlags: 1 = Bulge(delta 전파 source), 0 = 그 외
+				//   - IsBarrierFlags: 1 = Tightness(전파 차단), 0 = 그 외
+				//
+				// ExtendedIsAnchor 데이터: 1 = Tightness, 0 = Non-Seed
+				// bIncludeBulgeVerticesAsSeeds가 true면 Bulge도 포함
+				// ========================================
 
-				// Bulge 버텍스도 Seed로 포함시키는 경우
+				// 먼저 원본 데이터 로드 (0=Non-Seed, 1=Tightness)
+				TArray<uint32> SeedTypeData;
+				SeedTypeData.SetNumUninitialized(NumExtendedVertices);
+				FMemory::Memcpy(SeedTypeData.GetData(), DispatchData.ExtendedIsAnchor.GetData(), NumExtendedVertices * sizeof(uint32));
+
+				// Bulge 버텍스도 Seed로 포함시키는 경우 (2로 마킹)
 				if (DispatchData.bIncludeBulgeVerticesAsSeeds && DispatchData.BulgeIndices.Num() > 0)
 				{
 					// BulgeIndices를 Set으로 변환 - O(M) 공간 (M = Bulge 버텍스 수)
@@ -817,17 +824,43 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 						BulgeIndicesSet.Add(BulgeIdx);
 					}
 
-					// Extended 영역 순회하며 Bulge 버텍스를 Seed로 마킹 - O(N) 시간
+					// Extended 영역 순회하며 Bulge 버텍스를 2로 마킹
 					for (uint32 ThreadIdx = 0; ThreadIdx < NumExtendedVertices; ++ThreadIdx)
 					{
-						if (IsSeedFlagsData[ThreadIdx] == 0 &&
+						if (SeedTypeData[ThreadIdx] == 0 &&
 							BulgeIndicesSet.Contains(DispatchData.ExtendedSmoothingIndices[ThreadIdx]))
 						{
-							IsSeedFlagsData[ThreadIdx] = 1;
+							SeedTypeData[ThreadIdx] = 2;  // Bulge = 2
 						}
 					}
 				}
 
+				// SeedTypeData 분리: IsSeedFlags, IsBarrierFlags
+				// bIncludeBulgeVerticesAsSeeds에 따라 동작 변경:
+				//   false: Tightness가 Seed (기존 동작)
+				//   true:  Bulge가 Seed, Tightness는 Barrier (전파 차단)
+				TArray<uint32> IsSeedFlagsData;
+				TArray<uint32> IsBarrierFlagsData;
+				IsSeedFlagsData.SetNumUninitialized(NumExtendedVertices);
+				IsBarrierFlagsData.SetNumUninitialized(NumExtendedVertices);
+
+				for (uint32 i = 0; i < NumExtendedVertices; ++i)
+				{
+					if (DispatchData.bIncludeBulgeVerticesAsSeeds)
+					{
+						// Bulge만 Seed, Tightness는 Barrier (전파 차단)
+						IsSeedFlagsData[i] = (SeedTypeData[i] == 2) ? 1 : 0;      // Bulge = Seed
+						IsBarrierFlagsData[i] = (SeedTypeData[i] == 1) ? 1 : 0;   // Tightness = Barrier
+					}
+					else
+					{
+						// Tightness만 Seed, Barrier 없음 (기존 동작)
+						IsSeedFlagsData[i] = (SeedTypeData[i] == 1) ? 1 : 0;      // Tightness = Seed
+						IsBarrierFlagsData[i] = 0;                                 // No Barrier
+					}
+				}
+
+				// IsSeedFlagsBuffer 생성
 				FRDGBufferRef IsSeedFlagsBuffer = GraphBuilder.CreateBuffer(
 					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumExtendedVertices),
 					*FString::Printf(TEXT("FleshRing_HeatProp_IsSeed_Ring%d"), RingIdx)
@@ -835,6 +868,18 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				GraphBuilder.QueueBufferUpload(
 					IsSeedFlagsBuffer,
 					IsSeedFlagsData.GetData(),
+					NumExtendedVertices * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// IsBarrierFlagsBuffer 생성
+				FRDGBufferRef IsBarrierFlagsBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumExtendedVertices),
+					*FString::Printf(TEXT("FleshRing_HeatProp_IsBarrier_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					IsBarrierFlagsBuffer,
+					IsBarrierFlagsData.GetData(),
 					NumExtendedVertices * sizeof(uint32),
 					ERDGInitialDataFlags::None
 				);
@@ -887,9 +932,10 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					TightenedBindPoseBuffer,       // 현재 변형된 위치 (Seed의 delta 계산용)
 					HeatPropOutputBuffer,          // 출력 위치
 					ExtendedIndicesBuffer,         // Extended 영역 버텍스 인덱스
-					IsSeedFlagsBuffer,             // Seed 플래그 (1=Seed, 0=Non-Seed)
+					IsSeedFlagsBuffer,             // Seed 플래그 (1=Bulge, 0=그외)
+					IsBarrierFlagsBuffer,          // Barrier 플래그 (1=Tightness/전파차단, 0=그외)
 					AdjacencyDataBuffer,           // 인접 정보 (diffusion용)
-					HeatPropRepresentativeIndicesBuffer  // UV seam welding용 대표 버텍스 인덱스
+					HeatPropRepresentativeIndicesBuffer   // UV seam welding용 대표 버텍스 인덱스
 				);
 
 				// ========================================

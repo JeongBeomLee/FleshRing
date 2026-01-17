@@ -45,6 +45,7 @@ RWBuffer<float> DeltaOut;           // Output delta (Init/Diffuse)
 // Extended region data
 StructuredBuffer<uint> ExtendedIndices;     // Vertex indices in extended region
 StructuredBuffer<uint> IsSeedFlags;         // 1 = Seed (anchor), 0 = Non-Seed
+StructuredBuffer<uint> IsBarrierFlags;      // 1 = Barrier (Tightness), 0 = Non-Barrier (blocks heat propagation)
 StructuredBuffer<uint> AdjacencyData;       // Neighbor info for diffusion
 
 // UV Seam Welding: Representative vertex indices
@@ -113,6 +114,13 @@ uint GetNeighborVertexIndex(uint AdjacencyOffset, uint NeighborSlot)
 // ============================================================================
 // Pass 0: Init - Compute initial delta
 // ============================================================================
+// [버그 수정] UV duplicate race condition 방지
+//
+// 문제: 같은 위치의 UV duplicate들이 모두 같은 RepIndex slot에 씀
+//       Seed가 delta를 쓴 후 Non-Seed가 0으로 덮어쓸 수 있음
+//
+// 해결: Seed만 delta 기록, Non-Seed는 아무것도 안 함
+//       (버퍼는 dispatch 전에 0으로 초기화됨)
 
 void InitPass(uint ThreadIndex)
 {
@@ -120,46 +128,62 @@ void InitPass(uint ThreadIndex)
     uint RepIndex = RepresentativeIndices[ThreadIndex];  // UV seam welding용 대표 버텍스
     uint IsSeed = IsSeedFlags[ThreadIndex];
 
-    float3 Delta;
+    // Seed만 delta 기록 (Non-Seed가 덮어쓰는 것 방지)
     if (IsSeed != 0)
     {
         // Seed: delta = deformation amount (CurrentPos - OriginalPos)
-        // 위치는 실제 버텍스에서 읽음 (UV별로 다를 수 있음)
         float3 CurrentPos = ReadPosition(CurrentPositions, VertexIndex);
         float3 OriginalPos = ReadPosition(OriginalPositions, VertexIndex);
-        Delta = CurrentPos - OriginalPos;
-    }
-    else
-    {
-        // Non-Seed: delta = 0 (will receive diffused delta)
-        Delta = float3(0, 0, 0);
-    }
+        float3 Delta = CurrentPos - OriginalPos;
 
-    // Write delta using REPRESENTATIVE vertex index
-    // UV seam의 모든 duplicate가 같은 slot에 쓰므로 동일한 delta 공유
-    WriteDeltaByVertex(RepIndex, Delta);
+        // Write delta using REPRESENTATIVE vertex index
+        WriteDeltaByVertex(RepIndex, Delta);
+    }
+    // Non-Seed/Barrier: 아무것도 안 함 (버퍼는 이미 0으로 초기화됨)
+    // → Seed의 delta가 덮어쓰여지지 않음
 }
 
 // ============================================================================
-// Pass 1: Diffuse - Propagate delta to neighbors
+// Pass 1: Diffuse - Propagate delta to neighbors (Max-based Propagation)
 // ============================================================================
+// 기존 Heat Diffusion 문제:
+//   lerp(MyDelta, NeighborAvg, lambda) → 0인 이웃들과 평균하여 희석
+//
+// 새 알고리즘 (Max-based Propagation):
+//   1. 이웃 중 가장 큰 magnitude의 delta 찾기
+//   2. Decay 적용하여 전파 (DecayFactor = 1 - HeatLambda * 0.1)
+//   3. 기존 delta와 비교, 더 큰 것 유지 (monotonic - 줄어들지 않음)
+//
+// 결과:
+//   - Iteration N = N hops 전파
+//   - Hop distance에 따른 지수적 감쇠: Delta_n = Delta_0 * DecayFactor^n
+//   - DecayFactor=0.95, 50 hops → 원본의 ~8% 유지
 
 void DiffusePass(uint ThreadIndex)
 {
     uint RepIndex = RepresentativeIndices[ThreadIndex];  // UV seam welding용 대표 버텍스
     uint IsSeed = IsSeedFlags[ThreadIndex];
+    uint IsBarrier = IsBarrierFlags[ThreadIndex];
 
     // Read current delta using REPRESENTATIVE vertex index
     float3 MyDelta = ReadDeltaByVertex(RepIndex);
 
     if (IsSeed != 0)
     {
-        // Seed: delta is fixed, no diffusion
+        // Seed: delta is fixed, no propagation
         WriteDeltaByVertex(RepIndex, MyDelta);
         return;
     }
 
-    // Non-Seed: diffuse delta from neighbors
+    if (IsBarrier != 0)
+    {
+        // Barrier (Tightness): delta = 0 고정, 전파 차단
+        // Barrier는 열전파의 "벽" 역할 - delta를 받지도, 전달하지도 않음
+        WriteDeltaByVertex(RepIndex, float3(0, 0, 0));
+        return;
+    }
+
+    // Non-Seed (Non-Barrier): propagate max delta from neighbors
     uint AdjacencyOffset = ThreadIndex * (1 + MAX_NEIGHBORS);
     uint NeighborCount = GetNeighborCount(AdjacencyOffset);
 
@@ -169,33 +193,58 @@ void DiffusePass(uint ThreadIndex)
         return;
     }
 
-    // Sum neighbor deltas
-    float3 NeighborSum = float3(0, 0, 0);
-    uint ValidNeighbors = 0;
+    // ================================================================
+    // Max-based Propagation: 이웃 중 가장 큰 delta 찾기
+    // ================================================================
+    float3 MaxNeighborDelta = float3(0, 0, 0);
+    float MaxNeighborLen = 0.0;
 
     for (uint i = 0; i < NeighborCount && i < MAX_NEIGHBORS; i++)
     {
         // Get neighbor's mesh vertex index from adjacency data
-        // Note: Adjacency uses mesh vertex index directly (not thread index)
-        // UV seam duplicates at same position already share the same delta slot
+        // Note: Adjacency now stores REPRESENTATIVE vertex index for UV seam welding
         uint NeighborVertexIdx = GetNeighborVertexIndex(AdjacencyOffset, i);
 
-        // Read neighbor's delta using mesh vertex index
-        // (neighbor의 representative가 자기 자신이면 그대로, 아니면 representative의 delta 읽음)
+        // Read neighbor's delta
         float3 NeighborDelta = ReadDeltaByVertex(NeighborVertexIdx);
-        NeighborSum += NeighborDelta;
-        ValidNeighbors++;
+        float NeighborLen = length(NeighborDelta);
+
+        // 가장 큰 magnitude의 delta 찾기
+        if (NeighborLen > MaxNeighborLen)
+        {
+            MaxNeighborLen = NeighborLen;
+            MaxNeighborDelta = NeighborDelta;
+        }
     }
 
-    if (ValidNeighbors == 0)
+    // ================================================================
+    // Decay 적용하여 전파된 값 계산
+    // ================================================================
+    // HeatLambda를 decay로 변환: lambda=0.5 → decay=0.95
+    // 공식: decay = 1.0 - HeatLambda * 0.1
+    // lambda=0.0 → decay=1.0 (감쇠 없음)
+    // lambda=0.5 → decay=0.95 (hop당 5% 감쇠)
+    // lambda=1.0 → decay=0.9 (hop당 10% 감쇠)
+    float DecayFactor = 1.0 - HeatLambda * 0.1;
+    float3 PropagatedDelta = MaxNeighborDelta * DecayFactor;
+
+    // ================================================================
+    // Monotonic 업데이트: 더 큰 delta만 수용 (감소 방지)
+    // ================================================================
+    float MyLen = length(MyDelta);
+    float PropagatedLen = length(PropagatedDelta);
+
+    float3 NewDelta;
+    if (PropagatedLen > MyLen)
     {
-        WriteDeltaByVertex(RepIndex, MyDelta);
-        return;
+        // 전파된 값이 더 크면 수용
+        NewDelta = PropagatedDelta;
     }
-
-    // Compute neighbor average and blend
-    float3 NeighborAvg = NeighborSum / (float)ValidNeighbors;
-    float3 NewDelta = lerp(MyDelta, NeighborAvg, HeatLambda);
+    else
+    {
+        // 기존 값 유지 (monotonic - 줄어들지 않음)
+        NewDelta = MyDelta;
+    }
 
     // Write delta using REPRESENTATIVE vertex index
     WriteDeltaByVertex(RepIndex, NewDelta);
@@ -210,16 +259,23 @@ void ApplyPass(uint ThreadIndex)
     uint VertexIndex = ExtendedIndices[ThreadIndex];  // 실제 버텍스 인덱스 (출력용)
     uint RepIndex = RepresentativeIndices[ThreadIndex];  // UV seam welding용 대표 버텍스
     uint IsSeed = IsSeedFlags[ThreadIndex];
+    uint IsBarrier = IsBarrierFlags[ThreadIndex];
 
     float3 FinalPos;
     if (IsSeed != 0)
     {
-        // Seed: 현재 변형된 위치 유지 (Tightness/Bulge 결과)
+        // Seed (Bulge): 현재 변형된 위치 유지 (Bulge 결과)
+        FinalPos = ReadPosition(CurrentPositions, VertexIndex);
+    }
+    else if (IsBarrier != 0)
+    {
+        // Barrier (Tightness): 현재 변형된 위치 유지 (Tightness 결과)
+        // Barrier는 열전파를 차단하지만 자신의 변형은 그대로 유지
         FinalPos = ReadPosition(CurrentPositions, VertexIndex);
     }
     else
     {
-        // Non-Seed: 원본 위치 + 전파된 delta
+        // Non-Seed (Non-Barrier): 원본 위치 + 전파된 delta
         // delta는 REPRESENTATIVE에서 읽음 (UV seam 버텍스들이 동일한 delta 공유)
         float3 OriginalPos = ReadPosition(OriginalPositions, VertexIndex);
         float3 Delta = ReadDeltaByVertex(RepIndex);

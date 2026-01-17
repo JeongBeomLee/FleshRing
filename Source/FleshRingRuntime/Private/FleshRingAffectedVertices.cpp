@@ -3317,35 +3317,44 @@ void FFleshRingAffectedVerticesManager::BuildExtendedLaplacianAdjacency(
             if (!VerticesAtNeighborPos || VerticesAtNeighborPos->Num() == 0) continue;
 
             // ================================================================
-            // [UV Seam Welding] 이웃 인덱스도 Representative 우선 사용
+            // [UV Seam Welding + Heat Propagation]
+            // 항상 전역 Representative 인덱스 사용
             // ================================================================
-            // 같은 위치의 모든 버텍스가 동일한 이웃 인덱스를 참조하도록
-            // Representative 인덱스를 우선 사용하여 Laplacian 계산 일관성 보장
+            // 문제: 기존 로직은 Representative가 Extended 밖에 있으면
+            //       Extended 내 다른 인덱스를 선택했음
+            //       → InitPass에서 delta는 Representative에 저장
+            //       → DiffusePass에서 Adjacency의 다른 인덱스로 읽음
+            //       → 불일치로 delta=0 읽음!
+            //
+            // 해결: 이웃 위치에 Extended 버텍스가 있으면
+            //       항상 전역 Representative 인덱스 저장
+            //       delta 버퍼는 전체 메시 크기이므로 Extended 밖도 접근 가능
             // ================================================================
             uint32 NeighborIdx = UINT32_MAX;  // Invalid sentinel
 
-            // 1순위: Representative 인덱스가 Extended에 있으면 사용
-            const uint32* RepresentativeIdx = CachedPositionToRepresentative.Find(NeighborPosKey);
-            if (RepresentativeIdx && ExtendedVertexSet.Contains(*RepresentativeIdx))
+            // 먼저 이 위치에 Extended 버텍스가 있는지 확인
+            bool bHasExtendedNeighbor = false;
+            for (uint32 CandidateIdx : *VerticesAtNeighborPos)
             {
-                NeighborIdx = *RepresentativeIdx;
-            }
-            else
-            {
-                // 2순위: Representative가 Extended에 없으면 Extended 내에서 가장 작은 인덱스 선택
-                // 중요: 일관성을 위해 "첫 번째 발견"이 아닌 "최소 인덱스" 사용
-                // 그래야 같은 위치의 모든 UV duplicate가 동일한 이웃 인덱스를 참조
-                uint32 MinExtendedIdx = UINT32_MAX;
-                for (uint32 CandidateIdx : *VerticesAtNeighborPos)
+                if (ExtendedVertexSet.Contains(CandidateIdx))
                 {
-                    if (ExtendedVertexSet.Contains(CandidateIdx))
-                    {
-                        MinExtendedIdx = FMath::Min(MinExtendedIdx, CandidateIdx);
-                    }
+                    bHasExtendedNeighbor = true;
+                    break;
                 }
-                if (MinExtendedIdx != UINT32_MAX)
+            }
+
+            // Extended 이웃이 있으면, 전역 Representative 인덱스 사용
+            if (bHasExtendedNeighbor)
+            {
+                const uint32* RepresentativeIdx = CachedPositionToRepresentative.Find(NeighborPosKey);
+                if (RepresentativeIdx)
                 {
-                    NeighborIdx = MinExtendedIdx;
+                    NeighborIdx = *RepresentativeIdx;
+                }
+                else
+                {
+                    // Representative 캐시 미스 - 해당 위치의 첫 번째 버텍스 사용
+                    NeighborIdx = (*VerticesAtNeighborPos)[0];
                 }
             }
 
