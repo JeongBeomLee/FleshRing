@@ -48,6 +48,45 @@ void UFleshRingAsset::PostLoad()
 		}
 	}
 
+	// ================================================================
+	// AffectedLayerMask에 Other 비트 마이그레이션
+	//
+	// NOTE [마이그레이션]: 새 레이어 비트 추가 시 이 패턴 참고
+	//   1. 기존 에셋은 새 비트가 없음 (0)
+	//   2. 하나 이상의 레이어가 활성화된 경우에만 새 비트 추가
+	//   3. 전부 0인 경우는 의도적 비활성화일 수 있으므로 건드리지 않음
+	//
+	// 향후 새 레이어 추가 시:
+	//   - 새 비트 정의 (예: EFleshRingLayerMask::NewLayer = 1 << 5)
+	//   - 아래와 유사한 마이그레이션 코드 추가
+	//   - KnownBits에 기존 비트들 포함 (Other 포함)
+	// ================================================================
+	constexpr int32 OtherBit = static_cast<int32>(EFleshRingLayerMask::Other);
+	constexpr int32 KnownBitsBeforeOther =
+		static_cast<int32>(EFleshRingLayerMask::Skin) |
+		static_cast<int32>(EFleshRingLayerMask::Stocking) |
+		static_cast<int32>(EFleshRingLayerMask::Underwear) |
+		static_cast<int32>(EFleshRingLayerMask::Outerwear);
+
+	for (int32 RingIndex = 0; RingIndex < Rings.Num(); ++RingIndex)
+	{
+		FFleshRingSettings& Ring = Rings[RingIndex];
+
+		// Other 비트가 없고, 기존 레이어 중 하나라도 활성화되어 있으면 Other 추가
+		const bool bHasOtherBit = (Ring.AffectedLayerMask & OtherBit) != 0;
+		const bool bHasAnyKnownLayer = (Ring.AffectedLayerMask & KnownBitsBeforeOther) != 0;
+
+		if (!bHasOtherBit && bHasAnyKnownLayer)
+		{
+			Ring.AffectedLayerMask |= OtherBit;
+			MarkPackageDirty();
+
+			UE_LOG(LogFleshRingAsset, Log,
+				TEXT("PostLoad Migration: Added Other bit to AffectedLayerMask for Ring '%s'"),
+				*Ring.GetDisplayName(RingIndex));
+		}
+	}
+
 	// 에셋 로드 시 에디터 선택 상태 초기화
 	// (UPROPERTY()로 직렬화되지만, 로드 후에는 항상 초기화)
 	EditorSelectedRingIndex = -1;
@@ -145,7 +184,7 @@ EFleshRingLayerType UFleshRingAsset::GetLayerTypeForMaterialSlot(int32 MaterialS
 			return Mapping.LayerType;
 		}
 	}
-	return EFleshRingLayerType::Unknown;
+	return EFleshRingLayerType::Other;
 }
 
 void UFleshRingAsset::SyncMaterialLayerMappings()
@@ -265,7 +304,7 @@ EFleshRingLayerType UFleshRingAsset::DetectLayerTypeFromMaterialName(const FSkel
 		}
 	}
 
-	return EFleshRingLayerType::Unknown;
+	return EFleshRingLayerType::Other;
 }
 
 bool UFleshRingAsset::NeedsSubdivisionRegeneration() const

@@ -104,7 +104,7 @@ namespace FleshRingLayerUtils
         }
 
         // No keyword matched
-        return EFleshRingLayerType::Unknown;
+        return EFleshRingLayerType::Other;
     }
 
     /**
@@ -151,7 +151,7 @@ namespace FleshRingLayerUtils
         OutVertexLayerTypes.SetNum(NumVertices);
         for (int32 i = 0; i < NumVertices; ++i)
         {
-            OutVertexLayerTypes[i] = EFleshRingLayerType::Unknown;
+            OutVertexLayerTypes[i] = EFleshRingLayerType::Other;
         }
 
         // Get materials from the skeletal mesh component
@@ -2072,7 +2072,7 @@ void FFleshRingAffectedVerticesManager::RebuildVertexLayerTypes(const UFleshRing
                 CachedVertexLayerTypes.SetNum(NumVertices);
                 for (int32 i = 0; i < NumVertices; ++i)
                 {
-                    CachedVertexLayerTypes[i] = EFleshRingLayerType::Unknown;
+                    CachedVertexLayerTypes[i] = EFleshRingLayerType::Other;
                 }
 
                 // 각 섹션의 머티리얼 슬롯에서 레이어 타입 가져오기
@@ -2114,7 +2114,7 @@ void FFleshRingAffectedVerticesManager::RebuildVertexLayerTypes(const UFleshRing
             CachedVertexLayerTypes.SetNum(CachedMeshVertices.Num());
             for (int32 i = 0; i < CachedMeshVertices.Num(); ++i)
             {
-                CachedVertexLayerTypes[i] = EFleshRingLayerType::Unknown;
+                CachedVertexLayerTypes[i] = EFleshRingLayerType::Other;
             }
         }
         UE_LOG(LogFleshRingVertices, Log,
@@ -2487,17 +2487,17 @@ void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
                     }
 
                     // Layer type filtering: only include neighbors of same layer
-                    EFleshRingLayerType NeighborLayerType = EFleshRingLayerType::Unknown;
+                    EFleshRingLayerType NeighborLayerType = EFleshRingLayerType::Other;
                     if (VertexLayerTypes.IsValidIndex(static_cast<int32>(NeighborIdx)))
                     {
                         NeighborLayerType = VertexLayerTypes[static_cast<int32>(NeighborIdx)];
                     }
 
                     const bool bSameLayer = (MyLayerType == NeighborLayerType);
-                    const bool bBothUnknown = (MyLayerType == EFleshRingLayerType::Unknown &&
-                                              NeighborLayerType == EFleshRingLayerType::Unknown);
+                    const bool bBothOther = (MyLayerType == EFleshRingLayerType::Other &&
+                                              NeighborLayerType == EFleshRingLayerType::Other);
 
-                    if (bSameLayer || bBothUnknown)
+                    if (bSameLayer || bBothOther)
                     {
                         if (NeighborCount < MAX_NEIGHBORS)
                         {
@@ -2576,7 +2576,7 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingLaplacianAdjacencyDat
 
         // Get my layer type (전역 캐시에서 직접 조회 - Extended와 동일)
         // [최적화] PostProcessingLayerTypes 대신 전역 캐시 사용
-        EFleshRingLayerType MyLayerType = EFleshRingLayerType::Unknown;
+        EFleshRingLayerType MyLayerType = EFleshRingLayerType::Other;
         if (VertexLayerTypes.IsValidIndex(static_cast<int32>(VertIdx)))
         {
             MyLayerType = VertexLayerTypes[static_cast<int32>(VertIdx)];
@@ -2655,17 +2655,17 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingLaplacianAdjacencyDat
             }
 
             // Layer type filtering
-            EFleshRingLayerType NeighborLayerType = EFleshRingLayerType::Unknown;
+            EFleshRingLayerType NeighborLayerType = EFleshRingLayerType::Other;
             if (VertexLayerTypes.IsValidIndex(static_cast<int32>(NeighborIdx)))
             {
                 NeighborLayerType = VertexLayerTypes[static_cast<int32>(NeighborIdx)];
             }
 
             const bool bSameLayer = (MyLayerType == NeighborLayerType);
-            const bool bBothUnknown = (MyLayerType == EFleshRingLayerType::Unknown &&
-                                      NeighborLayerType == EFleshRingLayerType::Unknown);
+            const bool bBothOther = (MyLayerType == EFleshRingLayerType::Other &&
+                                      NeighborLayerType == EFleshRingLayerType::Other);
 
-            if (bSameLayer || bBothUnknown)
+            if (bSameLayer || bBothOther)
             {
                 NeighborIndices[NeighborCount++] = NeighborIdx;
             }
@@ -3343,7 +3343,7 @@ void FFleshRingAffectedVerticesManager::BuildExtendedLaplacianAdjacency(
         const int32 BaseOffset = ExtIdx * PACKED_SIZE;
 
         // Get my layer type (Extended는 별도 LayerTypes 배열이 없으므로 전역 사용)
-        EFleshRingLayerType MyLayerType = EFleshRingLayerType::Unknown;
+        EFleshRingLayerType MyLayerType = EFleshRingLayerType::Other;
         if (VertexLayerTypes.IsValidIndex(static_cast<int32>(VertIdx)))
         {
             MyLayerType = VertexLayerTypes[static_cast<int32>(VertIdx)];
@@ -3426,17 +3426,17 @@ void FFleshRingAffectedVerticesManager::BuildExtendedLaplacianAdjacency(
             }
 
             // Layer type filtering
-            EFleshRingLayerType NeighborLayerType = EFleshRingLayerType::Unknown;
+            EFleshRingLayerType NeighborLayerType = EFleshRingLayerType::Other;
             if (VertexLayerTypes.IsValidIndex(static_cast<int32>(NeighborIdx)))
             {
                 NeighborLayerType = VertexLayerTypes[static_cast<int32>(NeighborIdx)];
             }
 
             const bool bSameLayer = (MyLayerType == NeighborLayerType);
-            const bool bBothUnknown = (MyLayerType == EFleshRingLayerType::Unknown &&
-                                      NeighborLayerType == EFleshRingLayerType::Unknown);
+            const bool bBothOther = (MyLayerType == EFleshRingLayerType::Other &&
+                                      NeighborLayerType == EFleshRingLayerType::Other);
 
-            if (bSameLayer || bBothUnknown)
+            if (bSameLayer || bBothOther)
             {
                 NeighborIndices[NeighborCount++] = NeighborIdx;
             }

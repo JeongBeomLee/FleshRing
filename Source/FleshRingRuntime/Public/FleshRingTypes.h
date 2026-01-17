@@ -92,6 +92,13 @@ enum class EBulgeDirectionMode : uint8
  * 메시 레이어 타입 (의류 계층 구조)
  * Material 이름에서 자동 감지되거나 수동 지정 가능
  * GPU에서 레이어 침투 해결 시 사용
+ *
+ * NOTE [마이그레이션]: UE enum 직렬화는 이름 기반!
+ *       - 값 순서 변경 시 기존 에셋 깨짐
+ *       - 이름 변경 시에도 기존 에셋 깨짐 (이름으로 저장됨)
+ *       - 새 타입 추가는 항상 맨 뒤에 할 것
+ *       - 이름 변경 시 기존 이름을 Hidden 별칭으로 유지할 것
+ *       (Unknown → Other 리네이밍, Unknown = Other로 별칭 유지)
  */
 UENUM(BlueprintType)
 enum class EFleshRingLayerType : uint8
@@ -108,13 +115,24 @@ enum class EFleshRingLayerType : uint8
 	/** 외투/겉옷 레이어 (가장 바깥쪽) */
 	Outerwear	UMETA(DisplayName = "Outerwear"),
 
-	/** 알 수 없음 (기본값, 침투 해결에서 제외) */
-	Unknown		UMETA(DisplayName = "Unknown")
+	/** 기타/미분류 (자동 감지 실패 시 기본값, AffectedLayerMask로 포함/제외 제어) */
+	Other		UMETA(DisplayName = "Other"),
+
+	/**
+	 * [DEPRECATED] Unknown → Other로 리네이밍됨
+	 * 기존 에셋 역직렬화 호환성을 위해 유지 (UE는 이름 기반 직렬화)
+	 * 에디터에서 Hidden 처리, 새 에셋에서는 Other 사용 권장
+	 */
+	Unknown = Other	UMETA(Hidden)
 };
 
 /**
  * 레이어 선택 비트마스크 (Tightness 영향 대상 레이어 지정)
  * 여러 레이어를 동시에 선택 가능 (예: Skin | Stocking)
+ *
+ * NOTE [마이그레이션]: 비트 추가/변경 시 기존 에셋의 AffectedLayerMask 값에 영향!
+ *       새 비트 추가 시 PostLoad()에서 마이그레이션 코드 필요.
+ *       (Other 비트 추가 + PostLoad 마이그레이션 구현)
  */
 UENUM(BlueprintType, Meta = (Bitflags, UseEnumValuesAsMaskValuesInEditor = "true"))
 enum class EFleshRingLayerMask : uint8
@@ -124,7 +142,8 @@ enum class EFleshRingLayerMask : uint8
 	Stocking   = 1 << 1,  // 0x02
 	Underwear  = 1 << 2,  // 0x04
 	Outerwear  = 1 << 3,  // 0x08
-	All        = Skin | Stocking | Underwear | Outerwear UMETA(Hidden)
+	Other      = 1 << 4,  // 0x10 - 미분류 레이어
+	All        = Skin | Stocking | Underwear | Outerwear | Other UMETA(Hidden)
 };
 ENUM_CLASS_FLAGS(EFleshRingLayerMask);
 
@@ -336,12 +355,12 @@ struct FLESHRINGRUNTIME_API FMaterialLayerMapping
 
 	/** 레이어 타입 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layer")
-	EFleshRingLayerType LayerType = EFleshRingLayerType::Unknown;
+	EFleshRingLayerType LayerType = EFleshRingLayerType::Other;
 
 	FMaterialLayerMapping()
 		: MaterialSlotIndex(0)
 		, MaterialSlotName(NAME_None)
-		, LayerType(EFleshRingLayerType::Unknown)
+		, LayerType(EFleshRingLayerType::Other)
 	{
 	}
 
@@ -633,11 +652,11 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	/**
 	 * Tightness 효과가 적용될 메시 레이어
 	 * 선택되지 않은 레이어의 버텍스는 영향 범위에 있어도 수집되지 않음
-	 * 기본값: Skin만 (옷 메시 제외)
+	 * 기본값: Skin | Other (미분류 포함하여 "일단 동작하게")
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring",
 		meta = (Bitmask, BitmaskEnum = "/Script/FleshRingRuntime.EFleshRingLayerMask"))
-	int32 AffectedLayerMask = static_cast<int32>(EFleshRingLayerMask::Skin);
+	int32 AffectedLayerMask = static_cast<int32>(EFleshRingLayerMask::Skin) | static_cast<int32>(EFleshRingLayerMask::Other);
 
 	/** 가상 밴드 설정 (VirtualBand 모드에서만 사용) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Virtual Band", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::ProceduralBand"))
@@ -850,7 +869,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		, LowerBulgeStrength(1.0f)
 		, TightnessStrength(1.0f)
 		, FalloffType(EFalloffType::Linear)
-		, AffectedLayerMask(static_cast<int32>(EFleshRingLayerMask::Skin))
+		, AffectedLayerMask(static_cast<int32>(EFleshRingLayerMask::Skin) | static_cast<int32>(EFleshRingLayerMask::Other))
 		, bEnablePostProcess(true)
 		, SmoothingVolumeMode(ESmoothingVolumeMode::BoundsExpand)
 		, MaxSmoothingHops(5)
@@ -917,8 +936,11 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 			return (AffectedLayerMask & static_cast<int32>(EFleshRingLayerMask::Underwear)) != 0;
 		case EFleshRingLayerType::Outerwear:
 			return (AffectedLayerMask & static_cast<int32>(EFleshRingLayerMask::Outerwear)) != 0;
+		case EFleshRingLayerType::Other:
+			return (AffectedLayerMask & static_cast<int32>(EFleshRingLayerMask::Other)) != 0;
 		default:
-			return false; // Unknown 레이어는 기본적으로 제외
+			// NOTE: 새 레이어 타입 추가 시 여기 도달하면 case 추가 필요
+			return false;
 		}
 	}
 };

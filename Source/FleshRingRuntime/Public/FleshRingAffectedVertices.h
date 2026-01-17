@@ -47,11 +47,11 @@ struct FAffectedVertex
         : VertexIndex(0)
         , RadialDistance(0.0f)
         , Influence(0.0f)
-        , LayerType(EFleshRingLayerType::Unknown)
+        , LayerType(EFleshRingLayerType::Other)
     {
     }
 
-    FAffectedVertex(uint32 InIndex, float InRadialDist, float InInfluence, EFleshRingLayerType InLayerType = EFleshRingLayerType::Unknown)
+    FAffectedVertex(uint32 InIndex, float InRadialDist, float InInfluence, EFleshRingLayerType InLayerType = EFleshRingLayerType::Other)
         : VertexIndex(InIndex)
         , RadialDistance(InRadialDist)
         , Influence(InInfluence)
