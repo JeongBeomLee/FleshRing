@@ -61,10 +61,6 @@ void DispatchFleshRingTightnessCS(
         return;
     }
 
-    // [디버그] NumAffectedVertices 로그
-    UE_LOG(LogTemp, Log, TEXT("[TightnessShader] Dispatching with NumAffectedVertices=%u, bOutputDebugPoints=%d"),
-        Params.NumAffectedVertices, Params.bOutputDebugPoints);
-
     // Allocate shader parameters
     // 셰이더 파라미터 할당
     FFleshRingTightnessCS::FParameters* PassParameters =
