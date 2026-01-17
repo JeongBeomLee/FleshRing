@@ -78,7 +78,7 @@ public:
 
 		SHADER_PARAMETER(uint32, NumAffectedVertices)
 		SHADER_PARAMETER(uint32, NumTotalVertices)
-		SHADER_PARAMETER(uint32, bUseGeometricMethod)  // 0 = Surface Rotation, 1 = Geometric
+		SHADER_PARAMETER(uint32, NormalRecomputeMode)  // 0 = Geometric, 1 = SurfaceRotation, 2 = PolarDecomposition
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
@@ -107,16 +107,17 @@ struct FNormalRecomputeDispatchParams
 	// 전체 메시 버텍스 수 (범위 체크용)
 	uint32 NumTotalVertices = 0;
 
-	// Normal recompute method: false = Surface Rotation (legacy), true = Geometric (recommended)
-	// 노멀 재계산 방식: false = 표면 회전 (기존), true = 지오메트릭 (권장)
-	bool bUseGeometricMethod = true;
+	// Normal recompute mode (matches ENormalRecomputeMethod)
+	// 노멀 재계산 모드 (ENormalRecomputeMethod와 일치)
+	// 0 = Geometric, 1 = SurfaceRotation, 2 = PolarDecomposition
+	uint32 NormalRecomputeMode = 2;  // Default: PolarDecomposition
 
 	FNormalRecomputeDispatchParams() = default;
 
-	FNormalRecomputeDispatchParams(uint32 InNumAffectedVertices, uint32 InNumTotalVertices, bool InUseGeometricMethod = true)
+	FNormalRecomputeDispatchParams(uint32 InNumAffectedVertices, uint32 InNumTotalVertices, uint32 InNormalRecomputeMode = 2)
 		: NumAffectedVertices(InNumAffectedVertices)
 		, NumTotalVertices(InNumTotalVertices)
-		, bUseGeometricMethod(InUseGeometricMethod)
+		, NormalRecomputeMode(InNormalRecomputeMode)
 	{
 	}
 };

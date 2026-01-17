@@ -68,7 +68,7 @@ void DispatchFleshRingNormalRecomputeCS(
 	// ===== 파라미터 =====
 	PassParameters->NumAffectedVertices = Params.NumAffectedVertices;
 	PassParameters->NumTotalVertices = Params.NumTotalVertices;
-	PassParameters->bUseGeometricMethod = Params.bUseGeometricMethod ? 1 : 0;
+	PassParameters->NormalRecomputeMode = Params.NormalRecomputeMode;
 
 	// Get shader reference
 	// 셰이더 참조 가져오기

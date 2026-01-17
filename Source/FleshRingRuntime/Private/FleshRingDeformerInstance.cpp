@@ -1003,10 +1003,12 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		// Normal/Tangent Recompute 플래그 설정
 		WorkItem.bEnableNormalRecompute =
 			FleshRingComponent->FleshRingAsset->bEnableNormalRecompute;
-		WorkItem.bUseGeometricNormalMethod =
-			FleshRingComponent->FleshRingAsset->NormalRecomputeMethod == ENormalRecomputeMethod::Geometric;
+		WorkItem.NormalRecomputeMode =
+			static_cast<uint32>(FleshRingComponent->FleshRingAsset->NormalRecomputeMethod);
 		WorkItem.bEnableTangentRecompute =
 			FleshRingComponent->FleshRingAsset->bEnableTangentRecompute;
+		WorkItem.TangentRecomputeMode =
+			static_cast<uint32>(FleshRingComponent->FleshRingAsset->TangentRecomputeMethod);
 	}
 
 	// 렌더 스레드에서 Worker에 작업 큐잉

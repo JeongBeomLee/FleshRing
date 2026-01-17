@@ -76,20 +76,29 @@ public:
 
 	/**
 	 * 노멀 재계산 방식
-	 * - Geometric: Face Normal 평균 (TBN 정확, Laplacian 2회 충분)
-	 * - SurfaceRotation: 원본 노멀 회전 (기존 방식, Laplacian 10회+ 필요)
+	 * - SurfaceRotation: 원본 Smooth Normal을 면 회전량만큼 회전 (기본값)
+	 * - Geometric: Face Normal 평균 (TBN 정확, faceted 결과)
+	 * - PolarDecomposition: [DEPRECATED] SurfaceRotation과 차이 없음
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normal/Tangent Recompute", meta = (DisplayName = "Normal Recompute Method", EditCondition = "bEnableNormalRecompute"))
-	ENormalRecomputeMethod NormalRecomputeMethod = ENormalRecomputeMethod::Geometric;
+	ENormalRecomputeMethod NormalRecomputeMethod = ENormalRecomputeMethod::SurfaceRotation;
 
 	/**
-	 * 탄젠트 재계산 활성화 (Gram-Schmidt 정규직교화)
+	 * 탄젠트 재계산 활성화
 	 * 재계산된 노멀에 맞춰 탄젠트를 정규직교화하여 TBN 매트릭스 일관성 유지
 	 * 비활성화하면 원본 탄젠트 사용 (노멀맵 렌더링 부정확할 수 있음)
 	 * Note: 노멀 재계산이 꺼져있으면 탄젠트 재계산도 무시됨
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normal/Tangent Recompute", meta = (DisplayName = "Enable Tangent Recompute", EditCondition = "bEnableNormalRecompute"))
 	bool bEnableTangentRecompute = true;
+
+	/**
+	 * 탄젠트 재계산 방식
+	 * - GramSchmidt: 재계산된 노멀에 대해 직교화 수행 (기본값)
+	 * - PolarDecomposition: [DEPRECATED] GramSchmidt와 차이 없음
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normal/Tangent Recompute", meta = (DisplayName = "Tangent Recompute Method", EditCondition = "bEnableNormalRecompute && bEnableTangentRecompute"))
+	ETangentRecomputeMethod TangentRecomputeMethod = ETangentRecomputeMethod::GramSchmidt;
 
 	// =====================================
 	// Subdivision Settings

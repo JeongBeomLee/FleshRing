@@ -123,17 +123,57 @@ enum class ENormalRecomputeMethod : uint8
 	 * Geometric Normal (Face Normal 평균)
 	 * - 실제 변형된 지오메트리에서 노멀 계산
 	 * - TBN이 표면과 정확히 일치 → Normal Map 변환 정확
-	 * - Laplacian 의존성 낮음 (2회면 충분)
 	 */
-	Geometric	UMETA(DisplayName = "Geometric (Recommended)"),
+	Geometric	UMETA(DisplayName = "Geometric (TBN Accurate)"),
 
 	/**
 	 * Surface Rotation (기존 방식)
 	 * - 원본 Smooth Normal을 면 회전량만큼 회전
 	 * - Smooth Normal의 "캐릭터" 보존
-	 * - 변형이 noisy하면 결과도 noisy → Laplacian 10회+ 필요
+	 * - 변형이 noisy하면 결과도 noisy
 	 */
-	SurfaceRotation	UMETA(DisplayName = "Surface Rotation (Legacy)")
+	SurfaceRotation	UMETA(DisplayName = "Surface Rotation"),
+
+	/**
+	 * [DEPRECATED] Polar Decomposition
+	 * - FleshRing의 작은 symmetric 변형에서는 SurfaceRotation과 차이 없음 (< 0.5도)
+	 * - 코드 복잡도 대비 실질적 이득 없어 deprecated 처리
+	 * - 향후 버전에서 제거 예정
+	 *
+	 * (원본 설명)
+	 * - Deformation Gradient에서 순수 회전(R) 성분만 추출
+	 * - 원본 Smooth Normal에 R 적용
+	 * - Scale/Shear 영향 없이 정확한 회전
+	 */
+	PolarDecomposition	UMETA(DisplayName = "Polar Decomposition (DEPRECATED)", Hidden)
+};
+
+/**
+ * 탄젠트 재계산 방식
+ */
+UENUM(BlueprintType)
+enum class ETangentRecomputeMethod : uint8
+{
+	/**
+	 * Gram-Schmidt Orthonormalization
+	 * - 재계산된 노멀에 원본 탄젠트를 직교화
+	 * - T' = T - (T·N)N, normalize(T')
+	 * - FleshRing의 symmetric 변형에서 충분히 정확
+	 */
+	GramSchmidt	UMETA(DisplayName = "Gram-Schmidt"),
+
+	/**
+	 * [DEPRECATED] Polar Decomposition
+	 * - FleshRing은 symmetric 변형이라 twist가 없음
+	 * - GramSchmidt와 차이 없음 (< 0.1도)
+	 * - 코드 복잡도 대비 실질적 이득 없어 deprecated 처리
+	 * - 향후 버전에서 제거 예정
+	 *
+	 * (원본 설명)
+	 * - Deformation Gradient에서 순수 회전(R) 추출
+	 * - 원본 탄젠트에 R 적용 후 Gram-Schmidt로 마무리
+	 */
+	PolarDecomposition	UMETA(DisplayName = "Polar Decomposition (DEPRECATED)", Hidden)
 };
 
 // =====================================

@@ -242,11 +242,14 @@ struct FFleshRingWorkItem
 	// ===== Normal/Tangent Recompute 플래그 =====
 	// 노멀 재계산 활성화 여부 (FleshRingAsset에서 설정)
 	bool bEnableNormalRecompute = true;
-	// 노멀 재계산 방식: true = Geometric (Face Normal 평균), false = Surface Rotation (기존)
-	// Geometric 방식은 TBN이 실제 표면과 일치하여 Normal Map 변환이 정확함
-	bool bUseGeometricNormalMethod = true;
+	// 노멀 재계산 모드 (ENormalRecomputeMethod와 일치)
+	// 0 = Geometric, 1 = SurfaceRotation, 2 = PolarDecomposition (DEPRECATED)
+	uint32 NormalRecomputeMode = 1;  // Default: SurfaceRotation
 	// 탄젠트 재계산 활성화 여부 (FleshRingAsset에서 설정, 노멀 재계산이 켜져있어야 동작)
 	bool bEnableTangentRecompute = true;
+	// 탄젠트 재계산 모드 (ETangentRecomputeMethod와 일치)
+	// 0 = GramSchmidt, 1 = PolarDecomposition (DEPRECATED)
+	uint32 TangentRecomputeMode = 0;  // Default: GramSchmidt
 
 	// ===== Normal Recomputation용 메시 인덱스 버퍼 =====
 	// 모든 Ring이 공유하는 메시 인덱스 버퍼 (3 indices per triangle)
