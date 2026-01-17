@@ -63,7 +63,11 @@ FReply FFleshRingAssetDetailCustomization::OnRefreshPreviewClicked()
 {
 	if (CachedAsset.IsValid())
 	{
+		// ★ 캐시 무효화하여 강제 재생성
+		CachedAsset->InvalidatePreviewMeshCache();
+
 		CachedAsset->GeneratePreviewMesh();
+
 		CachedAsset->OnAssetChanged.Broadcast(CachedAsset.Get());
 	}
 	return FReply::Handled();

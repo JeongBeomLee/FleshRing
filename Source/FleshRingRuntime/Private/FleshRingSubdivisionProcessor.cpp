@@ -213,6 +213,19 @@ void FFleshRingSubdivisionProcessor::SetSettings(const FSubdivisionProcessorSett
 	CurrentSettings = Settings;
 }
 
+void FFleshRingSubdivisionProcessor::InvalidateCache()
+{
+	bCacheValid = false;
+
+	// ★ 메모리 누수 방지: HalfEdgeMesh 데이터도 클리어
+	// 재계산 시 새로운 데이터로 다시 빌드됨
+	HalfEdgeMesh.Clear();
+
+	// 중간 계산 결과도 클리어
+	OriginalToNewVertexMap.Empty();
+	EdgeMidpointCache.Empty();
+}
+
 bool FFleshRingSubdivisionProcessor::Process(FSubdivisionTopologyResult& OutResult)
 {
 	// 캐시가 유효하면 캐시 반환

@@ -1447,6 +1447,12 @@ void UFleshRingAsset::PostTransacted(const FTransactionObjectEvent& TransactionE
 
 void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponent)
 {
+	// ★ 트랜잭션 비활성화 - 메시 생성/정리가 Undo 히스토리에 포함되지 않도록
+	// GUndo를 nullptr로 설정하면 Modify() 호출이 무시되어 트랜잭션에 기록 안 됨
+	ITransaction* PreviousGUndo = GUndo;
+	GUndo = nullptr;
+	ON_SCOPE_EXIT { GUndo = PreviousGUndo; };
+
 	// SourceComponent가 있으면 DeformerInstance의 AffectedVertices 데이터를 활용
 	// DI가 이미 정확하게 계산한 영역을 위치 기반 매칭으로 원본 메시 인덱스로 변환
 	// SourceComponent가 없으면 폴백으로 원본 메시 기반 직접 계산
@@ -1454,9 +1460,27 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 	// 이전 SubdividedMesh가 있으면 먼저 제거 (같은 이름 충돌 방지)
 	if (SubdivisionSettings.SubdividedMesh)
 	{
-		// ★ 즉시 파괴하지 않고 포인터만 null로 설정 (렌더 스레드 안전)
-		// GC가 안전하게 정리하게 함
+		// ★ 메모리 누수 방지: 완전한 정리 수행
+		USkeletalMesh* OldMesh = SubdivisionSettings.SubdividedMesh;
+
+		// 1. 포인터 해제
 		SubdivisionSettings.SubdividedMesh = nullptr;
+
+		// 2. 렌더 리소스 완전 해제
+		OldMesh->ReleaseResources();
+		OldMesh->ReleaseResourcesFence.Wait();
+		FlushRenderingCommands();
+
+		// 3. Outer를 TransientPackage로 변경
+		OldMesh->Rename(nullptr, GetTransientPackage(),
+			REN_DontCreateRedirectors | REN_NonTransactional);
+
+		// 4. 플래그 정리
+		OldMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
+		OldMesh->SetFlags(RF_Transient);
+
+		// 5. GC 대상으로 표시
+		OldMesh->MarkAsGarbage();
 
 		// Note: OnAssetChanged.Broadcast() 호출 안 함
 		// SubdividedMesh는 런타임용이고, 프리뷰는 PreviewSubdividedMesh를 사용
@@ -1964,6 +1988,10 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		return;
 	}
 
+	// ★ RF_Transactional 제거 - Undo/Redo 시스템에서 참조하지 않도록
+	// TransBuffer가 이 메시를 참조하면 ClearSubdividedMesh() 후에도 GC가 안 됨
+	SubdivisionSettings.SubdividedMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
+
 	// 복제된 메시의 기존 MeshDescription 제거
 	if (SubdivisionSettings.SubdividedMesh->HasMeshDescription(0))
 	{
@@ -2259,17 +2287,38 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 
 void UFleshRingAsset::ClearSubdividedMesh()
 {
+	// ★ 트랜잭션 비활성화 - 메시 정리가 Undo 히스토리에 포함되지 않도록
+	// GUndo를 nullptr로 설정하면 Modify() 호출이 무시되어 트랜잭션에 기록 안 됨
+	ITransaction* PreviousGUndo = GUndo;
+	GUndo = nullptr;
+	ON_SCOPE_EXIT { GUndo = PreviousGUndo; };
+
 	if (SubdivisionSettings.SubdividedMesh)
 	{
 		// 이전 메시를 Transient 패키지로 이동시켜 GC가 정리하도록 함
 		// 이렇게 하지 않으면 에셋 내에 Subdivided_1, Subdivided_2... 가 계속 누적됨
 		USkeletalMesh* OldMesh = SubdivisionSettings.SubdividedMesh;
-		OldMesh->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);
-		OldMesh->ClearFlags(RF_Public | RF_Standalone);
-		OldMesh->SetFlags(RF_Transient);
 
+		// 1. 포인터 해제 (Asset의 UPROPERTY 참조 끊기)
 		SubdivisionSettings.SubdividedMesh = nullptr;
 		SubdivisionSettings.SubdivisionParamsHash = 0;
+
+		// 2. 렌더 리소스 완전 해제 (ReleaseResourcesFence.Wait() 필수!)
+		OldMesh->ReleaseResources();
+		OldMesh->ReleaseResourcesFence.Wait();
+		FlushRenderingCommands();
+
+		// 3. Outer를 TransientPackage로 변경 (Asset 서브오브젝트에서 분리)
+		OldMesh->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);
+
+		// 4. RF_Transactional 플래그 제거 - Undo/Redo 시스템에서 참조하지 않도록
+		OldMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
+		OldMesh->SetFlags(RF_Transient);
+
+		// 5. GC 대상으로 표시
+		OldMesh->MarkAsGarbage();
+
+		UE_LOG(LogFleshRingAsset, Log, TEXT("ClearSubdividedMesh: Cleanup complete"));
 
 		// 에디터 프리뷰 메시도 함께 제거 (원본 메시로 완전 복원)
 		ClearPreviewMesh();
@@ -2311,11 +2360,11 @@ void UFleshRingAsset::GeneratePreviewMesh()
 	}
 
 	// 기존 PreviewMesh가 있으면 먼저 제거
+	// ★ ClearPreviewMesh()를 사용하여 ReleaseResources + MarkAsGarbage 등 완전한 정리 수행
+	// OnAssetChanged는 호출하지 않음 - 이미 SetFleshRingAsset()에서 처리됨
 	if (SubdivisionSettings.PreviewSubdividedMesh)
 	{
-		// ★ 즉시 파괴하지 않고 포인터만 null로 설정 (렌더 스레드 안전)
-		SubdivisionSettings.PreviewSubdividedMesh = nullptr;
-		OnAssetChanged.Broadcast(this);
+		ClearPreviewMesh();
 	}
 
 	if (!SubdivisionSettings.bEnableSubdivision)
@@ -2611,16 +2660,22 @@ void UFleshRingAsset::GeneratePreviewMesh()
 
 	// 5. 프리뷰용 USkeletalMesh 생성 (DuplicateObject로 ImportedModel 구조 유지)
 	// ★ 고유한 이름 사용 (기존 메시가 GC 대기 중일 수 있으므로 이름 충돌 방지)
+	// ★ Outer를 this로 설정 - UPROPERTY(Transient)이므로 직렬화 제외되어 Asset 저장에 영향 없음
 	FString MeshName = FString::Printf(TEXT("%s_Preview_%s"),
 		*SourceMesh->GetName(),
 		*FGuid::NewGuid().ToString(EGuidFormats::Short));
-	SubdivisionSettings.PreviewSubdividedMesh = DuplicateObject<USkeletalMesh>(SourceMesh, GetTransientPackage(), FName(*MeshName));
+	SubdivisionSettings.PreviewSubdividedMesh = DuplicateObject<USkeletalMesh>(SourceMesh, this, FName(*MeshName));
 
 	if (!SubdivisionSettings.PreviewSubdividedMesh)
 	{
 		UE_LOG(LogFleshRingAsset, Warning, TEXT("GeneratePreviewMesh: 메시 복제 실패"));
 		return;
 	}
+
+	// ★ RF_Transactional 제거 + RF_Transient 설정 - Undo/Redo 시스템에서 참조하지 않도록!
+	// TransBuffer가 이 메시를 참조하면 ClearPreviewMesh() 후에도 GC가 안 됨
+	SubdivisionSettings.PreviewSubdividedMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
+	SubdivisionSettings.PreviewSubdividedMesh->SetFlags(RF_Transient);
 
 	// 복제된 메시의 기존 렌더 리소스 완전 해제 (렌더 스레드 동기화)
 	FlushRenderingCommands();
@@ -2749,10 +2804,31 @@ void UFleshRingAsset::ClearPreviewMesh()
 {
 	if (SubdivisionSettings.PreviewSubdividedMesh)
 	{
-		// ★ 즉시 파괴하지 않고 포인터만 null로 설정
-		// 렌더 스레드가 아직 메시를 사용 중일 수 있으므로 GC가 안전하게 정리하게 함
-		// (ConditionalBeginDestroy()를 호출하면 렌더 스레드 크래시 발생 가능)
+		USkeletalMesh* OldMesh = SubdivisionSettings.PreviewSubdividedMesh;
+
+		UE_LOG(LogFleshRingAsset, Log, TEXT("ClearPreviewMesh: Destroying '%s' (Outer=%s)"),
+			*OldMesh->GetName(),
+			OldMesh->GetOuter() ? *OldMesh->GetOuter()->GetName() : TEXT("null"));
+
+		// 1. 포인터 해제 (Asset의 UPROPERTY 참조 끊기)
 		SubdivisionSettings.PreviewSubdividedMesh = nullptr;
+
+		// 2. 렌더 리소스 완전 해제 (ReleaseResourcesFence.Wait() 필수!)
+		OldMesh->ReleaseResources();
+		OldMesh->ReleaseResourcesFence.Wait();
+		FlushRenderingCommands();
+
+		// 3. Outer를 TransientPackage로 변경 (Asset 서브오브젝트에서 분리)
+		OldMesh->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);
+
+		// 4. RF_Transactional 플래그 제거 - Undo/Redo 시스템에서 참조하지 않도록
+		OldMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
+		OldMesh->SetFlags(RF_Transient);
+
+		// 5. GC 대상으로 표시
+		OldMesh->MarkAsGarbage();
+
+		UE_LOG(LogFleshRingAsset, Log, TEXT("ClearPreviewMesh: Cleanup complete"));
 	}
 }
 
@@ -2829,6 +2905,13 @@ bool UFleshRingAsset::IsPreviewMeshCacheValid() const
 
 bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 {
+	// ★ 트랜잭션 비활성화 - 메시 생성/정리가 Undo 히스토리에 포함되지 않도록
+	// TransBuffer가 메시를 참조하면 GC가 안 됨
+	// GUndo를 nullptr로 설정하면 Modify() 호출이 무시되어 트랜잭션에 기록 안 됨
+	ITransaction* PreviousGUndo = GUndo;
+	GUndo = nullptr;
+	ON_SCOPE_EXIT { GUndo = PreviousGUndo; };
+
 	if (!SourceComponent)
 	{
 		UE_LOG(LogFleshRingAsset, Warning, TEXT("GenerateBakedMesh: SourceComponent is null"));
@@ -3205,16 +3288,34 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 	if (SubdivisionSettings.BakedMesh)
 	{
 		USkeletalMesh* OldMesh = SubdivisionSettings.BakedMesh;
+
+		// 1. 렌더 리소스 완전 해제 (ReleaseResourcesFence.Wait() 필수!)
+		OldMesh->ReleaseResources();
+		OldMesh->ReleaseResourcesFence.Wait();
+		FlushRenderingCommands();
+
+		// 2. Outer를 TransientPackage로 변경 (Asset 서브오브젝트에서 분리)
 		OldMesh->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);
-		OldMesh->ClearFlags(RF_Public | RF_Standalone);
+
+		// 3. RF_Transactional 플래그 제거 - Undo/Redo 시스템에서 참조하지 않도록
+		OldMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
 		OldMesh->SetFlags(RF_Transient);
+
+		// 4. GC 대상으로 표시
+		OldMesh->MarkAsGarbage();
+
 		UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Cleaned up previous BakedMesh"));
 	}
-	SubdivisionSettings.BakedRingTransforms.Empty();
+	// ★ 버그 수정: 이전에 여기서 BakedRingTransforms.Empty()를 호출하여
+	// 위에서 채운 Ring 트랜스폼 데이터를 즉시 삭제하는 버그가 있었음 - 삭제됨
 
 	// 결과 저장
 	SubdivisionSettings.BakedMesh = NewBakedMesh;
 	SubdivisionSettings.BakeParamsHash = CalculateBakeParamsHash();
+
+	// ★ RF_Transactional 제거 - Undo/Redo 시스템에서 참조하지 않도록
+	// DuplicateObject는 소스 메시의 플래그를 상속하므로, TransBuffer 참조 방지를 위해 명시적 제거
+	NewBakedMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
 
 	UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Success - %d vertices, %d rings, Hash=%u"),
 		SourceVertexCount, Rings.Num(), SubdivisionSettings.BakeParamsHash);
@@ -3224,12 +3325,26 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 	if (SubdivisionSettings.SubdividedMesh)
 	{
 		USkeletalMesh* OldSubdivMesh = SubdivisionSettings.SubdividedMesh;
-		OldSubdivMesh->Rename(nullptr, GetTransientPackage(),
-			REN_DontCreateRedirectors | REN_NonTransactional);
-		OldSubdivMesh->ClearFlags(RF_Public | RF_Standalone);
-		OldSubdivMesh->SetFlags(RF_Transient);
+
+		// 1. 포인터 해제 (Asset의 UPROPERTY 참조 끊기)
 		SubdivisionSettings.SubdividedMesh = nullptr;
 		SubdivisionSettings.SubdivisionParamsHash = 0;
+
+		// 2. 렌더 리소스 완전 해제
+		OldSubdivMesh->ReleaseResources();
+		OldSubdivMesh->ReleaseResourcesFence.Wait();
+		FlushRenderingCommands();
+
+		// 3. Outer를 TransientPackage로 변경
+		OldSubdivMesh->Rename(nullptr, GetTransientPackage(),
+			REN_DontCreateRedirectors | REN_NonTransactional);
+
+		// 4. 플래그 정리
+		OldSubdivMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
+		OldSubdivMesh->SetFlags(RF_Transient);
+
+		// 5. GC 대상으로 표시
+		OldSubdivMesh->MarkAsGarbage();
 
 		UE_LOG(LogFleshRingAsset, Log,
 			TEXT("GenerateBakedMesh: Cleared SubdividedMesh (no longer needed after bake)"));
@@ -3244,16 +3359,37 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 
 void UFleshRingAsset::ClearBakedMesh()
 {
+	// ★ 트랜잭션 비활성화 - 메시 정리가 Undo 히스토리에 포함되지 않도록
+	// GUndo를 nullptr로 설정하면 Modify() 호출이 무시되어 트랜잭션에 기록 안 됨
+	ITransaction* PreviousGUndo = GUndo;
+	GUndo = nullptr;
+	ON_SCOPE_EXIT { GUndo = PreviousGUndo; };
+
 	if (SubdivisionSettings.BakedMesh)
 	{
 		// 이전 메시를 Transient 패키지로 이동시켜 GC가 정리하도록 함
 		// 이렇게 하지 않으면 에셋 내에 BakedMesh_1, BakedMesh_2... 가 계속 누적됨
 		USkeletalMesh* OldMesh = SubdivisionSettings.BakedMesh;
+
+		// 1. 포인터 해제 (Asset의 UPROPERTY 참조 끊기)
+		SubdivisionSettings.BakedMesh = nullptr;
+
+		// 2. 렌더 리소스 완전 해제 (ReleaseResourcesFence.Wait() 필수!)
+		OldMesh->ReleaseResources();
+		OldMesh->ReleaseResourcesFence.Wait();
+		FlushRenderingCommands();
+
+		// 3. Outer를 TransientPackage로 변경 (Asset 서브오브젝트에서 분리)
 		OldMesh->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);
-		OldMesh->ClearFlags(RF_Public | RF_Standalone);
+
+		// 4. RF_Transactional 플래그 제거 - Undo/Redo 시스템에서 참조하지 않도록
+		OldMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
 		OldMesh->SetFlags(RF_Transient);
 
-		SubdivisionSettings.BakedMesh = nullptr;
+		// 5. GC 대상으로 표시
+		OldMesh->MarkAsGarbage();
+
+		UE_LOG(LogFleshRingAsset, Log, TEXT("ClearBakedMesh: Cleanup complete"));
 	}
 	SubdivisionSettings.BakedRingTransforms.Empty();
 	SubdivisionSettings.BakeParamsHash = 0;

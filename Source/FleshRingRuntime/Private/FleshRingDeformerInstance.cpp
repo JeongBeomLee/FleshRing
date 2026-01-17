@@ -69,6 +69,9 @@ void UFleshRingDeformerInstance::SetupFromDeformer(UFleshRingDeformer* InDeforme
 	Scene = InMeshComponent ? InMeshComponent->GetScene() : nullptr;
 	LastLodIndex = INDEX_NONE;
 
+	UE_LOG(LogFleshRing, Log, TEXT("SetupFromDeformer: this=%p, MeshComponent=%s"),
+		this, InMeshComponent ? *InMeshComponent->GetName() : TEXT("null"));
+
 	// FleshRingComponent 찾기 및 모든 LOD에 대해 AffectedVertices 등록
 	if (AActor* Owner = InMeshComponent->GetOwner())
 	{
@@ -114,6 +117,7 @@ void UFleshRingDeformerInstance::SetupFromDeformer(UFleshRingDeformer* InDeforme
 			UE_LOG(LogFleshRing, Warning, TEXT("FleshRingComponent를 찾을 수 없음"));
 		}
 	}
+
 }
 
 void UFleshRingDeformerInstance::AllocateResources()
@@ -126,11 +130,14 @@ void UFleshRingDeformerInstance::ReleaseResources()
 	// 모든 LOD의 캐싱된 리소스 해제
 	for (FLODDeformationData& Data : LODData)
 	{
+		// ★ AffectedVerticesManager 완전 정리 (메시 메타데이터 참조 해제)
+		Data.AffectedVerticesManager.ClearAll();
+
 		// TightenedBindPose 버퍼 해제
 		if (Data.CachedTightenedBindPoseShared.IsValid())
 		{
 			Data.CachedTightenedBindPoseShared->SafeRelease();
-			Data.CachedTightenedBindPoseShared.Reset();  // ★ TSharedPtr도 Reset (메모리 누수 방지)
+			Data.CachedTightenedBindPoseShared.Reset();
 		}
 		Data.bTightenedBindPoseCached = false;
 		Data.CachedTightnessVertexCount = 0;
@@ -139,21 +146,21 @@ void UFleshRingDeformerInstance::ReleaseResources()
 		if (Data.CachedNormalsShared.IsValid())
 		{
 			Data.CachedNormalsShared->SafeRelease();
-			Data.CachedNormalsShared.Reset();  // ★ TSharedPtr도 Reset (메모리 누수 방지)
+			Data.CachedNormalsShared.Reset();
 		}
 
 		// 재계산된 탄젠트 버퍼 해제
 		if (Data.CachedTangentsShared.IsValid())
 		{
 			Data.CachedTangentsShared->SafeRelease();
-			Data.CachedTangentsShared.Reset();  // ★ TSharedPtr도 Reset (메모리 누수 방지)
+			Data.CachedTangentsShared.Reset();
 		}
 
 		// 디버그 Influence 버퍼 해제
 		if (Data.CachedDebugInfluencesShared.IsValid())
 		{
 			Data.CachedDebugInfluencesShared->SafeRelease();
-			Data.CachedDebugInfluencesShared.Reset();  // ★ TSharedPtr도 Reset (메모리 누수 방지)
+			Data.CachedDebugInfluencesShared.Reset();
 		}
 
 		// 디버그 포인트 버퍼 해제
@@ -163,10 +170,30 @@ void UFleshRingDeformerInstance::ReleaseResources()
 			Data.CachedDebugPointBufferShared.Reset();
 		}
 
+		// ★ Bulge 디버그 포인트 버퍼 해제
+		if (Data.CachedDebugBulgePointBufferShared.IsValid())
+		{
+			Data.CachedDebugBulgePointBufferShared->SafeRelease();
+			Data.CachedDebugBulgePointBufferShared.Reset();
+		}
+
+		// ★ Readback 관련 SharedPtr 해제
+		Data.DebugInfluenceReadbackResult.Reset();
+		Data.bDebugInfluenceReadbackComplete.Reset();
+
 		// 소스 위치 해제
 		Data.CachedSourcePositions.Empty();
 		Data.bSourcePositionsCached = false;
+
+		// ★ 플래그 초기화
+		Data.bAffectedVerticesRegistered = false;
 	}
+
+	// Note: LODData.Empty()는 BeginDestroy()에서만 호출
+	// ReleaseResources()는 재사용 가능한 상태로 리소스만 해제
+
+	// DeformerGeometry 해제
+	DeformerGeometry.Reset();
 }
 
 void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
@@ -184,8 +211,10 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	UFleshRingDeformer* DeformerPtr = Deformer.Get();
 	USkinnedMeshComponent* SkinnedMeshComp = Cast<USkinnedMeshComponent>(MeshComponent.Get());
 
+
 	if (!DeformerPtr || !SkinnedMeshComp)
 	{
+		UE_LOG(LogFleshRing, Warning, TEXT("EnqueueWork: Early return - DeformerPtr=%p, SkinnedMeshComp=%p"), DeformerPtr, SkinnedMeshComp);
 		if (InDesc.FallbackDelegate.IsBound())
 		{
 			ENQUEUE_RENDER_COMMAND(FleshRingFallback)([FallbackDelegate = InDesc.FallbackDelegate](FRHICommandListImmediate& RHICmdList)
@@ -201,6 +230,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	// LOD 유효성 검사
 	if (LODIndex < 0 || LODIndex >= NumLODs)
 	{
+		UE_LOG(LogFleshRing, Warning, TEXT("EnqueueWork: Early return - Invalid LOD (LODIndex=%d, NumLODs=%d)"), LODIndex, NumLODs);
 		if (InDesc.FallbackDelegate.IsBound())
 		{
 			ENQUEUE_RENDER_COMMAND(FleshRingFallback)([FallbackDelegate = InDesc.FallbackDelegate](FRHICommandListImmediate& RHICmdList)
@@ -217,6 +247,9 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	// AffectedVertices가 등록되지 않았으면 Fallback
 	if (!CurrentLODData.bAffectedVerticesRegistered || CurrentLODData.AffectedVerticesManager.GetTotalAffectedCount() == 0)
 	{
+		// Note: MarkRenderDynamicDataDirty()는 렌더링 중 호출 불가 (bPostTickComponentUpdate assertion)
+		// AffectedVertices 등록은 SetupFromDeformer에서 처리됨
+
 		if (InDesc.FallbackDelegate.IsBound())
 		{
 			ENQUEUE_RENDER_COMMAND(FleshRingFallback)([FallbackDelegate = InDesc.FallbackDelegate](FRHICommandListImmediate& RHICmdList)
@@ -230,6 +263,8 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	FSkeletalMeshObject* MeshObject = SkinnedMeshComp->MeshObject;
 	if (!MeshObject || MeshObject->IsCPUSkinned())
 	{
+		UE_LOG(LogFleshRing, Warning, TEXT("EnqueueWork: Early return - MeshObject=%p, IsCPUSkinned=%d"),
+			MeshObject, MeshObject ? MeshObject->IsCPUSkinned() : -1);
 		if (InDesc.FallbackDelegate.IsBound())
 		{
 			ENQUEUE_RENDER_COMMAND(FleshRingFallback)([FallbackDelegate = InDesc.FallbackDelegate](FRHICommandListImmediate& RHICmdList)
@@ -243,6 +278,10 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	// Check if MeshObject has been updated at least once
 	if (!MeshObject->bHasBeenUpdatedAtLeastOnce)
 	{
+		UE_LOG(LogFleshRing, Log, TEXT("EnqueueWork: Early return - bHasBeenUpdatedAtLeastOnce=false"));
+		// Note: MarkRenderDynamicDataDirty()는 렌더링 중 호출 불가 (bPostTickComponentUpdate assertion)
+		// 다음 프레임에 엔진이 자동으로 EnqueueWork를 다시 호출함
+
 		if (InDesc.FallbackDelegate.IsBound())
 		{
 			ENQUEUE_RENDER_COMMAND(FleshRingFallback)([FallbackDelegate = InDesc.FallbackDelegate](FRHICommandListImmediate& RHICmdList)
@@ -1280,7 +1319,6 @@ void UFleshRingDeformerInstance::InvalidateTightnessCache(int32 DirtyRingIndex)
         TEXT("InvalidateTightnessCache: DirtyRingIndex=%d (%s)"),
         DirtyRingIndex,
         DirtyRingIndex == INDEX_NONE ? TEXT("ALL RINGS") : TEXT("SINGLE RING"));
-
     // 1. AffectedVertices 재등록 (Ring 트랜스폼 변경 시 영향받는 정점이 달라질 수 있음)
     if (FleshRingComponent.IsValid())
     {

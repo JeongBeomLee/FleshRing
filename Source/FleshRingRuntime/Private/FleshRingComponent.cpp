@@ -432,16 +432,17 @@ void UFleshRingComponent::SetupDeformer()
 	// SkeletalMeshComponent에 Deformer 등록
 	TargetMesh->SetMeshDeformer(InternalDeformer);
 
+	// ★ SetMeshDeformer() 내부에서 MarkRenderStateDirty()가 호출되어
+	//    render state 재생성이 예약됨. 이 dirty 마크가 나중에 처리되면
+	//    DeformerInstance가 재생성되어 이미 등록된 LODData가 사라짐.
+	//    RecreateRenderState_Concurrent()로 Scene Proxy 재생성을 즉시 완료시켜
+	//    이후 렌더링에서 DeformerInstance가 안정적으로 유지되도록 함.
+	TargetMesh->RecreateRenderState_Concurrent();
+	FlushRenderingCommands();
+
 	// Bounds 확장: Deformer 변형이 원래 bounds를 벗어날 수 있으므로
 	// VSM(Virtual Shadow Maps) 등 bounds 기반 캐싱 시스템이 정상 작동하도록 확장
 	TargetMesh->SetBoundsScale(BoundsScale);
-
-	// Optimus와 동일하게 초기화 시점에 render state 갱신 요청
-	// - MarkRenderStateDirty: PassthroughVertexFactory 생성을 위해 render state 재생성
-	// - MarkRenderDynamicDataDirty: 동적 데이터 갱신 요청
-	// 주의: TickComponent에서는 호출하지 않음 (엔진이 자동으로 처리)
-	TargetMesh->MarkRenderStateDirty();
-	TargetMesh->MarkRenderDynamicDataDirty();
 
 	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Deformer registered to target mesh '%s'"),
 		*TargetMesh->GetName());
@@ -818,6 +819,14 @@ void UFleshRingComponent::ForceInitializeForEditorPreview()
 	InitializeForEditorPreview();
 }
 
+void UFleshRingComponent::ResetEditorPreviewState()
+{
+	// 플래그만 리셋 (Deformer 정리 없음)
+	// 메시가 변경되었을 때 다음 InitializeForEditorPreview()가 실제로 실행되도록 함
+	bEditorPreviewInitialized = false;
+	UE_LOG(LogFleshRingComponent, Log, TEXT("ResetEditorPreviewState: Editor preview state reset (flag only)"));
+}
+
 void UFleshRingComponent::UpdateRingTransforms(int32 DirtyRingIndex)
 {
 	if (!FleshRingAsset || !ResolvedTargetMesh.IsValid())
@@ -889,7 +898,6 @@ void UFleshRingComponent::UpdateRingTransforms(int32 DirtyRingIndex)
 		}
 
 		// 4. 렌더 시스템에 동적 데이터 변경 알림 (실시간 변형 반영)
-		// InvalidateTightnessCache만으로는 다음 프레임의 EnqueueWork 호출이 보장되지 않을 수 있음
 		SkelMeshComp->MarkRenderDynamicDataDirty();
 	}
 

@@ -121,6 +121,9 @@ void UFleshRingSubdivisionComponent::TickComponent(float DeltaTime, ELevelTick T
 
 void UFleshRingSubdivisionComponent::ForceRecompute()
 {
+	// ★ GPU 작업 완료 대기 후 리소스 해제 (메모리 누수 방지)
+	FlushRenderingCommands();
+
 	if (Processor.IsValid())
 	{
 		Processor->InvalidateCache();
@@ -131,6 +134,9 @@ void UFleshRingSubdivisionComponent::ForceRecompute()
 
 void UFleshRingSubdivisionComponent::InvalidateCache()
 {
+	// ★ GPU 작업 완료 대기 후 리소스 해제 (메모리 누수 방지)
+	FlushRenderingCommands();
+
 	if (Processor.IsValid())
 	{
 		Processor->InvalidateCache();
@@ -240,6 +246,9 @@ void UFleshRingSubdivisionComponent::Initialize()
 
 void UFleshRingSubdivisionComponent::Cleanup()
 {
+	// ★ GPU 작업 완료 대기 후 리소스 해제 (메모리 누수 방지)
+	FlushRenderingCommands();
+
 	ResultCache.Reset();
 	Processor.Reset();
 	FleshRingComp.Reset();

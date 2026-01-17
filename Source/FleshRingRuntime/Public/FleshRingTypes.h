@@ -208,7 +208,9 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 	// ===== 공통 설정 =====
 
 	/** Subdivision 활성화 (Low-Poly 메시용) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision")
+	// ★ NonTransactional: Undo/Redo 트랜잭션에서 제외
+	// PreviewMesh가 트랜잭션에 참조되면 GC가 안 되어 메모리 누수 발생
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, NonTransactional, Category = "Subdivision")
 	bool bEnableSubdivision = false;
 
 	/** 최소 엣지 길이 (이보다 작으면 subdivision 중단) */
@@ -248,8 +250,9 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 	/**
 	 * Subdivision된 SkeletalMesh (에셋 안에 내장됨)
 	 * GenerateSubdividedMesh()로 생성됨 - 런타임용 (Ring 영역만 subdivision)
+	 * NonTransactional: Undo 시스템에서 제외하여 GC 문제 방지
 	 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Subdivision", meta = (EditCondition = "bEnableSubdivision"))
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Subdivision", meta = (EditCondition = "bEnableSubdivision"), NonTransactional)
 	TObjectPtr<USkeletalMesh> SubdividedMesh;
 
 	/** Subdivision 생성 시점의 파라미터 해시 (재생성 필요 여부 판단용) */
@@ -261,8 +264,9 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 	/**
 	 * 에디터 프리뷰용 Subdivision 메시 (Transient - 저장 안 함)
 	 * 본 기반 영역 subdivision으로 링 편집 시 실시간 프리뷰 제공
+	 * NonTransactional: Undo 시스템에서 제외하여 GC 문제 방지
 	 */
-	UPROPERTY(Transient)
+	UPROPERTY(Transient, NonTransactional)
 	TObjectPtr<USkeletalMesh> PreviewSubdividedMesh;
 
 	/** 프리뷰 메시 캐시 해시 (본 배치 변경 감지용) */
@@ -275,8 +279,9 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 	 * 변형이 적용된 베이크 메시 (런타임용)
 	 * Tightness + Bulge + Smoothing이 모두 적용된 최종 상태
 	 * GenerateBakedMesh()로 생성됨
+	 * NonTransactional: Undo 시스템에서 제외하여 GC 문제 방지
 	 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Baked Mesh")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Baked Mesh", NonTransactional)
 	TObjectPtr<USkeletalMesh> BakedMesh;
 
 	/**

@@ -485,8 +485,9 @@ public:
 
 	/**
 	 * 캐시 무효화
+	 * HalfEdgeMesh 데이터도 클리어하여 메모리 해제
 	 */
-	void InvalidateCache() { bCacheValid = false; }
+	void InvalidateCache();
 
 	/**
 	 * 소스 메시 데이터 접근자 (GPU 업로드용)

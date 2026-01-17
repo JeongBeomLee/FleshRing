@@ -759,6 +759,16 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 
 				const uint32 NumExtendedVertices = DispatchData.ExtendedSmoothingIndices.Num();
 
+				// ★ 배열 크기 일치 검증 (Smoothing Expand 변경 시 크기 불일치 방지)
+				// ExtendedIsAnchor는 ExtendedSmoothingIndices와 동일한 크기여야 함
+				if (DispatchData.ExtendedIsAnchor.Num() != (int32)NumExtendedVertices)
+				{
+					UE_LOG(LogFleshRingWorker, Warning,
+						TEXT("FleshRing: ExtendedIsAnchor 크기 불일치 - IsAnchor:%d, Expected:%d (Ring %d). 캐시 재생성 필요."),
+						DispatchData.ExtendedIsAnchor.Num(), NumExtendedVertices, RingIdx);
+					continue;
+				}
+
 				// ========================================
 				// 1. Original Positions 버퍼 (바인드 포즈)
 				// ========================================

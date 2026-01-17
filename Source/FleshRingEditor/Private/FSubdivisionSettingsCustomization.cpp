@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "FSubdivisionSettingsCustomization.h"
 #include "DetailLayoutBuilder.h"
@@ -21,6 +21,7 @@
 #include "Misc/ScopedSlowTask.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Rendering/SlateRenderer.h"
+#include "UObject/UObjectGlobals.h"  // CollectGarbage용
 
 #define LOCTEXT_NAMESPACE "SubdivisionSettingsCustomization"
 
@@ -271,7 +272,11 @@ FReply FSubdivisionSettingsCustomization::OnRefreshPreviewClicked()
 	UFleshRingAsset* Asset = GetOuterAsset();
 	if (Asset)
 	{
+		// ★ 캐시 무효화하여 강제 재생성
+		Asset->InvalidatePreviewMeshCache();
+
 		Asset->GeneratePreviewMesh();
+
 		Asset->OnAssetChanged.Broadcast(Asset);
 	}
 	return FReply::Handled();
@@ -318,6 +323,8 @@ FReply FSubdivisionSettingsCustomization::OnClearSubdividedMeshClicked()
 	if (Asset)
 	{
 		Asset->ClearSubdividedMesh();
+		// ★ 메모리 누수 방지: 버튼 클릭 시 즉시 GC 실행
+		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
 	}
 	return FReply::Handled();
 }
@@ -411,6 +418,10 @@ FReply FSubdivisionSettingsCustomization::OnBakeMeshClicked()
 		FleshRingEditor->ShowBakeOverlay(false);
 		bAsyncBakeInProgress = false;
 		RestoreOriginalPreviewMesh(PreviewComponent);
+
+		// ★ 메모리 누수 방지: 즉시 성공 경로에서도 GC 호출
+		FlushRenderingCommands();
+		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
 		return FReply::Handled();
 	}
 
@@ -429,6 +440,8 @@ FReply FSubdivisionSettingsCustomization::OnClearBakedMeshClicked()
 	if (Asset)
 	{
 		Asset->ClearBakedMesh();
+		// ★ 메모리 누수 방지: 버튼 클릭 시 즉시 GC 실행
+		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
 	}
 	return FReply::Handled();
 }
@@ -547,6 +560,12 @@ void FSubdivisionSettingsCustomization::CleanupAsyncBake(bool bRestorePreviewMes
 			FlushRenderingCommands();
 		}
 	}
+
+	// ★ 메모리 누수 방지: 원본 메시 복원 후 GC 실행
+	// 이 시점에서야 SubdividedMesh/BakedMesh에 대한 참조가 모두 해제됨
+	// Bake 중 오버레이로 대기 중이므로 동기 GC 비용 허용 가능
+	FlushRenderingCommands();  // 렌더 스레드 완료 대기 (조건문 미진입 시에도 필요)
+	CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
 
 	// 상태 초기화
 	bAsyncBakeInProgress = false;

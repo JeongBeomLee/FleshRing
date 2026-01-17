@@ -91,6 +91,8 @@ struct FRingSDFCache
 // 컴포넌트 클래스
 // =====================================
 
+class UFleshRingDeformerInstance;
+
 /**
  * FleshRing 메쉬 변형 컴포넌트
  * SDF 기반으로 스켈레탈 메쉬의 살(Flesh) 표현을 처리
@@ -254,6 +256,12 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing|Editor")
 	void ForceInitializeForEditorPreview();
+
+	/**
+	 * 에디터 프리뷰 초기화 상태 리셋 (플래그만 리셋, Deformer 정리 없음)
+	 * 메시가 변경되었을 때 다음 InitializeForEditorPreview() 호출이 실제로 실행되도록 함
+	 */
+	void ResetEditorPreviewState();
 
 	/**
 	 * Ring 트랜스폼만 업데이트 (Deformer 유지, SDF 텍스처 유지)
