@@ -540,17 +540,20 @@ void FFleshRingAssetEditor::OnObjectTransacted(UObject* Object, const FTransacti
 			if (GEditor)
 			{
 				// Undo/Redo 중 선택 검증 스킵 (Tick에서 선택 해제 방지)
+				// 뷰모드 저장 (Undo/Redo 후 복원용)
+				EViewModeIndex SavedViewMode = VMI_Lit;
 				if (ViewportWidget.IsValid())
 				{
 					TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient();
 					if (ViewportClient.IsValid())
 					{
 						ViewportClient->SetSkipSelectionValidation(true);
+						SavedViewMode = ViewportClient->GetViewMode();
 					}
 				}
 
 				GEditor->GetTimerManager()->SetTimerForNextTick(
-					[WeakThis = TWeakPtr<FFleshRingAssetEditor>(SharedThis(this))]()
+					[WeakThis = TWeakPtr<FFleshRingAssetEditor>(SharedThis(this)), SavedViewMode]()
 					{
 						if (TSharedPtr<FFleshRingAssetEditor> This = WeakThis.Pin())
 						{
@@ -562,6 +565,12 @@ void FFleshRingAssetEditor::OnObjectTransacted(UObject* Object, const FTransacti
 							if (This->ViewportWidget.IsValid())
 							{
 								This->ViewportWidget->RefreshPreview();
+
+								// 뷰모드 복원 (Undo/Redo로 인한 초기화 방지)
+								if (TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = This->ViewportWidget->GetViewportClient())
+								{
+									ViewportClient->SetViewMode(SavedViewMode);
+								}
 							}
 							if (This->SkeletonTreeWidget.IsValid())
 							{
