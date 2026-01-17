@@ -2043,35 +2043,79 @@ void FFleshRingEditorViewportClient::LoadSettings()
 	}
 
 	// === 원근 카메라 설정 로드 ===
+	bool bHasSavedPerspectiveLocation = false;
 	FVector SavedPerspectiveLocation;
 	if (GConfig->GetVector(*SectionName, TEXT("PerspectiveViewLocation"), SavedPerspectiveLocation, GEditorPerProjectIni))
 	{
 		ViewTransformPerspective.SetLocation(SavedPerspectiveLocation);
+		bHasSavedPerspectiveLocation = true;
 	}
 
+	bool bHasSavedPerspectiveRotation = false;
 	FRotator SavedPerspectiveRotation;
 	if (GConfig->GetRotator(*SectionName, TEXT("PerspectiveViewRotation"), SavedPerspectiveRotation, GEditorPerProjectIni))
 	{
 		ViewTransformPerspective.SetRotation(SavedPerspectiveRotation);
+		bHasSavedPerspectiveRotation = true;
 	}
 
 	// === 직교 카메라 설정 로드 ===
+	bool bHasSavedOrthographicLocation = false;
 	FVector SavedOrthographicLocation;
 	if (GConfig->GetVector(*SectionName, TEXT("OrthographicViewLocation"), SavedOrthographicLocation, GEditorPerProjectIni))
 	{
 		ViewTransformOrthographic.SetLocation(SavedOrthographicLocation);
+		bHasSavedOrthographicLocation = true;
 	}
 
+	bool bHasSavedOrthographicRotation = false;
 	FRotator SavedOrthographicRotation;
 	if (GConfig->GetRotator(*SectionName, TEXT("OrthographicViewRotation"), SavedOrthographicRotation, GEditorPerProjectIni))
 	{
 		ViewTransformOrthographic.SetRotation(SavedOrthographicRotation);
+		bHasSavedOrthographicRotation = true;
 	}
 
 	float SavedOrthoZoom = DEFAULT_ORTHOZOOM;
 	if (GConfig->GetFloat(*SectionName, TEXT("OrthoZoom"), SavedOrthoZoom, GEditorPerProjectIni))
 	{
 		ViewTransformOrthographic.SetOrthoZoom(SavedOrthoZoom);
+	}
+
+	// 저장된 카메라 위치를 실제 뷰에 적용 (엔진 재시작 시 카메라 복원)
+	// FocusOnMesh()에서 시작된 카메라 보간 중단 (저장된 위치 우선)
+	bool bHasSavedCameraSettings = false;
+	if (GetViewportType() == LVT_Perspective)
+	{
+		if (bHasSavedPerspectiveLocation)
+		{
+			SetViewLocation(SavedPerspectiveLocation);
+			bHasSavedCameraSettings = true;
+		}
+		if (bHasSavedPerspectiveRotation)
+		{
+			SetViewRotation(SavedPerspectiveRotation);
+			bHasSavedCameraSettings = true;
+		}
+	}
+	else
+	{
+		if (bHasSavedOrthographicLocation)
+		{
+			SetViewLocation(SavedOrthographicLocation);
+			bHasSavedCameraSettings = true;
+		}
+		if (bHasSavedOrthographicRotation)
+		{
+			SetViewRotation(SavedOrthographicRotation);
+			bHasSavedCameraSettings = true;
+		}
+	}
+
+	// 저장된 설정이 있으면 FocusOnMesh() 보간 중단
+	if (bHasSavedCameraSettings)
+	{
+		bIsCameraInterpolating = false;
 	}
 
 	// === 카메라 속도 로드 ===
@@ -2135,10 +2179,14 @@ void FFleshRingEditorViewportClient::LoadSettings()
 	GConfig->GetBool(*SectionName, TEXT("ExposureBFixed"), ExposureSettings.bFixed, GEditorPerProjectIni);
 
 	// === 뷰모드 로드 (Lit, Unlit, Wireframe 등) ===
+	// 주의: ApplyPreviewSceneShowFlags()가 뷰모드를 덮어쓰므로 나중에 다시 적용
+	EViewModeIndex LoadedViewMode = VMI_Lit;
+	bool bHasSavedViewMode = false;
 	int32 SavedViewMode = static_cast<int32>(VMI_Lit);
 	if (GConfig->GetInt(*SectionName, TEXT("ViewMode"), SavedViewMode, GEditorPerProjectIni))
 	{
-		SetViewMode(static_cast<EViewModeIndex>(SavedViewMode));
+		LoadedViewMode = static_cast<EViewModeIndex>(SavedViewMode);
+		bHasSavedViewMode = true;
 	}
 
 	// === 커스텀 Show 플래그 로드 ===
@@ -2187,6 +2235,12 @@ void FFleshRingEditorViewportClient::LoadSettings()
 
 	// Preview Scene Settings도 적용
 	ApplyPreviewSceneShowFlags();
+
+	// 뷰모드 재적용 (ApplyPreviewSceneShowFlags()가 ShowFlags를 덮어쓰므로)
+	if (bHasSavedViewMode)
+	{
+		SetViewMode(LoadedViewMode);
+	}
 }
 
 void FFleshRingEditorViewportClient::ToggleShowDebugVisualization()
