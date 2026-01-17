@@ -818,7 +818,7 @@ void UFleshRingComponent::ForceInitializeForEditorPreview()
 	InitializeForEditorPreview();
 }
 
-void UFleshRingComponent::UpdateRingTransforms()
+void UFleshRingComponent::UpdateRingTransforms(int32 DirtyRingIndex)
 {
 	if (!FleshRingAsset || !ResolvedTargetMesh.IsValid())
 	{
@@ -827,7 +827,15 @@ void UFleshRingComponent::UpdateRingTransforms()
 
 	USkeletalMeshComponent* SkelMesh = ResolvedTargetMesh.Get();
 
-	for (int32 RingIndex = 0; RingIndex < FleshRingAsset->Rings.Num(); ++RingIndex)
+	// 업데이트할 Ring 범위 결정
+	int32 StartIndex = (DirtyRingIndex != INDEX_NONE) ? DirtyRingIndex : 0;
+	int32 EndIndex = (DirtyRingIndex != INDEX_NONE) ? DirtyRingIndex + 1 : FleshRingAsset->Rings.Num();
+
+	// 유효 범위 검증
+	StartIndex = FMath::Clamp(StartIndex, 0, FleshRingAsset->Rings.Num());
+	EndIndex = FMath::Clamp(EndIndex, 0, FleshRingAsset->Rings.Num());
+
+	for (int32 RingIndex = StartIndex; RingIndex < EndIndex; ++RingIndex)
 	{
 		const FFleshRingSettings& Ring = FleshRingAsset->Rings[RingIndex];
 
@@ -869,13 +877,14 @@ void UFleshRingComponent::UpdateRingTransforms()
 	}
 
 	// 3. DeformerInstance의 TightenedBindPose 캐시 무효화 (재계산 트리거)
+	// DirtyRingIndex를 전달하여 해당 Ring만 재처리
 	if (USkeletalMeshComponent* SkelMeshComp = ResolvedTargetMesh.Get())
 	{
 		if (UMeshDeformerInstance* DeformerInstance = SkelMeshComp->GetMeshDeformerInstance())
 		{
 			if (UFleshRingDeformerInstance* FleshRingInstance = Cast<UFleshRingDeformerInstance>(DeformerInstance))
 			{
-				FleshRingInstance->InvalidateTightnessCache();
+				FleshRingInstance->InvalidateTightnessCache(DirtyRingIndex);
 			}
 		}
 
@@ -886,8 +895,8 @@ void UFleshRingComponent::UpdateRingTransforms()
 
 #if WITH_EDITORONLY_DATA
 	// 5. 디버그 시각화 캐시 무효화 (Ring 이동 시 AffectedVertices 재계산)
-	bDebugAffectedVerticesCached = false;
-	bDebugBulgeVerticesCached = false;
+	// DirtyRingIndex를 전달하여 해당 Ring만 무효화
+	InvalidateDebugCaches(DirtyRingIndex);
 #endif
 }
 

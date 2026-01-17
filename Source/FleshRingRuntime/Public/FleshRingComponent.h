@@ -258,9 +258,10 @@ public:
 	/**
 	 * Ring 트랜스폼만 업데이트 (Deformer 유지, SDF 텍스처 유지)
 	 * 기즈모 드래그나 프로퍼티 변경 시 깜빡임 없이 실시간 갱신용
+	 * @param DirtyRingIndex - 특정 Ring만 업데이트 (-1이면 전체 업데이트)
 	 */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing|Editor")
-	void UpdateRingTransforms();
+	void UpdateRingTransforms(int32 DirtyRingIndex = -1);
 
 	/**
 	 * Ring 메시 컴포넌트 재생성 (RingMesh 변경 시 호출)

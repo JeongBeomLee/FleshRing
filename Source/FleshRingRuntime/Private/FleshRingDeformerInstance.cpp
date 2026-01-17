@@ -1275,6 +1275,12 @@ bool UFleshRingDeformerInstance::ReadbackDeformedGeometry(
 
 void UFleshRingDeformerInstance::InvalidateTightnessCache(int32 DirtyRingIndex)
 {
+    // ★ 디버그 로그: 어떤 Ring이 Dirty로 마킹되는지 확인
+    UE_LOG(LogFleshRing, Log,
+        TEXT("InvalidateTightnessCache: DirtyRingIndex=%d (%s)"),
+        DirtyRingIndex,
+        DirtyRingIndex == INDEX_NONE ? TEXT("ALL RINGS") : TEXT("SINGLE RING"));
+
     // 1. AffectedVertices 재등록 (Ring 트랜스폼 변경 시 영향받는 정점이 달라질 수 있음)
     if (FleshRingComponent.IsValid())
     {
@@ -1288,11 +1294,13 @@ void UFleshRingDeformerInstance::InvalidateTightnessCache(int32 DirtyRingIndex)
                 {
                     // 전체 무효화
                     LODData[LODIndex].AffectedVerticesManager.MarkAllRingsDirty();
+                    UE_LOG(LogFleshRing, Log, TEXT("  LOD[%d]: MarkAllRingsDirty()"), LODIndex);
                 }
                 else
                 {
                     // 특정 Ring만 무효화
                     LODData[LODIndex].AffectedVerticesManager.MarkRingDirty(DirtyRingIndex);
+                    UE_LOG(LogFleshRing, Log, TEXT("  LOD[%d]: MarkRingDirty(%d)"), LODIndex, DirtyRingIndex);
                 }
 
                 // RegisterAffectedVertices는 dirty한 Ring만 처리함

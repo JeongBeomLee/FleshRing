@@ -1696,13 +1696,15 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 	// 드래그 중 매 프레임 호출 시 5-10ms 오버헤드 발생
 
 	// 트랜스폼만 업데이트 (Deformer 유지, 깜빡임 방지)
+	// 선택된 Ring 인덱스를 전달하여 해당 Ring만 처리 (최적화)
 	if (PreviewScene)
 	{
 		UFleshRingComponent* FleshRingComp = PreviewScene->GetFleshRingComponent();
 		if (FleshRingComp)
 		{
 			SCOPE_CYCLE_COUNTER(STAT_FleshRingEditor_UpdateRingTransforms);
-			FleshRingComp->UpdateRingTransforms();
+			int32 SelectedRingIndex = PreviewScene->GetSelectedRingIndex();
+			FleshRingComp->UpdateRingTransforms(SelectedRingIndex);
 		}
 	}
 

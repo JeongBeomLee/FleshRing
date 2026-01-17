@@ -1456,12 +1456,23 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
     // ================================================================
     const int32 NumRings = Rings.Num();
 
-    // 링 개수가 변경되었거나 첫 빌드인 경우 배열 재초기화
-    if (RingDataArray.Num() != NumRings || RingDirtyFlags.Num() != NumRings)
+    // RingDataArray 크기 조정
+    if (RingDataArray.Num() != NumRings)
     {
         RingDataArray.SetNum(NumRings);
-        RingDirtyFlags.Init(true, NumRings);  // 모든 링 dirty로 초기화
-        UE_LOG(LogFleshRingVertices, Log, TEXT("RegisterAffectedVertices: Initialized %d rings (all dirty)"), NumRings);
+    }
+
+    // RingDirtyFlags 크기 조정 (기존 dirty 상태 유지, 새 요소만 dirty로 설정)
+    if (RingDirtyFlags.Num() != NumRings)
+    {
+        const int32 OldNum = RingDirtyFlags.Num();
+        RingDirtyFlags.SetNum(NumRings);
+        // 새로 추가된 Ring만 dirty로 설정 (기존 상태는 유지)
+        for (int32 i = OldNum; i < NumRings; ++i)
+        {
+            RingDirtyFlags[i] = true;
+        }
+        UE_LOG(LogFleshRingVertices, Log, TEXT("RegisterAffectedVertices: Resized dirty flags %d -> %d rings (new rings marked dirty)"), OldNum, NumRings);
     }
 
     // Process each Ring
@@ -1474,8 +1485,10 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         if (!RingDirtyFlags[RingIdx])
         {
             // 이미 유효한 데이터가 있고 변경되지 않음 - 스킵
+            UE_LOG(LogFleshRingVertices, Log, TEXT("Ring[%d]: SKIPPED (not dirty)"), RingIdx);
             continue;
         }
+        UE_LOG(LogFleshRingVertices, Log, TEXT("Ring[%d]: PROCESSING (dirty)"), RingIdx);
 
         // Skip Rings without valid bone
         // 유효한 본이 없는 링은 건너뜀

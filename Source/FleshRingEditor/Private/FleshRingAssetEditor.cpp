@@ -402,17 +402,6 @@ void FFleshRingAssetEditor::OnObjectPropertyChanged(UObject* Object, FPropertyCh
 			// MeshScale, RingRadius, Strength, Falloff 등은 경량 업데이트만 필요
 		}
 
-		// VirtualBand 프로퍼티 체인 확인 (드래그 시 SDF만 재생성)
-		bool bIsProceduralBandProperty = false;
-		if (PropertyChangedEvent.MemberProperty)
-		{
-			FName MemberName = PropertyChangedEvent.MemberProperty->GetFName();
-			if (MemberName == TEXT("ProceduralBand"))
-			{
-				bIsProceduralBandProperty = true;
-			}
-		}
-
 		// Rings 배열의 구조 변경이 아닌 경우 (복사/붙여넣기 등으로 배열 전체가 바뀐 경우만 전체 갱신)
 		// 개별 프로퍼티 변경은 위에서 처리됨
 		if (!bNeedsFullRefresh && PropertyChangedEvent.MemberProperty)
@@ -434,15 +423,26 @@ void FFleshRingAssetEditor::OnObjectPropertyChanged(UObject* Object, FPropertyCh
 		{
 			RefreshViewport();
 		}
-		else if (bIsProceduralBandProperty)
-		{
-			// VirtualBand: SDF만 재생성 (Deformer 유지 = 실시간 변형)
-			RefreshSDFOnly();
-		}
 		else
 		{
+			// Ring 인덱스 추출: Rings 배열의 어떤 요소가 변경되었는지 확인
+			int32 ChangedRingIndex = INDEX_NONE;
+
+			// Ring 인덱스 추출: 에셋의 현재 선택된 Ring 사용
+			// 에셋에 저장된 EditorSelectedRingIndex를 사용 (프로퍼티 수정 시 해당 Ring이 선택되어 있음)
+			if (PropertyChangedEvent.MemberProperty)
+			{
+				FName MemberName = PropertyChangedEvent.MemberProperty->GetFName();
+				if (MemberName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, Rings))
+				{
+					// 에셋의 선택된 Ring 인덱스 사용
+					ChangedRingIndex = EditingAsset->EditorSelectedRingIndex;
+				}
+			}
+
 			// 트랜스폼/파라미터 변경: 경량 업데이트 (깜빡임 방지)
-			UpdateRingTransformsOnly();
+			// 특정 Ring 인덱스를 전달하여 해당 Ring만 처리
+			UpdateRingTransformsOnly(ChangedRingIndex);
 		}
 	}
 }
@@ -477,11 +477,11 @@ void FFleshRingAssetEditor::RefreshViewport()
 	bSyncingFromViewport = false;
 }
 
-void FFleshRingAssetEditor::UpdateRingTransformsOnly()
+void FFleshRingAssetEditor::UpdateRingTransformsOnly(int32 DirtyRingIndex)
 {
 	if (ViewportWidget.IsValid())
 	{
-		ViewportWidget->UpdateRingTransformsOnly();
+		ViewportWidget->UpdateRingTransformsOnly(DirtyRingIndex);
 	}
 }
 

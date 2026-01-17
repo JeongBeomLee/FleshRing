@@ -49,7 +49,7 @@ public:
 	void RefreshViewport();
 
 	/** Ring 트랜스폼만 업데이트 (깜빡임 방지) */
-	void UpdateRingTransformsOnly();
+	void UpdateRingTransformsOnly(int32 DirtyRingIndex = INDEX_NONE);
 
 	/** SDF만 재생성 (VirtualBand 드래그 중 - 컴포넌트 재생성 없이) */
 	void RefreshSDFOnly();

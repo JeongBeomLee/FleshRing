@@ -33,7 +33,7 @@ public:
 	void RefreshPreview();
 
 	/** Ring 트랜스폼만 업데이트 (깜빡임 없이 - 슬라이더 드래그 중) */
-	void UpdateRingTransformsOnly();
+	void UpdateRingTransformsOnly(int32 DirtyRingIndex = INDEX_NONE);
 
 	/** SDF만 재생성 (VirtualBand 드래그 중 - 컴포넌트 재생성 없이) */
 	void RefreshSDFOnly();

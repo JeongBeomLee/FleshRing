@@ -95,15 +95,16 @@ void SFleshRingEditorViewport::RefreshPreview()
 	}
 }
 
-void SFleshRingEditorViewport::UpdateRingTransformsOnly()
+void SFleshRingEditorViewport::UpdateRingTransformsOnly(int32 DirtyRingIndex)
 {
 	if (PreviewScene.IsValid())
 	{
 		// FleshRingComponent의 트랜스폼만 업데이트 (Deformer 유지, 깜빡임 방지)
+		// DirtyRingIndex를 전달하여 해당 Ring만 처리
 		UFleshRingComponent* FleshRingComp = PreviewScene->GetFleshRingComponent();
 		if (FleshRingComp)
 		{
-			FleshRingComp->UpdateRingTransforms();
+			FleshRingComp->UpdateRingTransforms(DirtyRingIndex);
 		}
 	}
 
