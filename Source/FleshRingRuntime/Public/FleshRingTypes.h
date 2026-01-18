@@ -119,6 +119,13 @@ enum class EFleshRingLayerType : uint8
 	Other		UMETA(DisplayName = "Other"),
 
 	/**
+	 * 제외 (Tightness 효과 적용 안 함)
+	 * AffectedLayerMask와 무관하게 항상 제외됨
+	 * 눈동자, 머리카락, 악세서리 등 Tightness가 필요 없는 머티리얼에 사용
+	 */
+	Exclude		UMETA(DisplayName = "Exclude (Never Affected)"),
+
+	/**
 	 * [DEPRECATED] Unknown → Other로 리네이밍됨
 	 * 기존 에셋 역직렬화 호환성을 위해 유지 (UE는 이름 기반 직렬화)
 	 * 에디터에서 Hidden 처리, 새 에셋에서는 Other 사용 권장
@@ -938,6 +945,9 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 			return (AffectedLayerMask & static_cast<int32>(EFleshRingLayerMask::Outerwear)) != 0;
 		case EFleshRingLayerType::Other:
 			return (AffectedLayerMask & static_cast<int32>(EFleshRingLayerMask::Other)) != 0;
+		case EFleshRingLayerType::Exclude:
+			// Exclude는 마스크와 무관하게 항상 제외
+			return false;
 		default:
 			// NOTE: 새 레이어 타입 추가 시 여기 도달하면 case 추가 필요
 			return false;
