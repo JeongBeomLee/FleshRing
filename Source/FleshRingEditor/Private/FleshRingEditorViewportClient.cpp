@@ -690,13 +690,25 @@ void FFleshRingEditorViewportClient::SelectRing(int32 RingIndex, FName AttachedB
 		return;
 	}
 
+	// RingMesh 유무에 따라 SelectionType 결정
+	// RingMesh가 없으면 Gizmo(가상 링/밴드) 선택, 있으면 Mesh 선택
+	EFleshRingSelectionType NewSelectionType = EFleshRingSelectionType::Mesh;
+	if (EditingAsset.IsValid() && EditingAsset->Rings.IsValidIndex(RingIndex))
+	{
+		const FFleshRingSettings& Ring = EditingAsset->Rings[RingIndex];
+		if (Ring.RingMesh.IsNull())
+		{
+			NewSelectionType = EFleshRingSelectionType::Gizmo;
+		}
+	}
+
 	// 선택 트랜잭션 생성 (Undo 가능)
 	if (EditingAsset.IsValid())
 	{
 		FScopedTransaction Transaction(NSLOCTEXT("FleshRingEditor", "SelectRing", "Select Ring"));
 		EditingAsset->Modify();
 		EditingAsset->EditorSelectedRingIndex = RingIndex;
-		EditingAsset->EditorSelectionType = EFleshRingSelectionType::Mesh;
+		EditingAsset->EditorSelectionType = NewSelectionType;
 	}
 
 	// Ring이 부착된 본 하이라이트 (델리게이트 호출 없이 직접 설정)
@@ -706,7 +718,7 @@ void FFleshRingEditorViewportClient::SelectRing(int32 RingIndex, FName AttachedB
 	{
 		PreviewScene->SetSelectedRingIndex(RingIndex);
 	}
-	SelectionType = EFleshRingSelectionType::Mesh;  // 메시 선택 모드
+	SelectionType = NewSelectionType;
 	Invalidate();
 }
 

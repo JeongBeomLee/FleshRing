@@ -1695,9 +1695,17 @@ FReply FFleshRingSettingsCustomization::OnHeaderClicked(int32 RingIndex)
 	// Asset의 SetEditorSelectedRingIndex 호출 (델리게이트 브로드캐스트됨)
 	if (UFleshRingAsset* Asset = GetOuterAsset())
 	{
+		// RingMesh 유무에 따라 SelectionType 결정
+		// RingMesh가 없으면 Gizmo(가상 링/밴드) 선택, 있으면 Mesh 선택
+		EFleshRingSelectionType SelectionType = EFleshRingSelectionType::Mesh;
+		if (Asset->Rings.IsValidIndex(RingIndex) && Asset->Rings[RingIndex].RingMesh.IsNull())
+		{
+			SelectionType = EFleshRingSelectionType::Gizmo;
+		}
+
 		FScopedTransaction Transaction(LOCTEXT("SelectRingFromDetails", "Select Ring"));
 		Asset->Modify();
-		Asset->SetEditorSelectedRingIndex(RingIndex, EFleshRingSelectionType::Mesh);
+		Asset->SetEditorSelectedRingIndex(RingIndex, SelectionType);
 	}
 	return FReply::Handled();
 }
