@@ -13,6 +13,8 @@
 #include "FleshRingComponent.h"
 #include "FleshRingAsset.h"
 #include "PropertyEditorModule.h"
+#include "ThumbnailRendering/ThumbnailManager.h"
+#include "FleshRingAssetThumbnailRenderer.h"
 #include "ToolMenus.h"
 #include "SEditorViewport.h"
 #include "SCommonEditorViewportToolbarBase.h"
@@ -37,6 +39,12 @@ void FFleshRingEditorModule::StartupModule()
 	StyleSet->Set("FleshRing.RingIcon", new FSlateVectorImageBrush(
 		StyleSet->RootToContentDir(TEXT("Icons/AssetIcons/ModelingTorus_16"), TEXT(".svg")),
 		FVector2D(16.0f, 16.0f)));
+
+	// FleshRingAsset 클래스 아이콘 등록
+	const FString PluginResourcesPath = FPaths::ProjectPluginsDir() / TEXT("FleshRingPlugin/Resources");
+	const FString ClassIconPath = PluginResourcesPath / TEXT("FleshRingAssetIcon.png");
+	StyleSet->Set("ClassIcon.FleshRingAsset", new FSlateImageBrush(ClassIconPath, FVector2D(16.0f, 16.0f)));
+
 	FSlateStyleRegistry::RegisterSlateStyle(*StyleSet);
 
 	// This code will execute after your module is loaded into memory; the exact timing is specified in the .uplugin file per-module
@@ -84,6 +92,9 @@ void FFleshRingEditorModule::StartupModule()
 
 	// 등록 Detail View 갱신
 	PropertyModule.NotifyCustomizationModuleChanged();
+
+	// FleshRingAsset 썸네일 렌더러 등록
+	UThumbnailManager::Get().RegisterCustomRenderer(UFleshRingAsset::StaticClass(), UFleshRingAssetThumbnailRenderer::StaticClass());
 
 	// ToolMenus 확장 - FleshRing 뷰포트에만 커스텀 좌표계 버튼 추가
 	UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateLambda([]()
@@ -289,6 +300,12 @@ void FFleshRingEditorModule::ShutdownModule()
 		PropertyModule.UnregisterCustomClassLayout(UFleshRingAsset::StaticClass()->GetFName());
 		PropertyModule.UnregisterCustomPropertyTypeLayout(FFleshRingSettings::StaticStruct()->GetFName());
 		PropertyModule.UnregisterCustomPropertyTypeLayout(FSubdivisionSettings::StaticStruct()->GetFName());
+	}
+
+	// FleshRingAsset 썸네일 렌더러 해제
+	if (UObjectInitialized())
+	{
+		UThumbnailManager::Get().UnregisterCustomRenderer(UFleshRingAsset::StaticClass());
 	}
 }
 
