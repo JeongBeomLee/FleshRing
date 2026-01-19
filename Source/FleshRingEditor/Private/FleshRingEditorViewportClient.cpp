@@ -1654,23 +1654,30 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 				}
 			}
 
-			// 스케일 처리: 전체 비례 스케일
-			if (!SnappedScale.IsZero())
+			// 스케일 처리: 축별 분리 (X/Y → Radius, Z → Height)
+			// X/Y 축 드래그 → Radius 계열만 조절
+			float RadialScaleDelta = FMath::Max(SnappedScale.X, SnappedScale.Y);
+			if (FMath::IsNearlyZero(RadialScaleDelta))
 			{
-				float ScaleDelta = FMath::Max3(SnappedScale.X, SnappedScale.Y, SnappedScale.Z);
-				if (ScaleDelta == 0.0f)
-				{
-					ScaleDelta = FMath::Min3(SnappedScale.X, SnappedScale.Y, SnappedScale.Z);
-				}
-				float ScaleFactor = 1.0f + ScaleDelta;
-				BandSettings.MidUpperRadius = FMath::Clamp(BandSettings.MidUpperRadius * ScaleFactor, 0.1f, 100.0f);
-				BandSettings.MidLowerRadius = FMath::Clamp(BandSettings.MidLowerRadius * ScaleFactor, 0.1f, 100.0f);
-				BandSettings.BandHeight = FMath::Clamp(BandSettings.BandHeight * ScaleFactor, 0.1f, 100.0f);
-				BandSettings.BandThickness = FMath::Clamp(BandSettings.BandThickness * ScaleFactor, 0.1f, 50.0f);
-				BandSettings.Upper.Radius = FMath::Clamp(BandSettings.Upper.Radius * ScaleFactor, 0.1f, 100.0f);
-				BandSettings.Upper.Height = FMath::Clamp(BandSettings.Upper.Height * ScaleFactor, 0.0f, 100.0f);
-				BandSettings.Lower.Radius = FMath::Clamp(BandSettings.Lower.Radius * ScaleFactor, 0.1f, 100.0f);
-				BandSettings.Lower.Height = FMath::Clamp(BandSettings.Lower.Height * ScaleFactor, 0.0f, 100.0f);
+				RadialScaleDelta = FMath::Min(SnappedScale.X, SnappedScale.Y);
+			}
+			if (!FMath::IsNearlyZero(RadialScaleDelta))
+			{
+				float RadialFactor = 1.0f + RadialScaleDelta;
+				BandSettings.MidUpperRadius = FMath::Clamp(BandSettings.MidUpperRadius * RadialFactor, 0.1f, 100.0f);
+				BandSettings.MidLowerRadius = FMath::Clamp(BandSettings.MidLowerRadius * RadialFactor, 0.1f, 100.0f);
+				BandSettings.BandThickness = FMath::Clamp(BandSettings.BandThickness * RadialFactor, 0.1f, 50.0f);
+				BandSettings.Upper.Radius = FMath::Clamp(BandSettings.Upper.Radius * RadialFactor, 0.1f, 100.0f);
+				BandSettings.Lower.Radius = FMath::Clamp(BandSettings.Lower.Radius * RadialFactor, 0.1f, 100.0f);
+			}
+
+			// Z 축 드래그 → Height 계열만 조절
+			if (!FMath::IsNearlyZero(SnappedScale.Z))
+			{
+				float HeightFactor = 1.0f + SnappedScale.Z;
+				BandSettings.BandHeight = FMath::Clamp(BandSettings.BandHeight * HeightFactor, 0.1f, 100.0f);
+				BandSettings.Upper.Height = FMath::Clamp(BandSettings.Upper.Height * HeightFactor, 0.0f, 100.0f);
+				BandSettings.Lower.Height = FMath::Clamp(BandSettings.Lower.Height * HeightFactor, 0.0f, 100.0f);
 			}
 		}
 	}
