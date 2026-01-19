@@ -1457,14 +1457,6 @@ void UFleshRingAsset::PostTransacted(const FTransactionObjectEvent& TransactionE
 		return;
 	}
 
-	// SubdividedMesh는 Undo/Redo 후 무조건 클리어
-	// (Undo로 dangling pointer가 복원되거나 TargetMesh와 불일치할 수 있음)
-	// 재생성은 사용자가 GenerateSubdividedMesh 버튼으로 명시적으로 해야 함
-	if (SubdivisionSettings.SubdividedMesh)
-	{
-		SubdivisionSettings.SubdividedMesh = nullptr;
-	}
-
 	// ★ Ring 개수 변경 감지 (Undo/Redo 시 Hash 비교가 실패하는 문제 해결)
 	// LastKnownRingCount는 UPROPERTY가 아니므로 트랜잭션에 포함되지 않음
 	// → Undo/Redo 시 복원되지 않아 Ring 추가/삭제 감지 가능
