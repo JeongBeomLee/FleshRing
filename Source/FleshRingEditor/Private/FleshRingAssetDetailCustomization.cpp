@@ -61,14 +61,23 @@ bool FFleshRingAssetDetailCustomization::IsSubdivisionEnabled() const
 
 FReply FFleshRingAssetDetailCustomization::OnRefreshPreviewClicked()
 {
-	if (CachedAsset.IsValid())
+	if (CachedAsset.IsValid() && GEditor)
 	{
-		// ★ 캐시 무효화하여 강제 재생성
-		CachedAsset->InvalidatePreviewMeshCache();
-
-		CachedAsset->GeneratePreviewMesh();
-
-		CachedAsset->OnAssetChanged.Broadcast(CachedAsset.Get());
+		// 에디터 찾아서 PreviewScene의 메시 강제 재생성
+		UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
+		if (AssetEditorSubsystem)
+		{
+			TArray<IAssetEditorInstance*> Editors = AssetEditorSubsystem->FindEditorsForAsset(CachedAsset.Get());
+			for (IAssetEditorInstance* Editor : Editors)
+			{
+				FFleshRingAssetEditor* FleshRingEditor = static_cast<FFleshRingAssetEditor*>(Editor);
+				if (FleshRingEditor)
+				{
+					FleshRingEditor->ForceRefreshPreviewMesh();
+					break;
+				}
+			}
+		}
 	}
 	return FReply::Handled();
 }

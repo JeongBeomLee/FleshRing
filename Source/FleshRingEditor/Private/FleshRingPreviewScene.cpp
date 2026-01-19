@@ -6,6 +6,7 @@
 #include "FleshRingUtils.h"
 #include "FleshRingMeshComponent.h"
 #include "FleshRingDeformerInstance.h"
+#include "FleshRingSubdivisionProcessor.h"
 #include "Animation/DebugSkelMeshComponent.h"
 #include "Animation/MeshDeformerInstance.h"
 #include "Components/StaticMeshComponent.h"
@@ -17,6 +18,8 @@
 #include "Editor.h"
 #include "RenderingThread.h"         // FlushRenderingCommands용
 #include "UObject/UObjectGlobals.h"  // CollectGarbage용
+#include "MeshDescription.h"
+#include "SkeletalMeshAttributes.h"
 
 FFleshRingPreviewScene::FFleshRingPreviewScene(const ConstructionValues& CVS)
 	: FAdvancedPreviewScene(CVS)
@@ -37,12 +40,22 @@ FFleshRingPreviewScene::~FFleshRingPreviewScene()
 		USkeletalMesh* OriginalMesh = CachedOriginalMesh.Get();
 		if (CurrentMesh != OriginalMesh)
 		{
+			// ★ Undo 비활성화
+			ITransaction* OldGUndo = GUndo;
+			GUndo = nullptr;
+
 			SkeletalMeshComponent->SetSkeletalMesh(OriginalMesh);
+
+			GUndo = OldGUndo;
+
 			UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Restored original mesh '%s' on destruction"),
 				OriginalMesh ? *OriginalMesh->GetName() : TEXT("null"));
 		}
 	}
 	CachedOriginalMesh.Reset();
+
+	// PreviewSubdividedMesh 정리
+	ClearPreviewMesh();
 
 	// Ring 메시 컴포넌트 정리
 	for (UStaticMeshComponent* RingComp : RingMeshComponents)
@@ -137,10 +150,10 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 #if WITH_EDITOR
 	if (InAsset->SubdivisionSettings.bEnableSubdivision)
 	{
-		if (InAsset->HasValidPreviewMesh() && !InAsset->NeedsPreviewMeshRegeneration())
+		if (HasValidPreviewMesh() && !NeedsPreviewMeshRegeneration())
 		{
 			// 유효한 PreviewMesh 존재 - 그것을 표시해야 함
-			TargetDisplayMesh = InAsset->SubdivisionSettings.PreviewSubdividedMesh;
+			TargetDisplayMesh = PreviewSubdividedMesh;
 		}
 		else
 		{
@@ -266,15 +279,15 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	if (InAsset->SubdivisionSettings.bEnableSubdivision)
 	{
 		// 프리뷰 메시가 없거나 재생성 필요 시 생성
-		if (!InAsset->HasValidPreviewMesh() || InAsset->NeedsPreviewMeshRegeneration())
+		if (!HasValidPreviewMesh() || NeedsPreviewMeshRegeneration())
 		{
-			InAsset->GeneratePreviewMesh();
+			GeneratePreviewMesh();
 		}
 
 		// 프리뷰 메시 사용 (있으면)
-		if (InAsset->HasValidPreviewMesh())
+		if (HasValidPreviewMesh())
 		{
-			SetSkeletalMesh(InAsset->SubdivisionSettings.PreviewSubdividedMesh);
+			SetSkeletalMesh(PreviewSubdividedMesh);
 
 			// ★ 렌더 리소스 동기화 (IndexBuffer 초기화 대기)
 			if (SkeletalMeshComponent)
@@ -285,14 +298,14 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 
 			UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Using PreviewSubdividedMesh (Level %d, %d vertices)"),
 				InAsset->SubdivisionSettings.PreviewSubdivisionLevel,
-				InAsset->SubdivisionSettings.PreviewSubdividedMesh->GetResourceForRendering() ?
-					InAsset->SubdivisionSettings.PreviewSubdividedMesh->GetResourceForRendering()->LODRenderData[0].StaticVertexBuffers.PositionVertexBuffer.GetNumVertices() : 0);
+				PreviewSubdividedMesh->GetResourceForRendering() ?
+					PreviewSubdividedMesh->GetResourceForRendering()->LODRenderData[0].StaticVertexBuffers.PositionVertexBuffer.GetNumVertices() : 0);
 		}
 	}
 	else
 	{
 		// Subdivision 비활성화 시 프리뷰 메시 제거 및 원본 복원
-		InAsset->ClearPreviewMesh();
+		ClearPreviewMesh();
 
 		// 원본 메시로 복원
 		if (CachedOriginalMesh.IsValid() && SkeletalMeshComponent)
@@ -355,7 +368,14 @@ void FFleshRingPreviewScene::SetSkeletalMesh(USkeletalMesh* InMesh)
 			return;
 		}
 
+		// ★ Undo 비활성화하여 메시 교체 시 트랜잭션에 캡처되지 않도록 함
+		// (이전 메시가 TransBuffer에 캡처되면 GC 불가)
+		ITransaction* OldGUndo = GUndo;
+		GUndo = nullptr;
+
 		SkeletalMeshComponent->SetSkeletalMesh(InMesh);
+
+		GUndo = OldGUndo;
 
 		if (InMesh)
 		{
@@ -620,16 +640,568 @@ void FFleshRingPreviewScene::ExecutePendingDeformerInit()
 	if (CurrentAsset)
 	{
 		bool bUsePreviewMesh = CurrentAsset->SubdivisionSettings.bEnableSubdivision
-			&& CurrentAsset->HasValidPreviewMesh();
+			&& HasValidPreviewMesh();
 		if (bUsePreviewMesh && SkeletalMeshComponent)
 		{
-			SkeletalMeshComponent->SetSkeletalMesh(
-				CurrentAsset->SubdivisionSettings.PreviewSubdividedMesh);
+			// ★ Undo 비활성화하여 메시 교체 시 트랜잭션에 캡처되지 않도록 함
+			ITransaction* OldGUndo = GUndo;
+			GUndo = nullptr;
+
+			SkeletalMeshComponent->SetSkeletalMesh(PreviewSubdividedMesh);
+
+			GUndo = OldGUndo;
+
 			SkeletalMeshComponent->MarkRenderStateDirty();
 			FlushRenderingCommands();
 		}
 	}
 }
 
+// =====================================
+// Preview Mesh Management (에셋에서 분리하여 트랜잭션 제외)
+// =====================================
 
+void FFleshRingPreviewScene::ClearPreviewMesh()
+{
+	if (PreviewSubdividedMesh)
+	{
+		USkeletalMesh* OldMesh = PreviewSubdividedMesh;
+
+		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene::ClearPreviewMesh: Destroying '%s'"),
+			*OldMesh->GetName());
+
+		// 1. 포인터 해제
+		PreviewSubdividedMesh = nullptr;
+
+		// 2. 렌더 리소스 완전 해제
+		OldMesh->ReleaseResources();
+		OldMesh->ReleaseResourcesFence.Wait();
+		FlushRenderingCommands();
+
+		// 3. Outer를 TransientPackage로 변경
+		OldMesh->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);
+
+		// 4. 플래그 설정
+		OldMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
+		OldMesh->SetFlags(RF_Transient);
+
+		// 5. GC 대상으로 표시
+		OldMesh->MarkAsGarbage();
+
+		// 캐시 무효화
+		bPreviewMeshCacheValid = false;
+		LastPreviewBoneConfigHash = 0;
+	}
+}
+
+void FFleshRingPreviewScene::InvalidatePreviewMeshCache()
+{
+	bPreviewMeshCacheValid = false;
+	LastPreviewBoneConfigHash = MAX_uint32;
+}
+
+bool FFleshRingPreviewScene::IsPreviewMeshCacheValid() const
+{
+	if (!HasValidPreviewMesh())
+	{
+		return false;
+	}
+
+	// 해시 비교
+	return LastPreviewBoneConfigHash == CalculatePreviewBoneConfigHash();
+}
+
+bool FFleshRingPreviewScene::NeedsPreviewMeshRegeneration() const
+{
+	if (!CurrentAsset || !CurrentAsset->SubdivisionSettings.bEnableSubdivision)
+	{
+		return false;
+	}
+
+	// 메시가 없으면 재생성 필요
+	if (PreviewSubdividedMesh == nullptr)
+	{
+		return true;
+	}
+
+	// 캐시가 무효화되었으면 재생성 필요
+	if (!IsPreviewMeshCacheValid())
+	{
+		return true;
+	}
+
+	return false;
+}
+
+uint32 FFleshRingPreviewScene::CalculatePreviewBoneConfigHash() const
+{
+	if (!CurrentAsset)
+	{
+		return 0;
+	}
+
+	uint32 Hash = 0;
+
+	// 링 부착 본 목록 해시
+	for (const FFleshRingSettings& Ring : CurrentAsset->Rings)
+	{
+		Hash = HashCombine(Hash, GetTypeHash(Ring.BoneName));
+	}
+
+	// subdivision 파라미터 해시
+	Hash = HashCombine(Hash, GetTypeHash(CurrentAsset->SubdivisionSettings.PreviewSubdivisionLevel));
+	Hash = HashCombine(Hash, GetTypeHash(CurrentAsset->SubdivisionSettings.PreviewBoneHopCount));
+	Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(CurrentAsset->SubdivisionSettings.PreviewBoneWeightThreshold * 255)));
+	Hash = HashCombine(Hash, GetTypeHash(CurrentAsset->SubdivisionSettings.MinEdgeLength));
+
+	return Hash;
+}
+
+void FFleshRingPreviewScene::GeneratePreviewMesh()
+{
+	if (!CurrentAsset)
+	{
+		return;
+	}
+
+	// 캐시 체크 - 이미 유효하면 재생성 불필요
+	if (IsPreviewMeshCacheValid())
+	{
+		return;
+	}
+
+	// ★ 전체 메시 생성/제거 과정을 Undo 시스템에서 제외
+	// 이전 메시 정리 및 새 메시 생성이 트랜잭션에 캡처되면 GC 불가
+	ITransaction* OldGUndo = GUndo;
+	GUndo = nullptr;
+
+	// 기존 PreviewMesh가 있으면 먼저 제거
+	if (PreviewSubdividedMesh)
+	{
+		ClearPreviewMesh();
+	}
+
+	if (!CurrentAsset->SubdivisionSettings.bEnableSubdivision)
+	{
+		GUndo = OldGUndo;
+		return;
+	}
+
+	if (CurrentAsset->TargetSkeletalMesh.IsNull())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: TargetSkeletalMesh가 설정되지 않음"));
+		GUndo = OldGUndo;
+		return;
+	}
+
+	USkeletalMesh* SourceMesh = CurrentAsset->TargetSkeletalMesh.LoadSynchronous();
+	if (!SourceMesh)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: SourceMesh 로드 실패"));
+		GUndo = OldGUndo;
+		return;
+	}
+
+	const double StartTime = FPlatformTime::Seconds();
+
+	// 1. 소스 메시 렌더 데이터 획득
+	FSkeletalMeshRenderData* RenderData = SourceMesh->GetResourceForRendering();
+	if (!RenderData || RenderData->LODRenderData.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: RenderData 없음"));
+		GUndo = OldGUndo;
+		return;
+	}
+
+	const FSkeletalMeshLODRenderData& SourceLODData = RenderData->LODRenderData[0];
+	const uint32 SourceVertexCount = SourceLODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
+
+	// 2. 소스 버텍스 데이터 추출
+	TArray<FVector> SourcePositions;
+	TArray<FVector> SourceNormals;
+	TArray<FVector4> SourceTangents;
+	TArray<FVector2D> SourceUVs;
+
+	SourcePositions.SetNum(SourceVertexCount);
+	SourceNormals.SetNum(SourceVertexCount);
+	SourceTangents.SetNum(SourceVertexCount);
+	SourceUVs.SetNum(SourceVertexCount);
+
+	for (uint32 i = 0; i < SourceVertexCount; ++i)
+	{
+		SourcePositions[i] = FVector(SourceLODData.StaticVertexBuffers.PositionVertexBuffer.VertexPosition(i));
+		SourceNormals[i] = FVector(SourceLODData.StaticVertexBuffers.StaticMeshVertexBuffer.VertexTangentZ(i));
+		FVector4f TangentX = SourceLODData.StaticVertexBuffers.StaticMeshVertexBuffer.VertexTangentX(i);
+		SourceTangents[i] = FVector4(TangentX.X, TangentX.Y, TangentX.Z, TangentX.W);
+		SourceUVs[i] = FVector2D(SourceLODData.StaticVertexBuffers.StaticMeshVertexBuffer.GetVertexUV(i, 0));
+	}
+
+	// 인덱스 추출
+	TArray<uint32> SourceIndices;
+	const FRawStaticIndexBuffer16or32Interface* IndexBuffer = SourceLODData.MultiSizeIndexContainer.GetIndexBuffer();
+	if (IndexBuffer)
+	{
+		const int32 NumIndices = IndexBuffer->Num();
+		SourceIndices.SetNum(NumIndices);
+		for (int32 i = 0; i < NumIndices; ++i)
+		{
+			SourceIndices[i] = IndexBuffer->Get(i);
+		}
+	}
+
+	// 섹션별 머티리얼 인덱스 추출
+	TArray<int32> SourceTriangleMaterialIndices;
+	{
+		const int32 NumTriangles = SourceIndices.Num() / 3;
+		SourceTriangleMaterialIndices.SetNum(NumTriangles);
+		for (const FSkelMeshRenderSection& Section : SourceLODData.RenderSections)
+		{
+			const int32 StartTriangle = Section.BaseIndex / 3;
+			const int32 EndTriangle = StartTriangle + Section.NumTriangles;
+			for (int32 TriIdx = StartTriangle; TriIdx < EndTriangle && TriIdx < NumTriangles; ++TriIdx)
+			{
+				SourceTriangleMaterialIndices[TriIdx] = Section.MaterialIndex;
+			}
+		}
+	}
+
+	// 본 웨이트 추출
+	const int32 MaxBoneInfluences = SourceLODData.GetVertexBufferMaxBoneInfluences();
+	TArray<TArray<uint16>> SourceBoneIndices;
+	TArray<TArray<uint8>> SourceBoneWeights;
+	SourceBoneIndices.SetNum(SourceVertexCount);
+	SourceBoneWeights.SetNum(SourceVertexCount);
+
+	TArray<FVertexBoneInfluence> VertexBoneInfluences;
+	VertexBoneInfluences.SetNum(SourceVertexCount);
+
+	// 버텍스별 섹션 인덱스 맵 생성
+	TArray<int32> VertexToSectionIndex;
+	VertexToSectionIndex.SetNum(SourceVertexCount);
+	for (int32& SectionIdx : VertexToSectionIndex) { SectionIdx = INDEX_NONE; }
+	for (int32 SectionIdx = 0; SectionIdx < SourceLODData.RenderSections.Num(); ++SectionIdx)
+	{
+		const FSkelMeshRenderSection& Section = SourceLODData.RenderSections[SectionIdx];
+		const int32 StartIndex = Section.BaseIndex;
+		const int32 EndIndex = StartIndex + Section.NumTriangles * 3;
+		for (int32 IdxPos = StartIndex; IdxPos < EndIndex; ++IdxPos)
+		{
+			uint32 VertexIdx = SourceIndices[IdxPos];
+			if (VertexIdx < SourceVertexCount && VertexToSectionIndex[VertexIdx] == INDEX_NONE)
+			{
+				VertexToSectionIndex[VertexIdx] = SectionIdx;
+			}
+		}
+	}
+
+	const FSkinWeightVertexBuffer* SkinWeightBuffer = SourceLODData.GetSkinWeightVertexBuffer();
+	if (SkinWeightBuffer && SkinWeightBuffer->GetNumVertices() > 0)
+	{
+		const int32 ClampedInfluences = FMath::Min(MaxBoneInfluences, FVertexBoneInfluence::MAX_INFLUENCES);
+		for (uint32 i = 0; i < SourceVertexCount; ++i)
+		{
+			SourceBoneIndices[i].SetNum(MaxBoneInfluences);
+			SourceBoneWeights[i].SetNum(MaxBoneInfluences);
+
+			FVertexBoneInfluence& Influence = VertexBoneInfluences[i];
+			FMemory::Memzero(Influence.BoneIndices, sizeof(Influence.BoneIndices));
+			FMemory::Memzero(Influence.BoneWeights, sizeof(Influence.BoneWeights));
+
+			int32 SectionIdx = VertexToSectionIndex[i];
+			const TArray<FBoneIndexType>* BoneMap = nullptr;
+			if (SectionIdx != INDEX_NONE && SectionIdx < SourceLODData.RenderSections.Num())
+			{
+				BoneMap = &SourceLODData.RenderSections[SectionIdx].BoneMap;
+			}
+			for (int32 j = 0; j < MaxBoneInfluences; ++j)
+			{
+				uint16 LocalBoneIdx = SkinWeightBuffer->GetBoneIndex(i, j);
+				uint8 Weight = SkinWeightBuffer->GetBoneWeight(i, j);
+				uint16 GlobalBoneIdx = LocalBoneIdx;
+				if (BoneMap && LocalBoneIdx < BoneMap->Num())
+				{
+					GlobalBoneIdx = (*BoneMap)[LocalBoneIdx];
+				}
+				SourceBoneIndices[i][j] = GlobalBoneIdx;
+				SourceBoneWeights[i][j] = Weight;
+
+				if (j < ClampedInfluences)
+				{
+					Influence.BoneIndices[j] = GlobalBoneIdx;
+					Influence.BoneWeights[j] = Weight;
+				}
+			}
+		}
+	}
+
+	// 3. 본 기반 Subdivision 프로세서 실행
+	FFleshRingSubdivisionProcessor Processor;
+
+	if (!Processor.SetSourceMesh(SourcePositions, SourceIndices, SourceUVs, SourceTriangleMaterialIndices))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: SetSourceMesh 실패"));
+		GUndo = OldGUndo;
+		return;
+	}
+	Processor.SetVertexBoneInfluences(VertexBoneInfluences);
+
+	FSubdivisionProcessorSettings Settings;
+	Settings.MinEdgeLength = CurrentAsset->SubdivisionSettings.MinEdgeLength;
+	Processor.SetSettings(Settings);
+
+	FSubdivisionTopologyResult TopologyResult;
+
+	if (CurrentAsset->Rings.Num() > 0 && Processor.HasBoneInfo())
+	{
+		const FReferenceSkeleton& RefSkeleton = SourceMesh->GetRefSkeleton();
+		TArray<int32> RingBoneIndices;
+		for (const FFleshRingSettings& Ring : CurrentAsset->Rings)
+		{
+			int32 BoneIdx = RefSkeleton.FindBoneIndex(Ring.BoneName);
+			if (BoneIdx != INDEX_NONE)
+			{
+				RingBoneIndices.Add(BoneIdx);
+			}
+		}
+
+		TSet<int32> TargetBones = FFleshRingSubdivisionProcessor::GatherNeighborBones(
+			RefSkeleton, RingBoneIndices, CurrentAsset->SubdivisionSettings.PreviewBoneHopCount);
+
+		FBoneRegionSubdivisionParams BoneParams;
+		BoneParams.TargetBoneIndices = TargetBones;
+		BoneParams.BoneWeightThreshold = static_cast<uint8>(CurrentAsset->SubdivisionSettings.PreviewBoneWeightThreshold * 255);
+		BoneParams.NeighborHopCount = CurrentAsset->SubdivisionSettings.PreviewBoneHopCount;
+		BoneParams.MaxSubdivisionLevel = CurrentAsset->SubdivisionSettings.PreviewSubdivisionLevel;
+
+		if (!Processor.ProcessBoneRegion(TopologyResult, BoneParams))
+		{
+			if (!Processor.ProcessUniform(TopologyResult, CurrentAsset->SubdivisionSettings.PreviewSubdivisionLevel))
+			{
+				UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: Subdivision 실패"));
+				GUndo = OldGUndo;
+				return;
+			}
+		}
+	}
+	else
+	{
+		if (!Processor.ProcessUniform(TopologyResult, CurrentAsset->SubdivisionSettings.PreviewSubdivisionLevel))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: Subdivision 실패"));
+			GUndo = OldGUndo;
+			return;
+		}
+	}
+
+	// 4. 새 버텍스 데이터 보간
+	const int32 NewVertexCount = TopologyResult.VertexData.Num();
+	TArray<FVector> NewPositions;
+	TArray<FVector> NewNormals;
+	TArray<FVector4> NewTangents;
+	TArray<FVector2D> NewUVs;
+	TArray<TArray<uint16>> NewBoneIndices;
+	TArray<TArray<uint8>> NewBoneWeights;
+
+	NewPositions.SetNum(NewVertexCount);
+	NewNormals.SetNum(NewVertexCount);
+	NewTangents.SetNum(NewVertexCount);
+	NewUVs.SetNum(NewVertexCount);
+	NewBoneIndices.SetNum(NewVertexCount);
+	NewBoneWeights.SetNum(NewVertexCount);
+
+	TMap<uint16, float> BoneWeightMap;
+	TArray<TPair<uint16, float>> SortedWeights;
+
+	for (int32 i = 0; i < NewVertexCount; ++i)
+	{
+		const FSubdivisionVertexData& VD = TopologyResult.VertexData[i];
+		const float U = VD.BarycentricCoords.X;
+		const float V = VD.BarycentricCoords.Y;
+		const float W = VD.BarycentricCoords.Z;
+
+		const uint32 P0 = FMath::Min(VD.ParentV0, (uint32)(SourceVertexCount - 1));
+		const uint32 P1 = FMath::Min(VD.ParentV1, (uint32)(SourceVertexCount - 1));
+		const uint32 P2 = FMath::Min(VD.ParentV2, (uint32)(SourceVertexCount - 1));
+
+		NewPositions[i] = SourcePositions[P0] * U + SourcePositions[P1] * V + SourcePositions[P2] * W;
+		FVector InterpolatedNormal = SourceNormals[P0] * U + SourceNormals[P1] * V + SourceNormals[P2] * W;
+		NewNormals[i] = InterpolatedNormal.GetSafeNormal();
+		FVector4 InterpTangent = SourceTangents[P0] * U + SourceTangents[P1] * V + SourceTangents[P2] * W;
+		FVector TangentDir = FVector(InterpTangent.X, InterpTangent.Y, InterpTangent.Z).GetSafeNormal();
+		NewTangents[i] = FVector4(TangentDir.X, TangentDir.Y, TangentDir.Z, SourceTangents[P0].W);
+		NewUVs[i] = SourceUVs[P0] * U + SourceUVs[P1] * V + SourceUVs[P2] * W;
+
+		NewBoneIndices[i].SetNum(MaxBoneInfluences);
+		NewBoneWeights[i].SetNum(MaxBoneInfluences);
+
+		BoneWeightMap.Reset();
+		SortedWeights.Reset();
+
+		for (int32 j = 0; j < MaxBoneInfluences; ++j)
+		{
+			if (SourceBoneWeights[P0][j] > 0)
+				BoneWeightMap.FindOrAdd(SourceBoneIndices[P0][j]) += (SourceBoneWeights[P0][j] / 255.0f) * U;
+			if (SourceBoneWeights[P1][j] > 0)
+				BoneWeightMap.FindOrAdd(SourceBoneIndices[P1][j]) += (SourceBoneWeights[P1][j] / 255.0f) * V;
+			if (SourceBoneWeights[P2][j] > 0)
+				BoneWeightMap.FindOrAdd(SourceBoneIndices[P2][j]) += (SourceBoneWeights[P2][j] / 255.0f) * W;
+		}
+		for (const auto& Pair : BoneWeightMap) { SortedWeights.Add(TPair<uint16, float>(Pair.Key, Pair.Value)); }
+		SortedWeights.Sort([](const TPair<uint16, float>& A, const TPair<uint16, float>& B) { return A.Value > B.Value; });
+		float TotalWeight = 0.0f;
+		for (int32 j = 0; j < FMath::Min(SortedWeights.Num(), MaxBoneInfluences); ++j) { TotalWeight += SortedWeights[j].Value; }
+		for (int32 j = 0; j < MaxBoneInfluences; ++j)
+		{
+			if (j < SortedWeights.Num() && TotalWeight > 0.0f)
+			{
+				NewBoneIndices[i][j] = SortedWeights[j].Key;
+				NewBoneWeights[i][j] = FMath::Clamp<uint8>(FMath::RoundToInt((SortedWeights[j].Value / TotalWeight) * 255.0f), 0, 255);
+			}
+			else
+			{
+				NewBoneIndices[i][j] = 0;
+				NewBoneWeights[i][j] = 0;
+			}
+		}
+	}
+
+	// 5. 프리뷰용 USkeletalMesh 생성
+	// ★ Outer를 GetTransientPackage()로 설정 - PreviewScene 소멸 시 GC 대상
+	FString MeshName = FString::Printf(TEXT("%s_Preview_%s"),
+		*SourceMesh->GetName(),
+		*FGuid::NewGuid().ToString(EGuidFormats::Short));
+	PreviewSubdividedMesh = DuplicateObject<USkeletalMesh>(SourceMesh, GetTransientPackage(), FName(*MeshName));
+
+	if (!PreviewSubdividedMesh)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: 메시 복제 실패"));
+		GUndo = OldGUndo;
+		return;
+	}
+
+	// 플래그 설정 - 트랜잭션에서 완전히 제외
+	PreviewSubdividedMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
+	PreviewSubdividedMesh->SetFlags(RF_Transient);
+
+	FlushRenderingCommands();
+	PreviewSubdividedMesh->ReleaseResources();
+	PreviewSubdividedMesh->ReleaseResourcesFence.Wait();
+
+	if (PreviewSubdividedMesh->HasMeshDescription(0))
+	{
+		PreviewSubdividedMesh->ClearMeshDescription(0);
+	}
+
+	// 6. MeshDescription 생성
+	FMeshDescription MeshDescription;
+	FSkeletalMeshAttributes MeshAttributes(MeshDescription);
+	MeshAttributes.Register();
+
+	MeshDescription.ReserveNewVertices(NewVertexCount);
+	for (int32 i = 0; i < NewVertexCount; ++i)
+	{
+		const FVertexID VertexID = MeshDescription.CreateVertex();
+		MeshDescription.GetVertexPositions()[VertexID] = FVector3f(NewPositions[i]);
+	}
+
+	MeshDescription.PolygonGroupAttributes().RegisterAttribute<FName>(MeshAttribute::PolygonGroup::ImportedMaterialSlotName);
+	const int32 NumMaterials = SourceMesh ? SourceMesh->GetMaterials().Num() : 1;
+	const int32 NumFaces = TopologyResult.Indices.Num() / 3;
+
+	TSet<int32> UsedMaterialIndices;
+	for (int32 TriIdx = 0; TriIdx < NumFaces; ++TriIdx)
+	{
+		int32 MatIdx = TopologyResult.TriangleMaterialIndices.IsValidIndex(TriIdx) ? TopologyResult.TriangleMaterialIndices[TriIdx] : 0;
+		MatIdx = FMath::Clamp(MatIdx, 0, NumMaterials - 1);
+		UsedMaterialIndices.Add(MatIdx);
+	}
+
+	TMap<int32, FPolygonGroupID> MaterialIndexToPolygonGroup;
+	TArray<int32> SortedMaterialIndices = UsedMaterialIndices.Array();
+	SortedMaterialIndices.Sort();
+	for (int32 MatIdx : SortedMaterialIndices)
+	{
+		FPolygonGroupID GroupID = MeshDescription.CreatePolygonGroup();
+		MaterialIndexToPolygonGroup.Add(MatIdx, GroupID);
+		FName MaterialSlotName = NAME_None;
+		if (SourceMesh && SourceMesh->GetMaterials().IsValidIndex(MatIdx))
+		{
+			MaterialSlotName = SourceMesh->GetMaterials()[MatIdx].ImportedMaterialSlotName;
+		}
+		if (MaterialSlotName.IsNone()) { MaterialSlotName = *FString::Printf(TEXT("Material_%d"), MatIdx); }
+		MeshDescription.PolygonGroupAttributes().SetAttribute(GroupID, MeshAttribute::PolygonGroup::ImportedMaterialSlotName, 0, MaterialSlotName);
+	}
+
+	TArray<FVertexInstanceID> VertexInstanceIDs;
+	VertexInstanceIDs.Reserve(TopologyResult.Indices.Num());
+	for (int32 i = 0; i < TopologyResult.Indices.Num(); ++i)
+	{
+		const uint32 VertexIndex = TopologyResult.Indices[i];
+		const FVertexID VertexID(VertexIndex);
+		const FVertexInstanceID VertexInstanceID = MeshDescription.CreateVertexInstance(VertexID);
+		VertexInstanceIDs.Add(VertexInstanceID);
+		MeshAttributes.GetVertexInstanceUVs().Set(VertexInstanceID, 0, FVector2f(NewUVs[VertexIndex]));
+		MeshAttributes.GetVertexInstanceNormals().Set(VertexInstanceID, FVector3f(NewNormals[VertexIndex]));
+		MeshAttributes.GetVertexInstanceTangents().Set(VertexInstanceID, FVector3f(NewTangents[VertexIndex].X, NewTangents[VertexIndex].Y, NewTangents[VertexIndex].Z));
+		MeshAttributes.GetVertexInstanceBinormalSigns().Set(VertexInstanceID, NewTangents[VertexIndex].W);
+	}
+
+	for (int32 i = 0; i < NumFaces; ++i)
+	{
+		TArray<FVertexInstanceID> TriangleVertexInstances;
+		TriangleVertexInstances.Add(VertexInstanceIDs[i * 3 + 0]);
+		TriangleVertexInstances.Add(VertexInstanceIDs[i * 3 + 1]);
+		TriangleVertexInstances.Add(VertexInstanceIDs[i * 3 + 2]);
+		int32 MatIdx = TopologyResult.TriangleMaterialIndices.IsValidIndex(i) ? TopologyResult.TriangleMaterialIndices[i] : 0;
+		MatIdx = FMath::Clamp(MatIdx, 0, NumMaterials - 1);
+		FPolygonGroupID* GroupID = MaterialIndexToPolygonGroup.Find(MatIdx);
+		if (GroupID) { MeshDescription.CreatePolygon(*GroupID, TriangleVertexInstances); }
+	}
+
+	FSkinWeightsVertexAttributesRef SkinWeights = MeshAttributes.GetVertexSkinWeights();
+	for (int32 i = 0; i < NewVertexCount; ++i)
+	{
+		FVertexID VertexID(i);
+		TArray<UE::AnimationCore::FBoneWeight> BoneWeightArray;
+		for (int32 j = 0; j < MaxBoneInfluences; ++j)
+		{
+			if (NewBoneWeights[i][j] > 0)
+			{
+				UE::AnimationCore::FBoneWeight BW;
+				BW.SetBoneIndex(NewBoneIndices[i][j]);
+				BW.SetWeight(NewBoneWeights[i][j] / 255.0f);
+				BoneWeightArray.Add(BW);
+			}
+		}
+		SkinWeights.Set(VertexID, BoneWeightArray);
+	}
+
+	PreviewSubdividedMesh->CreateMeshDescription(0, MoveTemp(MeshDescription));
+
+	USkeletalMesh::FCommitMeshDescriptionParams CommitParams;
+	CommitParams.bMarkPackageDirty = false;
+	PreviewSubdividedMesh->CommitMeshDescription(0, CommitParams);
+	PreviewSubdividedMesh->Build();
+	PreviewSubdividedMesh->InitResources();
+
+	FlushRenderingCommands();
+
+	FBox BoundingBox(ForceInit);
+	for (int32 i = 0; i < NewVertexCount; ++i) { BoundingBox += NewPositions[i]; }
+	PreviewSubdividedMesh->SetImportedBounds(FBoxSphereBounds(BoundingBox));
+	PreviewSubdividedMesh->CalculateExtendedBounds();
+
+	// 캐시 해시 업데이트
+	LastPreviewBoneConfigHash = CalculatePreviewBoneConfigHash();
+	bPreviewMeshCacheValid = true;
+
+	const double EndTime = FPlatformTime::Seconds();
+	const double ElapsedMs = (EndTime - StartTime) * 1000.0;
+
+	UE_LOG(LogTemp, Log, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh 완료: %d vertices, %d triangles (%.2fms, CacheHash=%u)"),
+		NewVertexCount, TopologyResult.SubdividedTriangleCount, ElapsedMs, LastPreviewBoneConfigHash);
+
+	// ★ Undo 시스템 복원
+	GUndo = OldGUndo;
+}
 

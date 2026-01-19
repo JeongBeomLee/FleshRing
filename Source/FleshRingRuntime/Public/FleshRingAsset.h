@@ -211,39 +211,6 @@ public:
 	/** Subdivided 메시 제거 (DetailCustomization에서 버튼으로 호출됨) */
 	void ClearSubdividedMesh();
 
-	/**
-	 * 프리뷰용 메시 생성 (에디터 전용, Transient)
-	 * 전체 메시를 균일하게 subdivision - 링 편집 시 실시간 프리뷰용
-	 * 에셋 에디터 로드 시 자동 호출됨
-	 */
-	void GeneratePreviewMesh();
-
-	/** 프리뷰 메시 제거 */
-	void ClearPreviewMesh();
-
-	/** 프리뷰 메시 유효 여부 */
-	bool HasValidPreviewMesh() const { return SubdivisionSettings.PreviewSubdividedMesh != nullptr; }
-
-	/** 프리뷰 메시 재생성 필요 여부 (레벨 변경 시 등) */
-	bool NeedsPreviewMeshRegeneration() const;
-
-	/**
-	 * 프리뷰 메시 캐시 무효화
-	 * 링 본 변경, 링 추가/삭제 시 호출됨
-	 */
-	void InvalidatePreviewMeshCache();
-
-	/**
-	 * 현재 본 구성의 해시 계산
-	 * 링 부착 본 목록 + subdivision 파라미터 기반
-	 */
-	uint32 CalculatePreviewBoneConfigHash() const;
-
-	/**
-	 * 프리뷰 메시 캐시가 유효한지 확인
-	 */
-	bool IsPreviewMeshCacheValid() const;
-
 	// =====================================
 	// Baked Mesh (변형 적용 완료된 런타임용 메시)
 	// =====================================
@@ -270,7 +237,7 @@ public:
 	/**
 	 * 에셋 내 누적된 고아 메시 정리
 	 * 이전 버전에서 BakedMesh_1, BakedMesh_2... 등이 누적된 경우 호출
-	 * 현재 사용 중인 SubdividedMesh, BakedMesh, PreviewSubdividedMesh 외의 SkeletalMesh 제거
+	 * 현재 사용 중인 SubdividedMesh, BakedMesh 외의 SkeletalMesh 제거
 	 * @return 제거된 고아 메시 개수
 	 */
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "FleshRing|Maintenance")

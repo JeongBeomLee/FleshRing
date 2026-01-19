@@ -49,6 +49,9 @@ public class FleshRingEditor : ModuleRules
 				"ApplicationCore",
 				"RenderCore",
 				"CommonMenuExtensions",
+				"MeshDescription",
+				"SkeletalMeshDescription",
+				"StaticMeshDescription",
 			}
 			);
 

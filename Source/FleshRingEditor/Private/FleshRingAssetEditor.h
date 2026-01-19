@@ -57,6 +57,9 @@ public:
 	/** PreviewScene의 FleshRingComponent 반환 (Subdivision 데이터 접근용) */
 	UFleshRingComponent* GetPreviewFleshRingComponent() const;
 
+	/** 프리뷰 메시 강제 재생성 (캐시 무효화 후 재생성) */
+	void ForceRefreshPreviewMesh();
+
 	/** PreviewScene 강제 틱 (모달 다이얼로그에서 뷰포트 렌더링용) */
 	void TickPreviewScene(float DeltaTime);
 

@@ -287,14 +287,23 @@ void FSubdivisionSettingsCustomization::SaveAsset(UFleshRingAsset* Asset)
 FReply FSubdivisionSettingsCustomization::OnRefreshPreviewClicked()
 {
 	UFleshRingAsset* Asset = GetOuterAsset();
-	if (Asset)
+	if (Asset && GEditor)
 	{
-		// ★ 캐시 무효화하여 강제 재생성
-		Asset->InvalidatePreviewMeshCache();
-
-		Asset->GeneratePreviewMesh();
-
-		Asset->OnAssetChanged.Broadcast(Asset);
+		// 에디터 찾아서 PreviewScene의 메시 강제 재생성
+		UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
+		if (AssetEditorSubsystem)
+		{
+			TArray<IAssetEditorInstance*> Editors = AssetEditorSubsystem->FindEditorsForAsset(Asset);
+			for (IAssetEditorInstance* Editor : Editors)
+			{
+				FFleshRingAssetEditor* FleshRingEditor = static_cast<FFleshRingAssetEditor*>(Editor);
+				if (FleshRingEditor)
+				{
+					FleshRingEditor->ForceRefreshPreviewMesh();
+					break;
+				}
+			}
+		}
 	}
 	return FReply::Handled();
 }

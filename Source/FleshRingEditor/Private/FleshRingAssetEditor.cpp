@@ -506,6 +506,26 @@ UFleshRingComponent* FFleshRingAssetEditor::GetPreviewFleshRingComponent() const
 	return nullptr;
 }
 
+void FFleshRingAssetEditor::ForceRefreshPreviewMesh()
+{
+	if (ViewportWidget.IsValid())
+	{
+		TSharedPtr<FFleshRingPreviewScene> PreviewScene = ViewportWidget->GetPreviewScene();
+		if (PreviewScene.IsValid())
+		{
+			// 캐시 무효화 후 강제 재생성
+			PreviewScene->InvalidatePreviewMeshCache();
+			PreviewScene->GeneratePreviewMesh();
+
+			// 에셋 변경 브로드캐스트하여 UI 업데이트
+			if (EditingAsset)
+			{
+				EditingAsset->OnAssetChanged.Broadcast(EditingAsset);
+			}
+		}
+	}
+}
+
 void FFleshRingAssetEditor::TickPreviewScene(float DeltaTime)
 {
 	if (ViewportWidget.IsValid())

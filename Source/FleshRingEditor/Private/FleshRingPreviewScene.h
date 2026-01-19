@@ -66,6 +66,34 @@ public:
 	/** 대기 중인 Deformer 초기화 실행 */
 	void ExecutePendingDeformerInit();
 
+	// =====================================
+	// Preview Mesh Management (에셋에서 분리하여 트랜잭션 제외)
+	// =====================================
+
+	/** 프리뷰 메시 생성 */
+	void GeneratePreviewMesh();
+
+	/** 프리뷰 메시 정리 */
+	void ClearPreviewMesh();
+
+	/** 프리뷰 메시 캐시 무효화 */
+	void InvalidatePreviewMeshCache();
+
+	/** 프리뷰 메시 유효 여부 */
+	bool HasValidPreviewMesh() const { return PreviewSubdividedMesh != nullptr; }
+
+	/** 프리뷰 메시 재생성 필요 여부 */
+	bool NeedsPreviewMeshRegeneration() const;
+
+	/** 프리뷰 메시 캐시가 유효한지 확인 (해시 비교) */
+	bool IsPreviewMeshCacheValid() const;
+
+	/** 현재 본 구성의 해시 계산 */
+	uint32 CalculatePreviewBoneConfigHash() const;
+
+	/** 프리뷰 메시 반환 */
+	USkeletalMesh* GetPreviewSubdividedMesh() const { return PreviewSubdividedMesh; }
+
 private:
 	/** 프리뷰 액터 생성 */
 	void CreatePreviewActor();
@@ -87,6 +115,19 @@ private:
 
 	/** PreviewSubdividedMesh 적용 전 원본 메시 (복원용) */
 	TWeakObjectPtr<USkeletalMesh> CachedOriginalMesh;
+
+	// =====================================
+	// Preview Subdivided Mesh (에셋에서 분리하여 트랜잭션 제외)
+	// =====================================
+
+	/** 프리뷰용 Subdivided 메시 (에디터 전용, 트랜잭션에서 제외) */
+	TObjectPtr<USkeletalMesh> PreviewSubdividedMesh;
+
+	/** 프리뷰 메시 캐시 유효성 해시 */
+	uint32 LastPreviewBoneConfigHash = 0;
+
+	/** 프리뷰 메시 캐시 유효 플래그 */
+	bool bPreviewMeshCacheValid = false;
 
 	/** 현재 선택된 Ring 인덱스 (-1 = 선택 없음) */
 	int32 SelectedRingIndex = -1;

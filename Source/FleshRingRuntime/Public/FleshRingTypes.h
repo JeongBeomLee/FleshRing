@@ -285,20 +285,6 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 	UPROPERTY()
 	uint32 SubdivisionParamsHash = 0;
 
-	// ===== 에디터 프리뷰 메시 (Transient) =====
-
-	/**
-	 * 에디터 프리뷰용 Subdivision 메시 (Transient - 저장 안 함)
-	 * 본 기반 영역 subdivision으로 링 편집 시 실시간 프리뷰 제공
-	 * NonTransactional: Undo 시스템에서 제외하여 GC 문제 방지
-	 */
-	UPROPERTY(Transient, NonTransactional)
-	TObjectPtr<USkeletalMesh> PreviewSubdividedMesh;
-
-	/** 프리뷰 메시 캐시 해시 (본 배치 변경 감지용) */
-	UPROPERTY(Transient)
-	uint32 CachedPreviewBoneConfigHash = 0;
-
 	// ===== 베이크된 메시 (런타임용, 변형 적용 완료) =====
 
 	/**
@@ -334,8 +320,6 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 		, MaxSubdivisionLevel(4)
 		, SubdividedMesh(nullptr)
 		, SubdivisionParamsHash(0)
-		, PreviewSubdividedMesh(nullptr)
-		, CachedPreviewBoneConfigHash(0)
 		, BakedMesh(nullptr)
 		, BakeParamsHash(0)
 	{
