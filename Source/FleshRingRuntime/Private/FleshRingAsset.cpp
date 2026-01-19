@@ -1465,12 +1465,19 @@ void UFleshRingAsset::PostTransacted(const FTransactionObjectEvent& TransactionE
 		SubdivisionSettings.SubdividedMesh = nullptr;
 	}
 
+	// ★ Ring 개수 변경 감지 (Undo/Redo 시 Hash 비교가 실패하는 문제 해결)
+	// LastKnownRingCount는 UPROPERTY가 아니므로 트랜잭션에 포함되지 않음
+	// → Undo/Redo 시 복원되지 않아 Ring 추가/삭제 감지 가능
+	const int32 CurrentRingCount = Rings.Num();
+	const bool bRingCountChanged = (CurrentRingCount != LastKnownRingCount);
+	LastKnownRingCount = CurrentRingCount;
+
 	// ★ PreviewSubdividedMesh는 Transient - Undo/Redo로 영향 없음
 	// 구조가 바뀌었는지 Hash로 판단하여 필요할 때만 재생성
 	const uint32 CurrentHash = CalculatePreviewBoneConfigHash();
 	const bool bStructureChanged = (SubdivisionSettings.CachedPreviewBoneConfigHash != CurrentHash);
 
-	if (bStructureChanged)
+	if (bRingCountChanged || bStructureChanged)
 	{
 		// 구조 변경됨 (Ring 추가/삭제, BoneName 변경 등) - 재생성 필요
 		if (SubdivisionSettings.PreviewSubdividedMesh)

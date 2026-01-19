@@ -172,6 +172,12 @@ private:
 	/** 머티리얼 이름에서 레이어 타입 자동 감지 */
 	static EFleshRingLayerType DetectLayerTypeFromMaterialName(const FSkeletalMaterial& Material);
 
+	/**
+	 * Undo/Redo 시 Ring 개수 변경 감지용 (트랜잭션에 포함되지 않음)
+	 * UPROPERTY가 아니므로 Undo 시 복원되지 않아 변경 감지 가능
+	 */
+	int32 LastKnownRingCount = 0;
+
 public:
 
 	/** Subdivided 메시가 생성되어 있는지 */

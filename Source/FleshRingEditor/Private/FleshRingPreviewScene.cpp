@@ -177,8 +177,17 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 			}
 		}
 
-		// Ring 메시 갱신
-		RefreshRings(InAsset->Rings);
+		// Ring 메시 갱신 (FleshRingComponent가 비활성화된 경우만)
+		// bEnableFleshRing=true면 FleshRingComponent가 Ring Mesh 관리, PreviewScene은 정리만
+		if (!FleshRingComponent || !FleshRingComponent->bEnableFleshRing)
+		{
+			RefreshRings(InAsset->Rings);
+		}
+		else
+		{
+			// FleshRingComponent가 Ring Mesh를 관리하므로 PreviewScene의 Ring Mesh 정리
+			RefreshRings(TArray<FFleshRingSettings>());
+		}
 		return;
 	}
 
@@ -314,6 +323,11 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	if (!FleshRingComponent || !FleshRingComponent->bEnableFleshRing)
 	{
 		RefreshRings(InAsset->Rings);
+	}
+	else
+	{
+		// FleshRingComponent가 Ring Mesh를 관리하므로 PreviewScene의 Ring Mesh 정리
+		RefreshRings(TArray<FFleshRingSettings>());
 	}
 
 	// ============================================
