@@ -1081,13 +1081,14 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 					CurrentBoneIdx = RefSkeleton.GetParentIndex(CurrentBoneIdx);
 				}
 
-				FTransform MeshTransform;
-				MeshTransform.SetLocation(Ring.MeshOffset);
-				MeshTransform.SetRotation(Ring.MeshRotation);
-				MeshTransform.SetScale3D(Ring.MeshScale);
-
-				FTransform LocalToWorld = MeshTransform * BindPoseBoneTransform * SkelMeshComp->GetComponentTransform();
+				// Virtual Band 기즈모: 전용 BandOffset/BandRotation 사용
 				const FProceduralBandSettings& Band = Ring.ProceduralBand;
+				FTransform BandTransform;
+				BandTransform.SetLocation(Band.BandOffset);
+				BandTransform.SetRotation(Band.BandRotation);
+				BandTransform.SetScale3D(FVector::OneVector);  // 밴드 기즈모는 스케일 없음
+
+				FTransform LocalToWorld = BandTransform * BindPoseBoneTransform * SkelMeshComp->GetComponentTransform();
 				constexpr int32 Segments = 32;
 				constexpr float HeightEpsilon = 0.0001f;
 				const bool bHasLowerSection = (Band.Lower.Height > HeightEpsilon);
@@ -1281,11 +1282,25 @@ FVector FFleshRingEditorViewportClient::GetWidgetLocation() const
 			BindPoseBoneTransform = BindPoseBoneTransform * RefSkeleton.GetRefBonePose()[CurrentBoneIdx];
 			CurrentBoneIdx = RefSkeleton.GetParentIndex(CurrentBoneIdx);
 		}
-		FTransform MeshTransform;
-		MeshTransform.SetLocation(Ring.MeshOffset);
-		MeshTransform.SetRotation(Ring.MeshRotation);
-		MeshTransform.SetScale3D(Ring.MeshScale);
-		FTransform LocalToWorld = MeshTransform * BindPoseBoneTransform * SkelMeshComp->GetComponentTransform();
+
+		// SelectionType에 따라 다른 오프셋 적용
+		// Gizmo 선택 → BandOffset 사용 (밴드 트랜스폼)
+		// Mesh 선택 → MeshOffset 사용 (메시 트랜스폼)
+		const FProceduralBandSettings& Band = Ring.ProceduralBand;
+		FTransform LocalTransform;
+		if (SelectionType == EFleshRingSelectionType::Gizmo)
+		{
+			LocalTransform.SetLocation(Band.BandOffset);
+			LocalTransform.SetRotation(Band.BandRotation);
+			LocalTransform.SetScale3D(FVector::OneVector);  // 밴드는 스케일 없음
+		}
+		else
+		{
+			LocalTransform.SetLocation(Ring.MeshOffset);
+			LocalTransform.SetRotation(Ring.MeshRotation);
+			LocalTransform.SetScale3D(Ring.MeshScale);
+		}
+		FTransform LocalToWorld = LocalTransform * BindPoseBoneTransform * SkelMeshComp->GetComponentTransform();
 		return LocalToWorld.GetLocation();
 	}
 
@@ -1293,14 +1308,16 @@ FVector FFleshRingEditorViewportClient::GetWidgetLocation() const
 	FVector BoneLocation = BoneTransform.GetLocation();
 
 	// 선택 타입에 따라 다른 오프셋 적용
-	// Auto 모드는 기즈모가 없으므로 항상 MeshOffset 사용
-	if (SelectionType == EFleshRingSelectionType::Gizmo && Ring.InfluenceMode == EFleshRingInfluenceMode::Manual)
+	// Manual Gizmo 선택 → RingOffset 사용 (밴드 트랜스폼)
+	// Mesh 선택 또는 Auto 모드 → MeshOffset 사용 (메시 트랜스폼)
+	if (SelectionType == EFleshRingSelectionType::Gizmo &&
+		Ring.InfluenceMode == EFleshRingInfluenceMode::Manual)
 	{
 		return BoneLocation + BoneTransform.GetRotation().RotateVector(Ring.RingOffset);
 	}
 	else
 	{
-		// Mesh 선택 또는 Auto/기타 모드
+		// Mesh 선택 또는 Auto 모드
 		return BoneLocation + BoneTransform.GetRotation().RotateVector(Ring.MeshOffset);
 	}
 }
@@ -1374,14 +1391,26 @@ FMatrix FFleshRingEditorViewportClient::GetSelectedRingAlignMatrix() const
 		{
 			// 로컬 모드: 본 회전 * 링/메시 회전 = 현재 월드 회전
 			FQuat CurrentRotation;
-			if (SelectionType == EFleshRingSelectionType::Gizmo && Ring.InfluenceMode == EFleshRingInfluenceMode::Manual)
+			if (SelectionType == EFleshRingSelectionType::Gizmo)
 			{
-				// Manual Gizmo 선택만 RingRotation 사용
-				CurrentRotation = Ring.RingRotation;
+				if (Ring.InfluenceMode == EFleshRingInfluenceMode::Manual)
+				{
+					// Manual Gizmo 선택은 RingRotation 사용
+					CurrentRotation = Ring.RingRotation;
+				}
+				else if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+				{
+					// Virtual Band Gizmo 선택은 전용 BandRotation 사용
+					CurrentRotation = Ring.ProceduralBand.BandRotation;
+				}
+				else
+				{
+					CurrentRotation = Ring.MeshRotation;
+				}
 			}
 			else
 			{
-				// Mesh 선택 또는 Auto/VirtualBand는 MeshRotation 사용
+				// Mesh 선택은 MeshRotation 사용 (메시 트랜스폼)
 				CurrentRotation = Ring.MeshRotation;
 			}
 			TargetRotation = BoneRotation * CurrentRotation;
@@ -1535,10 +1564,9 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 	// 선택 타입에 따라 다른 오프셋 업데이트
 	if (SelectionType == EFleshRingSelectionType::Gizmo)
 	{
-		// Auto 또는 VirtualBand 모드: Gizmo 선택이어도 MeshOffset/MeshRotation 사용
+		// Auto 모드: Gizmo 선택이어도 MeshOffset/MeshRotation 사용 (SDF 기반)
 		// (Auto는 기즈모가 없으므로 여기로 오면 안 되지만 안전을 위해 처리)
-		if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand ||
-			Ring.InfluenceMode == EFleshRingInfluenceMode::Auto)
+		if (Ring.InfluenceMode == EFleshRingInfluenceMode::Auto)
 		{
 			// 이동 -> MeshOffset 업데이트
 			Ring.MeshOffset += LocalDrag;
@@ -1561,7 +1589,38 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 				}
 			}
 
-			// 스케일 처리
+			// 스케일 처리 -> MeshScale 사용
+			if (!SnappedScale.IsZero())
+			{
+				Ring.MeshScale += SnappedScale;
+				Ring.MeshScale.X = FMath::Max(Ring.MeshScale.X, 0.01f);
+				Ring.MeshScale.Y = FMath::Max(Ring.MeshScale.Y, 0.01f);
+				Ring.MeshScale.Z = FMath::Max(Ring.MeshScale.Z, 0.01f);
+			}
+		}
+		else if (Ring.InfluenceMode == EFleshRingInfluenceMode::Manual)
+		{
+			// Manual 모드: RingOffset/RingRotation 사용
+			Ring.RingOffset += LocalDrag;
+
+			if (bIsDraggingRotation)
+			{
+				FQuat FrameDeltaRotation = Rot.Quaternion();
+				if (!FrameDeltaRotation.IsIdentity())
+				{
+					AccumulatedDeltaRotation = FrameDeltaRotation * AccumulatedDeltaRotation;
+					AccumulatedDeltaRotation.Normalize();
+
+					FQuat NewWorldRotation = AccumulatedDeltaRotation * DragStartWorldRotation;
+					NewWorldRotation.Normalize();
+
+					FQuat NewLocalRotation = BoneRotation.Inverse() * NewWorldRotation;
+					Ring.RingRotation = NewLocalRotation;
+					Ring.RingEulerRotation = NewLocalRotation.Rotator();
+				}
+			}
+
+			// 스케일 처리: RingRadius 조절
 			if (!SnappedScale.IsZero())
 			{
 				float ScaleDelta = FMath::Max3(SnappedScale.X, SnappedScale.Y, SnappedScale.Z);
@@ -1569,72 +1628,49 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 				{
 					ScaleDelta = FMath::Min3(SnappedScale.X, SnappedScale.Y, SnappedScale.Z);
 				}
-
-				if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
-				{
-					// VirtualBand: 전체 비례 스케일
-					float ScaleFactor = 1.0f + ScaleDelta;
-					Ring.ProceduralBand.MidUpperRadius = FMath::Clamp(Ring.ProceduralBand.MidUpperRadius * ScaleFactor, 0.1f, 100.0f);
-					Ring.ProceduralBand.MidLowerRadius = FMath::Clamp(Ring.ProceduralBand.MidLowerRadius * ScaleFactor, 0.1f, 100.0f);
-					Ring.ProceduralBand.BandHeight = FMath::Clamp(Ring.ProceduralBand.BandHeight * ScaleFactor, 0.1f, 100.0f);
-					Ring.ProceduralBand.BandThickness = FMath::Clamp(Ring.ProceduralBand.BandThickness * ScaleFactor, 0.1f, 50.0f);
-					Ring.ProceduralBand.Upper.Radius = FMath::Clamp(Ring.ProceduralBand.Upper.Radius * ScaleFactor, 0.1f, 100.0f);
-					Ring.ProceduralBand.Upper.Height = FMath::Clamp(Ring.ProceduralBand.Upper.Height * ScaleFactor, 0.0f, 100.0f);
-					Ring.ProceduralBand.Lower.Radius = FMath::Clamp(Ring.ProceduralBand.Lower.Radius * ScaleFactor, 0.1f, 100.0f);
-					Ring.ProceduralBand.Lower.Height = FMath::Clamp(Ring.ProceduralBand.Lower.Height * ScaleFactor, 0.0f, 100.0f);
-				}
-				else
-				{
-					// Auto: MeshScale 사용
-					Ring.MeshScale += SnappedScale;
-					Ring.MeshScale.X = FMath::Max(Ring.MeshScale.X, 0.01f);
-					Ring.MeshScale.Y = FMath::Max(Ring.MeshScale.Y, 0.01f);
-					Ring.MeshScale.Z = FMath::Max(Ring.MeshScale.Z, 0.01f);
-				}
+				Ring.RingRadius = FMath::Clamp(Ring.RingRadius * (1.0f + ScaleDelta), 0.1f, 100.0f);
 			}
 		}
-		else
+		else if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
 		{
-			// Manual 모드: RingOffset/RingRotation 사용
-			// 이동 -> RingOffset 업데이트
-			Ring.RingOffset += LocalDrag;
+			// Virtual Band 모드: 전용 BandOffset/BandRotation 사용
+			FProceduralBandSettings& BandSettings = Ring.ProceduralBand;
+			BandSettings.BandOffset += LocalDrag;
 
-			// 회전 -> RingRotation 업데이트
 			if (bIsDraggingRotation)
 			{
-				// Widget이 주는 Rot는 월드 좌표계로 분해된 값
-				// 로컬 축 회전이 월드 FRotator로 변환되면서 Pitch/Yaw/Roll에 분산됨
-				// 따라서 Rot 전체를 쿼터니언으로 변환하여 사용해야 회전이 정확히 360도 누적됨
 				FQuat FrameDeltaRotation = Rot.Quaternion();
-
 				if (!FrameDeltaRotation.IsIdentity())
 				{
-					// 누적 델타에 추가 (짐벌락 방지: FRotator를 다시 읽지 않고 쿼터니언으로 누적)
 					AccumulatedDeltaRotation = FrameDeltaRotation * AccumulatedDeltaRotation;
 					AccumulatedDeltaRotation.Normalize();
 
-					// 드래그 시작 회전에 누적 델타 적용
 					FQuat NewWorldRotation = AccumulatedDeltaRotation * DragStartWorldRotation;
 					NewWorldRotation.Normalize();
 
-					// 월드 회전을 본 로컬 회전으로 변환 후 저장
 					FQuat NewLocalRotation = BoneRotation.Inverse() * NewWorldRotation;
-					Ring.RingRotation = NewLocalRotation;
-					Ring.RingEulerRotation = NewLocalRotation.Rotator();  // EulerRotation 동기화
+					BandSettings.BandRotation = NewLocalRotation;
+					BandSettings.BandEulerRotation = NewLocalRotation.Rotator();
 				}
 			}
 
-			// 스케일 -> RingRadius 조절 (Manual 모드에서만)
-			if (!SnappedScale.IsZero() && Ring.InfluenceMode == EFleshRingInfluenceMode::Manual)
+			// 스케일 처리: 전체 비례 스케일
+			if (!SnappedScale.IsZero())
 			{
-				// 균일 스케일 사용 (X, Y, Z 중 가장 큰 값)
 				float ScaleDelta = FMath::Max3(SnappedScale.X, SnappedScale.Y, SnappedScale.Z);
 				if (ScaleDelta == 0.0f)
 				{
 					ScaleDelta = FMath::Min3(SnappedScale.X, SnappedScale.Y, SnappedScale.Z);
 				}
-				// 스케일을 반경 변화량으로 변환
-				Ring.RingRadius = FMath::Clamp(Ring.RingRadius * (1.0f + ScaleDelta), 0.1f, 100.0f);
+				float ScaleFactor = 1.0f + ScaleDelta;
+				BandSettings.MidUpperRadius = FMath::Clamp(BandSettings.MidUpperRadius * ScaleFactor, 0.1f, 100.0f);
+				BandSettings.MidLowerRadius = FMath::Clamp(BandSettings.MidLowerRadius * ScaleFactor, 0.1f, 100.0f);
+				BandSettings.BandHeight = FMath::Clamp(BandSettings.BandHeight * ScaleFactor, 0.1f, 100.0f);
+				BandSettings.BandThickness = FMath::Clamp(BandSettings.BandThickness * ScaleFactor, 0.1f, 50.0f);
+				BandSettings.Upper.Radius = FMath::Clamp(BandSettings.Upper.Radius * ScaleFactor, 0.1f, 100.0f);
+				BandSettings.Upper.Height = FMath::Clamp(BandSettings.Upper.Height * ScaleFactor, 0.0f, 100.0f);
+				BandSettings.Lower.Radius = FMath::Clamp(BandSettings.Lower.Radius * ScaleFactor, 0.1f, 100.0f);
+				BandSettings.Lower.Height = FMath::Clamp(BandSettings.Lower.Height * ScaleFactor, 0.0f, 100.0f);
 			}
 		}
 	}
@@ -1768,15 +1804,26 @@ void FFleshRingEditorViewportClient::TrackingStarted(const FInputEventState& InI
 						BoneRotation = ComponentToWorld.GetRotation() * BindPoseBoneTransform.GetRotation();
 					}
 
-					// Manual Gizmo 선택만 RingRotation 사용
+					// Gizmo 선택 시 모드별 회전 사용
 					FQuat CurrentRotation;
-					if (SelectionType == EFleshRingSelectionType::Gizmo && Ring.InfluenceMode == EFleshRingInfluenceMode::Manual)
+					if (SelectionType == EFleshRingSelectionType::Gizmo)
 					{
-						CurrentRotation = Ring.RingRotation;
+						if (Ring.InfluenceMode == EFleshRingInfluenceMode::Manual)
+						{
+							CurrentRotation = Ring.RingRotation;
+						}
+						else if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+						{
+							CurrentRotation = Ring.ProceduralBand.BandRotation;
+						}
+						else
+						{
+							CurrentRotation = Ring.MeshRotation;
+						}
 					}
 					else
 					{
-						// Mesh 선택 또는 Auto/VirtualBand는 MeshRotation 사용
+						// Mesh 선택은 MeshRotation 사용
 						CurrentRotation = Ring.MeshRotation;
 					}
 

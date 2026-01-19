@@ -427,6 +427,20 @@ struct FLESHRINGRUNTIME_API FProceduralBandSettings
 {
 	GENERATED_BODY()
 
+	// ===== 밴드 트랜스폼 =====
+
+	/** Bone 기준 밴드 위치 오프셋 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform")
+	FVector BandOffset = FVector::ZeroVector;
+
+	/** 밴드 회전 (Euler, UI 편집용) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform", meta = (DisplayName = "Band Rotation"))
+	FRotator BandEulerRotation = FRotator(-90.0f, 0.0f, 0.0f);
+
+	/** 밴드 회전 (Quaternion, 내부 계산용) */
+	UPROPERTY()
+	FQuat BandRotation = FQuat(FRotator(-90.0f, 0.0f, 0.0f));
+
 	// ===== 밴드 본체 (조임 지점) =====
 
 	/** 밴드 상단 반경 (Upper Section과 만나는 지점) */
@@ -468,7 +482,10 @@ struct FLESHRINGRUNTIME_API FProceduralBandSettings
 	int32 HeightSegments = 4;
 
 	FProceduralBandSettings()
-		: MidUpperRadius(8.0f)        // 밴드 상단 반경
+		: BandOffset(FVector::ZeroVector)
+		, BandEulerRotation(FRotator(-90.0f, 0.0f, 0.0f))
+		, BandRotation(FQuat(FRotator(-90.0f, 0.0f, 0.0f)))
+		, MidUpperRadius(8.0f)        // 밴드 상단 반경
 		, MidLowerRadius(8.0f)        // 밴드 하단 반경
 		, BandHeight(2.0f)
 		, BandThickness(1.0f)

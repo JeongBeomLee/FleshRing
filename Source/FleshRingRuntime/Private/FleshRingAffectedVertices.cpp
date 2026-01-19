@@ -1057,13 +1057,13 @@ void FVirtualBandVertexSelector::SelectVertices(
     // ProceduralBand 설정 가져오기
     const FProceduralBandSettings& BandSettings = Ring.ProceduralBand;
 
-    // 밴드 트랜스폼 계산 (MeshOffset/MeshRotation 사용)
+    // 밴드 트랜스폼 계산 (Virtual Band 전용 BandOffset/BandRotation 사용)
     const FTransform& BoneTransform = Context.BoneTransform;
     const FQuat BoneRotation = BoneTransform.GetRotation();
-    const FVector WorldMeshOffset = BoneRotation.RotateVector(Ring.MeshOffset);
-    const FVector BandCenter = BoneTransform.GetLocation() + WorldMeshOffset;
-    const FQuat WorldMeshRotation = BoneRotation * Ring.MeshRotation;
-    const FVector BandAxis = WorldMeshRotation.RotateVector(FVector::ZAxisVector);
+    const FVector WorldBandOffset = BoneRotation.RotateVector(BandSettings.BandOffset);
+    const FVector BandCenter = BoneTransform.GetLocation() + WorldBandOffset;
+    const FQuat WorldBandRotation = BoneRotation * BandSettings.BandRotation;
+    const FVector BandAxis = WorldBandRotation.RotateVector(FVector::ZAxisVector);
 
     // 높이 파라미터
     const float LowerHeight = BandSettings.Lower.Height;
@@ -1220,12 +1220,12 @@ void FVirtualBandVertexSelector::SelectPostProcessingVertices(
         return;
     }
 
-    // 밴드 트랜스폼 계산 (SelectVertices와 동일)
+    // 밴드 트랜스폼 계산 (Virtual Band 전용 BandOffset/BandRotation 사용)
     const FQuat BoneRotation = Context.BoneTransform.GetRotation();
-    const FVector WorldMeshOffset = BoneRotation.RotateVector(Ring.MeshOffset);
-    const FVector BandCenter = Context.BoneTransform.GetLocation() + WorldMeshOffset;
-    const FQuat WorldMeshRotation = BoneRotation * Ring.MeshRotation;
-    const FVector BandAxis = WorldMeshRotation.RotateVector(FVector::ZAxisVector);
+    const FVector WorldBandOffset = BoneRotation.RotateVector(BandSettings.BandOffset);
+    const FVector BandCenter = Context.BoneTransform.GetLocation() + WorldBandOffset;
+    const FQuat WorldBandRotation = BoneRotation * BandSettings.BandRotation;
+    const FVector BandAxis = WorldBandRotation.RotateVector(FVector::ZAxisVector);
 
     // Virtual Band 전체 높이
     const float LowerHeight = BandSettings.Lower.Height;
@@ -1545,7 +1545,7 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         // InfluenceMode에 따라 RingCenter/RingAxis/Geometry 계산 분기
         if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Manual)
         {
-            // ===== Manual 모드: RingOffset/RingRotation 사용 (스케일 없음) =====
+            // ===== Manual 모드: RingOffset/RingRotation 사용 =====
             const FVector WorldRingOffset = BoneRotation.RotateVector(RingSettings.RingOffset);
             RingData.RingCenter = BoneTransform.GetLocation() + WorldRingOffset;
 
@@ -1557,9 +1557,24 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             RingData.RingThickness = RingSettings.RingThickness;
             RingData.RingHeight = RingSettings.RingHeight;
         }
+        else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+        {
+            // ===== Virtual Band 모드: 전용 BandOffset/BandRotation 사용 =====
+            const FProceduralBandSettings& BandSettings = RingSettings.ProceduralBand;
+            const FVector WorldBandOffset = BoneRotation.RotateVector(BandSettings.BandOffset);
+            RingData.RingCenter = BoneTransform.GetLocation() + WorldBandOffset;
+
+            const FQuat WorldBandRotation = BoneRotation * BandSettings.BandRotation;
+            RingData.RingAxis = WorldBandRotation.RotateVector(FVector::ZAxisVector);
+
+            // ProceduralBand는 밴드 설정에서 반경 사용
+            RingData.RingRadius = BandSettings.MidUpperRadius;
+            RingData.RingThickness = BandSettings.BandThickness;
+            RingData.RingHeight = BandSettings.BandHeight;
+        }
         else
         {
-            // ===== Auto/ProceduralBand 모드: MeshOffset/MeshRotation + MeshScale 적용 =====
+            // ===== Auto 모드: MeshOffset/MeshRotation + MeshScale 적용 (SDF 기반) =====
             const FVector WorldMeshOffset = BoneRotation.RotateVector(RingSettings.MeshOffset);
             RingData.RingCenter = BoneTransform.GetLocation() + WorldMeshOffset;
 

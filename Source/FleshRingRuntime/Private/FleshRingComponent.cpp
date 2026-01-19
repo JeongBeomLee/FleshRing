@@ -1439,10 +1439,11 @@ void UFleshRingComponent::DrawDebugVisualization()
 			DrawSDFSlice(RingIndex);
 		}
 
-		if (bShowProceduralBandWireframe)
-		{
-			DrawProceduralBandWireframe(RingIndex);
-		}
+		// Virtual Band debug wireframe 비활성화 (코드 보존)
+		// if (bShowProceduralBandWireframe)
+		// {
+		// 	DrawProceduralBandWireframe(RingIndex);
+		// }
 
 		if (bShowBulgeHeatmap)
 		{
@@ -2254,13 +2255,16 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 		}
 		else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
 		{
-			// ===== ProceduralBand 모드 (SDF 무효): 가변 반경 거리 기반 =====
+			// Virtual Band debug visualization 비활성화 (코드 보존)
+			/*
+			// ===== Virtual Band 모드 (SDF 무효): 가변 반경 거리 기반 =====
+			// 전용 BandOffset/BandRotation 사용
 			const FProceduralBandSettings& BandSettings = RingSettings.ProceduralBand;
 			const FQuat BoneRotation = BoneTransform.GetRotation();
-			const FVector WorldMeshOffset = BoneRotation.RotateVector(RingSettings.MeshOffset);
-			const FVector BandCenter = BoneTransform.GetLocation() + WorldMeshOffset;
-			const FQuat WorldMeshRotation = BoneRotation * RingSettings.MeshRotation;
-			const FVector BandAxis = WorldMeshRotation.RotateVector(FVector::ZAxisVector);
+			const FVector WorldBandOffset = BoneRotation.RotateVector(BandSettings.BandOffset);
+			const FVector BandCenter = BoneTransform.GetLocation() + WorldBandOffset;
+			const FQuat WorldBandRotation = BoneRotation * BandSettings.BandRotation;
+			const FVector BandAxis = WorldBandRotation.RotateVector(FVector::ZAxisVector);
 
 			// 높이 파라미터
 			const float LowerHeight = BandSettings.Lower.Height;
@@ -2296,7 +2300,7 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 			{
 				FTransform BandLocalToComponent;
 				BandLocalToComponent.SetLocation(BandCenter);
-				BandLocalToComponent.SetRotation(WorldMeshRotation);
+				BandLocalToComponent.SetRotation(WorldBandRotation);
 				BandLocalToComponent.SetScale3D(FVector::OneVector);
 
 				// 새 좌표계: Z=0이 Mid Band 중심
@@ -2369,6 +2373,7 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 					RingData.Vertices.Add(AffectedVert);
 				}
 			}
+			*/
 		}
 		else
 		{
@@ -2475,13 +2480,15 @@ void UFleshRingComponent::DrawProceduralBandWireframe(int32 RingIndex)
 	}
 
 	// 트랜스폼 계산: Local → Component → World
-	FTransform MeshTransform;
-	MeshTransform.SetLocation(Ring.MeshOffset);
-	MeshTransform.SetRotation(Ring.MeshRotation);
-	MeshTransform.SetScale3D(Ring.MeshScale);
+	// Virtual Band 전용 BandOffset/BandRotation 사용
+	const FProceduralBandSettings& BandSettings = Ring.ProceduralBand;
+	FTransform BandTransform;
+	BandTransform.SetLocation(BandSettings.BandOffset);
+	BandTransform.SetRotation(BandSettings.BandRotation);
+	BandTransform.SetScale3D(FVector::OneVector);
 
 	FTransform BoneTransform = GetBoneBindPoseTransform(ResolvedTargetMesh.Get(), Ring.BoneName);
-	FTransform LocalToComponent = MeshTransform * BoneTransform;
+	FTransform LocalToComponent = BandTransform * BoneTransform;
 
 	USkeletalMeshComponent* SkelMesh = ResolvedTargetMesh.Get();
 	FTransform LocalToWorld = LocalToComponent;

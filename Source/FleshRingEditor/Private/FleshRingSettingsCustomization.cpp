@@ -1198,7 +1198,6 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	if (RingOffsetHandle.IsValid())
 	{
 		RingTransformSubGroup.AddPropertyRow(RingOffsetHandle.ToSharedRef())
-			.IsEnabled(IsManualModeAttr)
 			.CustomWidget()
 			.NameContent()
 			[
@@ -1225,7 +1224,6 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	if (RingEulerHandle.IsValid())
 	{
 		RingTransformSubGroup.AddPropertyRow(RingEulerHandle.ToSharedRef())
-			.IsEnabled(IsManualModeAttr)
 			.CustomWidget()
 			.NameContent()
 			[
@@ -1267,7 +1265,64 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	// ProceduralBand 구조체의 자식 프로퍼티들을 그룹별로 추가
 	if (ProceduralBandHandle.IsValid())
 	{
-		// 공통 프로퍼티 (전체 적용) - 최상위에 바로 표시
+		// ----- Transform 프로퍼티 (밴드 위치/회전) -----
+		TSharedPtr<IPropertyHandle> BandOffsetHandle = ProceduralBandHandle->GetChildHandle(TEXT("BandOffset"));
+		TSharedPtr<IPropertyHandle> BandEulerRotationHandle = ProceduralBandHandle->GetChildHandle(TEXT("BandEulerRotation"));
+
+		if (BandOffsetHandle.IsValid())
+		{
+			VirtualBandSubGroup.AddPropertyRow(BandOffsetHandle.ToSharedRef())
+				.CustomWidget()
+				.NameContent()
+				[
+					BandOffsetHandle->CreatePropertyNameWidget()
+				]
+				.ValueContent()
+				.MinDesiredWidth(300.0f)
+				[
+					CreateLinearVectorWidget(BandOffsetHandle.ToSharedRef(), 0.1f)
+				]
+				.OverrideResetToDefault(
+					FResetToDefaultOverride::Create(
+						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							FVector Value;
+							Handle->GetValue(Value);
+							return !Value.IsNearlyZero();
+						}),
+						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							Handle->SetValue(FVector::ZeroVector);
+						})
+					)
+				);
+		}
+		if (BandEulerRotationHandle.IsValid())
+		{
+			VirtualBandSubGroup.AddPropertyRow(BandEulerRotationHandle.ToSharedRef())
+				.CustomWidget()
+				.NameContent()
+				[
+					BandEulerRotationHandle->CreatePropertyNameWidget()
+				]
+				.ValueContent()
+				.MinDesiredWidth(300.0f)
+				[
+					CreateLinearRotatorWidget(BandEulerRotationHandle.ToSharedRef(), 1.0f)
+				]
+				.OverrideResetToDefault(
+					FResetToDefaultOverride::Create(
+						FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							FRotator Value;
+							Handle->GetValue(Value);
+							return !Value.Equals(FRotator(-90.0f, 0.0f, 0.0f), 0.01f);
+						}),
+						FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+							Handle->SetValue(FRotator(-90.0f, 0.0f, 0.0f));
+						})
+					)
+				);
+		}
+
+		// ----- 공통 프로퍼티 (전체 적용) -----
 		TSharedPtr<IPropertyHandle> BandThicknessHandle = ProceduralBandHandle->GetChildHandle(TEXT("BandThickness"));
 		TSharedPtr<IPropertyHandle> RadialSegmentsHandle = ProceduralBandHandle->GetChildHandle(TEXT("RadialSegments"));
 		TSharedPtr<IPropertyHandle> HeightSegmentsHandle = ProceduralBandHandle->GetChildHandle(TEXT("HeightSegments"));

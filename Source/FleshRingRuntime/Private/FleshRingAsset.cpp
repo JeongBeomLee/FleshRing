@@ -1265,6 +1265,7 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 	{
 		Ring.RingRotation = Ring.RingEulerRotation.Quaternion();
 		Ring.MeshRotation = Ring.MeshEulerRotation.Quaternion();
+		Ring.ProceduralBand.BandRotation = Ring.ProceduralBand.BandEulerRotation.Quaternion();
 	}
 
 	// RingName 고유성 보장 (빈 이름 및 중복 이름 처리)
