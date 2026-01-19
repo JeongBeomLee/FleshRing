@@ -492,11 +492,28 @@ struct FLESHRINGRUNTIME_API FProceduralBandSettings
 	}
 
 	/**
+	 * Mid Band 중심 기준 Z 오프셋 반환
+	 * 새 좌표계: Z=0이 Mid Band 중심
+	 * 내부 좌표계: Z=0이 Lower 하단
+	 * 변환: InternalZ = LocalZ + GetMidOffset()
+	 */
+	float GetMidOffset() const
+	{
+		return Lower.Height + BandHeight * 0.5f;
+	}
+
+	/**
 	 * Catmull-Rom 스플라인으로 높이별 반경 계산
 	 * 4개 제어점(Lower.Radius → MidLowerRadius → MidUpperRadius → Upper.Radius)을
 	 * 부드러운 곡선으로 연결
 	 *
-	 * @param LocalZ - 밴드 로컬 좌표계에서의 높이 (0 = 하단, TotalHeight = 상단)
+	 * 좌표계: Z=0이 Mid Band 중심 (조이는 부분의 중심)
+	 *   - Z > 0: 상단 방향 (Upper 섹션)
+	 *   - Z < 0: 하단 방향 (Lower 섹션)
+	 *   - Z = -BandHeight/2: Band 하단 경계 (MidLowerRadius)
+	 *   - Z = +BandHeight/2: Band 상단 경계 (MidUpperRadius)
+	 *
+	 * @param LocalZ - 밴드 로컬 좌표계에서의 높이 (0 = Mid Band 중심)
 	 * @return 해당 높이에서의 반경
 	 */
 	float GetRadiusAtHeight(float LocalZ) const
@@ -507,12 +524,17 @@ struct FLESHRINGRUNTIME_API FProceduralBandSettings
 			return MidLowerRadius;
 		}
 
-		// 4개 제어점 (높이, 반경)
+		// 새 좌표계 → 내부 좌표계 변환
+		// 내부: Z=0이 Lower 하단, Z=TotalHeight가 Upper 상단
+		const float MidOffset = GetMidOffset();
+		const float InternalZ = LocalZ + MidOffset;
+
+		// 4개 제어점 (내부 좌표계 높이, 반경)
 		const float H[4] = { 0.0f, Lower.Height, Lower.Height + BandHeight, TotalHeight };
 		const float R[4] = { Lower.Radius, MidLowerRadius, MidUpperRadius, Upper.Radius };
 
-		// LocalZ 클램프
-		const float Z = FMath::Clamp(LocalZ, 0.0f, TotalHeight);
+		// InternalZ 클램프 (내부 좌표계 범위)
+		const float Z = FMath::Clamp(InternalZ, 0.0f, TotalHeight);
 
 		// 어느 구간인지 찾기 (0: H0~H1, 1: H1~H2, 2: H2~H3)
 		int32 Segment = 0;

@@ -22,25 +22,29 @@ void GenerateBandMesh(
 	const float Thickness = Settings.BandThickness;
 
 	// ========================================
-	// 높이 레이어 정의 (Z=0부터 위로) - 4개의 반경 사용
+	// 좌표계: Z=0이 Mid Band 중심
 	// ========================================
 	//
-	// Layer 3: Upper 끝        ╱──╲      ← Upper.Radius
-	// Layer 2: Band-Upper 경계 │  │      ← MidUpperRadius
-	// Layer 1: Lower-Band 경계 │  │      ← MidLowerRadius
-	// Layer 0: Lower 끝        ╲──╱      ← Lower.Radius
+	// 좌표계 변환: 새 좌표계에서 원점(Z=0)이 Mid Band 중심
+	//   Z = +UpperH+BH/2  ─┬─ Upper 끝 (Upper.Radius)
+	//   Z = +BH/2         ─┼─ Band-Upper 경계 (MidUpperRadius)
+	//   Z = 0             ─┼─ Mid Band 중심 ← 원점
+	//   Z = -BH/2         ─┼─ Lower-Band 경계 (MidLowerRadius)
+	//   Z = -LowerH-BH/2  ─┴─ Lower 끝 (Lower.Radius)
 	//
+	const float MidOffset = Settings.GetMidOffset();  // LowerHeight + BandHeight/2
 
 	struct FLayerInfo
 	{
-		float Z;           // 높이 (로컬 스페이스)
+		float Z;           // 높이 (로컬 스페이스, Z=0이 Mid Band 중심)
 		float OuterRadius; // 외부 반경
 		float InnerRadius; // 내부 반경 (구멍)
 	};
 
 	TArray<FLayerInfo> Layers;
 
-	float CurrentZ = 0.0f;
+	// 내부 좌표 (기존 방식)으로 계산 후 MidOffset을 빼서 새 좌표로 변환
+	float InternalZ = 0.0f;
 	const float HeightEpsilon = 0.0001f;
 	const bool bHasLowerSection = (Settings.Lower.Height > HeightEpsilon);
 	const bool bHasUpperSection = (Settings.Upper.Height > HeightEpsilon);
@@ -49,23 +53,23 @@ void GenerateBandMesh(
 	// Lower.Height=0이면 Lower 섹션 없음 → MidLowerRadius 사용
 	if (bHasLowerSection)
 	{
-		Layers.Add({ CurrentZ, Settings.Lower.Radius, Settings.Lower.Radius - Thickness });
-		CurrentZ += Settings.Lower.Height;
+		Layers.Add({ InternalZ - MidOffset, Settings.Lower.Radius, Settings.Lower.Radius - Thickness });
+		InternalZ += Settings.Lower.Height;
 	}
 
 	// Layer 1: 하단-밴드 경계 (MidLowerRadius)
-	Layers.Add({ CurrentZ, MidLowerRadius, MidLowerRadius - Thickness });
+	Layers.Add({ InternalZ - MidOffset, MidLowerRadius, MidLowerRadius - Thickness });
 
 	// Layer 2: 밴드-상단 경계 (MidUpperRadius)
-	CurrentZ += BandHeight;
-	Layers.Add({ CurrentZ, MidUpperRadius, MidUpperRadius - Thickness });
+	InternalZ += BandHeight;
+	Layers.Add({ InternalZ - MidOffset, MidUpperRadius, MidUpperRadius - Thickness });
 
 	// Layer 3: 상단 끝
 	// Upper.Height=0이면 Upper 섹션 없음 → MidUpperRadius 사용
 	if (bHasUpperSection)
 	{
-		CurrentZ += Settings.Upper.Height;
-		Layers.Add({ CurrentZ, Settings.Upper.Radius, Settings.Upper.Radius - Thickness });
+		InternalZ += Settings.Upper.Height;
+		Layers.Add({ InternalZ - MidOffset, Settings.Upper.Radius, Settings.Upper.Radius - Thickness });
 	}
 
 	// ========================================
@@ -429,11 +433,16 @@ FBox3f CalculateBandBounds(const FProceduralBandSettings& Settings)
 	const float MaxRadius = Settings.GetMaxRadius();
 	const float TotalHeight = Settings.GetTotalHeight();
 
-	// Auto 모드와 동일하게 패딩 없이 메시의 실제 bounds 사용
-	// (Auto 모드도 BoundsPadding = 0.0f)
+	// 좌표계: Z=0이 Mid Band 중심
+	// ZMin = -(LowerHeight + BandHeight/2)
+	// ZMax = +(UpperHeight + BandHeight/2)
+	const float MidOffset = Settings.GetMidOffset();
+	const float ZMin = -MidOffset;
+	const float ZMax = TotalHeight - MidOffset;
+
 	return FBox3f(
-		FVector3f(-MaxRadius, -MaxRadius, 0.0f),
-		FVector3f(MaxRadius, MaxRadius, TotalHeight)
+		FVector3f(-MaxRadius, -MaxRadius, ZMin),
+		FVector3f(MaxRadius, MaxRadius, ZMax)
 	);
 }
 
@@ -444,6 +453,9 @@ void GenerateWireframeLines(
 {
 	OutLines.Reset();
 
+	// 좌표계: Z=0이 Mid Band 중심
+	const float MidOffset = Settings.GetMidOffset();
+
 	// 높이 레이어 정의 (Height=0인 섹션은 스킵하고 Mid 값 사용)
 	struct FLayerInfo { float Z; float Radius; };
 	TArray<FLayerInfo> Layers;
@@ -452,25 +464,26 @@ void GenerateWireframeLines(
 	const bool bHasLowerSection = (Settings.Lower.Height > HeightEpsilon);
 	const bool bHasUpperSection = (Settings.Upper.Height > HeightEpsilon);
 
-	float CurrentZ = 0.0f;
+	// 내부 좌표로 계산 후 MidOffset을 빼서 새 좌표로 변환
+	float InternalZ = 0.0f;
 
 	// Lower 섹션이 있는 경우에만 Lower.Radius 레이어 추가
 	if (bHasLowerSection)
 	{
-		Layers.Add({ CurrentZ, Settings.Lower.Radius });
-		CurrentZ += Settings.Lower.Height;
+		Layers.Add({ InternalZ - MidOffset, Settings.Lower.Radius });
+		InternalZ += Settings.Lower.Height;
 	}
 
-	Layers.Add({ CurrentZ, Settings.MidLowerRadius });
+	Layers.Add({ InternalZ - MidOffset, Settings.MidLowerRadius });
 
-	CurrentZ += Settings.BandHeight;
-	Layers.Add({ CurrentZ, Settings.MidUpperRadius });
+	InternalZ += Settings.BandHeight;
+	Layers.Add({ InternalZ - MidOffset, Settings.MidUpperRadius });
 
 	// Upper 섹션이 있는 경우에만 Upper.Radius 레이어 추가
 	if (bHasUpperSection)
 	{
-		CurrentZ += Settings.Upper.Height;
-		Layers.Add({ CurrentZ, Settings.Upper.Radius });
+		InternalZ += Settings.Upper.Height;
+		Layers.Add({ InternalZ - MidOffset, Settings.Upper.Radius });
 	}
 
 	// 각 레이어의 원형 와이어프레임

@@ -1081,14 +1081,12 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 				const bool bHasLowerSection = (Band.Lower.Height > HeightEpsilon);
 				const bool bHasUpperSection = (Band.Upper.Height > HeightEpsilon);
 
-				float CurrentZ = 0.0f;
-				float LowerZ = CurrentZ;
-				if (bHasLowerSection) CurrentZ += Band.Lower.Height;
-				float BandLowerZ = CurrentZ;
-				CurrentZ += Band.BandHeight;
-				float BandUpperZ = CurrentZ;
-				if (bHasUpperSection) CurrentZ += Band.Upper.Height;
-				float UpperZ = CurrentZ;
+				// 새 좌표계: Z=0이 Mid Band 중심
+				const float MidOffset = Band.Lower.Height + Band.BandHeight * 0.5f;
+				float LowerZ = -MidOffset;  // Lower 하단
+				float BandLowerZ = -Band.BandHeight * 0.5f;  // Band 하단
+				float BandUpperZ = Band.BandHeight * 0.5f;   // Band 상단
+				float UpperZ = Band.Upper.Height + Band.BandHeight * 0.5f;  // Upper 상단
 
 				auto DrawCircle = [&](float R, float Z, float T) {
 					for (int32 s = 0; s < Segments; ++s) {

@@ -1071,9 +1071,10 @@ void FVirtualBandVertexSelector::SelectVertices(
     const float UpperHeight = BandSettings.Upper.Height;
     const float TotalHeight = LowerHeight + BandHeight + UpperHeight;
 
-    // Tightness 영역: Band Section만 (LowerHeight ~ LowerHeight+BandHeight)
-    const float TightnessZMin = LowerHeight;
-    const float TightnessZMax = LowerHeight + BandHeight;
+    // Tightness 영역: Band Section만 (-BandHeight/2 ~ +BandHeight/2)
+    // 새 좌표계: Z=0이 Mid Band 중심
+    const float TightnessZMin = -BandHeight * 0.5f;
+    const float TightnessZMax = BandHeight * 0.5f;
 
     // Tightness Falloff 범위: 밴드가 조이면서 밀어내는 거리
     // Upper/Lower 반경 차이 = 불룩한 정도 = 조여야 할 거리
@@ -1232,9 +1233,14 @@ void FVirtualBandVertexSelector::SelectPostProcessingVertices(
     const float UpperHeight = BandSettings.Upper.Height;
     const float TotalHeight = LowerHeight + BandHeight + UpperHeight;
 
+    // 새 좌표계: Z=0이 Mid Band 중심
+    const float MidOffset = LowerHeight + BandHeight * 0.5f;
+    const float ZMin = -MidOffset;
+    const float ZMax = TotalHeight - MidOffset;
+
     // 확장된 Z 범위 (전체 Virtual Band + Z 확장)
-    const float ExtendedZMin = 0.0f - BoundsZBottom;
-    const float ExtendedZMax = TotalHeight + BoundsZTop;
+    const float ExtendedZMin = ZMin - BoundsZBottom;
+    const float ExtendedZMax = ZMax + BoundsZTop;
 
     // 최대 반경 계산 (AABB 쿼리용)
     const float MaxRadius = FMath::Max(
@@ -1268,7 +1274,7 @@ void FVirtualBandVertexSelector::SelectPostProcessingVertices(
         const float RadialDistance = RadialVec.Size();
 
         // 해당 높이에서의 밴드 반경 (가변 반경, Z 범위 클램프)
-        const float ClampedZ = FMath::Clamp(LocalZ, 0.0f, TotalHeight);
+        const float ClampedZ = FMath::Clamp(LocalZ, ZMin, ZMax);
         const float BandRadius = GetRadiusAtHeight(ClampedZ, BandSettings);
 
         // 반경 범위 체크 (밴드 근처)
@@ -1282,9 +1288,10 @@ void FVirtualBandVertexSelector::SelectPostProcessingVertices(
         // Influence 계산: 코어(Band Section 내) = 1.0, Z 확장 영역 = falloff
         float Influence = 1.0f;
 
-        // 코어 영역: Band Section (LowerHeight ~ LowerHeight+BandHeight)
-        const float CoreZMin = LowerHeight;
-        const float CoreZMax = LowerHeight + BandHeight;
+        // 코어 영역: Band Section (-BandHeight/2 ~ +BandHeight/2)
+        // 새 좌표계: Z=0이 Mid Band 중심
+        const float CoreZMin = -BandHeight * 0.5f;
+        const float CoreZMax = BandHeight * 0.5f;
 
         if (LocalZ < CoreZMin)
         {
@@ -1624,10 +1631,21 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             InfluenceModeStr = TEXT("ProceduralBand");
         }
 
+        // Selector 이름 결정
+        const TCHAR* SelectorStr = TEXT("DistanceBasedSelector");
+        if (bUseSDFForThisRing)
+        {
+            SelectorStr = TEXT("SDFBoundsBasedSelector");
+        }
+        else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+        {
+            SelectorStr = TEXT("VirtualBandVertexSelector");
+        }
+
         UE_LOG(LogFleshRingVertices, Log,
             TEXT("Ring[%d] '%s': Using %s (InfluenceMode=%s, SDFValid=%s)"),
             RingIdx, *RingSettings.BoneName.ToString(),
-            bUseSDFForThisRing ? TEXT("SDFBoundsBasedSelector") : TEXT("DistanceBasedSelector"),
+            SelectorStr,
             InfluenceModeStr,
             (SDFCache && SDFCache->IsValid()) ? TEXT("Yes") : TEXT("No"));
 

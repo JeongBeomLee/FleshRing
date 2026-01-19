@@ -2268,9 +2268,10 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 			const float UpperHeight = BandSettings.Upper.Height;
 			const float TotalHeight = LowerHeight + BandHeight + UpperHeight;
 
-			// Tightness 영역: Band Section만
-			const float TightnessZMin = LowerHeight;
-			const float TightnessZMax = LowerHeight + BandHeight;
+			// Tightness 영역: Band Section만 (-BandHeight/2 ~ +BandHeight/2)
+			// 새 좌표계: Z=0이 Mid Band 중심
+			const float TightnessZMin = -BandHeight * 0.5f;
+			const float TightnessZMax = BandHeight * 0.5f;
 
 			// Tightness Falloff 범위: 밴드가 조이면서 밀어내는 거리
 			// Upper/Lower 반경 차이 = 불룩한 정도 = 조여야 할 거리
@@ -2298,8 +2299,10 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 				BandLocalToComponent.SetRotation(WorldMeshRotation);
 				BandLocalToComponent.SetScale3D(FVector::OneVector);
 
-				const FVector LocalMin(-MaxRadius, -MaxRadius, 0.0f);
-				const FVector LocalMax(MaxRadius, MaxRadius, TotalHeight);
+				// 새 좌표계: Z=0이 Mid Band 중심
+				const float MidOffset = LowerHeight + BandHeight * 0.5f;
+				const FVector LocalMin(-MaxRadius, -MaxRadius, -MidOffset);
+				const FVector LocalMax(MaxRadius, MaxRadius, TotalHeight - MidOffset);
 				DebugSpatialHash.QueryOBB(BandLocalToComponent, LocalMin, LocalMax, CandidateIndices);
 			}
 			else
@@ -2497,7 +2500,7 @@ void UFleshRingComponent::DrawProceduralBandWireframe(int32 RingIndex)
 		FVector WorldStart = LocalToWorld.TransformPosition(Line.Key);
 		FVector WorldEnd = LocalToWorld.TransformPosition(Line.Value);
 
-		DrawDebugLine(World, WorldStart, WorldEnd, WireColor, false, -1.0f, 0, LineThickness);
+		DrawDebugLine(World, WorldStart, WorldEnd, WireColor, false, -1.0f, SDPG_Foreground, LineThickness);
 	}
 
 	// 화면에 정보 표시

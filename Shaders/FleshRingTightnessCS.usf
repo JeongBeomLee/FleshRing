@@ -309,13 +309,19 @@ float CalculateManualInfluence(float3 VertexPos)
 
 // CPU의 FProceduralBandSettings::GetRadiusAtHeight()와 동일 로직
 // Catmull-Rom 스플라인으로 높이별 반경 계산
+// 새 좌표계: Z=0이 Mid Band 중심
 float GetRadiusAtHeight_ProceduralBand(float LocalZ)
 {
     float TotalHeight = LowerHeight + BandSectionHeight + UpperHeight;
     if (TotalHeight <= 0.0001)
         return MidLowerRadius;
 
-    // 4개 제어점 (높이, 반경)
+    // 새 좌표계 → 내부 좌표계 변환
+    // 내부: Z=0이 Lower 하단, Z=TotalHeight가 Upper 상단
+    float MidOffset = LowerHeight + BandSectionHeight * 0.5;
+    float InternalZ = LocalZ + MidOffset;
+
+    // 4개 제어점 (높이, 반경) - 내부 좌표계 기준
     float H[4];
     H[0] = 0.0;
     H[1] = LowerHeight;
@@ -328,8 +334,8 @@ float GetRadiusAtHeight_ProceduralBand(float LocalZ)
     R[2] = MidUpperRadius;
     R[3] = UpperRadius;
 
-    // LocalZ 클램프
-    float Z = clamp(LocalZ, 0.0, TotalHeight);
+    // InternalZ 클램프 (내부 좌표계 범위)
+    float Z = clamp(InternalZ, 0.0, TotalHeight);
 
     // 어느 구간인지 찾기 (0: H0~H1, 1: H1~H2, 2: H2~H3)
     int Segment = 0;
@@ -365,6 +371,7 @@ float GetRadiusAtHeight_ProceduralBand(float LocalZ)
 
 // ProceduralBand 모드용 GPU Influence 계산
 // CPU의 FVirtualBandVertexSelector와 유사한 로직 (Tightness 영역 계산)
+// 새 좌표계: Z=0이 Mid Band 중심
 float CalculateProceduralBandInfluence(float3 VertexPos)
 {
     float3 ToVertex = VertexPos - RingCenter;
@@ -375,8 +382,9 @@ float CalculateProceduralBandInfluence(float3 VertexPos)
     float TotalHeight = LowerHeight + BandSectionHeight + UpperHeight;
 
     // Band Section 범위 (Tightness 적용 영역)
-    float BandZMin = LowerHeight;
-    float BandZMax = LowerHeight + BandSectionHeight;
+    // 새 좌표계: Z=0이 Mid Band 중심이므로 BandSection은 -BandHeight/2 ~ +BandHeight/2
+    float BandZMin = -BandSectionHeight * 0.5;
+    float BandZMax = BandSectionHeight * 0.5;
 
     // Band Section 외부는 Tightness 없음
     if (AxisDist < BandZMin || AxisDist > BandZMax)

@@ -54,21 +54,30 @@ float UpperHeight;
 // ============================================================================
 // Helper: Get Inner/Outer Radii at Given Z Height
 // ============================================================================
-// VirtualBand structure (Z increases upward) - 4 radii for smooth shape:
+// VirtualBand structure - 4 radii for smooth shape
 //
-//   Z = TotalHeight  ─┬─ Upper end (UpperRadius)
-//                     │  Upper section (linear interpolation)
-//   Z = LowerH+BandH ─┼─ Band-Upper boundary (MidUpperRadius)
-//                     │  Band section (linear interpolation MidLower→MidUpper)
-//   Z = LowerHeight  ─┼─ Lower-Band boundary (MidLowerRadius)
-//                     │  Lower section (linear interpolation)
-//   Z = 0            ─┴─ Lower end (LowerRadius)
+// 좌표계: Z=0이 Mid Band 중심 (조이는 부분의 중심)
+//   - Z > 0: 상단 방향 (Upper 섹션)
+//   - Z < 0: 하단 방향 (Lower 섹션)
+//
+//   Z = +UpperH+BH/2  ─┬─ Upper end (UpperRadius)
+//                      │  Upper section
+//   Z = +BH/2         ─┼─ Band-Upper boundary (MidUpperRadius)
+//   Z = 0             ─┼─ Mid Band Center ← 원점
+//   Z = -BH/2         ─┼─ Lower-Band boundary (MidLowerRadius)
+//                      │  Lower section
+//   Z = -LowerH-BH/2  ─┴─ Lower end (LowerRadius)
 //
 // ============================================================================
 
-void GetRadiiAtHeight(float Z, out float OuterRadius, out float InnerRadius)
+void GetRadiiAtHeight(float LocalZ, out float OuterRadius, out float InnerRadius)
 {
     float TotalHeight = LowerHeight + BandHeight + UpperHeight;
+
+    // 새 좌표계 → 내부 좌표계 변환
+    // 내부: Z=0이 Lower 하단, Z=TotalHeight가 Upper 상단
+    float MidOffset = LowerHeight + BandHeight * 0.5f;
+    float Z = LocalZ + MidOffset;
 
     // Height가 0이면 해당 섹션 비활성화 (MidRadius 사용)
     // LowerHeight=0 → Lower 섹션 없음, Z=0에서 MidLowerRadius 사용
@@ -124,6 +133,7 @@ void GetRadiiAtHeight(float Z, out float OuterRadius, out float InnerRadius)
 // ============================================================================
 // Compute SDF for a Point in Local Space
 // ============================================================================
+// 좌표계: Z=0이 Mid Band 중심
 // Returns:
 //   Negative: Inside the hole (safe zone for flesh)
 //   Zero: On tube surface (boundary)
@@ -136,8 +146,16 @@ float ComputeProceduralBandSDF(float3 LocalPos)
     float z = LocalPos.z;
     float TotalHeight = LowerHeight + BandHeight + UpperHeight;
 
-    // Get radii at this Z (clamped to valid range for radius calculation)
-    float clampedZ = clamp(z, 0.0f, TotalHeight);
+    // 새 좌표계 Z 범위 계산
+    // 원점(Z=0)이 Mid Band 중심이므로:
+    // ZMin = -(LowerHeight + BandHeight/2)
+    // ZMax = +(UpperHeight + BandHeight/2)
+    float MidOffset = LowerHeight + BandHeight * 0.5f;
+    float ZMin = -MidOffset;
+    float ZMax = TotalHeight - MidOffset;
+
+    // Get radii at this Z (GetRadiiAtHeight는 이미 새 좌표계를 처리함)
+    float clampedZ = clamp(z, ZMin, ZMax);
     float outerRadius, innerRadius;
     GetRadiiAtHeight(clampedZ, outerRadius, innerRadius);
 
@@ -145,7 +163,7 @@ float ComputeProceduralBandSDF(float3 LocalPos)
     // Region Classification
     // ========================================
 
-    bool withinZBounds = (z >= 0.0f && z <= TotalHeight);
+    bool withinZBounds = (z >= ZMin && z <= ZMax);
     bool insideHoleRadially = (radialDist < innerRadius);
     bool insideTubeWall = (radialDist >= innerRadius && radialDist <= outerRadius);
     bool outsideRadially = (radialDist > outerRadius);
@@ -187,15 +205,15 @@ float ComputeProceduralBandSDF(float3 LocalPos)
         radialOutside = radialDist - outerRadius;
     }
 
-    // Distance outside Z bounds
+    // Distance outside Z bounds (새 좌표계 기준)
     float zOutside = 0.0f;
-    if (z < 0.0f)
+    if (z < ZMin)
     {
-        zOutside = -z;  // Below bottom
+        zOutside = ZMin - z;  // Below bottom
     }
-    else if (z > TotalHeight)
+    else if (z > ZMax)
     {
-        zOutside = z - TotalHeight;  // Above top
+        zOutside = z - ZMax;  // Above top
     }
 
     // ========================================

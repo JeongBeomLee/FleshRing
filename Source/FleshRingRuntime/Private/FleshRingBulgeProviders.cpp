@@ -426,13 +426,18 @@ void FVirtualBandInfluenceProvider::CalculateBulgeRegion(
 		return;
 	}
 
-	// Band Section 경계
-	const float BandZMin = LowerHeight;
-	const float BandZMax = LowerHeight + BandHeight;
+	// 새 좌표계: Z=0이 Mid Band 중심
+	const float MidOffset = LowerHeight + BandHeight * 0.5f;
+	const float ZMin = -MidOffset;
+	const float ZMax = TotalHeight - MidOffset;
+
+	// Band Section 경계 (-BandHeight/2 ~ +BandHeight/2)
+	const float BandZMin = -BandHeight * 0.5f;
+	const float BandZMax = BandHeight * 0.5f;
 
 	// Bulge 범위 (축 방향)
-	// Lower Section: 0에서 LowerHeight까지, 확장은 아래로
-	// Upper Section: BandZMax에서 TotalHeight까지, 확장은 위로
+	// Lower Section: ZMin에서 BandZMin까지, 확장은 아래로
+	// Upper Section: BandZMax에서 ZMax까지, 확장은 위로
 	const float BulgeAxialLimit = FMath::Max(LowerHeight, UpperHeight) * AxialRange;
 
 	// Bulge 범위 (반경 방향) - 최대 반경 기준
@@ -492,7 +497,7 @@ void FVirtualBandInfluenceProvider::CalculateBulgeRegion(
 		const float RadialDist = RadialVec.Size();
 
 		// 해당 높이에서의 밴드 반경 (클램핑된 Z 사용)
-		const float ClampedZ = FMath::Clamp(LocalZ, 0.0f, TotalHeight);
+		const float ClampedZ = FMath::Clamp(LocalZ, ZMin, ZMax);
 		const float BandRadiusAtZ = GetRadiusAtHeight(ClampedZ);
 
 		// 반경 범위 제한: 밴드 반경 근처에만 적용
@@ -552,6 +557,11 @@ void FVirtualBandInfluenceProvider::CalculateExpandedBulgeAABB(FVector& OutMin, 
 {
 	const float TotalHeight = GetTotalHeight();
 
+	// 새 좌표계: Z=0이 Mid Band 중심
+	const float MidOffset = LowerHeight + BandHeight * 0.5f;
+	const float ZMin = -MidOffset;
+	const float ZMax = TotalHeight - MidOffset;
+
 	// 최대 반경
 	const float MaxRadius = FMath::Max(FMath::Max(LowerRadius, MidLowerRadius), FMath::Max(MidUpperRadius, UpperRadius));
 
@@ -560,9 +570,9 @@ void FVirtualBandInfluenceProvider::CalculateExpandedBulgeAABB(FVector& OutMin, 
 	const float RadialExpansion = MaxRadius * RadialRange;
 	const float MaxExpansion = FMath::Max(AxialExpansion, RadialExpansion);
 
-	// Band 중심 기준 AABB
-	// Z 방향: Band 전체 높이 + 확장
+	// Band 중심 기준 AABB (새 좌표계)
+	// Z 방향: ZMin ~ ZMax + 확장
 	// XY 방향: 최대 반경 + 확장
-	OutMin = FVector(BandCenter) - FVector(MaxExpansion, MaxExpansion, MaxExpansion);
-	OutMax = FVector(BandCenter) + FVector(MaxExpansion, MaxExpansion, TotalHeight + MaxExpansion);
+	OutMin = FVector(BandCenter) + FVector(-MaxExpansion, -MaxExpansion, ZMin - MaxExpansion);
+	OutMax = FVector(BandCenter) + FVector(MaxExpansion, MaxExpansion, ZMax + MaxExpansion);
 }
