@@ -344,6 +344,20 @@ FReply FSubdivisionSettingsCustomization::OnBakeMeshClicked()
 		return FReply::Handled();
 	}
 
+	// ★ 기존 BakedMesh가 다른 에디터에서 열려있으면 먼저 닫기 (크래시 방지)
+	if (Asset->HasBakedMesh())
+	{
+		UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
+		if (AssetEditorSubsystem)
+		{
+			USkeletalMesh* ExistingBakedMesh = Asset->SubdivisionSettings.BakedMesh;
+			if (ExistingBakedMesh)
+			{
+				AssetEditorSubsystem->CloseAllEditorsForAsset(ExistingBakedMesh);
+			}
+		}
+	}
+
 	// UAssetEditorSubsystem을 통해 열린 에디터와 PreviewComponent 가져오기
 	FFleshRingAssetEditor* FleshRingEditor = nullptr;
 	UFleshRingComponent* PreviewComponent = nullptr;
@@ -439,6 +453,20 @@ FReply FSubdivisionSettingsCustomization::OnClearBakedMeshClicked()
 	UFleshRingAsset* Asset = GetOuterAsset();
 	if (Asset)
 	{
+		// ★ 기존 BakedMesh가 다른 에디터에서 열려있으면 먼저 닫기 (크래시 방지)
+		if (Asset->HasBakedMesh())
+		{
+			UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
+			if (AssetEditorSubsystem)
+			{
+				USkeletalMesh* ExistingBakedMesh = Asset->SubdivisionSettings.BakedMesh;
+				if (ExistingBakedMesh)
+				{
+					AssetEditorSubsystem->CloseAllEditorsForAsset(ExistingBakedMesh);
+				}
+			}
+		}
+
 		Asset->ClearBakedMesh();
 		// ★ 메모리 누수 방지: 버튼 클릭 시 즉시 GC 실행
 		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
