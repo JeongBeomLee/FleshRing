@@ -1272,10 +1272,10 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 	{
 		FName& CurrentName = Rings[i].RingName;
 
-		// 1. 빈 이름이면 기본 이름 설정
+		// 1. 빈 이름이면 고유한 이름 생성
 		if (CurrentName.IsNone())
 		{
-			CurrentName = FName(*FString::Printf(TEXT("FleshRing_%d"), i));
+			CurrentName = MakeUniqueRingName(FName(TEXT("FleshRing")), i);
 		}
 
 		// 2. 중복 이름 확인 (이전 인덱스들과 비교)

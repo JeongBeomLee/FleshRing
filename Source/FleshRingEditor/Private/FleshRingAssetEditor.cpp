@@ -761,6 +761,9 @@ void FFleshRingAssetEditor::OnAddRingRequested(FName BoneName, UStaticMesh* Sele
 		FFleshRingSettings NewRing;
 		NewRing.BoneName = BoneName;
 
+		// ★ 고유한 RingName 자동 생성
+		NewRing.RingName = EditingAsset->MakeUniqueRingName(FName(TEXT("FleshRing")));
+
 		// 선택된 메쉬 설정
 		if (SelectedMesh)
 		{
@@ -826,6 +829,9 @@ void FFleshRingAssetEditor::OnAddRingAtPositionRequested(FName BoneName, const F
 	// 새 Ring 생성
 	FFleshRingSettings NewRing;
 	NewRing.BoneName = BoneName;
+
+	// ★ 고유한 RingName 자동 생성
+	NewRing.RingName = EditingAsset->MakeUniqueRingName(FName(TEXT("FleshRing")));
 
 	// RingOffset과 MeshOffset 둘 다 같은 위치에 설정 (본 로컬 공간)
 	NewRing.RingOffset = LocalOffset;
