@@ -22,6 +22,7 @@
 #include "Framework/Application/SlateApplication.h"
 #include "Rendering/SlateRenderer.h"
 #include "UObject/UObjectGlobals.h"  // CollectGarbage용
+#include "FileHelpers.h"  // FEditorFileUtils::PromptForCheckoutAndSave용
 
 #define LOCTEXT_NAMESPACE "SubdivisionSettingsCustomization"
 
@@ -267,6 +268,22 @@ bool FSubdivisionSettingsCustomization::IsSubdivisionEnabled() const
 	return Asset && Asset->SubdivisionSettings.bEnableSubdivision;
 }
 
+void FSubdivisionSettingsCustomization::SaveAsset(UFleshRingAsset* Asset)
+{
+	if (!Asset)
+	{
+		return;
+	}
+
+	UPackage* Package = Asset->GetOutermost();
+	if (Package && Package->IsDirty())
+	{
+		TArray<UPackage*> PackagesToSave;
+		PackagesToSave.Add(Package);
+		FEditorFileUtils::PromptForCheckoutAndSave(PackagesToSave, false, false);
+	}
+}
+
 FReply FSubdivisionSettingsCustomization::OnRefreshPreviewClicked()
 {
 	UFleshRingAsset* Asset = GetOuterAsset();
@@ -436,6 +453,10 @@ FReply FSubdivisionSettingsCustomization::OnBakeMeshClicked()
 		// ★ 메모리 누수 방지: 즉시 성공 경로에서도 GC 호출
 		FlushRenderingCommands();
 		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+
+		// ★ 자동 저장 (Perforce 체크아웃 프롬프트 포함)
+		SaveAsset(Asset);
+
 		return FReply::Handled();
 	}
 
@@ -470,6 +491,9 @@ FReply FSubdivisionSettingsCustomization::OnClearBakedMeshClicked()
 		Asset->ClearBakedMesh();
 		// ★ 메모리 누수 방지: 버튼 클릭 시 즉시 GC 실행
 		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+
+		// ★ 자동 저장 (Perforce 체크아웃 프롬프트 포함)
+		SaveAsset(Asset);
 	}
 	return FReply::Handled();
 }
@@ -594,6 +618,9 @@ void FSubdivisionSettingsCustomization::CleanupAsyncBake(bool bRestorePreviewMes
 	// Bake 중 오버레이로 대기 중이므로 동기 GC 비용 허용 가능
 	FlushRenderingCommands();  // 렌더 스레드 완료 대기 (조건문 미진입 시에도 필요)
 	CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+
+	// ★ 자동 저장 (Perforce 체크아웃 프롬프트 포함)
+	SaveAsset(AsyncBakeAsset.Get());
 
 	// 상태 초기화
 	bAsyncBakeInProgress = false;

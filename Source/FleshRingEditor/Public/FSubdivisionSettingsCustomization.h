@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -60,6 +60,9 @@ private:
 
 	/** Clear Baked Mesh 버튼 클릭 */
 	FReply OnClearBakedMeshClicked();
+
+	/** 에셋 저장 (Perforce 체크아웃 프롬프트 포함) */
+	void SaveAsset(UFleshRingAsset* Asset);
 
 	// ===== 비동기 베이킹 관련 =====
 
