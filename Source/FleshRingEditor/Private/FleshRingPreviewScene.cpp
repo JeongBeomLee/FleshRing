@@ -182,29 +182,19 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 		return;
 	}
 
-	// 메시가 변경된 경우 DeformerInstance 파괴
-	// ★ bDisplayMeshChanged 추가: Subdivision 토글 시에도 DeformerInstance 정리 필요
-	// (이전 PreviewSubdividedMesh에 대한 참조가 남아있으면 GC가 메시를 해제하지 못함)
-	if ((bOriginalMeshChanged || bDisplayMeshChanged) && SkeletalMeshComponent)
+	// ★ CL 320 복원: 원본 메시가 변경된 경우에만 DeformerInstance 파괴
+	// (Subdivision 토글 시에는 Deformer 유지 - ApplyAsset이 먼저 실행되어 Deformer가 설정된 후 메시 교체)
+	if (bOriginalMeshChanged && SkeletalMeshComponent)
 	{
 		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Mesh changed, destroying DeformerInstance"));
 		if (UMeshDeformerInstance* OldInstance = SkeletalMeshComponent->GetMeshDeformerInstance())
 		{
-			OldInstance->ReleaseResources();
 			FlushRenderingCommands();
-			// ★ ConditionalBeginDestroy 제거 - MarkAsGarbage만 호출하여 GC에게 맡김
 			OldInstance->MarkAsGarbage();
+			OldInstance->ConditionalBeginDestroy();
 		}
 		// Deformer도 해제하여 SetSkeletalMesh()가 새 Instance를 생성하지 않도록 함
 		SkeletalMeshComponent->SetMeshDeformer(nullptr);
-
-		// ★ 추가: FleshRingComponent의 초기화 플래그 리셋
-		// 새 메시에 대해 InitializeForEditorPreview()가 실제로 실행되도록 함
-		// (플래그가 true로 남아있으면 early return으로 인해 Deformer가 설정되지 않음)
-		if (FleshRingComponent)
-		{
-			FleshRingComponent->ResetEditorPreviewState();
-		}
 	}
 
 	// TargetSkeletalMesh가 null이면 씬 정리 후 리턴
@@ -240,100 +230,8 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	}
 
 	// ============================================
-	// 2단계: Subdivision 처리 (ApplyAsset 전에!)
-	// ★ ApplyAsset()이 PreviewSubdividedMesh를 체크하므로 먼저 정리해야 함
-	// ============================================
-#if WITH_EDITOR
-	if (InAsset->SubdivisionSettings.bEnableSubdivision)
-	{
-		// 프리뷰 메시가 없거나 재생성 필요 시 생성
-		if (!InAsset->HasValidPreviewMesh() || InAsset->NeedsPreviewMeshRegeneration())
-		{
-			InAsset->GeneratePreviewMesh();
-		}
-
-		// 프리뷰 메시 사용 (있으면)
-		if (InAsset->HasValidPreviewMesh())
-		{
-			SetSkeletalMesh(InAsset->SubdivisionSettings.PreviewSubdividedMesh);
-
-			// ★ 렌더 스레드가 새 메시의 리소스를 사용하도록 동기화
-			// SetSkeletalMesh() 후 FlushRenderingCommands() 없이 렌더링하면
-			// FLocalVertexFactory 리소스가 null인 상태로 크래시 발생
-			if (SkeletalMeshComponent)
-			{
-				SkeletalMeshComponent->MarkRenderStateDirty();
-				FlushRenderingCommands();
-			}
-
-			UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Using PreviewSubdividedMesh (Level %d, %d vertices)"),
-				InAsset->SubdivisionSettings.PreviewSubdivisionLevel,
-				InAsset->SubdivisionSettings.PreviewSubdividedMesh->GetResourceForRendering() ?
-					InAsset->SubdivisionSettings.PreviewSubdividedMesh->GetResourceForRendering()->LODRenderData[0].StaticVertexBuffers.PositionVertexBuffer.GetNumVertices() : 0);
-		}
-	}
-	else
-	{
-		// Subdivision 비활성화 시 프리뷰 메시 제거
-		// ★ 핵심: 먼저 원본 메시로 교체해서 PreviewMesh에 대한 참조를 완전히 끊은 후 파괴
-		if (SkeletalMeshComponent && InAsset->HasValidPreviewMesh())
-		{
-			// 1. DeformerInstance 해제 (메시 교체 전에)
-			if (UMeshDeformerInstance* DeformerInstance = SkeletalMeshComponent->GetMeshDeformerInstance())
-			{
-				DeformerInstance->ReleaseResources();
-				FlushRenderingCommands();
-				// ★ ConditionalBeginDestroy 제거 - MarkAsGarbage만 호출하여 GC에게 맡김
-				DeformerInstance->MarkAsGarbage();
-				UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: DeformerInstance released"));
-			}
-			SkeletalMeshComponent->SetMeshDeformer(nullptr);
-
-			// ★ 추가: FleshRingComponent의 초기화 플래그 리셋
-			// 새 메시에 대해 InitializeForEditorPreview()가 실제로 실행되도록 함
-			if (FleshRingComponent)
-			{
-				FleshRingComponent->ResetEditorPreviewState();
-			}
-
-			// 2. 원본 메시로 교체 (PreviewMesh 참조 완전 해제)
-			SetSkeletalMesh(OriginalMesh);
-			FlushRenderingCommands();
-			UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Restored original mesh"));
-
-			// 3. 이제 PreviewMesh 파괴 (참조가 없으므로 GC 가능)
-			InAsset->ClearPreviewMesh();
-			UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: PreviewMesh cleared"));
-		}
-		else
-		{
-			// ★ 추가: 프리뷰 메시가 없는 경우에도 초기화 플래그 리셋
-			// bEditorPreviewInitialized가 true로 남아있으면 InitializeForEditorPreview()가 early return하여
-			// Deformer가 설정되지 않고 변형이 적용되지 않음
-			if (FleshRingComponent)
-			{
-				FleshRingComponent->ResetEditorPreviewState();
-			}
-			InAsset->ClearPreviewMesh();
-		}
-	}
-
-	// ★ 메모리 누수 방지: Subdivision 토글 시 메시 교체 후 GC 호출
-	if (bDisplayMeshChanged || bNeedsPreviewMeshGeneration)
-	{
-		FlushRenderingCommands();
-
-		// ★ 여러 번 GC 호출 (순환 참조 해제를 위해)
-		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
-		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
-
-		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: GC completed (bDisplayMeshChanged=%d, bNeedsPreviewMeshGeneration=%d)"),
-			bDisplayMeshChanged, bNeedsPreviewMeshGeneration);
-	}
-#endif
-
-	// ============================================
-	// 3단계: FleshRing 컴포넌트 초기화
+	// 2단계: FleshRing 컴포넌트 초기화 (Subdivision 처리 전에!)
+	// ★ CL 320 순서 복원: ApplyAsset()을 먼저 호출하여 Deformer가 설정된 후 메시 교체
 	// ============================================
 	if (FleshRingComponent)
 	{
@@ -349,22 +247,84 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 				RingComp->SetVisibility(bRingMeshesVisible);
 			}
 		}
-
-		// Deformer 초기화 예약
-		// 메시가 실제로 렌더링된 후에 초기화해야 GPU 리소스가 준비됨
-		// ViewportClient::Tick()에서 WasRecentlyRendered() 체크 후 초기화
-		if (FleshRingComponent->bEnableFleshRing)
-		{
-			bPendingDeformerInit = true;
-			UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Deformer init pending (waiting for mesh to be rendered)"));
-		}
 	}
 
 	// ============================================
+	// 3단계: Subdivision 처리 (ApplyAsset 후에!)
+	// ★ Deformer가 이미 설정된 후 메시를 교체하면 Deformer가 유지됨
+	// ============================================
+#if WITH_EDITOR
+	if (InAsset->SubdivisionSettings.bEnableSubdivision)
+	{
+		// 프리뷰 메시가 없거나 재생성 필요 시 생성
+		if (!InAsset->HasValidPreviewMesh() || InAsset->NeedsPreviewMeshRegeneration())
+		{
+			InAsset->GeneratePreviewMesh();
+		}
+
+		// 프리뷰 메시 사용 (있으면)
+		if (InAsset->HasValidPreviewMesh())
+		{
+			SetSkeletalMesh(InAsset->SubdivisionSettings.PreviewSubdividedMesh);
+
+			// ★ 렌더 리소스 동기화 (IndexBuffer 초기화 대기)
+			if (SkeletalMeshComponent)
+			{
+				SkeletalMeshComponent->MarkRenderStateDirty();
+				FlushRenderingCommands();
+			}
+
+			UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Using PreviewSubdividedMesh (Level %d, %d vertices)"),
+				InAsset->SubdivisionSettings.PreviewSubdivisionLevel,
+				InAsset->SubdivisionSettings.PreviewSubdividedMesh->GetResourceForRendering() ?
+					InAsset->SubdivisionSettings.PreviewSubdividedMesh->GetResourceForRendering()->LODRenderData[0].StaticVertexBuffers.PositionVertexBuffer.GetNumVertices() : 0);
+		}
+	}
+	else
+	{
+		// Subdivision 비활성화 시 프리뷰 메시 제거 및 원본 복원
+		InAsset->ClearPreviewMesh();
+
+		// 원본 메시로 복원
+		if (CachedOriginalMesh.IsValid() && SkeletalMeshComponent)
+		{
+			USkeletalMesh* CurrentMesh = SkeletalMeshComponent->GetSkeletalMeshAsset();
+			USkeletalMesh* OrigMesh = CachedOriginalMesh.Get();
+			if (CurrentMesh != OrigMesh)
+			{
+				SetSkeletalMesh(OrigMesh);
+				UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Restored original mesh '%s' (subdivision disabled)"),
+					OrigMesh ? *OrigMesh->GetName() : TEXT("null"));
+			}
+		}
+	}
+#endif
+
+	// ============================================
+	// 4단계: Deformer 초기화 예약
+	// ★ CL 320 복원: bPendingDeformerInit만 설정
+	// ============================================
+	if (FleshRingComponent && FleshRingComponent->bEnableFleshRing)
+	{
+		bPendingDeformerInit = true;
+		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Deformer init pending (waiting for mesh to be rendered)"));
+	}
+
 	// Deformer 비활성화 시에만 Ring 시각화 (활성화 시 FleshRingComponent가 관리)
 	if (!FleshRingComponent || !FleshRingComponent->bEnableFleshRing)
 	{
 		RefreshRings(InAsset->Rings);
+	}
+
+	// ============================================
+	// 5단계: 사용하지 않는 PreviewMesh 정리 (CL 325 메시 정리 코드)
+	// ★ 메모리 누수 방지: Subdivision 토글 또는 Refresh 시 이전 PreviewMesh GC
+	// ============================================
+	if (bDisplayMeshChanged || bNeedsPreviewMeshGeneration)
+	{
+		FlushRenderingCommands();
+		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: GC executed to clean up unused PreviewMesh"));
 	}
 }
 
