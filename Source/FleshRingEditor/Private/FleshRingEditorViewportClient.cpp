@@ -43,6 +43,7 @@ IMPLEMENT_HIT_PROXY(HFleshRingGizmoHitProxy, HHitProxy);
 IMPLEMENT_HIT_PROXY(HFleshRingAxisHitProxy, HHitProxy);
 // HFleshRingMeshHitProxy는 FleshRingMeshComponent.cpp (Runtime 모듈)에서 IMPLEMENT_HIT_PROXY됨
 IMPLEMENT_HIT_PROXY(HFleshRingBoneHitProxy, HHitProxy);
+IMPLEMENT_HIT_PROXY(HFleshRingBandSectionHitProxy, HHitProxy);
 
 // 에셋별 설정 저장용 Config 섹션 베이스
 static const FString FleshRingViewportConfigSectionBase = TEXT("FleshRingEditorViewport");
@@ -474,7 +475,27 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 	{
 		if (HitProxy)
 		{
-			// Ring 기즈모 클릭
+			// Virtual Band 섹션 클릭 (개별 섹션 피킹)
+			if (HitProxy->IsA(HFleshRingBandSectionHitProxy::StaticGetType()))
+			{
+				HFleshRingBandSectionHitProxy* SectionProxy = static_cast<HFleshRingBandSectionHitProxy*>(HitProxy);
+				if (PreviewScene && EditingAsset.IsValid())
+				{
+					FScopedTransaction Transaction(NSLOCTEXT("FleshRingEditor", "SelectBandSection", "Select Band Section"));
+					EditingAsset->Modify();
+					EditingAsset->EditorSelectedRingIndex = SectionProxy->RingIndex;
+					EditingAsset->EditorSelectionType = EFleshRingSelectionType::Gizmo;
+
+					PreviewScene->SetSelectedRingIndex(SectionProxy->RingIndex);
+					SelectionType = EFleshRingSelectionType::Gizmo;
+					SelectedSection = SectionProxy->Section;  // 섹션 선택
+					Invalidate();
+
+					OnRingSelectedInViewport.ExecuteIfBound(SectionProxy->RingIndex, EFleshRingSelectionType::Gizmo);
+				}
+				return;
+			}
+			// Ring 기즈모 클릭 (전체 밴드 또는 Manual 기즈모)
 			if (HitProxy->IsA(HFleshRingGizmoHitProxy::StaticGetType()))
 			{
 				HFleshRingGizmoHitProxy* GizmoProxy = static_cast<HFleshRingGizmoHitProxy*>(HitProxy);
@@ -488,6 +509,7 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 
 					PreviewScene->SetSelectedRingIndex(GizmoProxy->RingIndex);
 					SelectionType = EFleshRingSelectionType::Gizmo;
+					SelectedSection = EBandSection::None;  // 섹션 선택 해제 (전체 밴드)
 					Invalidate();
 
 					// 트리/디테일 패널 동기화를 위한 델리게이트 호출
@@ -1069,8 +1091,6 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 					? ((SelectionType == EFleshRingSelectionType::Gizmo) ? FLinearColor::Yellow : FLinearColor(1.0f, 0.0f, 1.0f, 1.0f))
 					: FLinearColor(0.0f, 1.0f, 1.0f, 0.8f);
 
-				PDI->SetHitProxy(new HFleshRingGizmoHitProxy(i));
-
 				USkeletalMesh* SkelMesh = SkelMeshComp->GetSkeletalMeshAsset();
 				const FReferenceSkeleton& RefSkeleton = SkelMesh->GetRefSkeleton();
 				FTransform BindPoseBoneTransform = FTransform::Identity;
@@ -1101,26 +1121,42 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 				float BandUpperZ = Band.BandHeight * 0.5f;   // Band 상단
 				float UpperZ = Band.Upper.Height + Band.BandHeight * 0.5f;  // Upper 상단
 
-				auto DrawCircle = [&](float R, float Z, float T) {
+				// 섹션별 색상 결정 함수
+				auto GetSectionColor = [&](EBandSection Section) -> FLinearColor {
+					if (i == SelectedIndex && SelectedSection == Section)
+					{
+						return FLinearColor::Green;  // 선택된 섹션: 초록
+					}
+					return GizmoColor;  // 기본 색상
+				};
+
+				// 섹션별 원 그리기 함수 (HitProxy 포함)
+				auto DrawSectionCircle = [&](float R, float Z, float T, EBandSection Section) {
+					PDI->SetHitProxy(new HFleshRingBandSectionHitProxy(i, Section));
+					FLinearColor Color = GetSectionColor(Section);
 					for (int32 s = 0; s < Segments; ++s) {
 						float A1 = (float)s / Segments * 2.0f * PI, A2 = (float)(s + 1) / Segments * 2.0f * PI;
 						PDI->DrawLine(LocalToWorld.TransformPosition(FVector(FMath::Cos(A1) * R, FMath::Sin(A1) * R, Z)),
-							LocalToWorld.TransformPosition(FVector(FMath::Cos(A2) * R, FMath::Sin(A2) * R, Z)), GizmoColor, SDPG_Foreground, T);
+							LocalToWorld.TransformPosition(FVector(FMath::Cos(A2) * R, FMath::Sin(A2) * R, Z)), Color, SDPG_Foreground, T);
 					}
+					PDI->SetHitProxy(nullptr);
 				};
 
 				// Height=0인 섹션은 스킵하고 Mid 값만 사용
+				const float SectionLineThickness = RingGizmoThickness;
 				if (bHasLowerSection)
 				{
-					DrawCircle(Band.Lower.Radius, LowerZ, 0.0f);
+					DrawSectionCircle(Band.Lower.Radius, LowerZ, SectionLineThickness, EBandSection::Lower);
 				}
-				DrawCircle(Band.MidLowerRadius, BandLowerZ, 0.5f);
-				DrawCircle(Band.MidUpperRadius, BandUpperZ, 0.5f);
+				DrawSectionCircle(Band.MidLowerRadius, BandLowerZ, SectionLineThickness, EBandSection::MidLower);
+				DrawSectionCircle(Band.MidUpperRadius, BandUpperZ, SectionLineThickness, EBandSection::MidUpper);
 				if (bHasUpperSection)
 				{
-					DrawCircle(Band.Upper.Radius, UpperZ, 0.0f);
+					DrawSectionCircle(Band.Upper.Radius, UpperZ, SectionLineThickness, EBandSection::Upper);
 				}
 
+				// 수직 연결선 (전체 기즈모 HitProxy 사용)
+				PDI->SetHitProxy(new HFleshRingGizmoHitProxy(i));
 				for (int32 q = 0; q < 4; ++q) {
 					float Angle = (float)q / 4.0f * 2.0f * PI;
 					FVector Dir(FMath::Cos(Angle), FMath::Sin(Angle), 0.0f);
@@ -1290,7 +1326,29 @@ FVector FFleshRingEditorViewportClient::GetWidgetLocation() const
 		FTransform LocalTransform;
 		if (SelectionType == EFleshRingSelectionType::Gizmo)
 		{
-			LocalTransform.SetLocation(Band.BandOffset);
+			// 섹션별 Z 오프셋 계산 (새 좌표계: Z=0이 Mid Band 중심)
+			float SectionZ = 0.0f;
+			if (SelectedSection == EBandSection::Upper)
+			{
+				SectionZ = Band.Upper.Height + Band.BandHeight * 0.5f;
+			}
+			else if (SelectedSection == EBandSection::MidUpper)
+			{
+				SectionZ = Band.BandHeight * 0.5f;
+			}
+			else if (SelectedSection == EBandSection::MidLower)
+			{
+				SectionZ = -Band.BandHeight * 0.5f;
+			}
+			else if (SelectedSection == EBandSection::Lower)
+			{
+				SectionZ = -(Band.Lower.Height + Band.BandHeight * 0.5f);
+			}
+			// else: EBandSection::None → SectionZ = 0 (밴드 중심)
+
+			// 섹션 Z를 밴드 로컬 좌표에서 오프셋으로 변환
+			FVector SectionOffset = Band.BandRotation.RotateVector(FVector(0, 0, SectionZ));
+			LocalTransform.SetLocation(Band.BandOffset + SectionOffset);
 			LocalTransform.SetRotation(Band.BandRotation);
 			LocalTransform.SetScale3D(FVector::OneVector);  // 밴드는 스케일 없음
 		}
@@ -1557,6 +1615,14 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		SnappedScale.Z = FMath::GridSnap(Scale.Z, ScaleGridSize);
 	}
 
+	// 스케일 Z축 방향 보정: Lower/MidLower는 부호 반전
+	// Widget 시스템이 주는 Scale.Z는 기즈모 Z축 기준
+	// Lower/MidLower는 "아래로 드래그 → Height 증가"가 직관적이므로 부호 반전
+	if (SelectedSection == EBandSection::Lower || SelectedSection == EBandSection::MidLower)
+	{
+		SnappedScale.Z = -SnappedScale.Z;
+	}
+
 	// 월드 드래그를 본 로컬 좌표로 변환
 	// (Widget 시스템은 World/Local 모드 상관없이 항상 월드 좌표로 Drag를 전달함)
 	FVector LocalDrag = BoneRotation.UnrotateVector(SnappedDrag);
@@ -1654,30 +1720,98 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 				}
 			}
 
-			// 스케일 처리: 축별 분리 (X/Y → Radius, Z → Height)
-			// X/Y 축 드래그 → Radius 계열만 조절
+			// 스케일 처리: 섹션별 + 축별 분리
 			float RadialScaleDelta = FMath::Max(SnappedScale.X, SnappedScale.Y);
 			if (FMath::IsNearlyZero(RadialScaleDelta))
 			{
 				RadialScaleDelta = FMath::Min(SnappedScale.X, SnappedScale.Y);
 			}
-			if (!FMath::IsNearlyZero(RadialScaleDelta))
-			{
-				float RadialFactor = 1.0f + RadialScaleDelta;
-				BandSettings.MidUpperRadius = FMath::Clamp(BandSettings.MidUpperRadius * RadialFactor, 0.1f, 100.0f);
-				BandSettings.MidLowerRadius = FMath::Clamp(BandSettings.MidLowerRadius * RadialFactor, 0.1f, 100.0f);
-				BandSettings.BandThickness = FMath::Clamp(BandSettings.BandThickness * RadialFactor, 0.1f, 50.0f);
-				BandSettings.Upper.Radius = FMath::Clamp(BandSettings.Upper.Radius * RadialFactor, 0.1f, 100.0f);
-				BandSettings.Lower.Radius = FMath::Clamp(BandSettings.Lower.Radius * RadialFactor, 0.1f, 100.0f);
-			}
 
-			// Z 축 드래그 → Height 계열만 조절
-			if (!FMath::IsNearlyZero(SnappedScale.Z))
+			if (SelectedSection == EBandSection::None)
 			{
-				float HeightFactor = 1.0f + SnappedScale.Z;
-				BandSettings.BandHeight = FMath::Clamp(BandSettings.BandHeight * HeightFactor, 0.1f, 100.0f);
-				BandSettings.Upper.Height = FMath::Clamp(BandSettings.Upper.Height * HeightFactor, 0.0f, 100.0f);
-				BandSettings.Lower.Height = FMath::Clamp(BandSettings.Lower.Height * HeightFactor, 0.0f, 100.0f);
+				// 전체 밴드: X/Y → 모든 Radius, Z → 모든 Height
+				if (!FMath::IsNearlyZero(RadialScaleDelta))
+				{
+					float RadialFactor = 1.0f + RadialScaleDelta;
+					BandSettings.MidUpperRadius = FMath::Clamp(BandSettings.MidUpperRadius * RadialFactor, 0.1f, 100.0f);
+					BandSettings.MidLowerRadius = FMath::Clamp(BandSettings.MidLowerRadius * RadialFactor, 0.1f, 100.0f);
+					BandSettings.BandThickness = FMath::Clamp(BandSettings.BandThickness * RadialFactor, 0.1f, 50.0f);
+					BandSettings.Upper.Radius = FMath::Clamp(BandSettings.Upper.Radius * RadialFactor, 0.1f, 100.0f);
+					BandSettings.Lower.Radius = FMath::Clamp(BandSettings.Lower.Radius * RadialFactor, 0.1f, 100.0f);
+				}
+				if (!FMath::IsNearlyZero(SnappedScale.Z))
+				{
+					float HeightFactor = 1.0f + SnappedScale.Z;
+					BandSettings.BandHeight = FMath::Clamp(BandSettings.BandHeight * HeightFactor, 0.1f, 100.0f);
+					BandSettings.Upper.Height = FMath::Clamp(BandSettings.Upper.Height * HeightFactor, 0.0f, 100.0f);
+					BandSettings.Lower.Height = FMath::Clamp(BandSettings.Lower.Height * HeightFactor, 0.0f, 100.0f);
+				}
+			}
+			else if (SelectedSection == EBandSection::Upper)
+			{
+				// Upper 섹션: X/Y → Upper.Radius, Z → Upper.Height
+				if (!FMath::IsNearlyZero(RadialScaleDelta))
+				{
+					float RadialFactor = 1.0f + RadialScaleDelta;
+					BandSettings.Upper.Radius = FMath::Clamp(BandSettings.Upper.Radius * RadialFactor, 0.1f, 100.0f);
+				}
+				if (!FMath::IsNearlyZero(SnappedScale.Z))
+				{
+					float HeightFactor = 1.0f + SnappedScale.Z;
+					BandSettings.Upper.Height = FMath::Clamp(BandSettings.Upper.Height * HeightFactor, 0.0f, 100.0f);
+				}
+			}
+			else if (SelectedSection == EBandSection::MidUpper)
+			{
+				// MidUpper 섹션: X/Y → MidUpperRadius, Z → BandHeight
+				if (!FMath::IsNearlyZero(RadialScaleDelta))
+				{
+					float RadialFactor = 1.0f + RadialScaleDelta;
+					BandSettings.MidUpperRadius = FMath::Clamp(BandSettings.MidUpperRadius * RadialFactor, 0.1f, 100.0f);
+				}
+				if (!FMath::IsNearlyZero(SnappedScale.Z))
+				{
+					float OldBandHeight = BandSettings.BandHeight;
+					float HeightFactor = 1.0f + SnappedScale.Z;
+					BandSettings.BandHeight = FMath::Clamp(BandSettings.BandHeight * HeightFactor, 0.1f, 100.0f);
+
+					// MidLower/Lower 고정: 원점을 밴드 축 +방향으로 보정 → MidUpper만 이동
+					float HeightDelta = BandSettings.BandHeight - OldBandHeight;
+					BandSettings.BandOffset += BandSettings.BandRotation.RotateVector(FVector(0.0f, 0.0f, HeightDelta * 0.5f));
+				}
+			}
+			else if (SelectedSection == EBandSection::MidLower)
+			{
+				// MidLower 섹션: X/Y → MidLowerRadius, Z → BandHeight
+				if (!FMath::IsNearlyZero(RadialScaleDelta))
+				{
+					float RadialFactor = 1.0f + RadialScaleDelta;
+					BandSettings.MidLowerRadius = FMath::Clamp(BandSettings.MidLowerRadius * RadialFactor, 0.1f, 100.0f);
+				}
+				if (!FMath::IsNearlyZero(SnappedScale.Z))
+				{
+					float OldBandHeight = BandSettings.BandHeight;
+					float HeightFactor = 1.0f + SnappedScale.Z;
+					BandSettings.BandHeight = FMath::Clamp(BandSettings.BandHeight * HeightFactor, 0.1f, 100.0f);
+
+					// MidUpper/Upper 고정: 원점을 밴드 축 -방향으로 보정 → MidLower만 이동
+					float HeightDelta = BandSettings.BandHeight - OldBandHeight;
+					BandSettings.BandOffset += BandSettings.BandRotation.RotateVector(FVector(0.0f, 0.0f, -HeightDelta * 0.5f));
+				}
+			}
+			else if (SelectedSection == EBandSection::Lower)
+			{
+				// Lower 섹션: X/Y → Lower.Radius, Z → Lower.Height
+				if (!FMath::IsNearlyZero(RadialScaleDelta))
+				{
+					float RadialFactor = 1.0f + RadialScaleDelta;
+					BandSettings.Lower.Radius = FMath::Clamp(BandSettings.Lower.Radius * RadialFactor, 0.1f, 100.0f);
+				}
+				if (!FMath::IsNearlyZero(SnappedScale.Z))
+				{
+					float HeightFactor = 1.0f + SnappedScale.Z;
+					BandSettings.Lower.Height = FMath::Clamp(BandSettings.Lower.Height * HeightFactor, 0.0f, 100.0f);
+				}
 			}
 		}
 	}
@@ -2076,6 +2210,7 @@ void FFleshRingEditorViewportClient::SaveSettings()
 	// === 커스텀 Show 플래그 저장 ===
 	GConfig->SetBool(*SectionName, TEXT("ShowSkeletalMesh"), bShowSkeletalMesh, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowRingGizmos"), bShowRingGizmos, GEditorPerProjectIni);
+	GConfig->SetFloat(*SectionName, TEXT("RingGizmoThickness"), RingGizmoThickness, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowRingMeshes"), bShowRingMeshes, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowBones"), bShowBones, GEditorPerProjectIni);
 
@@ -2259,6 +2394,7 @@ void FFleshRingEditorViewportClient::LoadSettings()
 	// === 커스텀 Show 플래그 로드 ===
 	GConfig->GetBool(*SectionName, TEXT("ShowSkeletalMesh"), bShowSkeletalMesh, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowRingGizmos"), bShowRingGizmos, GEditorPerProjectIni);
+	GConfig->GetFloat(*SectionName, TEXT("RingGizmoThickness"), RingGizmoThickness, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowRingMeshes"), bShowRingMeshes, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowBones"), bShowBones, GEditorPerProjectIni);
 

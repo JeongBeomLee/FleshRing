@@ -119,6 +119,8 @@ public:
 	// Show 플래그 토글
 	void ToggleShowSkeletalMesh();
 	void ToggleShowRingGizmos() { bShowRingGizmos = !bShowRingGizmos; Invalidate(); }
+	void SetRingGizmoThickness(float InThickness) { RingGizmoThickness = FMath::Clamp(InThickness, 0.05f, 1.0f); Invalidate(); }
+	float GetRingGizmoThickness() const { return RingGizmoThickness; }
 	void ToggleShowRingMeshes();
 	void ToggleShowBones() { bShowBones = !bShowBones; Invalidate(); }
 	void ToggleShowGrid();
@@ -243,6 +245,9 @@ private:
 	/** 현재 선택 타입 */
 	EFleshRingSelectionType SelectionType = EFleshRingSelectionType::None;
 
+	/** 현재 선택된 Virtual Band 섹션 (섹션 피킹용) */
+	EBandSection SelectedSection = EBandSection::None;
+
 	/** Undo용 트랜잭션 */
 	TUniquePtr<FScopedTransaction> ScopedTransaction;
 
@@ -262,6 +267,9 @@ private:
 	bool bShowRingGizmos = true;
 	bool bShowRingMeshes = true;
 	bool bShowBones = true;
+
+	// Ring Gizmo 시각화 설정
+	float RingGizmoThickness = 0.5f;
 
 	// 본 그리기 옵션
 	bool bShowBoneNames = false;

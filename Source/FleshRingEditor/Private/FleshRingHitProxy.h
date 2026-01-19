@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "HitProxies.h"
 #include "FleshRingMeshHitProxy.h"  // Runtime 모듈의 HFleshRingMeshHitProxy
+#include "FleshRingTypes.h"         // EBandSection
 
 /** Transform Gizmo 축 타입 */
 enum class EFleshRingGizmoAxis : uint8
@@ -27,7 +28,7 @@ struct HFleshRingGizmoHitProxy : public HHitProxy
 	int32 RingIndex;
 
 	HFleshRingGizmoHitProxy(int32 InRingIndex)
-		: HHitProxy(HPP_UI)
+		: HHitProxy(HPP_World)  // SRT Widget(HPP_Foreground)보다 낮은 우선순위
 		, RingIndex(InRingIndex)
 	{
 	}
@@ -53,7 +54,7 @@ struct HFleshRingAxisHitProxy : public HHitProxy
 	EFleshRingGizmoAxis Axis;
 
 	HFleshRingAxisHitProxy(int32 InRingIndex, EFleshRingGizmoAxis InAxis)
-		: HHitProxy(HPP_UI)
+		: HHitProxy(HPP_World)  // SRT Widget(HPP_Foreground)보다 낮은 우선순위
 		, RingIndex(InRingIndex)
 		, Axis(InAxis)
 	{
@@ -85,6 +86,33 @@ struct HFleshRingBoneHitProxy : public HHitProxy
 		: HHitProxy(HPP_World)  // Ring 메시(HPP_Foreground)보다 낮은 우선순위
 		, BoneIndex(InBoneIndex)
 		, BoneName(InBoneName)
+	{
+	}
+
+	virtual EMouseCursor::Type GetMouseCursor() override
+	{
+		return EMouseCursor::Crosshairs;
+	}
+};
+
+/**
+ * Virtual Band 섹션 클릭 감지용 HitProxy
+ * 개별 섹션(Upper/MidUpper/MidLower/Lower)을 클릭했을 때 식별
+ */
+struct HFleshRingBandSectionHitProxy : public HHitProxy
+{
+	DECLARE_HIT_PROXY();
+
+	/** Ring 인덱스 */
+	int32 RingIndex;
+
+	/** 선택된 섹션 */
+	EBandSection Section;
+
+	HFleshRingBandSectionHitProxy(int32 InRingIndex, EBandSection InSection)
+		: HHitProxy(HPP_World)  // SRT Widget(HPP_Foreground)보다 낮은 우선순위
+		, RingIndex(InRingIndex)
+		, Section(InSection)
 	{
 	}
 

@@ -124,6 +124,58 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 			EUserInterfaceActionType::ToggleButton
 		);
 
+		// Ring Gizmo 두께 슬라이더
+		MenuBuilder.AddWidget(
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			.Padding(FMargin(24.0f, 0.0f, 4.0f, 0.0f))  // 들여쓰기
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("GizmoThickness", "Band Thickness"))
+			]
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.Padding(FMargin(4.0f, 0.0f))
+			[
+				SNew(SBox)
+				.WidthOverride(80.0f)
+				[
+					SNew(SSpinBox<float>)
+					.MinValue(0.05f)
+					.MaxValue(1.0f)
+					.MinSliderValue(0.05f)
+					.MaxSliderValue(1.0f)
+					.Delta(0.05f)
+					.Value_Lambda([WeakViewportClient]()
+					{
+						if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+						{
+							return Client->GetRingGizmoThickness();
+						}
+						return 0.5f;
+					})
+					.OnValueChanged_Lambda([WeakViewportClient](float NewValue)
+					{
+						if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+						{
+							Client->SetRingGizmoThickness(NewValue);
+						}
+					})
+					.IsEnabled_Lambda([WeakViewportClient]()
+					{
+						if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+						{
+							return Client->ShouldShowRingGizmos();
+						}
+						return false;
+					})
+				]
+			],
+			FText::GetEmpty()
+		);
+
 		MenuBuilder.AddMenuEntry(
 			LOCTEXT("ShowRingMeshes", "Ring Meshes"),
 			LOCTEXT("ShowRingMeshesTooltip", "Show/Hide ring meshes (Shift+3)"),

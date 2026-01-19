@@ -21,6 +21,16 @@ enum class EFleshRingSelectionType : uint8
 	Mesh		// Ring 메시 선택 (메시 이동/회전)
 };
 
+/** Virtual Band 섹션 타입 (개별 편집용) */
+enum class EBandSection : uint8
+{
+	None,		// 섹션 미선택 (전체 밴드)
+	Upper,		// 상단 캡 (Upper.Radius, Upper.Height)
+	MidUpper,	// 밴드 상단 경계 (MidUpperRadius)
+	MidLower,	// 밴드 하단 경계 (MidLowerRadius)
+	Lower		// 하단 캡 (Lower.Radius, Lower.Height)
+};
+
 /** Ring 영향 범위 결정 방식 */
 UENUM(BlueprintType)
 enum class EFleshRingInfluenceMode : uint8
