@@ -305,8 +305,8 @@ bool FFleshRingEditorViewportClient::InputKey(const FInputKeyEventArgs& EventArg
 
 	if (EventArgs.Event == IE_Pressed)
 	{
-		// F키로 메시에 포커스
-		if (EventArgs.Key == EKeys::F)
+		// F키로 메시에 포커스 (카메라 조작 중에는 무시)
+		if (EventArgs.Key == EKeys::F && !IsTracking())
 		{
 			FocusOnMesh();
 			return true;
