@@ -427,15 +427,15 @@ void FDistanceBasedVertexSelector::SelectVertices(
     }
     else
     {
-        // ===== Fallback: 원통형 모델 (Manual 모드, SDFCache 없을 때) =====
-        // Manual 모드 전용 RingOffset/RingRotation 사용 (MeshOffset/MeshRotation 아님!)
+        // ===== Fallback: 원통형 모델 (VirtualRing 모드, SDFCache 없을 때) =====
+        // VirtualRing 모드 전용 RingOffset/RingRotation 사용 (MeshOffset/MeshRotation 아님!)
         const FQuat BoneRotation = BoneTransform.GetRotation();
         const FVector WorldRingOffset = BoneRotation.RotateVector(Ring.RingOffset);
         const FVector RingCenter = BoneTransform.GetLocation() + WorldRingOffset;
         const FQuat WorldRingRotation = BoneRotation * Ring.RingRotation;
         const FVector RingAxis = WorldRingRotation.RotateVector(FVector::ZAxisVector);
 
-        // Manual 모드는 스케일 없음 (RingRadius/RingThickness/RingHeight가 직접 단위)
+        // VirtualRing 모드는 스케일 없음 (RingRadius/RingThickness/RingHeight가 직접 단위)
         const float MaxDistance = Ring.RingRadius + Ring.RingThickness;
         const float HalfWidth = Ring.RingHeight / 2.0f;
 
@@ -454,7 +454,7 @@ void FDistanceBasedVertexSelector::SelectVertices(
             Context.SpatialHash->QueryOBB(RingLocalToComponent, LocalMin, LocalMax, CandidateIndices);
 
             UE_LOG(LogFleshRingVertices, Log,
-                TEXT("Manual Ring[%d]: SpatialHash OBB query returned %d candidates (from %d total)"),
+                TEXT("VirtualRing Ring[%d]: SpatialHash OBB query returned %d candidates (from %d total)"),
                 Context.RingIndex, CandidateIndices.Num(), AllVertices.Num());
         }
         else
@@ -542,7 +542,7 @@ float FDistanceBasedVertexSelector::CalculateFalloff(
 }
 
 // ============================================================================
-// SelectPostProcessingVertices - Manual 모드용 후처리 버텍스 선택
+// SelectPostProcessingVertices - VirtualRing 모드용 후처리 버텍스 선택
 // ============================================================================
 void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
     const FVertexSelectionContext& Context,
@@ -582,7 +582,7 @@ void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
         }
 
         UE_LOG(LogFleshRingVertices, Log,
-            TEXT("PostProcessing (Manual): Smoothing disabled, using %d affected vertices"),
+            TEXT("PostProcessing (VirtualRing): Smoothing disabled, using %d affected vertices"),
             OutRingData.PostProcessingIndices.Num());
         return;
     }
@@ -607,12 +607,12 @@ void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
         }
 
         UE_LOG(LogFleshRingVertices, Log,
-            TEXT("PostProcessing (Manual): No Z extension, using %d affected vertices"),
+            TEXT("PostProcessing (VirtualRing): No Z extension, using %d affected vertices"),
             OutRingData.PostProcessingIndices.Num());
         return;
     }
 
-    // Manual 모드: Ring 파라미터로 직접 계산 (Component Space)
+    // VirtualRing 모드: Ring 파라미터로 직접 계산 (Component Space)
     const FQuat BoneRotation = Context.BoneTransform.GetRotation();
     const FVector WorldRingOffset = BoneRotation.RotateVector(Ring.RingOffset);
     const FVector RingCenter = Context.BoneTransform.GetLocation() + WorldRingOffset;
@@ -683,7 +683,7 @@ void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
     }
 
     UE_LOG(LogFleshRingVertices, Log,
-        TEXT("PostProcessing (Manual): Selected %d vertices (Core=%d, ZExtended=%d, Anchors=%d) for Ring[%d], ZExtend=[%.1f, %.1f]"),
+        TEXT("PostProcessing (VirtualRing): Selected %d vertices (Core=%d, ZExtended=%d, Anchors=%d) for Ring[%d], ZExtend=[%.1f, %.1f]"),
         OutRingData.PostProcessingIndices.Num(), CoreCount, ExtendedCount, AnchorCount,
         Context.RingIndex, BoundsZBottom, BoundsZTop);
 }
@@ -1547,16 +1547,16 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         const FQuat BoneRotation = BoneTransform.GetRotation();
 
         // InfluenceMode에 따라 RingCenter/RingAxis/Geometry 계산 분기
-        if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Manual)
+        if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualRing)
         {
-            // ===== Manual 모드: RingOffset/RingRotation 사용 =====
+            // ===== VirtualRing 모드: RingOffset/RingRotation 사용 =====
             const FVector WorldRingOffset = BoneRotation.RotateVector(RingSettings.RingOffset);
             RingData.RingCenter = BoneTransform.GetLocation() + WorldRingOffset;
 
             const FQuat WorldRingRotation = BoneRotation * RingSettings.RingRotation;
             RingData.RingAxis = WorldRingRotation.RotateVector(FVector::ZAxisVector);
 
-            // Manual 모드는 스케일 없이 직접 값 사용
+            // VirtualRing 모드는 스케일 없이 직접 값 사용
             RingData.RingRadius = RingSettings.RingRadius;
             RingData.RingThickness = RingSettings.RingThickness;
             RingData.RingHeight = RingSettings.RingHeight;
@@ -1618,7 +1618,7 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
 
         // Ring별 InfluenceMode에 따라 Selector 결정
         // Auto 모드 + SDF 유효 → SDFBoundsBasedSelector
-        // Manual/ProceduralBand 모드 또는 SDF 무효 → DistanceBasedSelector/VirtualBandVertexSelector
+        // VirtualRing/ProceduralBand 모드 또는 SDF 무효 → DistanceBasedSelector/VirtualBandVertexSelector
         TSharedPtr<IVertexSelector> RingSelector;
         const bool bUseSDFForThisRing =
             (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto) &&
@@ -1639,7 +1639,7 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         }
 
         // InfluenceMode 이름 결정
-        const TCHAR* InfluenceModeStr = TEXT("Manual");
+        const TCHAR* InfluenceModeStr = TEXT("VirtualRing");
         if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto)
         {
             InfluenceModeStr = TEXT("Auto");
@@ -1693,7 +1693,7 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         }
         else
         {
-            // Manual 모드: Ring 파라미터 기반 Z 확장
+            // VirtualRing 모드: Ring 파라미터 기반 Z 확장
             FDistanceBasedVertexSelector* DistSelector = static_cast<FDistanceBasedVertexSelector*>(RingSelector.Get());
             DistSelector->SelectPostProcessingVertices(Context, RingData.Vertices, RingData);
             // Note: LayerTypes는 FullMeshLayerTypes에서 GPU가 직접 조회

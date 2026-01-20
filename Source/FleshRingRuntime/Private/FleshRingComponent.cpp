@@ -82,8 +82,8 @@ bool UFleshRingComponent::HasAnyNonSDFRings() const
 	}
 	for (const FFleshRingSettings& RingSettings : FleshRingAsset->Rings)
 	{
-		// Manual 또는 ProceduralBand 모드는 SDF 없이 동작 (거리 기반 로직)
-		if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Manual ||
+		// VirtualRing 또는 ProceduralBand 모드는 SDF 없이 동작 (거리 기반 로직)
+		if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualRing ||
 			RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
 		{
 			return true;
@@ -627,12 +627,12 @@ void UFleshRingComponent::GenerateSDF()
 			continue;
 		}
 
-		// ===== Manual 모드: SDF 불필요, 스킵 =====
-		// Manual 모드는 Ring 파라미터(RingOffset/RingRotation/RingRadius 등)만 사용
+		// ===== VirtualRing 모드: SDF 불필요, 스킵 =====
+		// VirtualRing 모드는 Ring 파라미터(RingOffset/RingRotation/RingRadius 등)만 사용
 		// Ring Mesh가 있어도 SDF를 생성하면 안 됨 (시각화용 메시일 뿐)
-		if (Ring.InfluenceMode == EFleshRingInfluenceMode::Manual)
+		if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualRing)
 		{
-			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] is Manual mode, SDF generation skipped"), RingIndex);
+			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] is VirtualRing mode, SDF generation skipped"), RingIndex);
 			continue;
 		}
 
@@ -816,11 +816,11 @@ void UFleshRingComponent::InitializeForEditorPreview()
 	GenerateSDF();
 	FlushRenderingCommands();
 
-	// 유효한 SDF 캐시가 있거나 Manual 모드 Ring이 있어야 Deformer 설정
+	// 유효한 SDF 캐시가 있거나 VirtualRing 모드 Ring이 있어야 Deformer 설정
 	// (Auto 모드 SDF 실패는 여전히 개별 스킵, Manual 모드는 SDF 없이 작동)
 	if (!HasAnyValidSDFCaches() && !HasAnyNonSDFRings())
 	{
-		UE_LOG(LogFleshRingComponent, Warning, TEXT("InitializeForEditorPreview: No valid SDF caches and no Manual mode rings, skipping Deformer setup"));
+		UE_LOG(LogFleshRingComponent, Warning, TEXT("InitializeForEditorPreview: No valid SDF caches and no VirtualRing mode rings, skipping Deformer setup"));
 		bEditorPreviewInitialized = true;
 		return;
 	}
@@ -1513,7 +1513,7 @@ void UFleshRingComponent::DrawDebugVisualization()
 		DebugSliceRenderTargets.Empty();
 	}
 
-	// 배열 크기를 NumRings로 미리 확보 (Manual 모드 Ring 슬롯도 nullptr로 유지)
+	// 배열 크기를 NumRings로 미리 확보 (VirtualRing 모드 Ring 슬롯도 nullptr로 유지)
 	if (DebugSlicePlaneActors.Num() < NumRings)
 	{
 		DebugSlicePlaneActors.SetNum(NumRings);
@@ -2322,7 +2322,7 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 		// Ring별 InfluenceMode에 따라 분기
 		// - Auto: SDF 유효할 때만 SDF 기반
 		// - ProceduralBand: 항상 거리 기반 (가변 반경)
-		// - Manual: 항상 거리 기반 (고정 반경)
+		// - VirtualRing: 항상 거리 기반 (고정 반경)
 		const bool bUseSDFForThisRing =
 			(RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto) &&
 			(SDFCache && SDFCache->IsValid());
@@ -2502,7 +2502,7 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 		}
 		else
 		{
-			// ===== Manual 모드: 원통형 거리 기반 Spatial Hash 쿼리 =====
+			// ===== VirtualRing 모드: 원통형 거리 기반 Spatial Hash 쿼리 =====
 			const FQuat BoneRotation = BoneTransform.GetRotation();
 			const FVector WorldRingOffset = BoneRotation.RotateVector(RingSettings.RingOffset);
 			const FVector RingCenter = BoneTransform.GetLocation() + WorldRingOffset;
@@ -2564,7 +2564,7 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 
 		UE_LOG(LogFleshRingComponent, Verbose, TEXT("CacheAffectedVerticesForDebug: Ring[%d] '%s' - %d affected vertices, Mode=%s"),
 			RingIdx, *RingSettings.BoneName.ToString(), RingData.Vertices.Num(),
-			bUseSDFForThisRing ? TEXT("SDF") : TEXT("Manual"));
+			bUseSDFForThisRing ? TEXT("SDF") : TEXT("VirtualRing"));
 	}
 
 	bDebugAffectedVerticesCached = true;
@@ -2775,15 +2775,15 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 			continue;
 		}
 
-		// ===== Ring 정보 계산: SDF 모드 vs Manual 모드 분기 =====
+		// ===== Ring 정보 계산: SDF 모드 vs VirtualRing 모드 분기 =====
 		FTransform LocalToComponent = FTransform::Identity;
 		FVector3f RingCenter;
 		FVector3f RingAxis;
 		float RingHeight;
 		float RingRadius;
 		int32 DetectedDirection = 0;
-		bool bUseLocalSpace = false;  // Manual 모드는 Component Space 직접 사용
-		FQuat ManualRingRotation = FQuat::Identity;  // Manual 모드 OBB 쿼리용
+		bool bUseLocalSpace = false;  // VirtualRing 모드는 Component Space 직접 사용
+		FQuat ManualRingRotation = FQuat::Identity;  // VirtualRing 모드 OBB 쿼리용
 
 		// ★ InfluenceMode 기반 분기: Auto 모드일 때만 SDFCache 접근
 		const FRingSDFCache* SDFCache = nullptr;
@@ -2817,9 +2817,9 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 			RingRadius = FMath::Max3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z) * 0.5f;
 			DetectedDirection = SDFCache->DetectedBulgeDirection;
 		}
-		else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Manual)
+		else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualRing)
 		{
-			// ===== Manual 모드: Ring 파라미터에서 직접 가져오기 (Component Space) =====
+			// ===== VirtualRing 모드: Ring 파라미터에서 직접 가져오기 (Component Space) =====
 			bUseLocalSpace = false;
 
 			// Bone Transform 가져오기
@@ -2846,7 +2846,7 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 			// Ring 크기는 직접 사용
 			RingHeight = RingSettings.RingHeight;
 			RingRadius = RingSettings.RingRadius;
-			DetectedDirection = 0;  // Manual 모드는 자동 감지 불가, 양방향
+			DetectedDirection = 0;  // VirtualRing 모드는 자동 감지 불가, 양방향
 		}
 		else
 		{
@@ -2900,7 +2900,7 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 			}
 			else
 			{
-				// Manual 모드: OBB 쿼리 (Ring 회전 반영, Bulge 영역 포함)
+				// VirtualRing 모드: OBB 쿼리 (Ring 회전 반영, Bulge 영역 포함)
 				FTransform RingLocalToComponent;
 				RingLocalToComponent.SetLocation(FVector(RingCenter));
 				RingLocalToComponent.SetRotation(ManualRingRotation);
@@ -2937,7 +2937,7 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 			}
 			else
 			{
-				// Manual 모드: Component Space 직접 사용 (RingCenter, RingAxis가 이미 Component Space)
+				// VirtualRing 모드: Component Space 직접 사용 (RingCenter, RingAxis가 이미 Component Space)
 				VertexPos = FVector3f(CompSpacePos);
 			}
 
@@ -3049,7 +3049,7 @@ void UFleshRingComponent::DrawBulgeDirectionArrow(int32 RingIndex)
 		bHasValidSDF = (SDFCache && SDFCache->IsValid());
 	}
 
-	// ===== Ring 정보 계산: SDF 모드 vs Manual 모드 분기 =====
+	// ===== Ring 정보 계산: SDF 모드 vs VirtualRing 모드 분기 =====
 	FVector WorldCenter;
 	FVector WorldZAxis;
 	float ArrowLength;
@@ -3080,10 +3080,10 @@ void UFleshRingComponent::DrawBulgeDirectionArrow(int32 RingIndex)
 		// 화살표 크기 (SDF 볼륨 크기에 비례)
 		ArrowLength = FVector(SDFCache->BoundsMax - SDFCache->BoundsMin).Size() * 0.05f;
 	}
-	else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Manual)
+	else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualRing)
 	{
-		// ===== Manual 모드: Ring 파라미터에서 직접 가져오기 =====
-		DetectedDirection = 0;  // Manual 모드는 자동 감지 불가
+		// ===== VirtualRing 모드: Ring 파라미터에서 직접 가져오기 =====
+		DetectedDirection = 0;  // VirtualRing 모드는 자동 감지 불가
 
 		// Bone Transform 가져오기
 		FTransform BoneTransform = FTransform::Identity;
@@ -3346,7 +3346,7 @@ void UFleshRingComponent::DrawBulgeRange(int32 RingIndex)
 		return;
 	}
 
-	// ===== Auto/Manual 모드: 원뿔 형태 =====
+	// ===== Auto/VirtualRing 모드: 원뿔 형태 =====
 	const FRingSDFCache* SDFCache = GetRingSDFCache(RingIndex);
 	const bool bHasValidSDF = SDFCache && SDFCache->IsValid();
 
@@ -3487,8 +3487,8 @@ void UFleshRingComponent::DrawBulgeRange(int32 RingIndex)
 		return;
 	}
 
-	// ===== Manual 모드: 기존 방식 =====
-	if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Manual)
+	// ===== VirtualRing 모드: 기존 방식 =====
+	if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualRing)
 	{
 		FTransform BoneTransform = FTransform::Identity;
 		if (SkelMesh)

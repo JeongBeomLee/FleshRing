@@ -162,7 +162,7 @@ void DispatchFleshRingTightnessCS(
     }
     else
     {
-        // Manual 모드: Dummy SDF 텍스처 바인딩 (RDG 요구사항 - 모든 파라미터 바인딩 필수)
+        // VirtualRing 모드: Dummy SDF 텍스처 바인딩 (RDG 요구사항 - 모든 파라미터 바인딩 필수)
         FRDGTextureDesc DummySDFDesc = FRDGTextureDesc::Create3D(
             FIntVector(1, 1, 1),
             PF_R32_FLOAT,
@@ -178,12 +178,12 @@ void DispatchFleshRingTightnessCS(
         PassParameters->SDFBoundsMin = FVector3f::ZeroVector;
         PassParameters->SDFBoundsMax = FVector3f::OneVector;
         PassParameters->bUseSDFInfluence = 0;
-        // Manual 모드: Identity 행렬 (사용 안함)
+        // VirtualRing 모드: Identity 행렬 (사용 안함)
         PassParameters->ComponentToSDFLocal = FMatrix44f::Identity;
         PassParameters->SDFLocalToComponent = FMatrix44f::Identity;
-        // Manual 모드에서는 사용 안 하지만 바인딩 필요
+        // VirtualRing 모드에서는 사용 안 하지만 바인딩 필요
         PassParameters->SDFInfluenceFalloffDistance = 5.0f;
-        // Manual 모드: 기본값 바인딩 (사용 안함)
+        // VirtualRing 모드: 기본값 바인딩 (사용 안함)
         PassParameters->SDFLocalRingCenter = FVector3f::ZeroVector;
         PassParameters->SDFLocalRingAxis = FVector3f(0.0f, 0.0f, 1.0f);
     }
@@ -402,7 +402,7 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
     }
     else
     {
-        // Manual 모드: Dummy SDF 텍스처 바인딩 (RDG 요구사항)
+        // VirtualRing 모드: Dummy SDF 텍스처 바인딩 (RDG 요구사항)
         FRDGTextureDesc DummySDFDesc = FRDGTextureDesc::Create3D(
             FIntVector(1, 1, 1),
             PF_R32_FLOAT,
@@ -421,7 +421,7 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
         PassParameters->ComponentToSDFLocal = FMatrix44f::Identity;
         PassParameters->SDFLocalToComponent = FMatrix44f::Identity;
         PassParameters->SDFInfluenceFalloffDistance = 5.0f;
-        // Manual 모드: 기본값 바인딩 (사용 안함)
+        // VirtualRing 모드: 기본값 바인딩 (사용 안함)
         PassParameters->SDFLocalRingCenter = FVector3f::ZeroVector;
         PassParameters->SDFLocalRingAxis = FVector3f(0.0f, 0.0f, 1.0f);
     }

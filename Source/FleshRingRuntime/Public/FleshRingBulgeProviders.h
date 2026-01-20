@@ -50,7 +50,7 @@ private:
 };
 
 /**
- * Manual 모드용 Bulge 영역 계산
+ * VirtualRing 모드용 Bulge 영역 계산
  * Ring 파라미터(RingCenter, RingAxis, RingRadius, RingHeight)를 직접 받아서
  * SDF 없이 Bulge 영역을 계산
  *

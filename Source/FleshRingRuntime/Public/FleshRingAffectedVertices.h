@@ -708,8 +708,8 @@ public:
     }
 
     /**
-     * Select post-processing vertices for Manual mode (Z-extended range)
-     * Manual 모드용 후처리 버텍스 선택 (Z 확장 범위)
+     * Select post-processing vertices for VirtualRing mode (Z-extended range)
+     * VirtualRing 모드용 후처리 버텍스 선택 (Z 확장 범위)
      *
      * Ring 파라미터(RingCenter, RingAxis, RingHeight) 기반으로 후처리 버텍스 선택.
      * SDF 없이 Component Space에서 직접 계산.
@@ -776,7 +776,7 @@ public:
 // Uses: Context.RingSettings.ProceduralBand (4반경, 3높이)
 //
 // Design: SDF 없이 4-반경 가변 형상으로 Tightness 버텍스 선택
-// Manual Mode와의 차이점:
+// VirtualRing Mode와의 차이점:
 // - 고정 반경 대신 GetRadiusAtHeight()로 가변 반경 사용
 // - Band Section(중간)만 Tightness 적용, Upper/Lower는 Bulge용
 
@@ -797,7 +797,7 @@ public:
      * Virtual Band 모드용 후처리 버텍스 선택 (Z 확장 범위)
      *
      * 전체 Virtual Band 높이 + BoundsZTop/Bottom 확장 범위에서 버텍스 선택.
-     * Manual Mode 패턴과 동일한 로직 사용.
+     * VirtualRing Mode 패턴과 동일한 로직 사용.
      *
      * @param Context - Vertex selection context
      * @param AffectedVertices - Already selected affected vertices

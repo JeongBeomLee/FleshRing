@@ -47,13 +47,13 @@ public:
 		SHADER_PARAMETER(float, BulgeRadialRatio)     // Radial vs Axial 방향 비율 (0.0~1.0, 기본 0.7)
 		SHADER_PARAMETER(float, UpperBulgeStrength)   // 상단(축 양수) Bulge 강도 배수
 		SHADER_PARAMETER(float, LowerBulgeStrength)   // 하단(축 음수) Bulge 강도 배수
-		SHADER_PARAMETER(uint32, bUseSDFInfluence)    // 0 = Manual (Component Space), 1 = SDF 모드
+		SHADER_PARAMETER(uint32, bUseSDFInfluence)    // 0 = VirtualRing (Component Space), 1 = SDF 모드
 
 		// Ring Center/Axis (SDF Local Space) - SDF 모드용
 		SHADER_PARAMETER(FVector3f, SDFLocalRingCenter)
 		SHADER_PARAMETER(FVector3f, SDFLocalRingAxis)
 
-		// Ring Center/Axis (Component Space) - Manual 모드용
+		// Ring Center/Axis (Component Space) - VirtualRing 모드용
 		SHADER_PARAMETER(FVector3f, RingCenter)
 		SHADER_PARAMETER(FVector3f, RingAxis)
 		SHADER_PARAMETER(float, RingHeight)
@@ -89,7 +89,7 @@ struct FBulgeDispatchParams
 	float BulgeRadialRatio = 0.7f;	// Radial vs Axial 방향 비율 (0.0~1.0)
 	float UpperBulgeStrength = 1.0f;	// 상단(축 양수) Bulge 강도 배수
 	float LowerBulgeStrength = 1.0f;	// 하단(축 음수) Bulge 강도 배수
-	uint32 bUseSDFInfluence = 1;	// 0 = Manual (Component Space), 1 = SDF 모드
+	uint32 bUseSDFInfluence = 1;	// 0 = VirtualRing (Component Space), 1 = SDF 모드
 
 	// SDF 모드용 파라미터
 	FVector3f SDFBoundsMin = FVector3f::ZeroVector;			// in Ring Local Space
@@ -98,7 +98,7 @@ struct FBulgeDispatchParams
 	FVector3f SDFLocalRingCenter = FVector3f::ZeroVector;
 	FVector3f SDFLocalRingAxis = FVector3f(0.0f, 0.0f, 1.0f);
 
-	// Manual 모드용 파라미터 (Component Space)
+	// VirtualRing 모드용 파라미터 (Component Space)
 	FVector3f RingCenter = FVector3f::ZeroVector;
 	FVector3f RingAxis = FVector3f(0.0f, 0.0f, 1.0f);
 	float RingHeight = 2.0f;

@@ -343,7 +343,7 @@ uint32 UFleshRingAsset::CalculateSubdivisionParamsHash() const
 		// 기본 Ring 식별
 		Hash = HashCombine(Hash, GetTypeHash(Ring.BoneName.ToString()));
 
-		// InfluenceMode (Auto vs Manual)
+		// InfluenceMode (Auto vs VirtualRing)
 		Hash = HashCombine(Hash, GetTypeHash(static_cast<uint8>(Ring.InfluenceMode)));
 
 		// Auto 모드: RingMesh 바운드 + 트랜스폼이 영역에 영향
@@ -355,7 +355,7 @@ uint32 UFleshRingAsset::CalculateSubdivisionParamsHash() const
 		Hash = HashCombine(Hash, GetTypeHash(Ring.MeshRotation.ToString()));
 		Hash = HashCombine(Hash, GetTypeHash(Ring.MeshScale.ToString()));
 
-		// Manual 모드: Torus 파라미터가 영역에 영향
+		// VirtualRing 모드: Torus 파라미터가 영역에 영향
 		Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(Ring.RingRadius * 10)));
 		Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(Ring.RingHeight * 10)));
 		Hash = HashCombine(Hash, GetTypeHash(Ring.RingOffset.ToString()));
@@ -566,7 +566,7 @@ namespace SubdivisionHelpers
 		// 기본 마진: PostProcess OFF일 때도 최소한의 여유 확보
 		// 변형 경계 영역의 polygon이 너무 거칠어지는 것 방지
 		constexpr float DefaultZMargin = 3.0f;  // cm
-		constexpr float DefaultRadialMargin = 1.5f;  // cm (Manual 모드용)
+		constexpr float DefaultRadialMargin = 1.5f;  // cm (VirtualRing 모드용)
 
 		if (Ring.InfluenceMode == EFleshRingInfluenceMode::Auto && !Ring.RingMesh.IsNull())
 		{
@@ -611,7 +611,7 @@ namespace SubdivisionHelpers
 		else
 		{
 			// =====================================
-			// Manual 모드: Torus 영역 기반
+			// VirtualRing 모드: Torus 영역 기반
 			// =====================================
 			FVector LocalOffset = Ring.RingRotation.RotateVector(Ring.RingOffset);
 			FVector Center = BoneTransform.GetLocation() + LocalOffset;
@@ -1334,7 +1334,7 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 
 		}
 
-		// ★ Manual 모드 Ring 파라미터 변경 시 디버그 시각화 갱신
+		// ★ VirtualRing 모드 Ring 파라미터 변경 시 디버그 시각화 갱신
 		// ★ AffectedLayerMask 변경 시 Affected Vertices 재수집 필요
 		if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingRadius) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingThickness) ||
@@ -1754,7 +1754,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 			}
 			else
 			{
-				// Manual 모드: Torus 파라미터 사용
+				// VirtualRing 모드: Torus 파라미터 사용
 				RingParams.bUseSDFBounds = false;
 
 				FVector LocalOffset = Ring.RingRotation.RotateVector(Ring.RingOffset);

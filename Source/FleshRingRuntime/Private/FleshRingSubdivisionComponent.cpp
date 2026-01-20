@@ -339,7 +339,7 @@ void UFleshRingSubdivisionComponent::ComputeSubdivision()
 		{
 			// SDF 캐시가 없으면 Manual 모드로 폴백
 			UE_LOG(LogFleshRingSubdivision, Warning,
-				TEXT("SDF cache not available, falling back to Manual mode"));
+				TEXT("SDF cache not available, falling back to VirtualRing mode"));
 			RingParams.bUseSDFBounds = false;
 			RingParams.Center = Ring.RingOffset;
 			RingParams.Axis = FVector::UpVector;
@@ -349,7 +349,7 @@ void UFleshRingSubdivisionComponent::ComputeSubdivision()
 	}
 	else
 	{
-		// Manual 모드: 기존 기하학적 방식
+		// VirtualRing 모드: 기존 기하학적 방식
 		RingParams.bUseSDFBounds = false;
 		RingParams.Center = Ring.RingOffset;
 		RingParams.Axis = FVector::UpVector; // TODO: Bone 방향에서 계산
@@ -388,7 +388,7 @@ void UFleshRingSubdivisionComponent::ComputeSubdivision()
 		const int32 AddedVertices = TopologyResult.SubdividedVertexCount - TopologyResult.OriginalVertexCount;
 		const int32 AddedTriangles = TopologyResult.SubdividedTriangleCount - TopologyResult.OriginalTriangleCount;
 		const bool bWasSubdivided = (AddedVertices > 0 || AddedTriangles > 0);
-		const FString ModeStr = RingParams.bUseSDFBounds ? TEXT("SDF") : TEXT("Manual");
+		const FString ModeStr = RingParams.bUseSDFBounds ? TEXT("SDF") : TEXT("VirtualRing");
 
 		// 항상 로그 출력 (Subdivision 발생 여부 확인용)
 		if (bWasSubdivided)

@@ -197,7 +197,7 @@ FVector3f FSDFBulgeProvider::DetectRingAxis() const
 }
 
 // ============================================================================
-// FManualBulgeProvider - Manual 모드용 Bulge 영역 계산
+// FManualBulgeProvider - VirtualRing 모드용 Bulge 영역 계산
 // ============================================================================
 
 void FManualBulgeProvider::InitFromRingParams(
@@ -230,7 +230,7 @@ void FManualBulgeProvider::CalculateBulgeRegion(
 	// 유효성 검사
 	if (RingRadius <= KINDA_SMALL_NUMBER || RingHeight <= KINDA_SMALL_NUMBER)
 	{
-		UE_LOG(LogFleshRingBulge, Warning, TEXT("Manual Bulge: Ring 파라미터가 유효하지 않음 (Radius=%.2f, Width=%.2f)"),
+		UE_LOG(LogFleshRingBulge, Warning, TEXT("VirtualRing Bulge: Ring 파라미터가 유효하지 않음 (Radius=%.2f, Width=%.2f)"),
 			RingRadius, RingHeight);
 		return;
 	}
@@ -257,7 +257,7 @@ void FManualBulgeProvider::CalculateBulgeRegion(
 		// Component Space에서 직접 AABB 쿼리 (Identity Transform 사용)
 		SpatialHash->QueryOBB(FTransform::Identity, ExpandedMin, ExpandedMax, CandidateIndices);
 
-		UE_LOG(LogFleshRingBulge, Verbose, TEXT("Manual Bulge SpatialHash: %d 후보 (전체 %d 중, %.1f%%)"),
+		UE_LOG(LogFleshRingBulge, Verbose, TEXT("VirtualRing Bulge SpatialHash: %d 후보 (전체 %d 중, %.1f%%)"),
 			CandidateIndices.Num(), TotalVertexCount,
 			TotalVertexCount > 0 ? (100.0f * CandidateIndices.Num() / TotalVertexCount) : 0.0f);
 	}
@@ -269,7 +269,7 @@ void FManualBulgeProvider::CalculateBulgeRegion(
 		{
 			CandidateIndices.Add(i);
 		}
-		UE_LOG(LogFleshRingBulge, Verbose, TEXT("Manual Bulge 브루트포스: SpatialHash 없음, 전체 %d 버텍스 순회"), TotalVertexCount);
+		UE_LOG(LogFleshRingBulge, Verbose, TEXT("VirtualRing Bulge 브루트포스: SpatialHash 없음, 전체 %d 버텍스 순회"), TotalVertexCount);
 	}
 
 	OutBulgeVertexIndices.Reserve(CandidateIndices.Num() / 5);
@@ -334,7 +334,7 @@ void FManualBulgeProvider::CalculateBulgeRegion(
 		}
 	}
 
-	UE_LOG(LogFleshRingBulge, Verbose, TEXT("Manual Bulge 필터링: 후보=%d, Axial통과=%d, Radial통과=%d, 최종=%d (%.1f%%)"),
+	UE_LOG(LogFleshRingBulge, Verbose, TEXT("VirtualRing Bulge 필터링: 후보=%d, Axial통과=%d, Radial통과=%d, 최종=%d (%.1f%%)"),
 		CandidateIndices.Num(),
 		AxialPassCount,
 		RadialPassCount,

@@ -192,7 +192,7 @@ struct FSubdivisionRingParams
 	bool bUseSDFBounds = false;
 
 	// =====================================
-	// Manual 모드용 파라미터
+	// VirtualRing 모드용 파라미터
 	// =====================================
 	FVector Center = FVector::ZeroVector;
 	FVector Axis = FVector::UpVector;

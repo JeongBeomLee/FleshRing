@@ -171,7 +171,7 @@ public:
 
 /**
  * Bulge 영역 계산 인터페이스
- * SDF 기반, Manual 모드 등 다양한 방식 지원
+ * SDF 기반, VirtualRing 모드 등 다양한 방식 지원
  */
 class IBulgeRegionProvider
 {

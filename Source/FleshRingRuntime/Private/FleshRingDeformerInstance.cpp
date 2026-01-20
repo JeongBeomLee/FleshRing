@@ -538,14 +538,14 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		}
 
 		// ===== ProceduralBand 파라미터 설정 (SDF 무관하게 항상 설정) =====
-		// GPU InfluenceMode: 0=Auto/SDF, 1=Manual, 2=ProceduralBand
+		// GPU InfluenceMode: 0=Auto/SDF, 1=VirtualRing, 2=ProceduralBand
 		// Note: bUseSDFInfluence가 1이면 SDF 모드 사용, 0이면 InfluenceMode에 따라 분기
 		switch (RingInfluenceMode)
 		{
 		case EFleshRingInfluenceMode::Auto:
 			DispatchData.Params.InfluenceMode = 0;
 			break;
-		case EFleshRingInfluenceMode::Manual:
+		case EFleshRingInfluenceMode::VirtualRing:
 			DispatchData.Params.InfluenceMode = 1;
 			break;
 		case EFleshRingInfluenceMode::ProceduralBand:
@@ -746,7 +746,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		}
 		else
 		{
-			// Manual 모드: 고정 반경 기반 Bulge
+			// VirtualRing 모드: 고정 반경 기반 Bulge
 			FManualBulgeProvider BulgeProvider;
 			BulgeProvider.InitFromRingParams(
 				FVector3f(DispatchData.Params.RingCenter),

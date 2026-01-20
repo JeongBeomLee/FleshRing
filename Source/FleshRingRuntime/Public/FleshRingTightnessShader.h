@@ -51,7 +51,7 @@ public:
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, AffectedIndices)
 
         // NOTE: Influences 버퍼 제거됨 - GPU에서 직접 Influence 계산
-        // (Manual: CalculateManualInfluence, ProceduralBand: CalculateProceduralBandInfluence)
+        // (VirtualRing: CalculateManualInfluence, ProceduralBand: CalculateProceduralBandInfluence)
 
         // Input: Representative vertex indices for UV seam welding
         // 입력: UV seam 용접을 위한 대표 버텍스 인덱스
@@ -126,9 +126,9 @@ public:
         SHADER_PARAMETER(float, TightnessStrength)    // 조이기 강도
         SHADER_PARAMETER(float, RingRadius)           // 링 내부 반지름
         SHADER_PARAMETER(float, RingHeight)            // 링 높이 (축 방향)
-        SHADER_PARAMETER(float, RingThickness)        // 링 두께 (Radial falloff 범위) - Manual 모드 GPU Influence 계산용
-        SHADER_PARAMETER(uint32, FalloffType)         // Falloff 타입 (0=Linear, 1=Quadratic, 2=Hermite) - Manual 모드 GPU Influence 계산용
-        SHADER_PARAMETER(uint32, InfluenceMode)       // Influence 모드 (0=Auto/SDF, 1=Manual, 2=ProceduralBand)
+        SHADER_PARAMETER(float, RingThickness)        // 링 두께 (Radial falloff 범위) - VirtualRing 모드 GPU Influence 계산용
+        SHADER_PARAMETER(uint32, FalloffType)         // Falloff 타입 (0=Linear, 1=Quadratic, 2=Hermite) - VirtualRing 모드 GPU Influence 계산용
+        SHADER_PARAMETER(uint32, InfluenceMode)       // Influence 모드 (0=Auto/SDF, 1=VirtualRing, 2=ProceduralBand)
 
         // ===== ProceduralBand (Virtual Band) Parameters =====
         // ===== 가상 밴드 파라미터 (가변 반경 GPU Influence 계산용) =====
@@ -170,7 +170,7 @@ public:
         SHADER_PARAMETER(FVector3f, SDFBoundsMin)
         SHADER_PARAMETER(FVector3f, SDFBoundsMax)
 
-        // SDF 영향 모드 (0 = Manual, 1 = Auto/SDF-based)
+        // SDF 영향 모드 (0 = VirtualRing, 1 = Auto/SDF-based)
         SHADER_PARAMETER(uint32, bUseSDFInfluence)
 
         // 컴포넌트 스페이스 → SDF 로컬 스페이스 변환 행렬 (OBB 지원)
@@ -268,19 +268,19 @@ struct FTightnessDispatchParams
     float RingHeight;
 
     /**
-     * Ring thickness (radial falloff range) - Manual mode GPU Influence calculation
-     * 링 두께 (Radial falloff 범위) - Manual 모드 GPU Influence 계산용
+     * Ring thickness (radial falloff range) - VirtualRing mode GPU Influence calculation
+     * 링 두께 (Radial falloff 범위) - VirtualRing 모드 GPU Influence 계산용
      */
     float RingThickness;
 
     /**
-     * Falloff type (0=Linear, 1=Quadratic, 2=Hermite) - Manual mode GPU Influence calculation
-     * Falloff 타입 - Manual 모드 GPU Influence 계산용
+     * Falloff type (0=Linear, 1=Quadratic, 2=Hermite) - VirtualRing mode GPU Influence calculation
+     * Falloff 타입 - VirtualRing 모드 GPU Influence 계산용
      */
     uint32 FalloffType;
 
     /**
-     * Influence mode (0=Auto/SDF, 1=Manual, 2=ProceduralBand)
+     * Influence mode (0=Auto/SDF, 1=VirtualRing, 2=ProceduralBand)
      * Influence 계산 모드
      */
     uint32 InfluenceMode;
@@ -379,7 +379,7 @@ struct FTightnessDispatchParams
     FVector3f SDFBoundsMax;
 
     /**
-     * Use SDF-based influence calculation (0=Manual, 1=SDF Auto)
+     * Use SDF-based influence calculation (0=VirtualRing, 1=SDF Auto)
      * SDF 기반 영향도 계산 사용 (0=수동, 1=SDF 자동)
      */
     uint32 bUseSDFInfluence;
@@ -493,7 +493,7 @@ struct FTightnessDispatchParams
         , RingHeight(2.0f)
         , RingThickness(2.0f)
         , FalloffType(0)
-        , InfluenceMode(1)  // Default: Manual (SDF가 없을 때)
+        , InfluenceMode(1)  // Default: VirtualRing (SDF가 없을 때)
         , LowerRadius(9.0f)
         , MidLowerRadius(8.0f)
         , MidUpperRadius(8.0f)
@@ -651,7 +651,7 @@ inline FTightnessDispatchParams CreateTightnessParamsWithSkinning_Deprecated(
  *                                변형된 위치 출력 버퍼 (UAV)
  * @param SDFTexture - (Optional) SDF 3D texture for Auto influence mode
  *                     (옵션) SDF 자동 영향 모드용 3D 텍스처
- *                     nullptr이면 Manual 모드 (Influences 버퍼 사용)
+ *                     nullptr이면 VirtualRing 모드 (Influences 버퍼 사용)
  * @param VolumeAccumBuffer - (Optional) Volume accumulation buffer for Bulge pass
  *                            (옵션) Bulge 패스용 부피 누적 버퍼
  *                            nullptr이면 부피 누적 비활성화

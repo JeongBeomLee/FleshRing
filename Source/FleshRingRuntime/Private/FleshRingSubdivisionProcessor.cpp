@@ -357,7 +357,7 @@ bool FFleshRingSubdivisionProcessor::Process(FSubdivisionTopologyResult& OutResu
 			}
 			else
 			{
-				// Manual 모드: 기존 Torus 방식 (Legacy)
+				// VirtualRing 모드: 기존 Torus 방식 (Legacy)
 				FTorusParams TorusParams;
 				TorusParams.Center = CurrentRingParams.Center;
 				TorusParams.Axis = CurrentRingParams.Axis.GetSafeNormal();
@@ -694,7 +694,7 @@ bool FFleshRingSubdivisionProcessor::NeedsRecomputation(const FSubdivisionRingPa
 		}
 		else
 		{
-			// Manual 모드: 기존 방식
+			// VirtualRing 모드: 기존 방식
 			float CenterDist = FVector::Dist(CachedRingParams.Center, NewRingParams.Center);
 			float AxisDot = FVector::DotProduct(CachedRingParams.Axis.GetSafeNormal(), NewRingParams.Axis.GetSafeNormal());
 

@@ -744,10 +744,10 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	{
 		uint8 ModeValue = 0;
 		InfluenceModeHandle->GetValue(ModeValue);
-		bIsManualMode = (static_cast<EFleshRingInfluenceMode>(ModeValue) == EFleshRingInfluenceMode::Manual);
+		bIsManualMode = (static_cast<EFleshRingInfluenceMode>(ModeValue) == EFleshRingInfluenceMode::VirtualRing);
 	}
 
-	// Manual 모드 동적 체크용 TAttribute (Ring Transform에 사용)
+	// VirtualRing 모드 동적 체크용 TAttribute (Ring Transform에 사용)
 	TAttribute<bool> IsManualModeAttr = TAttribute<bool>::Create([InfluenceModeHandle]() -> bool
 	{
 		if (!InfluenceModeHandle.IsValid())
@@ -756,7 +756,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		}
 		uint8 ModeValue = 0;
 		InfluenceModeHandle->GetValue(ModeValue);
-		return static_cast<EFleshRingInfluenceMode>(ModeValue) == EFleshRingInfluenceMode::Manual;
+		return static_cast<EFleshRingInfluenceMode>(ModeValue) == EFleshRingInfluenceMode::VirtualRing;
 	});
 
 	// Auto(SDF) 모드 동적 체크용 TAttribute (SDF Bounds Expand에 사용)
@@ -1137,7 +1137,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			);
 	}
 
-	// ----- Ring Transform 서브그룹 (Manual 모드용) -----
+	// ----- Ring Transform 서브그룹 (VirtualRing 모드용) -----
 	IDetailGroup& RingTransformSubGroup = RingDefinitionGroup.AddGroup(TEXT("RingTransform"), LOCTEXT("RingTransformSubGroup", "Ring Transform"));
 	RingTransformSubGroup.HeaderRow()
 		.NameContent()

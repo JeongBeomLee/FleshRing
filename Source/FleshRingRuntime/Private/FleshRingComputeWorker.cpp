@@ -417,11 +417,11 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				}
 				else
 				{
-					// [DEBUG] TightnessCS Dispatch Manual 로그 (필요시 주석 해제)
+					// [DEBUG] TightnessCS Dispatch VirtualRing 로그 (필요시 주석 해제)
 					// static bool bLoggedManualDispatch = false;
 					// if (!bLoggedManualDispatch)
 					// {
-					// 	UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] TightnessCS Dispatch: Manual Mode, Verts=%d, Strength=%.2f"),
+					// 	UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] TightnessCS Dispatch: VirtualRing Mode, Verts=%d, Strength=%.2f"),
 					// 		Params.NumAffectedVertices, Params.TightnessStrength);
 					// 	bLoggedManualDispatch = true;
 					// }
@@ -547,7 +547,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				BulgeParams.UpperBulgeStrength = DispatchData.UpperBulgeStrength;  // 상단 강도 배수
 				BulgeParams.LowerBulgeStrength = DispatchData.LowerBulgeStrength;  // 하단 강도 배수
 
-				// SDF 모드 vs Manual 모드 분기
+				// SDF 모드 vs VirtualRing 모드 분기
 				BulgeParams.bUseSDFInfluence = DispatchData.bHasValidSDF ? 1 : 0;
 
 				if (DispatchData.bHasValidSDF)
@@ -561,7 +561,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				}
 				else
 				{
-					// Manual 모드: Component Space 파라미터 설정
+					// VirtualRing 모드: Component Space 파라미터 설정
 					BulgeParams.RingCenter = DispatchData.Params.RingCenter;
 					BulgeParams.RingAxis = DispatchData.Params.RingAxis;
 					BulgeParams.RingHeight = DispatchData.Params.RingHeight;

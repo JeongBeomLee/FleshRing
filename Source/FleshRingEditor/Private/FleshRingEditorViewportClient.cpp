@@ -1081,8 +1081,8 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 			PDI->SetHitProxy(nullptr);
 		}
 
-		// Manual 모드일 때만 Ring 기즈모 표시 (SDF 모드에서는 Radius가 의미 없음)
-		if (Ring.InfluenceMode != EFleshRingInfluenceMode::Manual)
+		// VirtualRing 모드일 때만 Ring 기즈모 표시 (SDF 모드에서는 Radius가 의미 없음)
+		if (Ring.InfluenceMode != EFleshRingInfluenceMode::VirtualRing)
 		{
 			// VirtualBand 모드: 4-레이어 밴드 기즈모
 			if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
@@ -1366,10 +1366,10 @@ FVector FFleshRingEditorViewportClient::GetWidgetLocation() const
 	FVector BoneLocation = BoneTransform.GetLocation();
 
 	// 선택 타입에 따라 다른 오프셋 적용
-	// Manual Gizmo 선택 → RingOffset 사용 (밴드 트랜스폼)
+	// VirtualRing Gizmo 선택 → RingOffset 사용 (밴드 트랜스폼)
 	// Mesh 선택 또는 Auto 모드 → MeshOffset 사용 (메시 트랜스폼)
 	if (SelectionType == EFleshRingSelectionType::Gizmo &&
-		Ring.InfluenceMode == EFleshRingInfluenceMode::Manual)
+		Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualRing)
 	{
 		return BoneLocation + BoneTransform.GetRotation().RotateVector(Ring.RingOffset);
 	}
@@ -1451,9 +1451,9 @@ FMatrix FFleshRingEditorViewportClient::GetSelectedRingAlignMatrix() const
 			FQuat CurrentRotation;
 			if (SelectionType == EFleshRingSelectionType::Gizmo)
 			{
-				if (Ring.InfluenceMode == EFleshRingInfluenceMode::Manual)
+				if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualRing)
 				{
-					// Manual Gizmo 선택은 RingRotation 사용
+					// VirtualRing Gizmo 선택은 RingRotation 사용
 					CurrentRotation = Ring.RingRotation;
 				}
 				else if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
@@ -1664,9 +1664,9 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 				Ring.MeshScale.Z = FMath::Max(Ring.MeshScale.Z, 0.01f);
 			}
 		}
-		else if (Ring.InfluenceMode == EFleshRingInfluenceMode::Manual)
+		else if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualRing)
 		{
-			// Manual 모드: RingOffset/RingRotation 사용
+			// VirtualRing 모드: RingOffset/RingRotation 사용
 			Ring.RingOffset += LocalDrag;
 
 			if (bIsDraggingRotation)
@@ -1949,7 +1949,7 @@ void FFleshRingEditorViewportClient::TrackingStarted(const FInputEventState& InI
 					FQuat CurrentRotation;
 					if (SelectionType == EFleshRingSelectionType::Gizmo)
 					{
-						if (Ring.InfluenceMode == EFleshRingInfluenceMode::Manual)
+						if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualRing)
 						{
 							CurrentRotation = Ring.RingRotation;
 						}

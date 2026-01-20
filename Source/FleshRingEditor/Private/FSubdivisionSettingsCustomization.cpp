@@ -425,7 +425,7 @@ FReply FSubdivisionSettingsCustomization::OnBakeMeshClicked()
 		// 초기화 후에도 Deformer가 없으면 에러
 		if (!PreviewComponent->GetDeformer())
 		{
-			UE_LOG(LogTemp, Warning, TEXT("Cannot bake mesh: Failed to initialize Deformer. Please check Ring settings (need valid SDF or Manual mode)."));
+			UE_LOG(LogTemp, Warning, TEXT("Cannot bake mesh: Failed to initialize Deformer. Please check Ring settings (need valid SDF or VirtualRing mode)."));
 			return FReply::Handled();
 		}
 	}
