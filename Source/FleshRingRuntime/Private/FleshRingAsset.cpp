@@ -1265,7 +1265,7 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 	{
 		Ring.RingRotation = Ring.RingEulerRotation.Quaternion();
 		Ring.MeshRotation = Ring.MeshEulerRotation.Quaternion();
-		Ring.ProceduralBand.BandRotation = Ring.ProceduralBand.BandEulerRotation.Quaternion();
+		Ring.VirtualBand.BandRotation = Ring.VirtualBand.BandEulerRotation.Quaternion();
 	}
 
 	// RingName 고유성 보장 (빈 이름 및 중복 이름 처리)
@@ -1360,36 +1360,36 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 			bNeedsFullRefresh = true;
 		}
 
-		// ProceduralBand 관련 프로퍼티 변경 감지
-		// MemberProperty 체인을 확인하여 ProceduralBand 하위 프로퍼티인지 검사
-		bool bIsProceduralBandProperty = false;
+		// VirtualBand 관련 프로퍼티 변경 감지
+		// MemberProperty 체인을 확인하여 VirtualBand 하위 프로퍼티인지 검사
+		bool bIsVirtualBandProperty = false;
 
 		// 직접 프로퍼티 이름 체크 (VirtualBand 관련)
-		if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, ProceduralBand) ||
-			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSettings, MidUpperRadius) ||
-			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSettings, MidLowerRadius) ||
-			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSettings, BandHeight) ||
-			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSettings, BandThickness) ||
-			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSettings, Upper) ||
-			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSettings, Lower) ||
-			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSettings, RadialSegments) ||
-			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSection, Radius) ||
-			PropName == GET_MEMBER_NAME_CHECKED(FProceduralBandSection, Height))
+		if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, VirtualBand) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FVirtualBandSettings, MidUpperRadius) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FVirtualBandSettings, MidLowerRadius) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FVirtualBandSettings, BandHeight) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FVirtualBandSettings, BandThickness) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FVirtualBandSettings, Upper) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FVirtualBandSettings, Lower) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FVirtualBandSettings, RadialSegments) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FVirtualBandSection, Radius) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FVirtualBandSection, Height))
 		{
-			bIsProceduralBandProperty = true;
+			bIsVirtualBandProperty = true;
 		}
 
-		// MemberProperty 체인에서 ProceduralBand 찾기
-		if (!bIsProceduralBandProperty && PropertyChangedEvent.MemberProperty)
+		// MemberProperty 체인에서 VirtualBand 찾기
+		if (!bIsVirtualBandProperty && PropertyChangedEvent.MemberProperty)
 		{
 			FName MemberName = PropertyChangedEvent.MemberProperty->GetFName();
-			if (MemberName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, ProceduralBand))
+			if (MemberName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, VirtualBand))
 			{
-				bIsProceduralBandProperty = true;
+				bIsVirtualBandProperty = true;
 			}
 		}
 
-		if (bIsProceduralBandProperty)
+		if (bIsVirtualBandProperty)
 		{
 			bNeedsFullRefresh = true;
 		}
@@ -1425,7 +1425,7 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 	}
 
 	// 구조적 변경 시에만 전체 리프레시 브로드캐스트
-	// ProceduralBand 프로퍼티는 드래그 끝날 때(ValueSet)만 갱신 (Interactive 제외)
+	// VirtualBand 프로퍼티는 드래그 끝날 때(ValueSet)만 갱신 (Interactive 제외)
 	if (bNeedsFullRefresh && PropertyChangedEvent.ChangeType != EPropertyChangeType::Interactive)
 	{
 		OnAssetChanged.Broadcast(this);

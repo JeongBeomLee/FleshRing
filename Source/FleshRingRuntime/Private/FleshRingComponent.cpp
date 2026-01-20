@@ -6,8 +6,8 @@
 #include "FleshRingMeshComponent.h"
 #include "FleshRingMeshExtractor.h"
 #include "FleshRingSDF.h"
-#include "FleshRingProceduralMesh.h"
-#include "FleshRingProceduralBandSDF.h"
+#include "FleshRingVirtualBandMesh.h"
+#include "FleshRingVirtualBandSDF.h"
 #include "FleshRingDeformerInstance.h"
 #include "FleshRingBulgeTypes.h"
 #include "FleshRingFalloff.h"
@@ -82,9 +82,9 @@ bool UFleshRingComponent::HasAnyNonSDFRings() const
 	}
 	for (const FFleshRingSettings& RingSettings : FleshRingAsset->Rings)
 	{
-		// VirtualRing 또는 ProceduralBand 모드는 SDF 없이 동작 (거리 기반 로직)
+		// VirtualRing 또는 VirtualBand 모드는 SDF 없이 동작 (거리 기반 로직)
 		if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualRing ||
-			RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+			RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 		{
 			return true;
 		}
@@ -612,18 +612,18 @@ void UFleshRingComponent::GenerateSDF()
 	// Ring 개수만큼 캐시 배열 미리 할당 (렌더 스레드에서 인덱스로 접근)
 	RingSDFCaches.SetNum(FleshRingAsset->Rings.Num());
 
-	// 각 Ring의 RingMesh 또는 ProceduralBand에서 SDF 생성
+	// 각 Ring의 RingMesh 또는 VirtualBand에서 SDF 생성
 	for (int32 RingIndex = 0; RingIndex < FleshRingAsset->Rings.Num(); ++RingIndex)
 	{
 		const FFleshRingSettings& Ring = FleshRingAsset->Rings[RingIndex];
 
-		// ===== ProceduralBand 모드: SDF 불필요, 스킵 (거리 기반 로직 사용) =====
-		// ProceduralBand 모드는 FVirtualBandVertexSelector/FVirtualBandInfluenceProvider로
+		// ===== VirtualBand 모드: SDF 불필요, 스킵 (거리 기반 로직 사용) =====
+		// VirtualBand 모드는 FVirtualBandVertexSelector/FVirtualBandInfluenceProvider로
 		// BandSettings 파라미터를 직접 사용하여 거리 기반 Tight/Bulge 계산
 		// SDF 텍스처 없이 동작하므로 생성 스킵
-		if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+		if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 		{
-			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] is ProceduralBand mode, SDF generation skipped (using distance-based logic)"), RingIndex);
+			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] is VirtualBand mode, SDF generation skipped (using distance-based logic)"), RingIndex);
 			continue;
 		}
 
@@ -1322,9 +1322,9 @@ void UFleshRingComponent::SetupRingMeshes()
 	{
 		const FFleshRingSettings& Ring = FleshRingAsset->Rings[RingIndex];
 
-		// ProceduralBand 모드: 기즈모로 피킹 (Manual 모드와 동일 방식)
+		// VirtualBand 모드: 기즈모로 피킹 (Manual 모드와 동일 방식)
 		// SDF 생성은 GenerateSDF()에서 직접 처리하므로 여기서는 메시 컴포넌트 생성 안 함
-		if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+		if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 		{
 			RingMeshComponents.Add(nullptr);
 			continue;
@@ -1560,9 +1560,9 @@ void UFleshRingComponent::DrawDebugVisualization()
 		}
 
 		// Virtual Band debug wireframe 비활성화 (코드 보존)
-		// if (bShowProceduralBandWireframe)
+		// if (bShowVirtualBandWireframe)
 		// {
-		// 	DrawProceduralBandWireframe(RingIndex);
+		// 	DrawVirtualBandWireframe(RingIndex);
 		// }
 
 		if (bShowBulgeHeatmap)
@@ -2321,7 +2321,7 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 
 		// Ring별 InfluenceMode에 따라 분기
 		// - Auto: SDF 유효할 때만 SDF 기반
-		// - ProceduralBand: 항상 거리 기반 (가변 반경)
+		// - VirtualBand: 항상 거리 기반 (가변 반경)
 		// - VirtualRing: 항상 거리 기반 (고정 반경)
 		const bool bUseSDFForThisRing =
 			(RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto) &&
@@ -2378,13 +2378,13 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 				RingData.Vertices.Add(AffectedVert);
 			}
 		}
-		else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+		else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 		{
 			// Virtual Band debug visualization 비활성화 (코드 보존)
 			/*
 			// ===== Virtual Band 모드 (SDF 무효): 가변 반경 거리 기반 =====
 			// 전용 BandOffset/BandRotation 사용
-			const FProceduralBandSettings& BandSettings = RingSettings.ProceduralBand;
+			const FVirtualBandSettings& BandSettings = RingSettings.VirtualBand;
 			const FQuat BoneRotation = BoneTransform.GetRotation();
 			const FVector WorldBandOffset = BoneRotation.RotateVector(BandSettings.BandOffset);
 			const FVector BandCenter = BoneTransform.GetLocation() + WorldBandOffset;
@@ -2573,7 +2573,7 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 		DebugAffectedData.Num(), DebugBindPoseVertices.Num());
 }
 
-void UFleshRingComponent::DrawProceduralBandWireframe(int32 RingIndex)
+void UFleshRingComponent::DrawVirtualBandWireframe(int32 RingIndex)
 {
 	UWorld* World = GetWorld();
 	if (!World || !FleshRingAsset)
@@ -2589,15 +2589,15 @@ void UFleshRingComponent::DrawProceduralBandWireframe(int32 RingIndex)
 
 	const FFleshRingSettings& Ring = FleshRingAsset->Rings[RingIndex];
 
-	// ProceduralBand 모드가 아니면 스킵
-	if (Ring.InfluenceMode != EFleshRingInfluenceMode::ProceduralBand)
+	// VirtualBand 모드가 아니면 스킵
+	if (Ring.InfluenceMode != EFleshRingInfluenceMode::VirtualBand)
 	{
 		return;
 	}
 
 	// 와이어프레임 라인 생성
 	TArray<TPair<FVector, FVector>> WireframeLines;
-	FleshRingProceduralMesh::GenerateWireframeLines(Ring.ProceduralBand, WireframeLines, 32);
+	FleshRingVirtualBandMesh::GenerateWireframeLines(Ring.VirtualBand, WireframeLines, 32);
 
 	if (WireframeLines.Num() == 0)
 	{
@@ -2606,7 +2606,7 @@ void UFleshRingComponent::DrawProceduralBandWireframe(int32 RingIndex)
 
 	// 트랜스폼 계산: Local → Component → World
 	// Virtual Band 전용 BandOffset/BandRotation 사용
-	const FProceduralBandSettings& BandSettings = Ring.ProceduralBand;
+	const FVirtualBandSettings& BandSettings = Ring.VirtualBand;
 	FTransform BandTransform;
 	BandTransform.SetLocation(BandSettings.BandOffset);
 	BandTransform.SetRotation(BandSettings.BandRotation);
@@ -2622,7 +2622,7 @@ void UFleshRingComponent::DrawProceduralBandWireframe(int32 RingIndex)
 		LocalToWorld = LocalToComponent * SkelMesh->GetComponentTransform();
 	}
 
-	// 와이어프레임 색상 (마젠타 - 프로시저럴 밴드 전용)
+	// 와이어프레임 색상 (마젠타 - 버추얼 밴드 전용)
 	FColor WireColor = FColor::Magenta;
 	float LineThickness = 0.0f;  // 가장 얇은 선
 
@@ -2640,7 +2640,7 @@ void UFleshRingComponent::DrawProceduralBandWireframe(int32 RingIndex)
 	{
 		GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::Magenta,
 			FString::Printf(TEXT("Ring[%d] VirtualBand: MidU=%.1f MidL=%.1f H=%.1f"),
-				RingIndex, Ring.ProceduralBand.MidUpperRadius, Ring.ProceduralBand.MidLowerRadius, Ring.ProceduralBand.BandHeight));
+				RingIndex, Ring.VirtualBand.MidUpperRadius, Ring.VirtualBand.MidLowerRadius, Ring.VirtualBand.BandHeight));
 	}
 }
 
@@ -3225,10 +3225,10 @@ void UFleshRingComponent::DrawBulgeRange(int32 RingIndex)
 	};
 	const float FalloffCorrection = GetFalloffCorrection(RingSettings.BulgeFalloff);
 
-	// ===== ProceduralBand 모드: 가변 반경 형상 =====
-	if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+	// ===== VirtualBand 모드: 가변 반경 형상 =====
+	if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 	{
-		const FProceduralBandSettings& Band = RingSettings.ProceduralBand;
+		const FVirtualBandSettings& Band = RingSettings.VirtualBand;
 
 		// Bone Transform 가져오기
 		FTransform BoneTransform = FTransform::Identity;

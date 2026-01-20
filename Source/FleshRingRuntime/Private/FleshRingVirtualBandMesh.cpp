@@ -1,14 +1,14 @@
 ﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
-#include "FleshRingProceduralMesh.h"
+#include "FleshRingVirtualBandMesh.h"
 
-DEFINE_LOG_CATEGORY_STATIC(LogFleshRingProceduralMesh, Log, All);
+DEFINE_LOG_CATEGORY_STATIC(LogFleshRingVirtualBandMesh, Log, All);
 
-namespace FleshRingProceduralMesh
+namespace FleshRingVirtualBandMesh
 {
 
 void GenerateBandMesh(
-	const FProceduralBandSettings& Settings,
+	const FVirtualBandSettings& Settings,
 	TArray<FVector3f>& OutVertices,
 	TArray<uint32>& OutIndices)
 {
@@ -370,16 +370,16 @@ void GenerateBandMesh(
 	// ========================================
 	// 디버그 출력
 	// ========================================
-	UE_LOG(LogFleshRingProceduralMesh, Log, TEXT("=== VirtualBand Mesh Generated ==="));
-	UE_LOG(LogFleshRingProceduralMesh, Log, TEXT("Settings: MidUpper=%.2f, MidLower=%.2f, Thickness=%.2f, Lower.Radius=%.2f, Upper.Radius=%.2f"),
+	UE_LOG(LogFleshRingVirtualBandMesh, Log, TEXT("=== VirtualBand Mesh Generated ==="));
+	UE_LOG(LogFleshRingVirtualBandMesh, Log, TEXT("Settings: MidUpper=%.2f, MidLower=%.2f, Thickness=%.2f, Lower.Radius=%.2f, Upper.Radius=%.2f"),
 		Settings.MidUpperRadius, Settings.MidLowerRadius, Settings.BandThickness, Settings.Lower.Radius, Settings.Upper.Radius);
-	UE_LOG(LogFleshRingProceduralMesh, Log, TEXT("Vertices: %d, Triangles: %d"), OutVertices.Num(), OutIndices.Num() / 3);
+	UE_LOG(LogFleshRingVirtualBandMesh, Log, TEXT("Vertices: %d, Triangles: %d"), OutVertices.Num(), OutIndices.Num() / 3);
 
 	// 각 레이어의 버텍스 정보
 	for (int32 LayerIdx = 0; LayerIdx < Layers.Num(); LayerIdx++)
 	{
 		const FLayerInfo& Layer = Layers[LayerIdx];
-		UE_LOG(LogFleshRingProceduralMesh, Log, TEXT("Layer[%d]: Z=%.2f, OuterR=%.2f, InnerR=%.2f, NeedsOuterAnnular=%d, NeedsInnerAnnular=%d"),
+		UE_LOG(LogFleshRingVirtualBandMesh, Log, TEXT("Layer[%d]: Z=%.2f, OuterR=%.2f, InnerR=%.2f, NeedsOuterAnnular=%d, NeedsInnerAnnular=%d"),
 			LayerIdx, Layer.Z, Layer.OuterRadius, Layer.InnerRadius,
 			bNeedsOuterAnnular[LayerIdx] ? 1 : 0, bNeedsInnerAnnular[LayerIdx] ? 1 : 0);
 
@@ -394,9 +394,9 @@ void GenerateBandMesh(
 				FVector3f InnerV = OutVertices[InnerIdx];
 				float OuterR = FMath::Sqrt(OuterV.X * OuterV.X + OuterV.Y * OuterV.Y);
 				float InnerR = FMath::Sqrt(InnerV.X * InnerV.X + InnerV.Y * InnerV.Y);
-				UE_LOG(LogFleshRingProceduralMesh, Log, TEXT("  -> Outer[0] idx=%d pos=(%.2f,%.2f,%.2f) R=%.2f"),
+				UE_LOG(LogFleshRingVirtualBandMesh, Log, TEXT("  -> Outer[0] idx=%d pos=(%.2f,%.2f,%.2f) R=%.2f"),
 					OuterIdx, OuterV.X, OuterV.Y, OuterV.Z, OuterR);
-				UE_LOG(LogFleshRingProceduralMesh, Log, TEXT("  -> Inner[0] idx=%d pos=(%.2f,%.2f,%.2f) R=%.2f"),
+				UE_LOG(LogFleshRingVirtualBandMesh, Log, TEXT("  -> Inner[0] idx=%d pos=(%.2f,%.2f,%.2f) R=%.2f"),
 					InnerIdx, InnerV.X, InnerV.Y, InnerV.Z, InnerR);
 			}
 
@@ -408,7 +408,7 @@ void GenerateBandMesh(
 				{
 					FVector3f PrevOuterV = OutVertices[PrevOuterIdx];
 					float PrevOuterR = FMath::Sqrt(PrevOuterV.X * PrevOuterV.X + PrevOuterV.Y * PrevOuterV.Y);
-					UE_LOG(LogFleshRingProceduralMesh, Log, TEXT("  -> PrevOuter[0] idx=%d pos=(%.2f,%.2f,%.2f) R=%.2f"),
+					UE_LOG(LogFleshRingVirtualBandMesh, Log, TEXT("  -> PrevOuter[0] idx=%d pos=(%.2f,%.2f,%.2f) R=%.2f"),
 						PrevOuterIdx, PrevOuterV.X, PrevOuterV.Y, PrevOuterV.Z, PrevOuterR);
 				}
 			}
@@ -419,16 +419,16 @@ void GenerateBandMesh(
 				{
 					FVector3f PrevInnerV = OutVertices[PrevInnerIdx];
 					float PrevInnerR = FMath::Sqrt(PrevInnerV.X * PrevInnerV.X + PrevInnerV.Y * PrevInnerV.Y);
-					UE_LOG(LogFleshRingProceduralMesh, Log, TEXT("  -> PrevInner[0] idx=%d pos=(%.2f,%.2f,%.2f) R=%.2f"),
+					UE_LOG(LogFleshRingVirtualBandMesh, Log, TEXT("  -> PrevInner[0] idx=%d pos=(%.2f,%.2f,%.2f) R=%.2f"),
 						PrevInnerIdx, PrevInnerV.X, PrevInnerV.Y, PrevInnerV.Z, PrevInnerR);
 				}
 			}
 		}
 	}
-	UE_LOG(LogFleshRingProceduralMesh, Log, TEXT("====================================="));
+	UE_LOG(LogFleshRingVirtualBandMesh, Log, TEXT("====================================="));
 }
 
-FBox3f CalculateBandBounds(const FProceduralBandSettings& Settings)
+FBox3f CalculateBandBounds(const FVirtualBandSettings& Settings)
 {
 	const float MaxRadius = Settings.GetMaxRadius();
 	const float TotalHeight = Settings.GetTotalHeight();
@@ -447,7 +447,7 @@ FBox3f CalculateBandBounds(const FProceduralBandSettings& Settings)
 }
 
 void GenerateWireframeLines(
-	const FProceduralBandSettings& Settings,
+	const FVirtualBandSettings& Settings,
 	TArray<TPair<FVector, FVector>>& OutLines,
 	int32 NumSegments)
 {
@@ -532,4 +532,4 @@ void GenerateWireframeLines(
 	}
 }
 
-} // namespace FleshRingProceduralMesh
+} // namespace FleshRingVirtualBandMesh

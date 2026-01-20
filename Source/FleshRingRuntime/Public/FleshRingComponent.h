@@ -228,7 +228,7 @@ public:
 
 	/** VirtualBand 와이어프레임 표시 */
 	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
-	bool bShowProceduralBandWireframe = true;
+	bool bShowVirtualBandWireframe = true;
 
 	/** Bulge 영향 범위 원기둥 표시 */
 	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
@@ -336,7 +336,7 @@ public:
 		return false;
 	}
 
-	/** SDF 없이 동작하는 Ring이 있는지 확인 (VirtualRing/ProceduralBand - 거리 기반 로직) */
+	/** SDF 없이 동작하는 Ring이 있는지 확인 (VirtualRing/VirtualBand - 거리 기반 로직) */
 	bool HasAnyNonSDFRings() const;
 
 	/** SDF 재생성 (에디터에서 VirtualBand 실시간 갱신용) */
@@ -569,7 +569,7 @@ private:
 	void DrawBulgeDirectionArrow(int32 RingIndex);
 
 	/** VirtualBand 와이어프레임 그리기 */
-	void DrawProceduralBandWireframe(int32 RingIndex);
+	void DrawVirtualBandWireframe(int32 RingIndex);
 
 	/** Bulge 영향 범위 원기둥 그리기 */
 	void DrawBulgeRange(int32 RingIndex);

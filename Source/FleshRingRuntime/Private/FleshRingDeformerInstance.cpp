@@ -540,8 +540,8 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			RingInfluenceMode = (*RingSettingsPtr)[RingIndex].InfluenceMode;
 		}
 
-		// ===== ProceduralBand 파라미터 설정 (SDF 무관하게 항상 설정) =====
-		// GPU InfluenceMode: 0=Auto/SDF, 1=VirtualRing, 2=ProceduralBand
+		// ===== VirtualBand 파라미터 설정 (SDF 무관하게 항상 설정) =====
+		// GPU InfluenceMode: 0=Auto/SDF, 1=VirtualRing, 2=VirtualBand
 		// Note: bUseSDFInfluence가 1이면 SDF 모드 사용, 0이면 InfluenceMode에 따라 분기
 		switch (RingInfluenceMode)
 		{
@@ -551,12 +551,12 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		case EFleshRingInfluenceMode::VirtualRing:
 			DispatchData.Params.InfluenceMode = 1;
 			break;
-		case EFleshRingInfluenceMode::ProceduralBand:
+		case EFleshRingInfluenceMode::VirtualBand:
 			DispatchData.Params.InfluenceMode = 2;
-			// ProceduralBand 가변 반경 파라미터 설정
+			// VirtualBand 가변 반경 파라미터 설정
 			if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIndex))
 			{
-				const FProceduralBandSettings& BandSettings = (*RingSettingsPtr)[RingIndex].ProceduralBand;
+				const FVirtualBandSettings& BandSettings = (*RingSettingsPtr)[RingIndex].VirtualBand;
 				DispatchData.Params.LowerRadius = BandSettings.Lower.Radius;
 				DispatchData.Params.MidLowerRadius = BandSettings.MidLowerRadius;
 				DispatchData.Params.MidUpperRadius = BandSettings.MidUpperRadius;
@@ -569,7 +569,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		}
 
 		// SDF 캐시 데이터 전달 (렌더 스레드로 안전하게 복사)
-		// Auto 모드 + SDF 유효할 때만 SDF 모드 사용 (ProceduralBand는 SDF 미생성)
+		// Auto 모드 + SDF 유효할 때만 SDF 모드 사용 (VirtualBand는 SDF 미생성)
 		if (FleshRingComponent.IsValid())
 		{
 			const FRingSDFCache* SDFCache = FleshRingComponent->GetRingSDFCache(RingIndex);
@@ -698,7 +698,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 
 		if (DispatchData.bHasValidSDF)
 		{
-			// Auto/ProceduralBand 모드 + SDF 유효: SDF 바운드 기반 Bulge
+			// Auto/VirtualBand 모드 + SDF 유효: SDF 바운드 기반 Bulge
 			FSDFBulgeProvider BulgeProvider;
 			BulgeProvider.InitFromSDFCache(
 				DispatchData.SDFBoundsMin,
@@ -715,11 +715,11 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				BulgeInfluences,
 				BulgeDirections);
 		}
-		else if (BulgeRingInfluenceMode == EFleshRingInfluenceMode::ProceduralBand &&
+		else if (BulgeRingInfluenceMode == EFleshRingInfluenceMode::VirtualBand &&
 				 RingSettingsPtr && RingSettingsPtr->IsValidIndex(OriginalIdx))
 		{
-			// ProceduralBand 모드 + SDF 무효: 가변 반경 기반 Bulge
-			const FProceduralBandSettings& BandSettings = (*RingSettingsPtr)[OriginalIdx].ProceduralBand;
+			// VirtualBand 모드 + SDF 무효: 가변 반경 기반 Bulge
+			const FVirtualBandSettings& BandSettings = (*RingSettingsPtr)[OriginalIdx].VirtualBand;
 
 			// Band 중심/축 계산 (DispatchData에서 가져옴)
 			FVector3f BandCenter = FVector3f(DispatchData.Params.RingCenter);

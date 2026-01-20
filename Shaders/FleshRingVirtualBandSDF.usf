@@ -1,5 +1,5 @@
 // ============================================================================
-// FleshRingProceduralBandSDF.usf - Mathematical SDF for VirtualBand
+// FleshRingVirtualBandSDF.usf - Mathematical SDF for VirtualBand
 // ============================================================================
 // Purpose: Generate exact SDF using mathematical formulas instead of ray casting
 //          Ray casting 대신 수학 공식으로 정확한 SDF 생성
@@ -140,7 +140,7 @@ void GetRadiiAtHeight(float LocalZ, out float OuterRadius, out float InnerRadius
 //   Positive: Outside the tube (needs to be pushed in)
 // ============================================================================
 
-float ComputeProceduralBandSDF(float3 LocalPos)
+float ComputeVirtualBandSDF(float3 LocalPos)
 {
     float radialDist = length(LocalPos.xy);
     float z = LocalPos.z;
@@ -258,5 +258,5 @@ void MainCS(uint3 ThreadId : SV_DispatchThreadID)
     float3 LocalPos = SDFBoundsMin + VoxelUVW * (SDFBoundsMax - SDFBoundsMin);
 
     // Compute and store SDF
-    OutputSDF[ThreadId] = ComputeProceduralBandSDF(LocalPos);
+    OutputSDF[ThreadId] = ComputeVirtualBandSDF(LocalPos);
 }

@@ -51,7 +51,7 @@ public:
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, AffectedIndices)
 
         // NOTE: Influences 버퍼 제거됨 - GPU에서 직접 Influence 계산
-        // (VirtualRing: CalculateManualInfluence, ProceduralBand: CalculateProceduralBandInfluence)
+        // (VirtualRing: CalculateManualInfluence, VirtualBand: CalculateVirtualBandInfluence)
 
         // Input: Representative vertex indices for UV seam welding
         // 입력: UV seam 용접을 위한 대표 버텍스 인덱스
@@ -128,9 +128,9 @@ public:
         SHADER_PARAMETER(float, RingHeight)            // 링 높이 (축 방향)
         SHADER_PARAMETER(float, RingThickness)        // 링 두께 (Radial falloff 범위) - VirtualRing 모드 GPU Influence 계산용
         SHADER_PARAMETER(uint32, FalloffType)         // Falloff 타입 (0=Linear, 1=Quadratic, 2=Hermite) - VirtualRing 모드 GPU Influence 계산용
-        SHADER_PARAMETER(uint32, InfluenceMode)       // Influence 모드 (0=Auto/SDF, 1=VirtualRing, 2=ProceduralBand)
+        SHADER_PARAMETER(uint32, InfluenceMode)       // Influence 모드 (0=Auto/SDF, 1=VirtualRing, 2=VirtualBand)
 
-        // ===== ProceduralBand (Virtual Band) Parameters =====
+        // ===== VirtualBand (Virtual Band) Parameters =====
         // ===== 가상 밴드 파라미터 (가변 반경 GPU Influence 계산용) =====
         SHADER_PARAMETER(float, LowerRadius)          // 하단 끝 반경
         SHADER_PARAMETER(float, MidLowerRadius)       // 밴드 하단 반경
@@ -280,12 +280,12 @@ struct FTightnessDispatchParams
     uint32 FalloffType;
 
     /**
-     * Influence mode (0=Auto/SDF, 1=VirtualRing, 2=ProceduralBand)
+     * Influence mode (0=Auto/SDF, 1=VirtualRing, 2=VirtualBand)
      * Influence 계산 모드
      */
     uint32 InfluenceMode;
 
-    // =========== ProceduralBand (Virtual Band) Parameters ===========
+    // =========== VirtualBand (Virtual Band) Parameters ===========
     // 가변 반경 기반 GPU Influence 계산용 (Catmull-Rom 스플라인)
 
     /** 하단 끝 반경 (Lower Section 아래쪽) */

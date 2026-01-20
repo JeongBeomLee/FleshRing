@@ -70,7 +70,7 @@ void DispatchFleshRingTightnessCS(
     // ===== 입력 버퍼 바인딩 (SRV) =====
     PassParameters->SourcePositions = GraphBuilder.CreateSRV(SourcePositionsBuffer, PF_R32_FLOAT);
     PassParameters->AffectedIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
-    // NOTE: Influences 버퍼 제거됨 - GPU에서 CalculateManualInfluence/CalculateProceduralBandInfluence로 직접 계산
+    // NOTE: Influences 버퍼 제거됨 - GPU에서 CalculateManualInfluence/CalculateVirtualBandInfluence로 직접 계산
 
     // ===== UV Seam Welding: RepresentativeIndices 바인딩 =====
     // RepresentativeIndices가 nullptr이면 AffectedIndices를 대신 사용 (fallback)
@@ -126,7 +126,7 @@ void DispatchFleshRingTightnessCS(
     PassParameters->FalloffType = Params.FalloffType;
     PassParameters->InfluenceMode = Params.InfluenceMode;
 
-    // ===== ProceduralBand (Virtual Band) Parameters =====
+    // ===== VirtualBand (Virtual Band) Parameters =====
     // ===== 가상 밴드 파라미터 =====
     PassParameters->LowerRadius = Params.LowerRadius;
     PassParameters->MidLowerRadius = Params.MidLowerRadius;
@@ -368,7 +368,7 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
     PassParameters->FalloffType = Params.FalloffType;
     PassParameters->InfluenceMode = Params.InfluenceMode;
 
-    // ===== ProceduralBand (Virtual Band) Parameters =====
+    // ===== VirtualBand (Virtual Band) Parameters =====
     // ===== 가상 밴드 파라미터 =====
     PassParameters->LowerRadius = Params.LowerRadius;
     PassParameters->MidLowerRadius = Params.MidLowerRadius;

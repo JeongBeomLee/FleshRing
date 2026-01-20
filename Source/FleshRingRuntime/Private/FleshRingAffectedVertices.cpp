@@ -1018,10 +1018,10 @@ void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
 
 // ============================================================================
 // FVirtualBandVertexSelector Implementation
-// Virtual Band(ProceduralBand) 모드용 버텍스 선택 구현
+// Virtual Band(VirtualBand) 모드용 버텍스 선택 구현
 // ============================================================================
 
-float FVirtualBandVertexSelector::GetRadiusAtHeight(float LocalZ, const FProceduralBandSettings& BandSettings) const
+float FVirtualBandVertexSelector::GetRadiusAtHeight(float LocalZ, const FVirtualBandSettings& BandSettings) const
 {
     return BandSettings.GetRadiusAtHeight(LocalZ);
 }
@@ -1058,8 +1058,8 @@ void FVirtualBandVertexSelector::SelectVertices(
     const FFleshRingSettings& Ring = Context.RingSettings;
     const TArray<FVector3f>& AllVertices = Context.AllVertices;
 
-    // ProceduralBand 설정 가져오기
-    const FProceduralBandSettings& BandSettings = Ring.ProceduralBand;
+    // VirtualBand 설정 가져오기
+    const FVirtualBandSettings& BandSettings = Ring.VirtualBand;
 
     // 밴드 트랜스폼 계산 (Virtual Band 전용 BandOffset/BandRotation 사용)
     const FTransform& BoneTransform = Context.BoneTransform;
@@ -1204,7 +1204,7 @@ void FVirtualBandVertexSelector::SelectPostProcessingVertices(
     const float BoundsZBottom = Context.RingSettings.SmoothingBoundsZBottom;
     const FFleshRingSettings& Ring = Context.RingSettings;
     const TArray<FVector3f>& AllVertices = Context.AllVertices;
-    const FProceduralBandSettings& BandSettings = Ring.ProceduralBand;
+    const FVirtualBandSettings& BandSettings = Ring.VirtualBand;
 
     // Z 확장이 없으면 원본 Affected Vertices를 그대로 사용
     if (BoundsZTop < 0.01f && BoundsZBottom < 0.01f)
@@ -1561,17 +1561,17 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             RingData.RingThickness = RingSettings.RingThickness;
             RingData.RingHeight = RingSettings.RingHeight;
         }
-        else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+        else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
         {
             // ===== Virtual Band 모드: 전용 BandOffset/BandRotation 사용 =====
-            const FProceduralBandSettings& BandSettings = RingSettings.ProceduralBand;
+            const FVirtualBandSettings& BandSettings = RingSettings.VirtualBand;
             const FVector WorldBandOffset = BoneRotation.RotateVector(BandSettings.BandOffset);
             RingData.RingCenter = BoneTransform.GetLocation() + WorldBandOffset;
 
             const FQuat WorldBandRotation = BoneRotation * BandSettings.BandRotation;
             RingData.RingAxis = WorldBandRotation.RotateVector(FVector::ZAxisVector);
 
-            // ProceduralBand는 밴드 설정에서 반경 사용
+            // VirtualBand는 밴드 설정에서 반경 사용
             RingData.RingRadius = BandSettings.MidUpperRadius;
             RingData.RingThickness = BandSettings.BandThickness;
             RingData.RingHeight = BandSettings.BandHeight;
@@ -1618,7 +1618,7 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
 
         // Ring별 InfluenceMode에 따라 Selector 결정
         // Auto 모드 + SDF 유효 → SDFBoundsBasedSelector
-        // VirtualRing/ProceduralBand 모드 또는 SDF 무효 → DistanceBasedSelector/VirtualBandVertexSelector
+        // VirtualRing/VirtualBand 모드 또는 SDF 무효 → DistanceBasedSelector/VirtualBandVertexSelector
         TSharedPtr<IVertexSelector> RingSelector;
         const bool bUseSDFForThisRing =
             (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto) &&
@@ -1628,9 +1628,9 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         {
             RingSelector = MakeShared<FSDFBoundsBasedVertexSelector>();
         }
-        else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+        else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
         {
-            // ProceduralBand 모드 + SDF 무효 → VirtualBandVertexSelector (거리 기반 가변 반경)
+            // VirtualBand 모드 + SDF 무효 → VirtualBandVertexSelector (거리 기반 가변 반경)
             RingSelector = MakeShared<FVirtualBandVertexSelector>();
         }
         else
@@ -1644,9 +1644,9 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         {
             InfluenceModeStr = TEXT("Auto");
         }
-        else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+        else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
         {
-            InfluenceModeStr = TEXT("ProceduralBand");
+            InfluenceModeStr = TEXT("VirtualBand");
         }
 
         // Selector 이름 결정
@@ -1655,7 +1655,7 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         {
             SelectorStr = TEXT("SDFBoundsBasedSelector");
         }
-        else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+        else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
         {
             SelectorStr = TEXT("VirtualBandVertexSelector");
         }
@@ -1684,9 +1684,9 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             SDFSelector->SelectPostProcessingVertices(Context, RingData.Vertices, RingData);
             // Note: LayerTypes는 FullMeshLayerTypes에서 GPU가 직접 조회
         }
-        else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+        else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
         {
-            // ProceduralBand 모드 (SDF 무효): VirtualBand 기반 Z 확장
+            // VirtualBand 모드 (SDF 무효): VirtualBand 기반 Z 확장
             FVirtualBandVertexSelector* VBSelector = static_cast<FVirtualBandVertexSelector*>(RingSelector.Get());
             VBSelector->SelectPostProcessingVertices(Context, RingData.Vertices, RingData);
             // Note: LayerTypes는 FullMeshLayerTypes에서 GPU가 직접 조회

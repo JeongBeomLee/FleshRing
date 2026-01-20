@@ -772,7 +772,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	});
 
 	// VirtualBand 모드 동적 체크용 TAttribute
-	TAttribute<bool> IsProceduralBandModeAttr = TAttribute<bool>::Create([InfluenceModeHandle]() -> bool
+	TAttribute<bool> IsVirtualBandModeAttr = TAttribute<bool>::Create([InfluenceModeHandle]() -> bool
 	{
 		if (!InfluenceModeHandle.IsValid())
 		{
@@ -780,7 +780,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		}
 		uint8 ModeValue = 0;
 		InfluenceModeHandle->GetValue(ModeValue);
-		return static_cast<EFleshRingInfluenceMode>(ModeValue) == EFleshRingInfluenceMode::ProceduralBand;
+		return static_cast<EFleshRingInfluenceMode>(ModeValue) == EFleshRingInfluenceMode::VirtualBand;
 	});
 
 	// Ring 그룹에 넣을 프로퍼티들 수집
@@ -823,11 +823,11 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	MeshTransformGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshScale));
 
 	// Virtual Band 그룹 프로퍼티 핸들
-	TSharedPtr<IPropertyHandle> ProceduralBandHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, ProceduralBand));
+	TSharedPtr<IPropertyHandle> VirtualBandHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, VirtualBand));
 
 	// Virtual Band 그룹에 들어갈 프로퍼티 이름들
 	TSet<FName> VirtualBandGroupProperties;
-	VirtualBandGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, ProceduralBand));
+	VirtualBandGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, VirtualBand));
 
 	// Smoothing 프로퍼티 핸들 개별 획득
 	// Post Process 최상위 토글
@@ -1257,7 +1257,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			);
 	}
 
-	// ----- Virtual Band 서브그룹 (ProceduralBand 모드용) -----
+	// ----- Virtual Band 서브그룹 (VirtualBand 모드용) -----
 	IDetailGroup& VirtualBandSubGroup = RingDefinitionGroup.AddGroup(TEXT("VirtualBand"), LOCTEXT("VirtualBandSubGroup", "Virtual Band"));
 	VirtualBandSubGroup.HeaderRow()
 		.NameContent()
@@ -1265,18 +1265,18 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			SNew(STextBlock)
 			.Text(LOCTEXT("VirtualBandSubHeader", "Virtual Band"))
 			.Font(IDetailLayoutBuilder::GetDetailFont())
-			.ColorAndOpacity_Lambda([IsProceduralBandModeAttr]() -> FSlateColor
+			.ColorAndOpacity_Lambda([IsVirtualBandModeAttr]() -> FSlateColor
 			{
-				return IsProceduralBandModeAttr.Get() ? FSlateColor::UseForeground() : FSlateColor::UseSubduedForeground();
+				return IsVirtualBandModeAttr.Get() ? FSlateColor::UseForeground() : FSlateColor::UseSubduedForeground();
 			})
 		];
 
-	// ProceduralBand 구조체의 자식 프로퍼티들을 그룹별로 추가
-	if (ProceduralBandHandle.IsValid())
+	// VirtualBand 구조체의 자식 프로퍼티들을 그룹별로 추가
+	if (VirtualBandHandle.IsValid())
 	{
 		// ----- Transform 프로퍼티 (밴드 위치/회전) -----
-		TSharedPtr<IPropertyHandle> BandOffsetHandle = ProceduralBandHandle->GetChildHandle(TEXT("BandOffset"));
-		TSharedPtr<IPropertyHandle> BandEulerRotationHandle = ProceduralBandHandle->GetChildHandle(TEXT("BandEulerRotation"));
+		TSharedPtr<IPropertyHandle> BandOffsetHandle = VirtualBandHandle->GetChildHandle(TEXT("BandOffset"));
+		TSharedPtr<IPropertyHandle> BandEulerRotationHandle = VirtualBandHandle->GetChildHandle(TEXT("BandEulerRotation"));
 
 		if (BandOffsetHandle.IsValid())
 		{
@@ -1332,62 +1332,62 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		}
 
 		// ----- 공통 프로퍼티 (전체 적용) -----
-		TSharedPtr<IPropertyHandle> BandThicknessHandle = ProceduralBandHandle->GetChildHandle(TEXT("BandThickness"));
-		TSharedPtr<IPropertyHandle> RadialSegmentsHandle = ProceduralBandHandle->GetChildHandle(TEXT("RadialSegments"));
-		TSharedPtr<IPropertyHandle> HeightSegmentsHandle = ProceduralBandHandle->GetChildHandle(TEXT("HeightSegments"));
+		TSharedPtr<IPropertyHandle> BandThicknessHandle = VirtualBandHandle->GetChildHandle(TEXT("BandThickness"));
+		TSharedPtr<IPropertyHandle> RadialSegmentsHandle = VirtualBandHandle->GetChildHandle(TEXT("RadialSegments"));
+		TSharedPtr<IPropertyHandle> HeightSegmentsHandle = VirtualBandHandle->GetChildHandle(TEXT("HeightSegments"));
 
 		if (BandThicknessHandle.IsValid())
 		{
 			VirtualBandSubGroup.AddPropertyRow(BandThicknessHandle.ToSharedRef())
-				.IsEnabled(IsProceduralBandModeAttr);
+				.IsEnabled(IsVirtualBandModeAttr);
 		}
 		if (RadialSegmentsHandle.IsValid())
 		{
 			VirtualBandSubGroup.AddPropertyRow(RadialSegmentsHandle.ToSharedRef())
-				.IsEnabled(IsProceduralBandModeAttr);
+				.IsEnabled(IsVirtualBandModeAttr);
 		}
 		if (HeightSegmentsHandle.IsValid())
 		{
 			VirtualBandSubGroup.AddPropertyRow(HeightSegmentsHandle.ToSharedRef())
-				.IsEnabled(IsProceduralBandModeAttr);
+				.IsEnabled(IsVirtualBandModeAttr);
 		}
 
 		// Mid 서브그룹
 		IDetailGroup& MidBandGroup = VirtualBandSubGroup.AddGroup(TEXT("MidBand"), LOCTEXT("MidBandGroup", "Mid"));
 
-		TSharedPtr<IPropertyHandle> MidUpperRadiusHandle = ProceduralBandHandle->GetChildHandle(TEXT("MidUpperRadius"));
-		TSharedPtr<IPropertyHandle> MidLowerRadiusHandle = ProceduralBandHandle->GetChildHandle(TEXT("MidLowerRadius"));
-		TSharedPtr<IPropertyHandle> BandHeightHandle = ProceduralBandHandle->GetChildHandle(TEXT("BandHeight"));
+		TSharedPtr<IPropertyHandle> MidUpperRadiusHandle = VirtualBandHandle->GetChildHandle(TEXT("MidUpperRadius"));
+		TSharedPtr<IPropertyHandle> MidLowerRadiusHandle = VirtualBandHandle->GetChildHandle(TEXT("MidLowerRadius"));
+		TSharedPtr<IPropertyHandle> BandHeightHandle = VirtualBandHandle->GetChildHandle(TEXT("BandHeight"));
 
 		if (MidUpperRadiusHandle.IsValid())
 		{
 			MidBandGroup.AddPropertyRow(MidUpperRadiusHandle.ToSharedRef())
-				.IsEnabled(IsProceduralBandModeAttr);
+				.IsEnabled(IsVirtualBandModeAttr);
 		}
 		if (MidLowerRadiusHandle.IsValid())
 		{
 			MidBandGroup.AddPropertyRow(MidLowerRadiusHandle.ToSharedRef())
-				.IsEnabled(IsProceduralBandModeAttr);
+				.IsEnabled(IsVirtualBandModeAttr);
 		}
 		if (BandHeightHandle.IsValid())
 		{
 			MidBandGroup.AddPropertyRow(BandHeightHandle.ToSharedRef())
-				.IsEnabled(IsProceduralBandModeAttr);
+				.IsEnabled(IsVirtualBandModeAttr);
 		}
 
 		// Upper/Lower 서브그룹 (구조체 그대로 추가)
-		TSharedPtr<IPropertyHandle> UpperHandle = ProceduralBandHandle->GetChildHandle(TEXT("Upper"));
-		TSharedPtr<IPropertyHandle> LowerHandle = ProceduralBandHandle->GetChildHandle(TEXT("Lower"));
+		TSharedPtr<IPropertyHandle> UpperHandle = VirtualBandHandle->GetChildHandle(TEXT("Upper"));
+		TSharedPtr<IPropertyHandle> LowerHandle = VirtualBandHandle->GetChildHandle(TEXT("Lower"));
 
 		if (UpperHandle.IsValid())
 		{
 			VirtualBandSubGroup.AddPropertyRow(UpperHandle.ToSharedRef())
-				.IsEnabled(IsProceduralBandModeAttr);
+				.IsEnabled(IsVirtualBandModeAttr);
 		}
 		if (LowerHandle.IsValid())
 		{
 			VirtualBandSubGroup.AddPropertyRow(LowerHandle.ToSharedRef())
-				.IsEnabled(IsProceduralBandModeAttr);
+				.IsEnabled(IsVirtualBandModeAttr);
 		}
 	}
 

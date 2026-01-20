@@ -789,9 +789,9 @@ public:
 };
 
 // ============================================================================
-// FVirtualBandVertexSelector - Virtual Band(ProceduralBand) 모드용 선택
+// FVirtualBandVertexSelector - Virtual Band(VirtualBand) 모드용 선택
 // ============================================================================
-// Uses: Context.RingSettings.ProceduralBand (4반경, 3높이)
+// Uses: Context.RingSettings.VirtualBand (4반경, 3높이)
 //
 // Design: SDF 없이 4-반경 가변 형상으로 Tightness 버텍스 선택
 // VirtualRing Mode와의 차이점:
@@ -835,7 +835,7 @@ private:
      * Band Section: MidLowerRadius → MidUpperRadius
      * Upper Section: MidUpperRadius → UpperRadius
      */
-    float GetRadiusAtHeight(float LocalZ, const struct FProceduralBandSettings& BandSettings) const;
+    float GetRadiusAtHeight(float LocalZ, const struct FVirtualBandSettings& BandSettings) const;
 
     /**
      * Calculate falloff influence based on distance

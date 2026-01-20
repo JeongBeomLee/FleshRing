@@ -2,7 +2,7 @@
 // FleshRing VirtualBand Mathematical SDF Generator - Implementation
 // ============================================================================
 
-#include "FleshRingProceduralBandSDF.h"
+#include "FleshRingVirtualBandSDF.h"
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
 #include "ShaderParameterUtils.h"
@@ -13,8 +13,8 @@
 // ============================================================================
 
 IMPLEMENT_GLOBAL_SHADER(
-	FFleshRingProceduralBandSDFCS,
-	"/Plugin/FleshRingPlugin/FleshRingProceduralBandSDF.usf",
+	FFleshRingVirtualBandSDFCS,
+	"/Plugin/FleshRingPlugin/FleshRingVirtualBandSDF.usf",
 	"MainCS",
 	SF_Compute
 );
@@ -23,27 +23,27 @@ IMPLEMENT_GLOBAL_SHADER(
 // Dispatch Function
 // ============================================================================
 
-void DispatchFleshRingProceduralBandSDF(
+void DispatchFleshRingVirtualBandSDF(
 	FRDGBuilder& GraphBuilder,
-	const FProceduralBandSDFDispatchParams& Params,
+	const FVirtualBandSDFDispatchParams& Params,
 	FRDGTextureRef OutputSDFTexture)
 {
 	// Validate parameters
 	if (!OutputSDFTexture)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("DispatchFleshRingProceduralBandSDF: OutputSDFTexture is null"));
+		UE_LOG(LogTemp, Warning, TEXT("DispatchFleshRingVirtualBandSDF: OutputSDFTexture is null"));
 		return;
 	}
 
 	if (Params.Resolution.X <= 0 || Params.Resolution.Y <= 0 || Params.Resolution.Z <= 0)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("DispatchFleshRingProceduralBandSDF: Invalid resolution"));
+		UE_LOG(LogTemp, Warning, TEXT("DispatchFleshRingVirtualBandSDF: Invalid resolution"));
 		return;
 	}
 
 	// Allocate shader parameters
-	FFleshRingProceduralBandSDFCS::FParameters* PassParameters =
-		GraphBuilder.AllocParameters<FFleshRingProceduralBandSDFCS::FParameters>();
+	FFleshRingVirtualBandSDFCS::FParameters* PassParameters =
+		GraphBuilder.AllocParameters<FFleshRingVirtualBandSDFCS::FParameters>();
 
 	// Bind output texture
 	PassParameters->OutputSDF = GraphBuilder.CreateUAV(OutputSDFTexture);
@@ -65,7 +65,7 @@ void DispatchFleshRingProceduralBandSDF(
 	PassParameters->UpperHeight = Settings.Upper.Height;
 
 	// Get shader
-	TShaderMapRef<FFleshRingProceduralBandSDFCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+	TShaderMapRef<FFleshRingVirtualBandSDFCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
 
 	// Calculate dispatch groups (8x8x8 threads per group)
 	const FIntVector NumGroups(
@@ -77,13 +77,13 @@ void DispatchFleshRingProceduralBandSDF(
 	// Add compute pass
 	FComputeShaderUtils::AddPass(
 		GraphBuilder,
-		RDG_EVENT_NAME("FleshRingProceduralBandSDF"),
+		RDG_EVENT_NAME("FleshRingVirtualBandSDF"),
 		ComputeShader,
 		PassParameters,
 		NumGroups
 	);
 
-	UE_LOG(LogTemp, Verbose, TEXT("DispatchFleshRingProceduralBandSDF: Dispatched %dx%dx%d grid (Resolution: %dx%dx%d)"),
+	UE_LOG(LogTemp, Verbose, TEXT("DispatchFleshRingVirtualBandSDF: Dispatched %dx%dx%d grid (Resolution: %dx%dx%d)"),
 		NumGroups.X, NumGroups.Y, NumGroups.Z,
 		Params.Resolution.X, Params.Resolution.Y, Params.Resolution.Z);
 }
@@ -92,9 +92,9 @@ void DispatchFleshRingProceduralBandSDF(
 // Create and Dispatch Function
 // ============================================================================
 
-FRDGTextureRef CreateAndDispatchProceduralBandSDF(
+FRDGTextureRef CreateAndDispatchVirtualBandSDF(
 	FRDGBuilder& GraphBuilder,
-	const FProceduralBandSDFDispatchParams& Params)
+	const FVirtualBandSDFDispatchParams& Params)
 {
 	// Create 3D texture for SDF output
 	FRDGTextureDesc SDFTextureDesc = FRDGTextureDesc::Create3D(
@@ -106,11 +106,11 @@ FRDGTextureRef CreateAndDispatchProceduralBandSDF(
 
 	FRDGTextureRef SDFTexture = GraphBuilder.CreateTexture(
 		SDFTextureDesc,
-		TEXT("FleshRing_ProceduralBandSDF")
+		TEXT("FleshRing_VirtualBandSDF")
 	);
 
 	// Dispatch the compute shader
-	DispatchFleshRingProceduralBandSDF(GraphBuilder, Params, SDFTexture);
+	DispatchFleshRingVirtualBandSDF(GraphBuilder, Params, SDFTexture);
 
 	return SDFTexture;
 }

@@ -21,14 +21,14 @@
 #include "FleshRingTypes.h"
 
 // ============================================================================
-// FFleshRingProceduralBandSDFCS - Mathematical SDF Compute Shader
+// FFleshRingVirtualBandSDFCS - Mathematical SDF Compute Shader
 // ============================================================================
 
-class FFleshRingProceduralBandSDFCS : public FGlobalShader
+class FFleshRingVirtualBandSDFCS : public FGlobalShader
 {
 public:
-	DECLARE_GLOBAL_SHADER(FFleshRingProceduralBandSDFCS);
-	SHADER_USE_PARAMETER_STRUCT(FFleshRingProceduralBandSDFCS, FGlobalShader);
+	DECLARE_GLOBAL_SHADER(FFleshRingVirtualBandSDFCS);
+	SHADER_USE_PARAMETER_STRUCT(FFleshRingVirtualBandSDFCS, FGlobalShader);
 
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
 		// Output SDF texture
@@ -62,13 +62,13 @@ public:
 };
 
 // ============================================================================
-// FProceduralBandSDFDispatchParams - Dispatch Parameters
+// FVirtualBandSDFDispatchParams - Dispatch Parameters
 // ============================================================================
 
-struct FProceduralBandSDFDispatchParams
+struct FVirtualBandSDFDispatchParams
 {
 	/** VirtualBand settings */
-	FProceduralBandSettings BandSettings;
+	FVirtualBandSettings BandSettings;
 
 	/** SDF bounds in local space */
 	FBox3f SDFBounds;
@@ -76,7 +76,7 @@ struct FProceduralBandSDFDispatchParams
 	/** SDF resolution (e.g., 64x64x64) */
 	FIntVector Resolution;
 
-	FProceduralBandSDFDispatchParams()
+	FVirtualBandSDFDispatchParams()
 		: SDFBounds(FVector3f::ZeroVector, FVector3f::ZeroVector)
 		, Resolution(64, 64, 64)
 	{
@@ -94,9 +94,9 @@ struct FProceduralBandSDFDispatchParams
  * @param Params - VirtualBand and SDF parameters
  * @param OutputSDFTexture - Output 3D texture for SDF (must be pre-created)
  */
-void DispatchFleshRingProceduralBandSDF(
+void DispatchFleshRingVirtualBandSDF(
 	FRDGBuilder& GraphBuilder,
-	const FProceduralBandSDFDispatchParams& Params,
+	const FVirtualBandSDFDispatchParams& Params,
 	FRDGTextureRef OutputSDFTexture);
 
 /**
@@ -107,6 +107,6 @@ void DispatchFleshRingProceduralBandSDF(
  * @param Params - VirtualBand and SDF parameters
  * @return Created SDF texture
  */
-FRDGTextureRef CreateAndDispatchProceduralBandSDF(
+FRDGTextureRef CreateAndDispatchVirtualBandSDF(
 	FRDGBuilder& GraphBuilder,
-	const FProceduralBandSDFDispatchParams& Params);
+	const FVirtualBandSDFDispatchParams& Params);

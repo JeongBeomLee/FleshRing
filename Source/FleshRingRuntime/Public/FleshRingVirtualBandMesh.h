@@ -17,7 +17,7 @@
  *     │      │
  *      ╲────╱      ← Lower Section (MidLowerRadius → Lower.Radius)
  */
-namespace FleshRingProceduralMesh
+namespace FleshRingVirtualBandMesh
 {
 	/**
 	 * 가상 밴드 메시 데이터 생성
@@ -27,7 +27,7 @@ namespace FleshRingProceduralMesh
 	 * @param OutIndices 출력 인덱스 배열 (삼각형 리스트)
 	 */
 	void GenerateBandMesh(
-		const FProceduralBandSettings& Settings,
+		const FVirtualBandSettings& Settings,
 		TArray<FVector3f>& OutVertices,
 		TArray<uint32>& OutIndices);
 
@@ -37,7 +37,7 @@ namespace FleshRingProceduralMesh
 	 * @param Settings 밴드 설정
 	 * @return 로컬 스페이스 바운딩 박스
 	 */
-	FBox3f CalculateBandBounds(const FProceduralBandSettings& Settings);
+	FBox3f CalculateBandBounds(const FVirtualBandSettings& Settings);
 
 	/**
 	 * 디버그 시각화용 와이어프레임 데이터 생성
@@ -47,7 +47,7 @@ namespace FleshRingProceduralMesh
 	 * @param NumSegments 원형 세그먼트 수 (기본 24)
 	 */
 	void GenerateWireframeLines(
-		const FProceduralBandSettings& Settings,
+		const FVirtualBandSettings& Settings,
 		TArray<TPair<FVector, FVector>>& OutLines,
 		int32 NumSegments = 24);
 }

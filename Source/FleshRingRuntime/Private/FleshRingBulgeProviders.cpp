@@ -357,7 +357,7 @@ void FManualBulgeProvider::CalculateExpandedBulgeAABB(FVector& OutMin, FVector& 
 }
 
 // ============================================================================
-// FVirtualBandInfluenceProvider - Virtual Band(ProceduralBand) 모드용 Bulge 영역 계산
+// FVirtualBandInfluenceProvider - Virtual Band(VirtualBand) 모드용 Bulge 영역 계산
 // ============================================================================
 
 void FVirtualBandInfluenceProvider::InitFromBandSettings(
@@ -382,7 +382,7 @@ void FVirtualBandInfluenceProvider::InitFromBandSettings(
 
 float FVirtualBandInfluenceProvider::GetRadiusAtHeight(float LocalZ) const
 {
-	FProceduralBandSettings TempSettings;
+	FVirtualBandSettings TempSettings;
 	TempSettings.Lower.Radius = LowerRadius;
 	TempSettings.Lower.Height = LowerHeight;
 	TempSettings.MidLowerRadius = MidLowerRadius;

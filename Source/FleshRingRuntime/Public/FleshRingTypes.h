@@ -42,7 +42,7 @@ enum class EFleshRingInfluenceMode : uint8
 	VirtualRing	UMETA(DisplayName = "Virtual Ring"),
 
 	/** 가상 밴드 (스타킹/타이즈용 가상 틀) */
-	ProceduralBand	UMETA(DisplayName = "Virtual Band")
+	VirtualBand	UMETA(DisplayName = "Virtual Band")
 };
 
 /** 감쇠 곡선 타입 */
@@ -379,7 +379,7 @@ struct FLESHRINGRUNTIME_API FMaterialLayerMapping
 
 /** 가상 밴드의 상단/하단 섹션 설정 */
 USTRUCT(BlueprintType)
-struct FLESHRINGRUNTIME_API FProceduralBandSection
+struct FLESHRINGRUNTIME_API FVirtualBandSection
 {
 	GENERATED_BODY()
 
@@ -391,13 +391,13 @@ struct FLESHRINGRUNTIME_API FProceduralBandSection
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0"))
 	float Height = 2.0f;
 
-	FProceduralBandSection()
+	FVirtualBandSection()
 		: Radius(10.0f)
 		, Height(2.0f)
 	{
 	}
 
-	FProceduralBandSection(float InRadius, float InHeight)
+	FVirtualBandSection(float InRadius, float InHeight)
 		: Radius(InRadius)
 		, Height(InHeight)
 	{
@@ -417,7 +417,7 @@ struct FLESHRINGRUNTIME_API FProceduralBandSection
  *       ══════════════      ← Lower.Radius (하단 끝, 스타킹 영역)
  */
 USTRUCT(BlueprintType)
-struct FLESHRINGRUNTIME_API FProceduralBandSettings
+struct FLESHRINGRUNTIME_API FVirtualBandSettings
 {
 	GENERATED_BODY()
 
@@ -457,13 +457,13 @@ struct FLESHRINGRUNTIME_API FProceduralBandSettings
 
 	/** Upper.Radius > MidUpperRadius → 위로 벌어지며 살이 불룩해짐 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Upper Section")
-	FProceduralBandSection Upper;
+	FVirtualBandSection Upper;
 
 	// ===== 하단 섹션 (스타킹이 덮는 영역) =====
 
 	/** Lower.Radius ≥ MidLowerRadius → 아래로 벌어지며 스타킹이 덮음 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lower Section")
-	FProceduralBandSection Lower;
+	FVirtualBandSection Lower;
 
 	// ===== 메시 생성 품질 =====
 
@@ -475,7 +475,7 @@ struct FLESHRINGRUNTIME_API FProceduralBandSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quality", meta = (ClampMin = "1", ClampMax = "16"))
 	int32 HeightSegments = 4;
 
-	FProceduralBandSettings()
+	FVirtualBandSettings()
 		: BandOffset(FVector::ZeroVector)
 		, BandEulerRotation(FRotator(-90.0f, 0.0f, 0.0f))
 		, BandRotation(FQuat(FRotator(-90.0f, 0.0f, 0.0f)))
@@ -699,8 +699,8 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	int32 AffectedLayerMask = static_cast<int32>(EFleshRingLayerMask::Skin) | static_cast<int32>(EFleshRingLayerMask::Other);
 
 	/** 가상 밴드 설정 (VirtualBand 모드에서만 사용) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Virtual Band", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::ProceduralBand"))
-	FProceduralBandSettings ProceduralBand;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Virtual Band", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::VirtualBand"))
+	FVirtualBandSettings VirtualBand;
 
 	/** Ring 회전 (실제 적용되는 쿼터니언, 런타임에서 사용) */
 	UPROPERTY()

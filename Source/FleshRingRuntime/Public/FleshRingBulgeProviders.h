@@ -108,7 +108,7 @@ private:
 };
 
 /**
- * Virtual Band(ProceduralBand) 모드용 Bulge 영역 계산
+ * Virtual Band(VirtualBand) 모드용 Bulge 영역 계산
  * SDF 없이 4-반경 가변 형상으로 Upper/Lower Section에서 Bulge 적용
  *
  * FManualBulgeProvider와의 차이점:

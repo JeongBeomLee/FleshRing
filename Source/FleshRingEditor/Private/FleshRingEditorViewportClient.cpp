@@ -1085,7 +1085,7 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 		if (Ring.InfluenceMode != EFleshRingInfluenceMode::VirtualRing)
 		{
 			// VirtualBand 모드: 4-레이어 밴드 기즈모
-			if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+			if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 			{
 				FLinearColor GizmoColor = (i == SelectedIndex)
 					? ((SelectionType == EFleshRingSelectionType::Gizmo) ? FLinearColor::Yellow : FLinearColor(1.0f, 0.0f, 1.0f, 1.0f))
@@ -1102,7 +1102,7 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 				}
 
 				// Virtual Band 기즈모: 전용 BandOffset/BandRotation 사용
-				const FProceduralBandSettings& Band = Ring.ProceduralBand;
+				const FVirtualBandSettings& Band = Ring.VirtualBand;
 				FTransform BandTransform;
 				BandTransform.SetLocation(Band.BandOffset);
 				BandTransform.SetRotation(Band.BandRotation);
@@ -1307,7 +1307,7 @@ FVector FFleshRingEditorViewportClient::GetWidgetLocation() const
 	}
 
 	// VirtualBand 모드: 바인드 포즈 사용 (SDF/변형과 일치)
-	if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+	if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 	{
 		USkeletalMesh* SkelMesh = SkelMeshComp->GetSkeletalMeshAsset();
 		const FReferenceSkeleton& RefSkeleton = SkelMesh->GetRefSkeleton();
@@ -1322,7 +1322,7 @@ FVector FFleshRingEditorViewportClient::GetWidgetLocation() const
 		// SelectionType에 따라 다른 오프셋 적용
 		// Gizmo 선택 → BandOffset 사용 (밴드 트랜스폼)
 		// Mesh 선택 → MeshOffset 사용 (메시 트랜스폼)
-		const FProceduralBandSettings& Band = Ring.ProceduralBand;
+		const FVirtualBandSettings& Band = Ring.VirtualBand;
 		FTransform LocalTransform;
 		if (SelectionType == EFleshRingSelectionType::Gizmo)
 		{
@@ -1422,7 +1422,7 @@ FMatrix FFleshRingEditorViewportClient::GetSelectedRingAlignMatrix() const
 	FQuat BoneRotation = BoneTransform.GetRotation();
 
 	// VirtualBand 모드: 바인드 포즈 사용
-	if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+	if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 	{
 		USkeletalMesh* SkelMesh = SkelMeshComp->GetSkeletalMeshAsset();
 		const FReferenceSkeleton& RefSkeleton = SkelMesh->GetRefSkeleton();
@@ -1456,10 +1456,10 @@ FMatrix FFleshRingEditorViewportClient::GetSelectedRingAlignMatrix() const
 					// VirtualRing Gizmo 선택은 RingRotation 사용
 					CurrentRotation = Ring.RingRotation;
 				}
-				else if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+				else if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 				{
 					// Virtual Band Gizmo 선택은 전용 BandRotation 사용
-					CurrentRotation = Ring.ProceduralBand.BandRotation;
+					CurrentRotation = Ring.VirtualBand.BandRotation;
 				}
 				else
 				{
@@ -1553,7 +1553,7 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 	FQuat BoneRotation = BoneTransform.GetRotation();
 
 	// VirtualBand 모드: 바인드 포즈 사용
-	if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+	if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 	{
 		USkeletalMesh* SkelMesh = SkelMeshComp->GetSkeletalMeshAsset();
 		const FReferenceSkeleton& RefSkeleton = SkelMesh->GetRefSkeleton();
@@ -1697,10 +1697,10 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 				Ring.RingRadius = FMath::Clamp(Ring.RingRadius * (1.0f + ScaleDelta), 0.1f, 100.0f);
 			}
 		}
-		else if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+		else if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 		{
 			// Virtual Band 모드: 전용 BandOffset/BandRotation 사용
-			FProceduralBandSettings& BandSettings = Ring.ProceduralBand;
+			FVirtualBandSettings& BandSettings = Ring.VirtualBand;
 			BandSettings.BandOffset += LocalDrag;
 
 			if (bIsDraggingRotation)
@@ -1930,7 +1930,7 @@ void FFleshRingEditorViewportClient::TrackingStarted(const FInputEventState& InI
 					FQuat BoneRotation = SkelMeshComp->GetBoneTransform(BoneIndex).GetRotation();
 
 					// VirtualBand 모드: 바인드 포즈 사용
-					if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+					if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 					{
 						USkeletalMesh* SkelMesh = SkelMeshComp->GetSkeletalMeshAsset();
 						const FReferenceSkeleton& RefSkeleton = SkelMesh->GetRefSkeleton();
@@ -1953,9 +1953,9 @@ void FFleshRingEditorViewportClient::TrackingStarted(const FInputEventState& InI
 						{
 							CurrentRotation = Ring.RingRotation;
 						}
-						else if (Ring.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+						else if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 						{
-							CurrentRotation = Ring.ProceduralBand.BandRotation;
+							CurrentRotation = Ring.VirtualBand.BandRotation;
 						}
 						else
 						{
