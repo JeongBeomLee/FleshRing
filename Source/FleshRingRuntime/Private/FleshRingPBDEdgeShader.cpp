@@ -30,7 +30,7 @@ void DispatchFleshRingPBDEdgeCS(
 	FRDGBufferRef AffectedIndicesBuffer,
 	FRDGBufferRef RepresentativeIndicesBuffer,
 	FRDGBufferRef IsAnchorFlagsBuffer,
-	FRDGBufferRef FullIsAnchorMapBuffer,
+	FRDGBufferRef FullVertexAnchorFlagsBuffer,
 	FRDGBufferRef AdjacencyWithRestLengthsBuffer)
 {
 	// Early out if no vertices to process
@@ -40,7 +40,7 @@ void DispatchFleshRingPBDEdgeCS(
 	}
 
 	// Validate required buffers
-	if (!IsAnchorFlagsBuffer || !FullIsAnchorMapBuffer)
+	if (!IsAnchorFlagsBuffer || !FullVertexAnchorFlagsBuffer)
 	{
 		return;
 	}
@@ -69,7 +69,7 @@ void DispatchFleshRingPBDEdgeCS(
 
 	// Bind IsAnchor buffers (Tolerance-based weighting)
 	PassParameters->IsAnchorFlags = GraphBuilder.CreateSRV(IsAnchorFlagsBuffer);
-	PassParameters->FullIsAnchorMap = GraphBuilder.CreateSRV(FullIsAnchorMapBuffer);
+	PassParameters->FullVertexAnchorFlags = GraphBuilder.CreateSRV(FullVertexAnchorFlagsBuffer);
 
 	// Bind adjacency data
 	PassParameters->AdjacencyWithRestLengths = GraphBuilder.CreateSRV(AdjacencyWithRestLengthsBuffer);
@@ -108,7 +108,7 @@ void DispatchFleshRingPBDEdgeCS_MultiPass(
 	FRDGBufferRef AffectedIndicesBuffer,
 	FRDGBufferRef RepresentativeIndicesBuffer,
 	FRDGBufferRef IsAnchorFlagsBuffer,
-	FRDGBufferRef FullIsAnchorMapBuffer,
+	FRDGBufferRef FullVertexAnchorFlagsBuffer,
 	FRDGBufferRef AdjacencyWithRestLengthsBuffer)
 {
 	if (Params.NumAffectedVertices == 0 || Params.NumIterations <= 0)
@@ -117,7 +117,7 @@ void DispatchFleshRingPBDEdgeCS_MultiPass(
 	}
 
 	// Validate required buffers
-	if (!IsAnchorFlagsBuffer || !FullIsAnchorMapBuffer)
+	if (!IsAnchorFlagsBuffer || !FullVertexAnchorFlagsBuffer)
 	{
 		return;
 	}
@@ -143,7 +143,7 @@ void DispatchFleshRingPBDEdgeCS_MultiPass(
 			AffectedIndicesBuffer,
 			RepresentativeIndicesBuffer,
 			IsAnchorFlagsBuffer,
-			FullIsAnchorMapBuffer,
+			FullVertexAnchorFlagsBuffer,
 			AdjacencyWithRestLengthsBuffer
 		);
 		return;
@@ -180,7 +180,7 @@ void DispatchFleshRingPBDEdgeCS_MultiPass(
 			AffectedIndicesBuffer,
 			RepresentativeIndicesBuffer,
 			IsAnchorFlagsBuffer,
-			FullIsAnchorMapBuffer,
+			FullVertexAnchorFlagsBuffer,
 			AdjacencyWithRestLengthsBuffer
 		);
 	}

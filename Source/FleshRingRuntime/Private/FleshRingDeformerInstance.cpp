@@ -593,7 +593,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		DispatchData.PBDAdjacencyWithRestLengths = RingData.PBDAdjacencyWithRestLengths;
 		DispatchData.FullInfluenceMap = RingData.FullInfluenceMap;
 		DispatchData.FullDeformAmountMap = RingData.FullDeformAmountMap;
-		DispatchData.FullIsAnchorMap = RingData.FullIsAnchorMap;
+		DispatchData.FullVertexAnchorFlags = RingData.FullVertexAnchorFlags;
 
 		// bPBDAnchorAffectedVertices=false일 때 사용할 Zero 배열 캐시 (매 틱 할당 방지)
 		if (!DispatchData.bPBDAnchorAffectedVertices && DispatchData.bEnablePBDEdgeConstraint)
@@ -602,12 +602,12 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			const int32 NumPBDVertices = FMath::Max(
 				DispatchData.ExtendedSmoothingIndices.Num(),
 				DispatchData.PostProcessingIndices.Num());
-			const int32 NumTotalVertices = DispatchData.FullIsAnchorMap.Num();
+			const int32 NumTotalVertices = DispatchData.FullVertexAnchorFlags.Num();
 
 			if (NumPBDVertices > 0 && NumTotalVertices > 0)
 			{
 				DispatchData.CachedZeroIsAnchorFlags.SetNumZeroed(NumPBDVertices);
-				DispatchData.CachedZeroFullAnchorMap.SetNumZeroed(NumTotalVertices);
+				DispatchData.CachedZeroFullVertexAnchorFlags.SetNumZeroed(NumTotalVertices);
 			}
 		}
 

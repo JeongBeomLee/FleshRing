@@ -64,7 +64,7 @@ StructuredBuffer<uint> IsAnchorFlags;
 // Full mesh anchor map (indexed by absolute vertex index)
 // For neighbor anchor lookup (neighbors might not be in current region)
 // 이웃의 앵커 여부 조회용 전체 메시 크기 맵
-StructuredBuffer<uint> FullIsAnchorMap;
+StructuredBuffer<uint> FullVertexAnchorFlags;
 
 // Adjacency with rest lengths
 // Format per vertex: [Count, Neighbor0, RestLen0_asUint, Neighbor1, RestLen1_asUint, ...]
@@ -242,7 +242,7 @@ float3 SolveEdgeConstraints(
         }
 
         // Neighbor's weight: Anchor = 0, Non-Anchor = 1
-        uint NeighborIsAnchor = FullIsAnchorMap[NeighborVertexIndex];
+        uint NeighborIsAnchor = FullVertexAnchorFlags[NeighborVertexIndex];
         float NeighborWeight = (NeighborIsAnchor == 1) ? 0.0f : 1.0f;
 
         // Total weight for this edge

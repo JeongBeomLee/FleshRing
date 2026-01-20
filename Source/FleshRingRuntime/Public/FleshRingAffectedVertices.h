@@ -388,7 +388,7 @@ struct FRingAffectedData
      * 인덱스: 전체 버텍스 인덱스, 값: 1 = Affected/앵커, 0 = Non-Affected/자유
      * Tolerance 기반 PBD에서 이웃의 앵커 여부를 조회하여 가중치 분배 결정
      */
-    TArray<uint32> FullIsAnchorMap;
+    TArray<uint32> FullVertexAnchorFlags;
 
     // =========== Hop-Based Smoothing Data ===========
     // =========== 홉 기반 스무딩 데이터 ===========

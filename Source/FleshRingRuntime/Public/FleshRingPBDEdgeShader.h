@@ -61,7 +61,7 @@ public:
 		// Full mesh anchor map (indexed by absolute vertex index)
 		// For neighbor anchor lookup (neighbors might not be in current region)
 		// 이웃의 앵커 여부 조회용 전체 메시 크기 맵
-		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, FullIsAnchorMap)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, FullVertexAnchorFlags)
 
 		// Adjacency data with rest lengths
 		// Format per vertex: [Count, Neighbor0, RestLen0, Neighbor1, RestLen1, ...]
@@ -141,7 +141,7 @@ struct FPBDEdgeDispatchParams
  * @param AffectedIndicesBuffer - Affected vertex indices
  * @param RepresentativeIndicesBuffer - Representative vertex indices for UV seam welding (nullptr = use AffectedIndices)
  * @param IsAnchorFlagsBuffer - Per-vertex anchor flags (1=anchor, 0=free)
- * @param FullIsAnchorMapBuffer - Full mesh anchor map for neighbor lookup
+ * @param FullVertexAnchorFlagsBuffer - Full mesh anchor map for neighbor lookup
  * @param AdjacencyWithRestLengthsBuffer - Packed adjacency with rest lengths
  */
 void DispatchFleshRingPBDEdgeCS(
@@ -152,7 +152,7 @@ void DispatchFleshRingPBDEdgeCS(
 	FRDGBufferRef AffectedIndicesBuffer,
 	FRDGBufferRef RepresentativeIndicesBuffer,
 	FRDGBufferRef IsAnchorFlagsBuffer,
-	FRDGBufferRef FullIsAnchorMapBuffer,
+	FRDGBufferRef FullVertexAnchorFlagsBuffer,
 	FRDGBufferRef AdjacencyWithRestLengthsBuffer);
 
 /**
@@ -165,7 +165,7 @@ void DispatchFleshRingPBDEdgeCS(
  * @param AffectedIndicesBuffer - Affected vertex indices
  * @param RepresentativeIndicesBuffer - Representative vertex indices for UV seam welding (nullptr = use AffectedIndices)
  * @param IsAnchorFlagsBuffer - Per-vertex anchor flags (1=anchor, 0=free)
- * @param FullIsAnchorMapBuffer - Full mesh anchor map for neighbor lookup
+ * @param FullVertexAnchorFlagsBuffer - Full mesh anchor map for neighbor lookup
  * @param AdjacencyWithRestLengthsBuffer - Packed adjacency with rest lengths
  */
 void DispatchFleshRingPBDEdgeCS_MultiPass(
@@ -175,5 +175,5 @@ void DispatchFleshRingPBDEdgeCS_MultiPass(
 	FRDGBufferRef AffectedIndicesBuffer,
 	FRDGBufferRef RepresentativeIndicesBuffer,
 	FRDGBufferRef IsAnchorFlagsBuffer,
-	FRDGBufferRef FullIsAnchorMapBuffer,
+	FRDGBufferRef FullVertexAnchorFlagsBuffer,
 	FRDGBufferRef AdjacencyWithRestLengthsBuffer);

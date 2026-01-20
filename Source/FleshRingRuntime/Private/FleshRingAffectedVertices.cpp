@@ -3411,8 +3411,8 @@ void FFleshRingAffectedVerticesManager::BuildPBDAdjacencyData(
     // Step 6: Build full IsAnchor map (전체 버텍스에 대한 IsAnchor 플래그)
     // Tolerance-based PBD에서 이웃의 앵커 여부를 조회하여 가중치 분배 결정
     // Affected Vertices = Anchor (1), Non-Affected = Free (0)
-    RingData.FullIsAnchorMap.Reset(TotalVertexCount);
-    RingData.FullIsAnchorMap.AddZeroed(TotalVertexCount);
+    RingData.FullVertexAnchorFlags.Reset(TotalVertexCount);
+    RingData.FullVertexAnchorFlags.AddZeroed(TotalVertexCount);
 
     for (int32 ThreadIdx = 0; ThreadIdx < NumAffected; ++ThreadIdx)
     {
@@ -3420,13 +3420,13 @@ void FFleshRingAffectedVerticesManager::BuildPBDAdjacencyData(
         if (Vert.VertexIndex < static_cast<uint32>(TotalVertexCount))
         {
             // Affected Vertex = Anchor (고정)
-            RingData.FullIsAnchorMap[Vert.VertexIndex] = 1;
+            RingData.FullVertexAnchorFlags[Vert.VertexIndex] = 1;
         }
     }
 
     UE_LOG(LogFleshRingVertices, Verbose,
         TEXT("BuildPBDAdjacencyData: %d affected vertices, %d packed uints, %d total vertices in map, %d anchor flags"),
-        NumAffected, RingData.PBDAdjacencyWithRestLengths.Num(), TotalVertexCount, RingData.FullIsAnchorMap.Num());
+        NumAffected, RingData.PBDAdjacencyWithRestLengths.Num(), TotalVertexCount, RingData.FullVertexAnchorFlags.Num());
 }
 
 // ============================================================================

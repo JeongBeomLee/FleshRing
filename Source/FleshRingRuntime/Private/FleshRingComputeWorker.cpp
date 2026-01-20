@@ -1384,8 +1384,8 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					continue;
 				}
 
-				// FullIsAnchorMap 검증
-				if (DispatchData.FullIsAnchorMap.Num() == 0)
+				// FullVertexAnchorFlags 검증
+				if (DispatchData.FullVertexAnchorFlags.Num() == 0)
 				{
 					continue;
 				}
@@ -1432,19 +1432,19 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					);
 				}
 
-				// FullIsAnchorMap 버퍼 (전체 메시 크기, 이웃 앵커 여부 조회용)
-				FRDGBufferRef FullIsAnchorMapBuffer = GraphBuilder.CreateBuffer(
-					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), DispatchData.FullIsAnchorMap.Num()),
-					*FString::Printf(TEXT("FleshRing_FullIsAnchorMap_Ring%d"), RingIdx)
+				// FullVertexAnchorFlags 버퍼 (전체 메시 크기, 이웃 앵커 여부 조회용)
+				FRDGBufferRef FullVertexAnchorFlagsBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), DispatchData.FullVertexAnchorFlags.Num()),
+					*FString::Printf(TEXT("FleshRing_FullVertexAnchorFlags_Ring%d"), RingIdx)
 				);
 
 				if (DispatchData.bPBDAnchorAffectedVertices)
 				{
-					// 기존 FullIsAnchorMap 사용
+					// 기존 FullVertexAnchorFlags 사용
 					GraphBuilder.QueueBufferUpload(
-						FullIsAnchorMapBuffer,
-						DispatchData.FullIsAnchorMap.GetData(),
-						DispatchData.FullIsAnchorMap.Num() * sizeof(uint32),
+						FullVertexAnchorFlagsBuffer,
+						DispatchData.FullVertexAnchorFlags.GetData(),
+						DispatchData.FullVertexAnchorFlags.Num() * sizeof(uint32),
 						ERDGInitialDataFlags::None
 					);
 				}
@@ -1452,9 +1452,9 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				{
 					// 캐시된 Zero 배열 사용 (매 틱 할당 방지)
 					GraphBuilder.QueueBufferUpload(
-						FullIsAnchorMapBuffer,
-						DispatchData.CachedZeroFullAnchorMap.GetData(),
-						DispatchData.FullIsAnchorMap.Num() * sizeof(uint32),
+						FullVertexAnchorFlagsBuffer,
+						DispatchData.CachedZeroFullVertexAnchorFlags.GetData(),
+						DispatchData.FullVertexAnchorFlags.Num() * sizeof(uint32),
 						ERDGInitialDataFlags::None
 					);
 				}
@@ -1504,7 +1504,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					PBDIndicesBuffer,
 					PBDRepresentativeIndicesBuffer,  // UV seam welding용 대표 버텍스 인덱스
 					IsAnchorFlagsBuffer,             // per-thread 앵커 플래그
-					FullIsAnchorMapBuffer,           // 전체 메시 앵커 맵 (이웃 조회용)
+					FullVertexAnchorFlagsBuffer,           // 전체 메시 앵커 맵 (이웃 조회용)
 					PBDAdjacencyBuffer
 				);
 
