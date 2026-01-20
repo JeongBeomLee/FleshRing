@@ -45,6 +45,7 @@ RWBuffer<float> DeltaOut;           // Output delta (Init/Diffuse)
 // Extended region data
 StructuredBuffer<uint> ExtendedIndices;     // Vertex indices in extended region
 StructuredBuffer<uint> IsSeedFlags;         // 1 = Seed (anchor), 0 = Non-Seed
+StructuredBuffer<uint> IsBoundarySeedFlags; // 1 = Boundary Seed (Non-Seed 이웃 있음), 0 = Internal Seed 또는 Non-Seed
 StructuredBuffer<uint> IsBarrierFlags;      // 1 = Barrier (Tightness), 0 = Non-Barrier (blocks heat propagation)
 StructuredBuffer<uint> AdjacencyData;       // Neighbor info for diffusion
 
@@ -121,17 +122,28 @@ uint GetNeighborVertexIndex(uint AdjacencyOffset, uint NeighborSlot)
 //
 // 해결: Seed만 delta 기록, Non-Seed는 아무것도 안 함
 //       (버퍼는 dispatch 전에 0으로 초기화됨)
+//
+// [경계 Seed 전파] 내부 Seed는 delta=0, 경계 Seed만 전파원 역할
+//
+// 문제: 내부 Seed의 강한 변형이 경계를 넘어 전파됨
+//       예: Seed1(-10) --- A --- B --- Seed2(-3) 에서
+//           B가 -8.14를 받아 Seed2(-3)보다 큰 변형 발생
+//
+// 해결: 경계 Seed (Non-Seed 이웃이 있는 Seed)만 delta 설정
+//       내부 Seed는 delta=0 → 전파되지 않음
+//       Apply Pass에서 Seed는 CurrentPos 사용하므로 결과물 영향 없음
 
 void InitPass(uint ThreadIndex)
 {
     uint VertexIndex = ExtendedIndices[ThreadIndex];
     uint RepIndex = RepresentativeIndices[ThreadIndex];  // UV seam welding용 대표 버텍스
     uint IsSeed = IsSeedFlags[ThreadIndex];
+    uint IsBoundarySeed = IsBoundarySeedFlags[ThreadIndex];
 
-    // Seed만 delta 기록 (Non-Seed가 덮어쓰는 것 방지)
-    if (IsSeed != 0)
+    // 경계 Seed만 delta 기록 (내부 Seed는 전파원이 아님)
+    if (IsSeed != 0 && IsBoundarySeed != 0)
     {
-        // Seed: delta = deformation amount (CurrentPos - OriginalPos)
+        // 경계 Seed: delta = deformation amount (CurrentPos - OriginalPos)
         float3 CurrentPos = ReadPosition(CurrentPositions, VertexIndex);
         float3 OriginalPos = ReadPosition(OriginalPositions, VertexIndex);
         float3 Delta = CurrentPos - OriginalPos;
@@ -139,8 +151,9 @@ void InitPass(uint ThreadIndex)
         // Write delta using REPRESENTATIVE vertex index
         WriteDeltaByVertex(RepIndex, Delta);
     }
-    // Non-Seed/Barrier: 아무것도 안 함 (버퍼는 이미 0으로 초기화됨)
-    // → Seed의 delta가 덮어쓰여지지 않음
+    // 내부 Seed: delta = 0 (전파하지 않음, 버퍼 이미 0)
+    // Non-Seed/Barrier: delta = 0 (버퍼 이미 0)
+    // → Apply Pass에서 Seed는 CurrentPos를 사용하므로 결과물에 영향 없음
 }
 
 // ============================================================================

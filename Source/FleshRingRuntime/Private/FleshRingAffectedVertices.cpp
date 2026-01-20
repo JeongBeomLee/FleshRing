@@ -2032,6 +2032,56 @@ void FFleshRingAffectedVerticesManager::BuildTopologyCache(
     }
 
     // ================================================================
+    // Step 4.5: Add UV duplicate connections to adjacency map
+    // 4.5단계: UV duplicate 간 연결 추가 (BFS가 UV seam을 넘을 수 있도록)
+    // ================================================================
+    // 문제: BFS가 mesh topology만 따라가면 UV seam을 넘지 못함
+    // 해결: 같은 위치의 UV duplicate들을 서로 연결
+    //       A --+-- A' 처럼 seam에서 A와 A'를 직접 연결하면
+    //       BFS가 A → A' → E, F 로 seam 반대쪽도 탐색 가능
+    int32 NumUVDuplicateEdges = 0;
+    for (const auto& PosEntry : CachedPositionToVertices)
+    {
+        const TArray<uint32>& VerticesAtPos = PosEntry.Value;
+        const int32 NumAtPos = VerticesAtPos.Num();
+
+        // UV duplicate가 2개 이상인 경우만 처리
+        if (NumAtPos >= 2)
+        {
+            // 모든 UV duplicate 쌍을 연결
+            for (int32 i = 0; i < NumAtPos; ++i)
+            {
+                for (int32 j = i + 1; j < NumAtPos; ++j)
+                {
+                    const uint32 V1 = VerticesAtPos[i];
+                    const uint32 V2 = VerticesAtPos[j];
+
+                    TArray<uint32>& Neighbors1 = CachedFullAdjacencyMap.FindOrAdd(V1);
+                    if (!Neighbors1.Contains(V2))
+                    {
+                        Neighbors1.Add(V2);
+                        NumUVDuplicateEdges++;
+                    }
+
+                    TArray<uint32>& Neighbors2 = CachedFullAdjacencyMap.FindOrAdd(V2);
+                    if (!Neighbors2.Contains(V1))
+                    {
+                        Neighbors2.Add(V1);
+                        NumUVDuplicateEdges++;
+                    }
+                }
+            }
+        }
+    }
+
+    if (NumUVDuplicateEdges > 0)
+    {
+        UE_LOG(LogFleshRingVertices, Verbose,
+            TEXT("BuildTopologyCache: Added %d UV duplicate edges for BFS seam crossing"),
+            NumUVDuplicateEdges);
+    }
+
+    // ================================================================
     // Step 5: Build per-vertex triangle list for adjacency lookup
     // 5단계: 인접 조회용 버텍스별 삼각형 리스트 구축
     // ================================================================

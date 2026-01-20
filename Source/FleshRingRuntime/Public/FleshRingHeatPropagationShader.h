@@ -42,6 +42,7 @@ public:
         // Extended region data
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, ExtendedIndices)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, IsSeedFlags)
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, IsBoundarySeedFlags)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, IsBarrierFlags)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, AdjacencyData)
 
@@ -109,6 +110,7 @@ struct FHeatPropagationDispatchParams
  * @param OutputPositionsBuffer - Output positions (modified in-place for Non-Seed)
  * @param ExtendedIndicesBuffer - Extended region vertex indices
  * @param IsSeedFlagsBuffer - Seed flags (1=Seed, 0=Non-Seed)
+ * @param IsBoundarySeedFlagsBuffer - Boundary Seed flags (1=Boundary Seed, 0=Internal Seed or Non-Seed)
  * @param IsBarrierFlagsBuffer - Barrier flags (1=Barrier/Tightness, 0=Non-Barrier) - blocks heat propagation
  * @param AdjacencyDataBuffer - Laplacian adjacency for Extended region
  * @param RepresentativeIndicesBuffer - Representative vertex indices for UV seam welding (nullptr = use ExtendedIndices)
@@ -121,6 +123,7 @@ void DispatchFleshRingHeatPropagationCS(
     FRDGBufferRef OutputPositionsBuffer,
     FRDGBufferRef ExtendedIndicesBuffer,
     FRDGBufferRef IsSeedFlagsBuffer,
+    FRDGBufferRef IsBoundarySeedFlagsBuffer,
     FRDGBufferRef IsBarrierFlagsBuffer,
     FRDGBufferRef AdjacencyDataBuffer,
     FRDGBufferRef RepresentativeIndicesBuffer);

@@ -870,6 +870,66 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					}
 				}
 
+				// ========================================
+				// 4.5. IsBoundarySeedFlags 계산: Non-Seed 이웃이 있는 Seed만 경계
+				// ========================================
+				// 목적: 내부 Seed의 강한 변형이 경계를 넘어 전파되는 것 방지
+				// 경계 Seed만 delta를 설정, 내부 Seed는 delta=0 (전파 안 함)
+				constexpr uint32 MAX_NEIGHBORS_CONST = 12;
+				TArray<uint32> IsBoundarySeedFlagsData;
+				IsBoundarySeedFlagsData.SetNumZeroed(NumExtendedVertices);
+
+				// VertexIndex → ThreadIndex 역매핑 생성
+				TMap<uint32, uint32> VertexToThreadIndex;
+				VertexToThreadIndex.Reserve(NumExtendedVertices);
+				for (uint32 i = 0; i < NumExtendedVertices; ++i)
+				{
+					VertexToThreadIndex.Add(DispatchData.ExtendedSmoothingIndices[i], i);
+				}
+
+				// 각 Seed에 대해 이웃 중 Non-Seed가 있는지 확인
+				const TArray<uint32>& AdjacencyData = DispatchData.ExtendedLaplacianAdjacency;
+				for (uint32 i = 0; i < NumExtendedVertices; ++i)
+				{
+					if (IsSeedFlagsData[i] == 0)
+					{
+						continue;  // Non-Seed는 경계 판정 불필요
+					}
+
+					// Seed: 이웃 중 Non-Seed가 있으면 경계
+					uint32 AdjOffset = i * (1 + MAX_NEIGHBORS_CONST);
+					if (AdjOffset >= (uint32)AdjacencyData.Num())
+					{
+						continue;
+					}
+
+					uint32 NeighborCount = AdjacencyData[AdjOffset];
+					bool bHasNonSeedNeighbor = false;
+
+					for (uint32 n = 0; n < NeighborCount && n < MAX_NEIGHBORS_CONST; ++n)
+					{
+						uint32 NeighborVertexIdx = AdjacencyData[AdjOffset + 1 + n];
+
+						if (const uint32* NeighborThreadIdx = VertexToThreadIndex.Find(NeighborVertexIdx))
+						{
+							// Extended 영역 내 이웃: IsSeedFlags 확인
+							if (IsSeedFlagsData[*NeighborThreadIdx] == 0)
+							{
+								bHasNonSeedNeighbor = true;
+								break;
+							}
+						}
+						else
+						{
+							// Extended 영역 밖 이웃 → Non-Seed로 간주
+							bHasNonSeedNeighbor = true;
+							break;
+						}
+					}
+
+					IsBoundarySeedFlagsData[i] = bHasNonSeedNeighbor ? 1 : 0;
+				}
+
 				// IsSeedFlagsBuffer 생성
 				FRDGBufferRef IsSeedFlagsBuffer = GraphBuilder.CreateBuffer(
 					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumExtendedVertices),
@@ -878,6 +938,18 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				GraphBuilder.QueueBufferUpload(
 					IsSeedFlagsBuffer,
 					IsSeedFlagsData.GetData(),
+					NumExtendedVertices * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// IsBoundarySeedFlagsBuffer 생성
+				FRDGBufferRef IsBoundarySeedFlagsBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumExtendedVertices),
+					*FString::Printf(TEXT("FleshRing_HeatProp_IsBoundarySeed_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					IsBoundarySeedFlagsBuffer,
+					IsBoundarySeedFlagsData.GetData(),
 					NumExtendedVertices * sizeof(uint32),
 					ERDGInitialDataFlags::None
 				);
@@ -943,6 +1015,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					HeatPropOutputBuffer,          // 출력 위치
 					ExtendedIndicesBuffer,         // Extended 영역 버텍스 인덱스
 					IsSeedFlagsBuffer,             // Seed 플래그 (1=Bulge, 0=그외)
+					IsBoundarySeedFlagsBuffer,     // Boundary Seed 플래그 (1=Non-Seed 이웃 있음, 0=내부 Seed 또는 Non-Seed)
 					IsBarrierFlagsBuffer,          // Barrier 플래그 (1=Tightness/전파차단, 0=그외)
 					AdjacencyDataBuffer,           // 인접 정보 (diffusion용)
 					HeatPropRepresentativeIndicesBuffer   // UV seam welding용 대표 버텍스 인덱스

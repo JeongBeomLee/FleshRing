@@ -33,6 +33,7 @@ void DispatchFleshRingHeatPropagationCS(
     FRDGBufferRef OutputPositionsBuffer,
     FRDGBufferRef ExtendedIndicesBuffer,
     FRDGBufferRef IsSeedFlagsBuffer,
+    FRDGBufferRef IsBoundarySeedFlagsBuffer,
     FRDGBufferRef IsBarrierFlagsBuffer,
     FRDGBufferRef AdjacencyDataBuffer,
     FRDGBufferRef RepresentativeIndicesBuffer)
@@ -104,6 +105,15 @@ void DispatchFleshRingHeatPropagationCS(
     }
     FRDGBufferSRVRef IsBarrierFlagsSRV = GraphBuilder.CreateSRV(BarrierBuffer);
 
+    // BoundarySeed 버퍼: nullptr이면 모든 Seed를 경계로 취급 (기존 동작)
+    FRDGBufferRef BoundarySeedBuffer = IsBoundarySeedFlagsBuffer;
+    if (!BoundarySeedBuffer)
+    {
+        // nullptr이면 IsSeedFlags를 그대로 사용 (모든 Seed가 경계)
+        BoundarySeedBuffer = IsSeedFlagsBuffer;
+    }
+    FRDGBufferSRVRef IsBoundarySeedFlagsSRV = GraphBuilder.CreateSRV(BoundarySeedBuffer);
+
     // ========================================
     // Pass 0: Init
     // Seed.delta = CurrentPos - OriginalPos
@@ -121,6 +131,7 @@ void DispatchFleshRingHeatPropagationCS(
         InitParams->DeltaOut = GraphBuilder.CreateUAV(DeltaBufferA, PF_R32_FLOAT);
         InitParams->ExtendedIndices = GraphBuilder.CreateSRV(ExtendedIndicesBuffer);
         InitParams->IsSeedFlags = GraphBuilder.CreateSRV(IsSeedFlagsBuffer);
+        InitParams->IsBoundarySeedFlags = IsBoundarySeedFlagsSRV;
         InitParams->IsBarrierFlags = IsBarrierFlagsSRV;
         InitParams->AdjacencyData = GraphBuilder.CreateSRV(AdjacencyDataBuffer);
         InitParams->RepresentativeIndices = RepresentativeIndicesSRV;
@@ -155,6 +166,7 @@ void DispatchFleshRingHeatPropagationCS(
         DiffuseParams->DeltaOut = GraphBuilder.CreateUAV(WriteBuffer, PF_R32_FLOAT);
         DiffuseParams->ExtendedIndices = GraphBuilder.CreateSRV(ExtendedIndicesBuffer);
         DiffuseParams->IsSeedFlags = GraphBuilder.CreateSRV(IsSeedFlagsBuffer);
+        DiffuseParams->IsBoundarySeedFlags = IsBoundarySeedFlagsSRV;
         DiffuseParams->IsBarrierFlags = IsBarrierFlagsSRV;
         DiffuseParams->AdjacencyData = GraphBuilder.CreateSRV(AdjacencyDataBuffer);
         DiffuseParams->RepresentativeIndices = RepresentativeIndicesSRV;
@@ -192,6 +204,7 @@ void DispatchFleshRingHeatPropagationCS(
         ApplyParams->DeltaOut = GraphBuilder.CreateUAV(DummyFloatBuffer, PF_R32_FLOAT);  // Not used
         ApplyParams->ExtendedIndices = GraphBuilder.CreateSRV(ExtendedIndicesBuffer);
         ApplyParams->IsSeedFlags = GraphBuilder.CreateSRV(IsSeedFlagsBuffer);
+        ApplyParams->IsBoundarySeedFlags = IsBoundarySeedFlagsSRV;
         ApplyParams->IsBarrierFlags = IsBarrierFlagsSRV;
         ApplyParams->AdjacencyData = GraphBuilder.CreateSRV(AdjacencyDataBuffer);
         ApplyParams->RepresentativeIndices = RepresentativeIndicesSRV;
