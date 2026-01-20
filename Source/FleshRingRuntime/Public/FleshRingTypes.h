@@ -886,12 +886,22 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	float PBDStiffness = 0.8f;
 
 	/** PBD 반복 횟수, 권장: 3 ~ 10 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", EditConditionHides, ClampMin = "1", ClampMax = "20"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", EditConditionHides, ClampMin = "1", ClampMax = "100"))
 	int32 PBDIterations = 5;
 
-	/** 변형량 기반 가중치 사용 (true: DeformAmount 기반, false: Influence 기반) */
+	/** PBD 허용 오차 비율 (0.0 ~ 0.5)
+	 *  이 범위 내의 변형은 유지됨 (데드존)
+	 *  예: 0.2 → 원래 길이의 80%~120% 범위는 보정하지 않음
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", EditConditionHides, ClampMin = "0.0", ClampMax = "0.5"))
+	float PBDTolerance = 0.2f;
+
+	/** Affected Vertices(Tightness 영역)를 앵커로 고정할지 여부
+	 *  ON: Affected Vertices는 PBD에서 고정점으로 동작 (기본값)
+	 *  OFF: Affected Vertices도 PBD 보정 대상으로 포함 (모든 버텍스가 자유롭게 움직임)
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", EditConditionHides))
-	bool bPBDUseDeformAmountWeight = true;
+	bool bPBDAnchorAffectedVertices = true;
 
 	FFleshRingSettings()
 		: BoneName(NAME_None)
@@ -931,7 +941,8 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		, bEnablePBDEdgeConstraint(false)
 		, PBDStiffness(0.8f)
 		, PBDIterations(5)
-		, bPBDUseDeformAmountWeight(true)
+		, PBDTolerance(0.2f)
+		, bPBDAnchorAffectedVertices(true)
 	{
 	}
 

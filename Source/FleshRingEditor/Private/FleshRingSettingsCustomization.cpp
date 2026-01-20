@@ -882,16 +882,18 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 
 	// PBD 프로퍼티 핸들 개별 획득
 	TSharedPtr<IPropertyHandle> bEnablePBDEdgeConstraintHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnablePBDEdgeConstraint));
+	TSharedPtr<IPropertyHandle> bPBDAnchorAffectedVerticesHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bPBDAnchorAffectedVertices));
 	TSharedPtr<IPropertyHandle> PBDStiffnessHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PBDStiffness));
 	TSharedPtr<IPropertyHandle> PBDIterationsHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PBDIterations));
-	TSharedPtr<IPropertyHandle> bPBDUseDeformAmountWeightHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bPBDUseDeformAmountWeight));
+	TSharedPtr<IPropertyHandle> PBDToleranceHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PBDTolerance));
 
 	// PBD 그룹에 들어갈 프로퍼티 이름들
 	TSet<FName> PBDGroupProperties;
 	PBDGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnablePBDEdgeConstraint));
+	PBDGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bPBDAnchorAffectedVertices));
 	PBDGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PBDStiffness));
 	PBDGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PBDIterations));
-	PBDGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bPBDUseDeformAmountWeight));
+	PBDGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PBDTolerance));
 
 	// Deformation (Tightness + Bulge) 프로퍼티 핸들 획득
 	TSharedPtr<IPropertyHandle> TightnessStrengthHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, TightnessStrength));
@@ -1705,6 +1707,10 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	{
 		PBDGroup.AddPropertyRow(bEnablePBDEdgeConstraintHandle.ToSharedRef());
 	}
+	if (bPBDAnchorAffectedVerticesHandle.IsValid())
+	{
+		PBDGroup.AddPropertyRow(bPBDAnchorAffectedVerticesHandle.ToSharedRef());
+	}
 	if (PBDStiffnessHandle.IsValid())
 	{
 		PBDGroup.AddPropertyRow(PBDStiffnessHandle.ToSharedRef());
@@ -1713,9 +1719,9 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	{
 		PBDGroup.AddPropertyRow(PBDIterationsHandle.ToSharedRef());
 	}
-	if (bPBDUseDeformAmountWeightHandle.IsValid())
+	if (PBDToleranceHandle.IsValid())
 	{
-		PBDGroup.AddPropertyRow(bPBDUseDeformAmountWeightHandle.ToSharedRef());
+		PBDGroup.AddPropertyRow(PBDToleranceHandle.ToSharedRef());
 	}
 }
 

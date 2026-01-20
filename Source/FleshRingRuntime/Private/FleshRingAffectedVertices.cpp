@@ -2907,6 +2907,105 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingPBDAdjacencyData(
 }
 
 // ============================================================================
+// BuildExtendedPBDAdjacencyData - 확장 스무딩 영역용 PBD 인접 데이터 빌드
+// ============================================================================
+// ExtendedSmoothingIndices 기반으로 PBD 인접 데이터를 구축합니다.
+// HopBased 모드에서 사용됩니다.
+
+void FFleshRingAffectedVerticesManager::BuildExtendedPBDAdjacencyData(
+    FRingAffectedData& RingData,
+    const TArray<FVector3f>& AllVertices)
+{
+    const int32 NumExtended = RingData.ExtendedSmoothingIndices.Num();
+    if (NumExtended == 0)
+    {
+        RingData.ExtendedPBDAdjacencyWithRestLengths.Reset();
+        return;
+    }
+
+    // Step 1: Build VertexIndex → ThreadIndex lookup
+    TMap<uint32, int32> VertexToThreadIndex;
+    for (int32 ThreadIdx = 0; ThreadIdx < NumExtended; ++ThreadIdx)
+    {
+        VertexToThreadIndex.Add(RingData.ExtendedSmoothingIndices[ThreadIdx], ThreadIdx);
+    }
+
+    // Step 2: Build per-vertex neighbor set with rest lengths
+    // CachedVertexNeighbors 사용 (토폴로지 캐시 필수)
+    TArray<TMap<uint32, float>> VertexNeighborsWithRestLen;
+    VertexNeighborsWithRestLen.SetNum(NumExtended);
+
+    if (bTopologyCacheBuilt && CachedVertexNeighbors.Num() > 0)
+    {
+        for (int32 ThreadIdx = 0; ThreadIdx < NumExtended; ++ThreadIdx)
+        {
+            const uint32 VertexIndex = RingData.ExtendedSmoothingIndices[ThreadIdx];
+            const TSet<uint32>* NeighborsPtr = CachedVertexNeighbors.Find(VertexIndex);
+
+            if (NeighborsPtr)
+            {
+                const FVector3f& Pos0 = AllVertices[VertexIndex];
+
+                for (uint32 NeighborIdx : *NeighborsPtr)
+                {
+                    if (NeighborIdx < static_cast<uint32>(AllVertices.Num()))
+                    {
+                        const FVector3f& Pos1 = AllVertices[NeighborIdx];
+                        const float RestLength = FVector3f::Distance(Pos0, Pos1);
+                        VertexNeighborsWithRestLen[ThreadIdx].Add(NeighborIdx, RestLength);
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        UE_LOG(LogFleshRingVertices, Warning,
+            TEXT("BuildExtendedPBDAdjacencyData: Topology cache not built, skipping"));
+        RingData.ExtendedPBDAdjacencyWithRestLengths.Reset();
+        return;
+    }
+
+    // Step 3: Pack adjacency data with rest lengths
+    const int32 PackedSizePerVertex = FRingAffectedData::PBD_ADJACENCY_PACKED_SIZE;
+    RingData.ExtendedPBDAdjacencyWithRestLengths.Reset(NumExtended * PackedSizePerVertex);
+    RingData.ExtendedPBDAdjacencyWithRestLengths.AddZeroed(NumExtended * PackedSizePerVertex);
+
+    for (int32 ThreadIdx = 0; ThreadIdx < NumExtended; ++ThreadIdx)
+    {
+        const TMap<uint32, float>& NeighborsMap = VertexNeighborsWithRestLen[ThreadIdx];
+        const int32 NeighborCount = FMath::Min(NeighborsMap.Num(), FRingAffectedData::PBD_MAX_NEIGHBORS);
+        const int32 BaseOffset = ThreadIdx * PackedSizePerVertex;
+
+        RingData.ExtendedPBDAdjacencyWithRestLengths[BaseOffset] = static_cast<uint32>(NeighborCount);
+
+        int32 SlotIdx = 0;
+        for (const auto& Pair : NeighborsMap)
+        {
+            if (SlotIdx >= FRingAffectedData::PBD_MAX_NEIGHBORS)
+            {
+                break;
+            }
+
+            const uint32 NeighborIdx = Pair.Key;
+            const float RestLength = Pair.Value;
+
+            RingData.ExtendedPBDAdjacencyWithRestLengths[BaseOffset + 1 + SlotIdx * 2] = NeighborIdx;
+
+            uint32 RestLengthAsUint;
+            FMemory::Memcpy(&RestLengthAsUint, &RestLength, sizeof(float));
+            RingData.ExtendedPBDAdjacencyWithRestLengths[BaseOffset + 1 + SlotIdx * 2 + 1] = RestLengthAsUint;
+
+            ++SlotIdx;
+        }
+    }
+
+    UE_LOG(LogFleshRingVertices, Verbose,
+        TEXT("BuildExtendedPBDAdjacencyData: %d vertices, %d packed uints"),
+        NumExtended, RingData.ExtendedPBDAdjacencyWithRestLengths.Num());
+}
+
+// ============================================================================
 // BuildPostProcessingAdjacencyData - 후처리 버텍스용 노멀 인접 데이터 빌드
 // ============================================================================
 // PostProcessingIndices 기반으로 노멀 재계산용 인접 데이터를 구축합니다.
@@ -3330,9 +3429,25 @@ void FFleshRingAffectedVerticesManager::BuildPBDAdjacencyData(
         }
     }
 
+    // Step 6: Build full IsAnchor map (전체 버텍스에 대한 IsAnchor 플래그)
+    // Tolerance-based PBD에서 이웃의 앵커 여부를 조회하여 가중치 분배 결정
+    // Affected Vertices = Anchor (1), Non-Affected = Free (0)
+    RingData.FullIsAnchorMap.Reset(TotalVertexCount);
+    RingData.FullIsAnchorMap.AddZeroed(TotalVertexCount);
+
+    for (int32 ThreadIdx = 0; ThreadIdx < NumAffected; ++ThreadIdx)
+    {
+        const FAffectedVertex& Vert = RingData.Vertices[ThreadIdx];
+        if (Vert.VertexIndex < static_cast<uint32>(TotalVertexCount))
+        {
+            // Affected Vertex = Anchor (고정)
+            RingData.FullIsAnchorMap[Vert.VertexIndex] = 1;
+        }
+    }
+
     UE_LOG(LogFleshRingVertices, Verbose,
-        TEXT("BuildPBDAdjacencyData: %d affected vertices, %d packed uints, %d total vertices in map"),
-        NumAffected, RingData.PBDAdjacencyWithRestLengths.Num(), TotalVertexCount);
+        TEXT("BuildPBDAdjacencyData: %d affected vertices, %d packed uints, %d total vertices in map, %d anchor flags"),
+        NumAffected, RingData.PBDAdjacencyWithRestLengths.Num(), TotalVertexCount, RingData.FullIsAnchorMap.Num());
 }
 
 // ============================================================================
@@ -3974,6 +4089,10 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
     // [수정] CachedFullAdjacencyMap 대신 CachedVertexLayerTypes 전달
     // BuildExtendedLaplacianAdjacency가 내부적으로 CachedWeldedNeighborPositions 사용
     BuildExtendedLaplacianAdjacency(RingData, CachedVertexLayerTypes);
+
+    // ===== Step 4.5: 확장된 영역의 PBD 인접 데이터 구축 (Tolerance 기반 PBD용) =====
+    // HopBased 모드에서 PBD Edge Constraint 사용 시 필요
+    BuildExtendedPBDAdjacencyData(RingData, AllVertices);
 
     // ===== Step 5: 확장된 영역의 RepresentativeIndices 구축 (UV seam welding) =====
     // Heat Propagation에서 UV seam vertex들이 동일한 delta를 받도록 보장

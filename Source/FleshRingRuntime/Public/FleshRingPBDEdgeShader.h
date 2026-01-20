@@ -1,17 +1,19 @@
 ﻿// ============================================================================
 // FleshRing PBD Edge Constraint Shader
 // ============================================================================
-// Purpose: Maintain edge lengths after deformation (prevent stretching/shrinking)
-// Uses influence-weighted PBD to propagate deformation outward
+// Purpose: Maintain edge lengths after deformation (prevent extreme stretching/compression)
+// Uses tolerance-based PBD to preserve intentional deformation while preventing artifacts
 //
-// Key Concept ("Inverse PBD"):
-//   - High influence vertices (deformed by SDF): FIXED (anchors)
-//   - Low influence vertices (boundary/outside): FREE to move
-//   - Edge constraint pulls free vertices to maintain rest lengths
+// Key Concept (Tolerance-based PBD):
+//   - Affected Vertices (Tightness region): FIXED (anchors) - no movement
+//   - Non-Affected Vertices (extended region): FREE to move within tolerance
+//   - Edge constraint only applies when length is outside tolerance range
 //
 // Algorithm (per vertex, per neighbor):
-//   Weight = 1.0 - Influence  (high influence = fixed)
-//   Error = CurrentEdgeLength - RestLength
+//   Tolerance range = [RestLength * (1-Tolerance), RestLength * (1+Tolerance)]
+//   If CurrentLength within range: Error = 0 (preserve deformation)
+//   If outside range: Error = distance to nearest boundary
+//   Weight: Anchor = 0 (fixed), Non-Anchor = 1 (free)
 //   Correction = Direction * Error * (MyWeight / TotalWeight)
 //   NewPos = CurrentPos + Correction * Stiffness
 
@@ -52,24 +54,18 @@ public:
 		// 대표 버텍스 인덱스 (UV seam 용접용)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, RepresentativeIndices)
 
-		// Per-vertex influences (for weight calculation)
-		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float>, Influences)
+		// Per-vertex anchor flags (1 = Affected/Anchor, 0 = Non-Affected/Free)
+		// Affected Vertices (Tightness 영역)는 고정, 나머지는 자유롭게 이동
+		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, IsAnchorFlags)
 
-		// Per-vertex deform amounts from TightnessCS (0~1)
-		// 많이 변형된 버텍스 = 높은 값 = 고정점, 적게 변형된 버텍스 = 낮은 값 = 자유롭게 이동
-		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float>, DeformAmounts)
+		// Full mesh anchor map (indexed by absolute vertex index)
+		// For neighbor anchor lookup (neighbors might not be in current region)
+		// 이웃의 앵커 여부 조회용 전체 메시 크기 맵
+		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, FullIsAnchorMap)
 
 		// Adjacency data with rest lengths
 		// Format per vertex: [Count, Neighbor0, RestLen0, Neighbor1, RestLen1, ...]
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, AdjacencyWithRestLengths)
-
-		// Full mesh influence map (for neighbor weight lookup)
-		// Indexed by absolute vertex index, not thread index
-		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float>, FullInfluenceMap)
-
-		// Full mesh deform amount map (for neighbor weight lookup when bUseDeformAmountWeight=1)
-		// 전체 메시의 변형량 맵 (절대 버텍스 인덱스로 인덱싱)
-		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float>, FullDeformAmountMap)
 
 		// Counts
 		SHADER_PARAMETER(uint32, NumAffectedVertices)
@@ -78,9 +74,10 @@ public:
 		// PBD parameters
 		SHADER_PARAMETER(float, Stiffness)
 
-		// Flag to use DeformAmounts instead of Influences for weight calculation
-		// 0 = Influences 사용, 1 = DeformAmounts 사용
-		SHADER_PARAMETER(uint32, bUseDeformAmountWeight)
+		// Tolerance ratio (0.0 ~ 0.5)
+		// Allowed range: [RestLength * (1-Tolerance), RestLength * (1+Tolerance)]
+		// 예: Tolerance=0.2 → 원래 길이의 80%~120% 범위 허용
+		SHADER_PARAMETER(float, Tolerance)
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
@@ -114,15 +111,18 @@ struct FPBDEdgeDispatchParams
 	/** Number of solver iterations */
 	int32 NumIterations;
 
-	/** Use DeformAmounts instead of Influences for weight calculation */
-	bool bUseDeformAmountWeight;
+	/** Tolerance ratio (0.0 ~ 0.5)
+	 *  Allowed range: [RestLength * (1-Tolerance), RestLength * (1+Tolerance)]
+	 *  예: Tolerance=0.2 → 원래 길이의 80%~120% 범위 허용
+	 */
+	float Tolerance;
 
 	FPBDEdgeDispatchParams()
 		: NumAffectedVertices(0)
 		, NumTotalVertices(0)
 		, Stiffness(0.8f)
 		, NumIterations(3)
-		, bUseDeformAmountWeight(false)
+		, Tolerance(0.2f)
 	{
 	}
 };
@@ -132,7 +132,7 @@ struct FPBDEdgeDispatchParams
 // ============================================================================
 
 /**
- * Dispatch single pass of PBD edge constraint shader
+ * Dispatch single pass of PBD edge constraint shader (Tolerance-based)
  *
  * @param GraphBuilder - RDG builder
  * @param Params - Dispatch parameters
@@ -140,11 +140,9 @@ struct FPBDEdgeDispatchParams
  * @param OutputPositionsBuffer - Destination positions (write)
  * @param AffectedIndicesBuffer - Affected vertex indices
  * @param RepresentativeIndicesBuffer - Representative vertex indices for UV seam welding (nullptr = use AffectedIndices)
- * @param InfluencesBuffer - Per-vertex influence weights
- * @param DeformAmountsBuffer - Per-vertex deform amounts (nullptr if not using)
+ * @param IsAnchorFlagsBuffer - Per-vertex anchor flags (1=anchor, 0=free)
+ * @param FullIsAnchorMapBuffer - Full mesh anchor map for neighbor lookup
  * @param AdjacencyWithRestLengthsBuffer - Packed adjacency with rest lengths
- * @param FullInfluenceMapBuffer - Full mesh influence map for neighbor lookup
- * @param FullDeformAmountMapBuffer - Full mesh deform amount map (nullptr if not using)
  */
 void DispatchFleshRingPBDEdgeCS(
 	FRDGBuilder& GraphBuilder,
@@ -153,14 +151,12 @@ void DispatchFleshRingPBDEdgeCS(
 	FRDGBufferRef OutputPositionsBuffer,
 	FRDGBufferRef AffectedIndicesBuffer,
 	FRDGBufferRef RepresentativeIndicesBuffer,
-	FRDGBufferRef InfluencesBuffer,
-	FRDGBufferRef DeformAmountsBuffer,
-	FRDGBufferRef AdjacencyWithRestLengthsBuffer,
-	FRDGBufferRef FullInfluenceMapBuffer,
-	FRDGBufferRef FullDeformAmountMapBuffer);
+	FRDGBufferRef IsAnchorFlagsBuffer,
+	FRDGBufferRef FullIsAnchorMapBuffer,
+	FRDGBufferRef AdjacencyWithRestLengthsBuffer);
 
 /**
- * Dispatch multiple iterations of PBD edge constraints
+ * Dispatch multiple iterations of PBD edge constraints (Tolerance-based)
  * Uses ping-pong buffers internally
  *
  * @param GraphBuilder - RDG builder
@@ -168,11 +164,9 @@ void DispatchFleshRingPBDEdgeCS(
  * @param PositionsBuffer - Position buffer (in-place, uses ping-pong internally)
  * @param AffectedIndicesBuffer - Affected vertex indices
  * @param RepresentativeIndicesBuffer - Representative vertex indices for UV seam welding (nullptr = use AffectedIndices)
- * @param InfluencesBuffer - Per-vertex influence weights
- * @param DeformAmountsBuffer - Per-vertex deform amounts (nullptr if not using)
+ * @param IsAnchorFlagsBuffer - Per-vertex anchor flags (1=anchor, 0=free)
+ * @param FullIsAnchorMapBuffer - Full mesh anchor map for neighbor lookup
  * @param AdjacencyWithRestLengthsBuffer - Packed adjacency with rest lengths
- * @param FullInfluenceMapBuffer - Full mesh influence map for neighbor lookup
- * @param FullDeformAmountMapBuffer - Full mesh deform amount map (nullptr if not using)
  */
 void DispatchFleshRingPBDEdgeCS_MultiPass(
 	FRDGBuilder& GraphBuilder,
@@ -180,8 +174,6 @@ void DispatchFleshRingPBDEdgeCS_MultiPass(
 	FRDGBufferRef PositionsBuffer,
 	FRDGBufferRef AffectedIndicesBuffer,
 	FRDGBufferRef RepresentativeIndicesBuffer,
-	FRDGBufferRef InfluencesBuffer,
-	FRDGBufferRef DeformAmountsBuffer,
-	FRDGBufferRef AdjacencyWithRestLengthsBuffer,
-	FRDGBufferRef FullInfluenceMapBuffer,
-	FRDGBufferRef FullDeformAmountMapBuffer);
+	FRDGBufferRef IsAnchorFlagsBuffer,
+	FRDGBufferRef FullIsAnchorMapBuffer,
+	FRDGBufferRef AdjacencyWithRestLengthsBuffer);

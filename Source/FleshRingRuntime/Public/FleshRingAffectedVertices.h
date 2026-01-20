@@ -380,6 +380,16 @@ struct FRingAffectedData
      */
     TArray<float> FullDeformAmountMap;
 
+    /**
+     * GPU buffer: Full mesh IsAnchor map (for PBD neighbor weight lookup)
+     * Index: absolute vertex index, Value: 1 = Affected/Anchor, 0 = Non-Affected/Free
+     * Used by Tolerance-based PBD to determine neighbor's anchor status for weight distribution
+     * GPU 버퍼: 전체 메시 IsAnchor 맵 (PBD 이웃 가중치 조회용)
+     * 인덱스: 전체 버텍스 인덱스, 값: 1 = Affected/앵커, 0 = Non-Affected/자유
+     * Tolerance 기반 PBD에서 이웃의 앵커 여부를 조회하여 가중치 분배 결정
+     */
+    TArray<uint32> FullIsAnchorMap;
+
     // =========== Hop-Based Smoothing Data ===========
     // =========== 홉 기반 스무딩 데이터 ===========
 
@@ -489,6 +499,14 @@ struct FRingAffectedData
      */
     TArray<uint32> ExtendedAdjacencyOffsets;
     TArray<uint32> ExtendedAdjacencyTriangles;
+
+    /**
+     * PBD adjacency data for Extended smoothing region (HopBased mode)
+     * 확장 스무딩 영역용 PBD 인접 데이터 (HopBased 모드)
+     * Format: [Count, N0, RL0, N1, RL1, ...] per vertex (1 + MAX_NEIGHBORS*2 uints)
+     * Used when SmoothingVolumeMode == HopBased
+     */
+    TArray<uint32> ExtendedPBDAdjacencyWithRestLengths;
 
     FRingAffectedData()
         : BoneName(NAME_None)
@@ -1237,6 +1255,23 @@ private:
         const TArray<uint32>& MeshIndices,
         const TArray<FVector3f>& AllVertices,
         int32 TotalVertexCount);
+
+    /**
+     * Build PBD adjacency data for Extended smoothing region (HopBased mode)
+     * 확장 스무딩 영역용 PBD 인접 데이터 빌드 (HopBased 모드)
+     *
+     * Similar to BuildPostProcessingPBDAdjacencyData but for ExtendedSmoothingIndices.
+     * BuildPostProcessingPBDAdjacencyData와 유사하지만 ExtendedSmoothingIndices 사용.
+     *
+     * Output:
+     * - RingData.ExtendedPBDAdjacencyWithRestLengths: [Count, N0, RL0, N1, RL1, ...] per vertex
+     *
+     * @param RingData - Ring data with ExtendedSmoothingIndices already populated
+     * @param AllVertices - All mesh vertices in bind pose component space
+     */
+    void BuildExtendedPBDAdjacencyData(
+        FRingAffectedData& RingData,
+        const TArray<FVector3f>& AllVertices);
 
     /**
      * Build adjacency data for PostProcessing vertices (Normal recomputation)

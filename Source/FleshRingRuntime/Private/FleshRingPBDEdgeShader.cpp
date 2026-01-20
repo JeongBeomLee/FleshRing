@@ -19,7 +19,7 @@ IMPLEMENT_GLOBAL_SHADER(
 );
 
 // ============================================================================
-// Single Pass Dispatch
+// Single Pass Dispatch (Tolerance-based)
 // ============================================================================
 
 void DispatchFleshRingPBDEdgeCS(
@@ -29,14 +29,18 @@ void DispatchFleshRingPBDEdgeCS(
 	FRDGBufferRef OutputPositionsBuffer,
 	FRDGBufferRef AffectedIndicesBuffer,
 	FRDGBufferRef RepresentativeIndicesBuffer,
-	FRDGBufferRef InfluencesBuffer,
-	FRDGBufferRef DeformAmountsBuffer,
-	FRDGBufferRef AdjacencyWithRestLengthsBuffer,
-	FRDGBufferRef FullInfluenceMapBuffer,
-	FRDGBufferRef FullDeformAmountMapBuffer)
+	FRDGBufferRef IsAnchorFlagsBuffer,
+	FRDGBufferRef FullIsAnchorMapBuffer,
+	FRDGBufferRef AdjacencyWithRestLengthsBuffer)
 {
 	// Early out if no vertices to process
 	if (Params.NumAffectedVertices == 0)
+	{
+		return;
+	}
+
+	// Validate required buffers
+	if (!IsAnchorFlagsBuffer || !FullIsAnchorMapBuffer)
 	{
 		return;
 	}
@@ -45,9 +49,11 @@ void DispatchFleshRingPBDEdgeCS(
 	FFleshRingPBDEdgeCS::FParameters* PassParameters =
 		GraphBuilder.AllocParameters<FFleshRingPBDEdgeCS::FParameters>();
 
-	// Bind buffers
+	// Bind position buffers
 	PassParameters->InputPositions = GraphBuilder.CreateSRV(InputPositionsBuffer, PF_R32_FLOAT);
 	PassParameters->OutputPositions = GraphBuilder.CreateUAV(OutputPositionsBuffer, PF_R32_FLOAT);
+
+	// Bind affected indices
 	PassParameters->AffectedIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
 
 	// UV Seam Welding: RepresentativeIndices 바인딩
@@ -61,58 +67,18 @@ void DispatchFleshRingPBDEdgeCS(
 		PassParameters->RepresentativeIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
 	}
 
-	PassParameters->Influences = GraphBuilder.CreateSRV(InfluencesBuffer);
+	// Bind IsAnchor buffers (Tolerance-based weighting)
+	PassParameters->IsAnchorFlags = GraphBuilder.CreateSRV(IsAnchorFlagsBuffer);
+	PassParameters->FullIsAnchorMap = GraphBuilder.CreateSRV(FullIsAnchorMapBuffer);
+
+	// Bind adjacency data
 	PassParameters->AdjacencyWithRestLengths = GraphBuilder.CreateSRV(AdjacencyWithRestLengthsBuffer);
-	PassParameters->FullInfluenceMap = GraphBuilder.CreateSRV(FullInfluenceMapBuffer);
-
-	// ===== DeformAmount 가중치 모드 활성화 조건 =====
-	// 버퍼가 실제로 있어야만 DeformAmount 가중치 모드 사용 가능
-	// 버퍼 없이 bUseDeformAmountWeight=true이면 버퍼 오버플로우 발생!
-	const bool bCanUseDeformAmountWeight =
-		Params.bUseDeformAmountWeight &&
-		DeformAmountsBuffer != nullptr &&
-		FullDeformAmountMapBuffer != nullptr;
-
-	// DeformAmounts 바인딩
-	if (bCanUseDeformAmountWeight)
-	{
-		PassParameters->DeformAmounts = GraphBuilder.CreateSRV(DeformAmountsBuffer);
-	}
-	else
-	{
-		// Dummy buffer (셰이더 파라미터 바인딩 필수)
-		FRDGBufferRef DummyBuffer = GraphBuilder.CreateBuffer(
-			FRDGBufferDesc::CreateStructuredDesc(sizeof(float), 1),
-			TEXT("FleshRingPBD_DummyDeformAmounts")
-		);
-		float DummyData = 0.0f;
-		GraphBuilder.QueueBufferUpload(DummyBuffer, &DummyData, sizeof(DummyData), ERDGInitialDataFlags::None);
-		PassParameters->DeformAmounts = GraphBuilder.CreateSRV(DummyBuffer);
-	}
-
-	// FullDeformAmountMap 바인딩
-	if (bCanUseDeformAmountWeight)
-	{
-		PassParameters->FullDeformAmountMap = GraphBuilder.CreateSRV(FullDeformAmountMapBuffer);
-	}
-	else
-	{
-		// Dummy buffer
-		FRDGBufferRef DummyBuffer = GraphBuilder.CreateBuffer(
-			FRDGBufferDesc::CreateStructuredDesc(sizeof(float), 1),
-			TEXT("FleshRingPBD_DummyFullDeformMap")
-		);
-		float DummyData = 0.0f;
-		GraphBuilder.QueueBufferUpload(DummyBuffer, &DummyData, sizeof(DummyData), ERDGInitialDataFlags::None);
-		PassParameters->FullDeformAmountMap = GraphBuilder.CreateSRV(DummyBuffer);
-	}
 
 	// Set parameters
 	PassParameters->NumAffectedVertices = Params.NumAffectedVertices;
 	PassParameters->NumTotalVertices = Params.NumTotalVertices;
 	PassParameters->Stiffness = Params.Stiffness;
-	// 버퍼가 없으면 DeformAmount 모드 강제 비활성화 (버퍼 오버플로우 방지)
-	PassParameters->bUseDeformAmountWeight = bCanUseDeformAmountWeight ? 1 : 0;
+	PassParameters->Tolerance = Params.Tolerance;
 
 	// Get shader
 	TShaderMapRef<FFleshRingPBDEdgeCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
@@ -124,7 +90,7 @@ void DispatchFleshRingPBDEdgeCS(
 	// Add compute pass
 	FComputeShaderUtils::AddPass(
 		GraphBuilder,
-		RDG_EVENT_NAME("FleshRingPBDEdgeCS"),
+		RDG_EVENT_NAME("FleshRingPBDEdgeCS_Tolerance"),
 		ComputeShader,
 		PassParameters,
 		FIntVector(static_cast<int32>(NumGroups), 1, 1)
@@ -132,7 +98,7 @@ void DispatchFleshRingPBDEdgeCS(
 }
 
 // ============================================================================
-// Multi-Pass Dispatch (Ping-Pong)
+// Multi-Pass Dispatch (Ping-Pong, Tolerance-based)
 // ============================================================================
 
 void DispatchFleshRingPBDEdgeCS_MultiPass(
@@ -141,13 +107,17 @@ void DispatchFleshRingPBDEdgeCS_MultiPass(
 	FRDGBufferRef PositionsBuffer,
 	FRDGBufferRef AffectedIndicesBuffer,
 	FRDGBufferRef RepresentativeIndicesBuffer,
-	FRDGBufferRef InfluencesBuffer,
-	FRDGBufferRef DeformAmountsBuffer,
-	FRDGBufferRef AdjacencyWithRestLengthsBuffer,
-	FRDGBufferRef FullInfluenceMapBuffer,
-	FRDGBufferRef FullDeformAmountMapBuffer)
+	FRDGBufferRef IsAnchorFlagsBuffer,
+	FRDGBufferRef FullIsAnchorMapBuffer,
+	FRDGBufferRef AdjacencyWithRestLengthsBuffer)
 {
 	if (Params.NumAffectedVertices == 0 || Params.NumIterations <= 0)
+	{
+		return;
+	}
+
+	// Validate required buffers
+	if (!IsAnchorFlagsBuffer || !FullIsAnchorMapBuffer)
 	{
 		return;
 	}
@@ -172,11 +142,9 @@ void DispatchFleshRingPBDEdgeCS_MultiPass(
 			PositionsBuffer,
 			AffectedIndicesBuffer,
 			RepresentativeIndicesBuffer,
-			InfluencesBuffer,
-			DeformAmountsBuffer,
-			AdjacencyWithRestLengthsBuffer,
-			FullInfluenceMapBuffer,
-			FullDeformAmountMapBuffer
+			IsAnchorFlagsBuffer,
+			FullIsAnchorMapBuffer,
+			AdjacencyWithRestLengthsBuffer
 		);
 		return;
 	}
@@ -211,11 +179,9 @@ void DispatchFleshRingPBDEdgeCS_MultiPass(
 			WriteBuffer,
 			AffectedIndicesBuffer,
 			RepresentativeIndicesBuffer,
-			InfluencesBuffer,
-			DeformAmountsBuffer,
-			AdjacencyWithRestLengthsBuffer,
-			FullInfluenceMapBuffer,
-			FullDeformAmountMapBuffer
+			IsAnchorFlagsBuffer,
+			FullIsAnchorMapBuffer,
+			AdjacencyWithRestLengthsBuffer
 		);
 	}
 

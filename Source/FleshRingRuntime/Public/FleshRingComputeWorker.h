@@ -148,6 +148,7 @@ struct FFleshRingWorkItem
 		bool bExtendedHasUVDuplicates = false;  // 확장 영역 UV duplicate 존재 여부
 		TArray<uint32> ExtendedAdjacencyOffsets;    // 확장 영역 노멀 재계산용 인접 오프셋
 		TArray<uint32> ExtendedAdjacencyTriangles;  // 확장 영역 노멀 재계산용 인접 삼각형
+		TArray<uint32> ExtendedPBDAdjacencyWithRestLengths;  // 확장 영역 PBD 인접 데이터 (HopBased 모드)
 
 		// ===== Heat Propagation (변형 전파) =====
 		// Seed의 delta를 Extended 영역으로 확산
@@ -212,11 +213,12 @@ struct FFleshRingWorkItem
 		// 스타킹 버텍스 인덱스 (PostProcessing 범위 내, LayerType=Stocking)
 		TArray<uint32> StockingVertexIndices;
 
-		// ===== PBD Edge Constraint용 데이터 (변형 전파) =====
+		// ===== PBD Edge Constraint용 데이터 (Tolerance 기반 변형 전파) =====
 		bool bEnablePBDEdgeConstraint = false;
 		float PBDStiffness = 0.8f;
 		int32 PBDIterations = 5;
-		bool bPBDUseDeformAmountWeight = true;
+		float PBDTolerance = 0.2f;  // 허용 오차 비율 (0.2 = 80%~120% 허용)
+		bool bPBDAnchorAffectedVertices = true;  // true: Affected Vertices 고정, false: 모든 버텍스 자유
 
 		// PBD용 인접 데이터 (rest length 포함)
 		// Packed format: [NeighborCount, Neighbor0, RestLen0(as uint), Neighbor1, RestLen1, ...] per affected vertex
@@ -230,6 +232,11 @@ struct FFleshRingWorkItem
 		// 전체 버텍스에 대한 DeformAmount 맵 (이웃 가중치 조회용)
 		// 인덱스: 전체 버텍스 인덱스, 값: deform amount
 		TArray<float> FullDeformAmountMap;
+
+		// 전체 버텍스에 대한 IsAnchor 맵 (Tolerance 기반 PBD용)
+		// 인덱스: 전체 버텍스 인덱스, 값: 1=Affected/앵커, 0=Non-Affected/자유
+		// 이웃의 앵커 여부를 조회하여 PBD 가중치 분배 결정
+		TArray<uint32> FullIsAnchorMap;
 	};
 	TSharedPtr<TArray<FRingDispatchData>> RingDispatchDataPtr;
 

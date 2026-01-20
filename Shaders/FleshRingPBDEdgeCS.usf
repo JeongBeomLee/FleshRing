@@ -1,26 +1,26 @@
 ﻿// ============================================================================
 // FleshRingPBDEdgeCS.usf - PBD Edge Constraint Compute Shader
 // ============================================================================
-// Purpose: Maintain edge lengths after deformation (prevent stretching/shrinking)
+// Purpose: Maintain edge lengths after deformation (prevent extreme stretching/compression)
 //
-// Key Concept ("Inverse PBD" / Weighted PBD):
-//   - High influence vertices (deformed by SDF): FIXED (anchors)
-//   - Low influence vertices (boundary/outside): FREE to move
-//   - Edge constraint pulls/pushes free vertices to maintain rest lengths
+// Key Concept (Tolerance-based PBD):
+//   - Affected Vertices (Tightness region): FIXED (anchors) - no movement
+//   - Non-Affected Vertices (extended region): FREE to move within tolerance
+//   - Edge constraint only applies when length is outside tolerance range
 //
-// Algorithm (Jacobi iteration):
+// Algorithm (Jacobi iteration with Tolerance):
 //   For each neighbor of this vertex:
-//     1. Calculate edge error = currentLength - restLength
-//     2. Calculate weights: myWeight = 1 - myInfluence, neighborWeight = 1 - neighborInfluence
-//     3. Calculate my correction ratio = myWeight / (myWeight + neighborWeight)
-//     4. Accumulate correction += direction * error * myRatio
+//     1. Calculate allowed range: [RestLength * (1-Tolerance), RestLength * (1+Tolerance)]
+//     2. If CurrentLength is within range: Error = 0 (no correction)
+//     3. If outside range: Error = distance to nearest boundary
+//     4. Calculate weights: Anchor = 0, Non-Anchor = 1
+//     5. Accumulate correction based on weight ratio
 //   Apply: NewPos = CurrentPos + Average(Corrections) * Stiffness
 //
 // Design:
-//   - Operates on SmoothingVertices (expanded region around deformation)
-//   - Uses Jacobi iteration for GPU parallelism (read from input, write to output)
-//   - Rest lengths stored alongside adjacency data
-//   - FullInfluenceMap for neighbor influence lookup (indexed by absolute vertex index)
+//   - IsAnchor-based weighting (binary: anchor=fixed, non-anchor=free)
+//   - Tolerance dead zone preserves intentional deformation
+//   - Only corrects extreme stretching/compression
 // ============================================================================
 
 #include "/Engine/Public/Platform.ush"
@@ -55,29 +55,21 @@ StructuredBuffer<uint> AffectedIndices;
 
 // UV Seam Welding: Representative vertex indices
 // UV seam의 모든 duplicate vertex는 같은 representative를 공유
-// 이를 통해 같은 위치의 모든 vertex가 동일하게 움직임
 StructuredBuffer<uint> RepresentativeIndices;
 
-// Per-vertex influence (for affected vertices, indexed by ThreadIndex)
-StructuredBuffer<float> Influences;
+// Per-vertex anchor flags (1 = Affected/Anchor, 0 = Non-Affected/Free)
+// Affected Vertices (Tightness 영역)는 고정, 나머지는 자유롭게 이동
+StructuredBuffer<uint> IsAnchorFlags;
 
-// Per-vertex deform amount from TightnessCS (0~1, indexed by ThreadIndex)
-// 많이 변형된 버텍스 = 높은 값 = 고정점(앵커), 적게 변형된 버텍스 = 낮은 값 = 자유롭게 이동
-StructuredBuffer<float> DeformAmounts;
+// Full mesh anchor map (indexed by absolute vertex index)
+// For neighbor anchor lookup (neighbors might not be in current region)
+// 이웃의 앵커 여부 조회용 전체 메시 크기 맵
+StructuredBuffer<uint> FullIsAnchorMap;
 
 // Adjacency with rest lengths
 // Format per vertex: [Count, Neighbor0, RestLen0_asUint, Neighbor1, RestLen1_asUint, ...]
 // Size per vertex: 1 + MAX_NEIGHBORS * 2 = 25 uints
 StructuredBuffer<uint> AdjacencyWithRestLengths;
-
-// Full mesh influence map (indexed by absolute vertex index)
-// For neighbor influence lookup (neighbors might not be in AffectedIndices)
-StructuredBuffer<float> FullInfluenceMap;
-
-// Full mesh deform amount map (indexed by absolute vertex index)
-// For neighbor deform amount lookup when bUseDeformAmountWeight=1
-// 전체 메시의 변형량 맵 (절대 버텍스 인덱스로 인덱싱)
-StructuredBuffer<float> FullDeformAmountMap;
 
 // ============================================================================
 // Parameters
@@ -87,9 +79,10 @@ uint NumAffectedVertices;
 uint NumTotalVertices;
 float Stiffness;
 
-// Flag to use DeformAmounts instead of Influences for weight calculation
-// DeformAmounts 사용 여부 플래그 (0 = Influences 사용, 1 = DeformAmounts 사용)
-uint bUseDeformAmountWeight;
+// Tolerance ratio (0.0 ~ 0.5)
+// Allowed range: [RestLength * (1-Tolerance), RestLength * (1+Tolerance)]
+// 예: Tolerance=0.2 → 원래 길이의 80%~120% 범위 허용
+float Tolerance;
 
 // ============================================================================
 // Helper Functions
@@ -145,17 +138,42 @@ float GetRestLength(uint AdjacencyOffset, uint NeighborSlot)
 }
 
 // ============================================================================
-// PBD Edge Constraint Solver
+// Tolerance-based Error Calculation
+// ============================================================================
+// 허용 범위 내 변형은 유지, 범위 밖일 때만 보정
+// - 범위 내: Error = 0 (변형 유지)
+// - 너무 짧음: Error = CurrentLength - MinAllowed (음수, 늘려야 함)
+// - 너무 김: Error = CurrentLength - MaxAllowed (양수, 줄여야 함)
+
+float CalculateToleranceError(float CurrentLength, float RestLength)
+{
+    float MinAllowed = RestLength * (1.0f - Tolerance);
+    float MaxAllowed = RestLength * (1.0f + Tolerance);
+
+    if (CurrentLength < MinAllowed)
+    {
+        // 너무 짧음 → 최소 허용 길이까지만 늘림
+        return CurrentLength - MinAllowed;  // 음수
+    }
+    else if (CurrentLength > MaxAllowed)
+    {
+        // 너무 김 → 최대 허용 길이까지만 줄임
+        return CurrentLength - MaxAllowed;  // 양수
+    }
+
+    // 허용 범위 내 → 보정 없음
+    return 0.0f;
+}
+
+// ============================================================================
+// PBD Edge Constraint Solver (Tolerance-based)
 // ============================================================================
 
-// Solve all edge constraints for this vertex
-// Returns accumulated correction
 float3 SolveEdgeConstraints(
     uint ThreadIndex,
-    uint ReadIndex,
+    uint MyVertexIndex,
     float3 CurrentPos,
-    float MyInfluence,
-    float MyDeformAmount)
+    uint MyIsAnchor)
 {
     uint AdjacencyOffset = GetAdjacencyOffset(ThreadIndex);
     uint NeighborCount = GetNeighborCount(AdjacencyOffset);
@@ -166,37 +184,17 @@ float3 SolveEdgeConstraints(
         return float3(0, 0, 0);
     }
 
-    // My weight (how much I can move)
-    // ============================================================================
-    // 가중치 계산 방식 선택:
-    // - bUseDeformAmountWeight = 0: 기존 방식 (Influence 기반)
-    //   High influence = low weight = fixed (anchor)
-    // - bUseDeformAmountWeight = 1: 새 방식 (DeformAmount 기반)
-    //   High deform = low weight = fixed (많이 눌린 버텍스는 고정)
-    //   Low deform = high weight = free (적게 눌린 버텍스는 자유롭게 이동)
-    // ============================================================================
-    float MyWeight;
-    if (bUseDeformAmountWeight != 0)
-    {
-        // 새 방식: 변형량 기반 가중치
-        // 많이 변형된 버텍스(deformAmount=1)는 weight=0.2 (거의 고정)
-        // 적게 변형된 버텍스(deformAmount=0)는 weight=1.0 (자유롭게 이동)
-        MyWeight = lerp(1.0f, 0.2f, MyDeformAmount);
-    }
-    else
-    {
-        // 기존 방식: Influence 기반 가중치
-        MyWeight = 1.0f - MyInfluence;
-    }
+    // My weight: Anchor = 0 (fixed), Non-Anchor = 1 (free)
+    float MyWeight = (MyIsAnchor == 1) ? 0.0f : 1.0f;
 
-    // If I'm completely fixed, no movement
+    // If I'm an anchor, no movement at all
     if (MyWeight < EPSILON)
     {
         return float3(0, 0, 0);
     }
 
     float3 TotalCorrection = float3(0, 0, 0);
-    float TotalWeight = 0;
+    float TotalEdgeCount = 0;
 
     for (uint i = 0; i < NeighborCount && i < MAX_NEIGHBORS; i++)
     {
@@ -232,50 +230,46 @@ float3 SolveEdgeConstraints(
         // Edge direction (normalized)
         float3 EdgeDir = EdgeVec / CurrentLength;
 
-        // Length error (positive = stretched, negative = compressed)
-        float Error = CurrentLength - RestLength;
+        // ============================================================================
+        // Tolerance-based Error Calculation
+        // ============================================================================
+        float Error = CalculateToleranceError(CurrentLength, RestLength);
 
-        // Neighbor's weight calculation
-        // 이웃의 가중치 계산 (현재 버텍스와 동일한 방식 사용)
-        float NeighborWeight;
-        if (bUseDeformAmountWeight != 0)
+        // Skip if within tolerance (no correction needed)
+        if (abs(Error) < EPSILON)
         {
-            // 새 방식: 변형량 기반
-            float NeighborDeformAmount = FullDeformAmountMap[NeighborVertexIndex];
-            NeighborWeight = lerp(1.0f, 0.2f, NeighborDeformAmount);
+            continue;
         }
-        else
-        {
-            // 기존 방식: Influence 기반
-            float NeighborInfluence = FullInfluenceMap[NeighborVertexIndex];
-            NeighborWeight = 1.0f - NeighborInfluence;
-        }
+
+        // Neighbor's weight: Anchor = 0, Non-Anchor = 1
+        uint NeighborIsAnchor = FullIsAnchorMap[NeighborVertexIndex];
+        float NeighborWeight = (NeighborIsAnchor == 1) ? 0.0f : 1.0f;
 
         // Total weight for this edge
         float EdgeTotalWeight = MyWeight + NeighborWeight;
 
-        // Skip if both are fixed
+        // Skip if both are anchors (shouldn't happen since we checked MyWeight)
         if (EdgeTotalWeight < EPSILON)
         {
             continue;
         }
 
         // My ratio of the correction
-        // Higher MyWeight = I move more, NeighborWeight less = neighbor is anchor
+        // MyWeight=1, NeighborWeight=0 → MyRatio=1 (I move fully)
+        // MyWeight=1, NeighborWeight=1 → MyRatio=0.5 (split evenly)
         float MyRatio = MyWeight / EdgeTotalWeight;
 
         // My correction: move toward neighbor if stretched, away if compressed
-        // Positive error (stretched) + positive direction = move toward neighbor
         float3 Correction = EdgeDir * Error * MyRatio;
 
         TotalCorrection += Correction;
-        TotalWeight += 1.0f;
+        TotalEdgeCount += 1.0f;
     }
 
     // Average the corrections
-    if (TotalWeight > 0)
+    if (TotalEdgeCount > 0)
     {
-        TotalCorrection /= TotalWeight;
+        TotalCorrection /= TotalEdgeCount;
     }
 
     return TotalCorrection;
@@ -296,16 +290,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
-    // =========================================================================
-    // UV Seam Welding: 대표 버텍스 기반 읽기/쓰기 분리
-    // =========================================================================
-    // WriteIndex: 실제로 출력할 버텍스 인덱스 (AffectedIndices에서)
-    // ReadIndex: 위치를 읽어올 대표 버텍스 인덱스 (RepresentativeIndices에서)
-    //
-    // 같은 Position의 모든 UV duplicate들은:
-    //   - 같은 ReadIndex를 공유 (같은 위치에서 읽음)
-    //   - 각자의 WriteIndex에 출력 (자기 버텍스에 씀)
-    // => 결과적으로 모든 duplicate가 동일한 위치로 이동 -> UV seam crack 방지
+    // Get vertex indices
     uint WriteIndex = AffectedIndices[ThreadIndex];
     uint ReadIndex = RepresentativeIndices[ThreadIndex];
 
@@ -315,15 +300,22 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
+    // Get my anchor status
+    uint MyIsAnchor = IsAnchorFlags[ThreadIndex];
+
+    // If I'm an anchor (Affected Vertex), just copy position without modification
+    if (MyIsAnchor == 1)
+    {
+        float3 CurrentPos = ReadPosition(InputPositions, ReadIndex);
+        WritePosition(WriteIndex, CurrentPos);
+        return;
+    }
+
     // Read current position from REPRESENTATIVE vertex
     float3 CurrentPos = ReadPosition(InputPositions, ReadIndex);
 
-    // Get my influence and deform amount
-    float MyInfluence = Influences[ThreadIndex];
-    float MyDeformAmount = (bUseDeformAmountWeight != 0) ? DeformAmounts[ThreadIndex] : 0.0f;
-
-    // Solve edge constraints
-    float3 Correction = SolveEdgeConstraints(ThreadIndex, ReadIndex, CurrentPos, MyInfluence, MyDeformAmount);
+    // Solve edge constraints with tolerance
+    float3 Correction = SolveEdgeConstraints(ThreadIndex, ReadIndex, CurrentPos, MyIsAnchor);
 
     // Apply correction with stiffness
     float3 NewPos = CurrentPos + Correction * Stiffness;

@@ -488,6 +488,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			DispatchData.bExtendedHasUVDuplicates = RingData.bExtendedHasUVDuplicates;  // UV Sync 스킵 최적화용
 			DispatchData.ExtendedAdjacencyOffsets = RingData.ExtendedAdjacencyOffsets;  // NormalRecomputeCS용
 			DispatchData.ExtendedAdjacencyTriangles = RingData.ExtendedAdjacencyTriangles;  // NormalRecomputeCS용
+			DispatchData.ExtendedPBDAdjacencyWithRestLengths = RingData.ExtendedPBDAdjacencyWithRestLengths;  // PBD용 (HopBased 모드)
 
 			// Heat Propagation 설정 복사 (HopBased 모드에서만 유효)
 			DispatchData.bEnableHeatPropagation = Settings.bEnablePostProcess &&
@@ -498,7 +499,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			DispatchData.bIncludeBulgeVerticesAsSeeds = Settings.bIncludeBulgeVerticesAsSeeds;
 		}
 
-		// Ring별 PBD Edge Constraint 설정 복사
+		// Ring별 PBD Edge Constraint 설정 복사 (Tolerance 기반)
 		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIndex))
 		{
 			const FFleshRingSettings& Settings = (*RingSettingsPtr)[RingIndex];
@@ -506,13 +507,15 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			DispatchData.bEnablePBDEdgeConstraint = Settings.bEnablePostProcess && Settings.bEnablePBDEdgeConstraint;
 			DispatchData.PBDStiffness = Settings.PBDStiffness;
 			DispatchData.PBDIterations = Settings.PBDIterations;
-			DispatchData.bPBDUseDeformAmountWeight = Settings.bPBDUseDeformAmountWeight;
+			DispatchData.PBDTolerance = Settings.PBDTolerance;
+			DispatchData.bPBDAnchorAffectedVertices = Settings.bPBDAnchorAffectedVertices;
 		}
 
 		// PBD용 인접 데이터 및 전체 맵 복사
 		DispatchData.PBDAdjacencyWithRestLengths = RingData.PBDAdjacencyWithRestLengths;
 		DispatchData.FullInfluenceMap = RingData.FullInfluenceMap;
 		DispatchData.FullDeformAmountMap = RingData.FullDeformAmountMap;
+		DispatchData.FullIsAnchorMap = RingData.FullIsAnchorMap;
 
 		// ===== Self-Collision Detection용 삼각형 추출 =====
 		// 스타킹-살 충돌 검사를 위해 메시의 모든 삼각형 포함
