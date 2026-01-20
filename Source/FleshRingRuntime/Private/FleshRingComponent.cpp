@@ -2728,7 +2728,41 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 	// 이미 캐싱되어 있으면 스킵
 	if (bDebugBulgeVerticesCached)
 	{
-		return;
+		// ★ bEnableBulge 상태 변경 확인 (Ring 1개일 때도 정상 작동하도록)
+		if (FleshRingAsset)
+		{
+			bool bNeedsRecache = false;
+			const int32 NumRings = FleshRingAsset->Rings.Num();
+
+			for (int32 RingIdx = 0; RingIdx < NumRings; ++RingIdx)
+			{
+				if (!DebugBulgeData.IsValidIndex(RingIdx)) continue;
+
+				const FFleshRingSettings& RingSettings = FleshRingAsset->Rings[RingIdx];
+				const bool bHasCachedData = DebugBulgeData[RingIdx].Vertices.Num() > 0;
+
+				// 캐시 있는데 Bulge 비활성 → 클리어 필요
+				if (bHasCachedData && !RingSettings.bEnableBulge)
+				{
+					DebugBulgeData[RingIdx].Vertices.Reset();
+				}
+				// 캐시 없는데 Bulge 활성 → 재캐싱 필요
+				else if (!bHasCachedData && RingSettings.bEnableBulge)
+				{
+					bNeedsRecache = true;
+				}
+			}
+
+			if (!bNeedsRecache)
+			{
+				return;
+			}
+			// bNeedsRecache = true면 아래로 진행하여 재캐싱
+		}
+		else
+		{
+			return;
+		}
 	}
 
 	// 유효성 검사
@@ -2761,19 +2795,23 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 		const FFleshRingSettings& RingSettings = FleshRingAsset->Rings[RingIdx];
 		FRingAffectedData& BulgeData = DebugBulgeData[RingIdx];
 
-		// ★ 이미 캐싱된 Ring은 스킵 (Ring별 무효화 지원)
+		// ★ bEnableBulge 체크를 먼저 수행 (비활성화면 캐시 클리어)
+		if (!RingSettings.bEnableBulge)
+		{
+			if (BulgeData.Vertices.Num() > 0)
+			{
+				BulgeData.Vertices.Reset();
+			}
+			continue;
+		}
+
+		// ★ bEnableBulge == true인 경우만 캐시 확인 (Ring별 무효화 지원)
 		if (BulgeData.Vertices.Num() > 0)
 		{
 			continue;
 		}
 
 		BulgeData.BoneName = RingSettings.BoneName;
-
-		// Bulge 비활성화면 스킵
-		if (!RingSettings.bEnableBulge)
-		{
-			continue;
-		}
 
 		// ===== Ring 정보 계산: SDF 모드 vs VirtualRing 모드 분기 =====
 		FTransform LocalToComponent = FTransform::Identity;

@@ -1015,6 +1015,14 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 					MaxBulgeVertexCount += RingData.BulgeIndices.Num();
 				}
 			}
+
+			// ★ MaxBulgeVertexCount == 0이면 기존 캐시 버퍼 클리어
+			// (bEnableBulge가 꺼졌을 때 이전 프레임의 버퍼가 남아있는 문제 해결)
+			if (MaxBulgeVertexCount == 0 && CurrentLODData.CachedDebugBulgePointBufferShared.IsValid())
+			{
+				CurrentLODData.CachedDebugBulgePointBufferShared->SafeRelease();
+				CurrentLODData.CachedDebugBulgePointBufferShared.Reset();
+			}
 		}
 	}
 #endif
