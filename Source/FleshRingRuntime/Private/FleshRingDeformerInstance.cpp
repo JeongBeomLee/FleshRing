@@ -393,6 +393,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		DispatchData.LayerTypes = RingData.PackedLayerTypes;
 		DispatchData.FullMeshLayerTypes = FullMeshLayerTypes;  // 전체 메시 LayerTypes (GPU 직접 업로드용)
 		DispatchData.RepresentativeIndices = RingData.RepresentativeIndices;  // UV seam welding용
+		DispatchData.bHasUVDuplicates = RingData.bHasUVDuplicates;  // UV Sync 스킵 최적화용
 
 		// Z 확장 후처리 버텍스 데이터 복사
 		// 설계: Indices = Tightness용 (원본 SDF AABB)
@@ -402,6 +403,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		DispatchData.PostProcessingInfluences = RingData.PostProcessingInfluences;
 		DispatchData.PostProcessingIsAnchor = RingData.PostProcessingIsAnchor;  // 앵커 플래그
 		DispatchData.PostProcessingRepresentativeIndices = RingData.PostProcessingRepresentativeIndices;  // UV seam welding용
+		DispatchData.bPostProcessingHasUVDuplicates = RingData.bPostProcessingHasUVDuplicates;  // UV Sync 스킵 최적화용
 		DispatchData.PostProcessingLaplacianAdjacencyData = RingData.PostProcessingLaplacianAdjacencyData;
 		DispatchData.PostProcessingPBDAdjacencyWithRestLengths = RingData.PostProcessingPBDAdjacencyWithRestLengths;
 		DispatchData.PostProcessingAdjacencyOffsets = RingData.PostProcessingAdjacencyOffsets;
@@ -486,6 +488,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			DispatchData.ExtendedIsAnchor = RingData.ExtendedIsAnchor;  // 앵커 플래그 (1=Seed, 0=확장)
 			DispatchData.ExtendedLaplacianAdjacency = RingData.ExtendedLaplacianAdjacency;
 			DispatchData.ExtendedRepresentativeIndices = RingData.ExtendedRepresentativeIndices;  // UV seam welding용
+			DispatchData.bExtendedHasUVDuplicates = RingData.bExtendedHasUVDuplicates;  // UV Sync 스킵 최적화용
 			DispatchData.ExtendedAdjacencyOffsets = RingData.ExtendedAdjacencyOffsets;  // NormalRecomputeCS용
 			DispatchData.ExtendedAdjacencyTriangles = RingData.ExtendedAdjacencyTriangles;  // NormalRecomputeCS용
 

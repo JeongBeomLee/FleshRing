@@ -4,6 +4,7 @@
 #include "FleshRingDeformerInstance.h"
 #include "FleshRingSkinningShader.h"
 #include "FleshRingHeatPropagationShader.h"
+#include "FleshRingUVSyncShader.h"
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
 #include "SkeletalMeshDeformerHelpers.h"
@@ -1879,6 +1880,50 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 						AdjacencyTrianglesSource.Num() * sizeof(uint32),
 						ERDGInitialDataFlags::None
 					);
+
+					// ========================================
+					// UV Sync: Normal Recompute 전 위치 동기화
+					// ========================================
+					// UV duplicate 버텍스들의 위치를 Representative 기준으로 동기화
+					// 이를 통해 UV seam에서 노멀 계산 시 동일한 위치 사용 보장
+					{
+						// 영역에 따라 적절한 RepresentativeIndices와 HasDuplicates 플래그 선택
+						const TArray<uint32>& RepresentativeSource = bUseExtendedRegion
+							? DispatchData.ExtendedRepresentativeIndices
+							: (bUsePostProcessingRegion
+								? DispatchData.PostProcessingRepresentativeIndices
+								: DispatchData.RepresentativeIndices);
+
+						const bool bHasUVDuplicates = bUseExtendedRegion
+							? DispatchData.bExtendedHasUVDuplicates
+							: (bUsePostProcessingRegion
+								? DispatchData.bPostProcessingHasUVDuplicates
+								: DispatchData.bHasUVDuplicates);
+
+						// UV duplicate가 없으면 스킵 (최적화)
+						if (bHasUVDuplicates && RepresentativeSource.Num() == NumAffected)
+						{
+							FRDGBufferRef UVSyncRepIndicesBuffer = GraphBuilder.CreateBuffer(
+								FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumAffected),
+								*FString::Printf(TEXT("FleshRing_UVSyncRepIndices_Ring%d"), RingIdx)
+							);
+							GraphBuilder.QueueBufferUpload(
+								UVSyncRepIndicesBuffer,
+								RepresentativeSource.GetData(),
+								NumAffected * sizeof(uint32),
+								ERDGInitialDataFlags::None
+							);
+
+							FUVSyncDispatchParams UVSyncParams(NumAffected);
+							DispatchFleshRingUVSyncCS(
+								GraphBuilder,
+								UVSyncParams,
+								TightenedBindPoseBuffer,
+								AffectedIndicesBuffer,
+								UVSyncRepIndicesBuffer
+							);
+						}
+					}
 
 					// NormalRecomputeCS 디스패치
 					FNormalRecomputeDispatchParams NormalParams(NumAffected, ActualNumVertices, WorkItem.NormalRecomputeMode);

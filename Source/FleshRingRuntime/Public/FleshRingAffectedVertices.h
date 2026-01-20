@@ -171,12 +171,23 @@ struct FRingAffectedData
     TArray<uint32> RepresentativeIndices;
 
     /**
+     * Whether this region has UV duplicates (vertices with different index but same position)
+     * If false, UV Sync pass can be skipped for optimization
+     * UV duplicate 존재 여부 (같은 위치, 다른 인덱스를 가진 버텍스)
+     * false면 UVSync 패스 스킵 가능 (최적화)
+     */
+    bool bHasUVDuplicates = false;
+
+    /**
      * GPU buffer: Representative vertex index for PostProcessing vertices
      * Same concept as RepresentativeIndices but for Z-extended region
      * GPU 버퍼: 후처리 버텍스의 대표 버텍스 인덱스
      * RepresentativeIndices와 동일 개념, Z 확장 영역용
      */
     TArray<uint32> PostProcessingRepresentativeIndices;
+
+    /** UV duplicate 존재 여부 (후처리 영역) */
+    bool bPostProcessingHasUVDuplicates = false;
 
     // =========== Z-Extended Post-Processing Vertices ===========
     // =========== Z 확장 후처리 버텍스 ===========
@@ -462,6 +473,9 @@ struct FRingAffectedData
      * HeatPropagationCS에서 UV seam 버텍스가 동일하게 이동하도록 보장
      */
     TArray<uint32> ExtendedRepresentativeIndices;
+
+    /** UV duplicate 존재 여부 (확장 영역) */
+    bool bExtendedHasUVDuplicates = false;
 
     /**
      * Triangle adjacency data for extended smoothing region (NormalRecomputeCS용)

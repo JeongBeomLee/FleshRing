@@ -1,0 +1,102 @@
+// ============================================================================
+// FleshRingUVSyncCS.usf - UV Duplicate Position Synchronization Compute Shader
+// ============================================================================
+// Purpose: Synchronize positions of UV duplicate vertices before Normal Recompute
+//
+// Problem Solved:
+//   UV seam vertices (same position, different indices) may have slightly
+//   different positions after deformation due to floating point errors or
+//   race conditions. This causes visible seams after normal recalculation.
+//
+// Algorithm:
+//   1. Each thread reads its representative vertex index
+//   2. Read the representative's position
+//   3. Write that position to the current vertex
+//   Result: All UV duplicates at the same position have identical coordinates
+//
+// Usage:
+//   Dispatch once before NormalRecomputeCS
+// ============================================================================
+
+#include "/Engine/Public/Platform.ush"
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+#ifndef THREADGROUP_SIZE
+#define THREADGROUP_SIZE 64
+#endif
+
+// ============================================================================
+// Buffer Declarations
+// ============================================================================
+
+// Input/Output: Vertex positions (in-place modification)
+RWBuffer<float> Positions;
+
+// Input: Indices of affected vertices to process
+StructuredBuffer<uint> AffectedIndices;
+
+// Input: Representative vertex indices for UV seam welding
+// All UV duplicates at the same position share the same representative
+StructuredBuffer<uint> RepresentativeIndices;
+
+// ============================================================================
+// Parameters
+// ============================================================================
+
+// Number of affected vertices to process
+uint NumAffectedVertices;
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+float3 ReadPosition(uint VertexIndex)
+{
+    uint BaseIndex = VertexIndex * 3;
+    return float3(
+        Positions[BaseIndex + 0],
+        Positions[BaseIndex + 1],
+        Positions[BaseIndex + 2]
+    );
+}
+
+void WritePosition(uint VertexIndex, float3 Position)
+{
+    uint BaseIndex = VertexIndex * 3;
+    Positions[BaseIndex + 0] = Position.x;
+    Positions[BaseIndex + 1] = Position.y;
+    Positions[BaseIndex + 2] = Position.z;
+}
+
+// ============================================================================
+// Main Compute Shader
+// ============================================================================
+
+[numthreads(THREADGROUP_SIZE, 1, 1)]
+void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    uint ThreadIndex = DispatchThreadId.x;
+
+    // Bounds check
+    if (ThreadIndex >= NumAffectedVertices)
+    {
+        return;
+    }
+
+    // Get my vertex index and representative index
+    uint MyVertexIndex = AffectedIndices[ThreadIndex];
+    uint RepVertexIndex = RepresentativeIndices[ThreadIndex];
+
+    // Skip if I am the representative (no sync needed)
+    if (MyVertexIndex == RepVertexIndex)
+    {
+        return;
+    }
+
+    // Read representative's position and write to my position
+    float3 RepPosition = ReadPosition(RepVertexIndex);
+    WritePosition(MyVertexIndex, RepPosition);
+}

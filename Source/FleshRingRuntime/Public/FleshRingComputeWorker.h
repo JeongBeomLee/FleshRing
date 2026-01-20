@@ -56,6 +56,7 @@ struct FFleshRingWorkItem
 		// 셰이더에서: RepresentativeIndices[ThreadIndex]의 위치를 읽어서 변형 계산
 		// 같은 Position Group의 버텍스들은 동일한 Representative를 공유
 		TArray<uint32> RepresentativeIndices;
+		bool bHasUVDuplicates = false;  // UV duplicate 존재 여부 (없으면 UVSync 스킵 가능)
 
 		// SDF 캐시 데이터 (렌더 스레드로 안전하게 전달)
 		TRefCountPtr<IPooledRenderTarget> SDFPooledTexture;
@@ -144,6 +145,7 @@ struct FFleshRingWorkItem
 		TArray<uint32> ExtendedIsAnchor;             // 확장 영역 앵커 플래그 (1=Seed, 0=확장)
 		TArray<uint32> ExtendedLaplacianAdjacency;   // 확장 영역 인접 데이터
 		TArray<uint32> ExtendedRepresentativeIndices;  // 확장 영역 UV seam 대표 버텍스 인덱스
+		bool bExtendedHasUVDuplicates = false;  // 확장 영역 UV duplicate 존재 여부
 		TArray<uint32> ExtendedAdjacencyOffsets;    // 확장 영역 노멀 재계산용 인접 오프셋
 		TArray<uint32> ExtendedAdjacencyTriangles;  // 확장 영역 노멀 재계산용 인접 삼각형
 
@@ -196,6 +198,7 @@ struct FFleshRingWorkItem
 		TArray<float> PostProcessingInfluences;
 		TArray<uint32> PostProcessingIsAnchor;  // 앵커 플래그 (1=원본Affected, 0=확장영역)
 		TArray<uint32> PostProcessingRepresentativeIndices;  // 후처리 버텍스용 UV seam 대표 인덱스
+		bool bPostProcessingHasUVDuplicates = false;  // 후처리 영역 UV duplicate 존재 여부
 		TArray<uint32> PostProcessingLaplacianAdjacencyData;  // 후처리 버텍스용 라플라시안 인접 데이터
 		TArray<uint32> PostProcessingPBDAdjacencyWithRestLengths;  // 후처리 버텍스용 PBD 인접 데이터
 		TArray<uint32> PostProcessingAdjacencyOffsets;    // 후처리 버텍스용 노멀 인접 오프셋

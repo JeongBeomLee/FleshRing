@@ -3601,6 +3601,9 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
             }
         }
 
+        // Set UV duplicate flag for optimization (skip UV Sync if no duplicates)
+        RingData.bHasUVDuplicates = (NumWelded > 0);
+
         // ===== PostProcessing Vertices용 RepresentativeIndices (캐시 사용) =====
         const int32 NumPostProcessing = RingData.PostProcessingIndices.Num();
         if (NumPostProcessing > 0)
@@ -3632,12 +3635,17 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
                 }
             }
 
+            // Set UV duplicate flag for PostProcessing
+            RingData.bPostProcessingHasUVDuplicates = (PPNumWelded > 0);
+
             UE_LOG(LogFleshRingVertices, Verbose,
                 TEXT("BuildRepresentativeIndices (cached): Affected=%d (welded=%d), PostProcessing=%d (welded=%d)"),
                 NumAffected, NumWelded, NumPostProcessing, PPNumWelded);
         }
         else
         {
+            RingData.bPostProcessingHasUVDuplicates = false;
+
             UE_LOG(LogFleshRingVertices, Verbose,
                 TEXT("BuildRepresentativeIndices (cached): Affected=%d (welded=%d), PostProcessing=0"),
                 NumAffected, NumWelded);
@@ -3702,6 +3710,9 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
         }
     }
 
+    // Set UV duplicate flag for optimization (skip UV Sync if no duplicates)
+    RingData.bHasUVDuplicates = (NumWelded > 0);
+
     // Step 3: PostProcessing Vertices용 RepresentativeIndices 빌드
     const int32 NumPostProcessing = RingData.PostProcessingIndices.Num();
     if (NumPostProcessing > 0)
@@ -3753,12 +3764,17 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
             }
         }
 
+        // Set UV duplicate flag for PostProcessing
+        RingData.bPostProcessingHasUVDuplicates = (PPNumWelded > 0);
+
         UE_LOG(LogFleshRingVertices, Log,
             TEXT("BuildRepresentativeIndices (fallback): Affected=%d (welded=%d), PostProcessing=%d (welded=%d)"),
             NumAffected, NumWelded, NumPostProcessing, PPNumWelded);
     }
     else
     {
+        RingData.bPostProcessingHasUVDuplicates = false;
+
         UE_LOG(LogFleshRingVertices, Log,
             TEXT("BuildRepresentativeIndices (fallback): Affected=%d (welded=%d), PostProcessing=0"),
             NumAffected, NumWelded);
@@ -3989,6 +4005,9 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
                 RingData.ExtendedRepresentativeIndices[i] = VertIdx;
             }
         }
+
+        // Set UV duplicate flag for Extended region
+        RingData.bExtendedHasUVDuplicates = (NumWelded > 0);
 
         UE_LOG(LogFleshRingVertices, Verbose,
             TEXT("BuildHopDistanceData: ExtendedRepresentativeIndices built, %d vertices (welded=%d)"),
