@@ -489,7 +489,7 @@ void FDistanceBasedVertexSelector::SelectVertices(
             if (RadialDistance <= MaxDistance && FMath::Abs(AxisDistance) <= HalfWidth)
             {
                 // GPU가 Influence를 재계산하므로 CPU에서는 1.0으로 고정 (placeholder)
-                // GPU: CalculateManualInfluence() in FleshRingTightnessCS.usf
+                // GPU: CalculateVirtualRingInfluence() in FleshRingTightnessCS.usf
                 OutAffected.Add(FAffectedVertex(
                     static_cast<uint32>(VertexIdx),
                     RadialDistance,

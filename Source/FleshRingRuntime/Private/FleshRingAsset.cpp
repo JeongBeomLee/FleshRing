@@ -542,7 +542,7 @@ namespace SubdivisionHelpers
 	}
 
 	/**
-	 * 기본 Affected 버텍스 선택 (Auto/Manual 모드)
+	 * 기본 Affected 버텍스 선택 (Auto/VirtualRing 모드)
 	 * @param Ring - Ring 설정
 	 * @param Positions - 버텍스 위치 배열
 	 * @param BoneTransform - 본의 컴포넌트 스페이스 트랜스폼

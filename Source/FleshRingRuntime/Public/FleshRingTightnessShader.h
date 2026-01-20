@@ -51,7 +51,7 @@ public:
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, AffectedIndices)
 
         // NOTE: Influences 버퍼 제거됨 - GPU에서 직접 Influence 계산
-        // (VirtualRing: CalculateManualInfluence, VirtualBand: CalculateVirtualBandInfluence)
+        // (VirtualRing: CalculateVirtualRingInfluence, VirtualBand: CalculateVirtualBandInfluence)
 
         // Input: Representative vertex indices for UV seam welding
         // 입력: UV seam 용접을 위한 대표 버텍스 인덱스

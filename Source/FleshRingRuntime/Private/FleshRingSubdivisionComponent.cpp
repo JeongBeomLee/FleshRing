@@ -318,7 +318,7 @@ void UFleshRingSubdivisionComponent::ComputeSubdivision()
 	// Ring 파라미터 설정
 	FSubdivisionRingParams RingParams;
 
-	// InfluenceMode에 따라 SDF 모드 또는 Manual 모드 결정
+	// InfluenceMode에 따라 SDF 모드 또는 VirtualRing 모드 결정
 	if (Ring.InfluenceMode == EFleshRingInfluenceMode::Auto)
 	{
 		// Auto 모드: SDF 캐시에서 바운드 정보 사용
@@ -337,7 +337,7 @@ void UFleshRingSubdivisionComponent::ComputeSubdivision()
 		}
 		else
 		{
-			// SDF 캐시가 없으면 Manual 모드로 폴백
+			// SDF 캐시가 없으면 VirtualRing 모드로 폴백
 			UE_LOG(LogFleshRingSubdivision, Warning,
 				TEXT("SDF cache not available, falling back to VirtualRing mode"));
 			RingParams.bUseSDFBounds = false;

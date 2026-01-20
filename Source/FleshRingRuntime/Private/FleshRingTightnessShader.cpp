@@ -70,7 +70,7 @@ void DispatchFleshRingTightnessCS(
     // ===== 입력 버퍼 바인딩 (SRV) =====
     PassParameters->SourcePositions = GraphBuilder.CreateSRV(SourcePositionsBuffer, PF_R32_FLOAT);
     PassParameters->AffectedIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
-    // NOTE: Influences 버퍼 제거됨 - GPU에서 CalculateManualInfluence/CalculateVirtualBandInfluence로 직접 계산
+    // NOTE: Influences 버퍼 제거됨 - GPU에서 CalculateVirtualRingInfluence/CalculateVirtualBandInfluence로 직접 계산
 
     // ===== UV Seam Welding: RepresentativeIndices 바인딩 =====
     // RepresentativeIndices가 nullptr이면 AffectedIndices를 대신 사용 (fallback)
@@ -143,7 +143,7 @@ void DispatchFleshRingTightnessCS(
 
     // ===== SDF Parameters (OBB Design) =====
     // ===== SDF 파라미터 (OBB 설계) =====
-    // SDFTexture가 유효하면 SDF Auto 모드, nullptr이면 Manual 모드
+    // SDFTexture가 유효하면 SDF Auto 모드, nullptr이면 VirtualRing 모드
     if (SDFTexture)
     {
         PassParameters->SDFTexture = GraphBuilder.CreateSRV(SDFTexture);
@@ -385,7 +385,7 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
 
     // ===== SDF Parameters =====
     // ===== SDF 파라미터 =====
-    // SDFTexture가 유효하면 SDF Auto 모드, nullptr이면 Manual 모드
+    // SDFTexture가 유효하면 SDF Auto 모드, nullptr이면 VirtualRing 모드
     if (SDFTexture)
     {
         PassParameters->SDFTexture = GraphBuilder.CreateSRV(SDFTexture);

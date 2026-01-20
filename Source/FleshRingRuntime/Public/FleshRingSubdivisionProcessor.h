@@ -215,7 +215,7 @@ struct FSubdivisionRingParams
 	/** SDF 영향 범위 확장 배율 */
 	float SDFInfluenceMultiplier = 1.5f;
 
-	// 영향 범위 반환 (Manual 모드)
+	// 영향 범위 반환 (VirtualRing 모드)
 	float GetInfluenceRadius() const
 	{
 		return Width * InfluenceMultiplier;

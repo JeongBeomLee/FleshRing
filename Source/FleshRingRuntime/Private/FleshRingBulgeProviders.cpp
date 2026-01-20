@@ -197,10 +197,10 @@ FVector3f FSDFBulgeProvider::DetectRingAxis() const
 }
 
 // ============================================================================
-// FManualBulgeProvider - VirtualRing 모드용 Bulge 영역 계산
+// FVirtualRingBulgeProvider - VirtualRing 모드용 Bulge 영역 계산
 // ============================================================================
 
-void FManualBulgeProvider::InitFromRingParams(
+void FVirtualRingBulgeProvider::InitFromRingParams(
 	const FVector3f& InRingCenter,
 	const FVector3f& InRingAxis,
 	float InRingRadius,
@@ -216,7 +216,7 @@ void FManualBulgeProvider::InitFromRingParams(
 	RadialRange = InRadialRange;
 }
 
-void FManualBulgeProvider::CalculateBulgeRegion(
+void FVirtualRingBulgeProvider::CalculateBulgeRegion(
 	const TArrayView<const FVector3f>& AllVertexPositions,
 	const FVertexSpatialHash* SpatialHash,
 	TArray<uint32>& OutBulgeVertexIndices,
@@ -342,7 +342,7 @@ void FManualBulgeProvider::CalculateBulgeRegion(
 		CandidateIndices.Num() > 0 ? (100.0f * OutBulgeVertexIndices.Num() / CandidateIndices.Num()) : 0.0f);
 }
 
-void FManualBulgeProvider::CalculateExpandedBulgeAABB(FVector& OutMin, FVector& OutMax) const
+void FVirtualRingBulgeProvider::CalculateExpandedBulgeAABB(FVector& OutMin, FVector& OutMax) const
 {
 	// Bulge 영역 확장량 계산
 	const float AxialExpansion = RingHeight * 0.5f * AxialRange;

@@ -29,13 +29,13 @@ uint RingIndex;          // Ring 인덱스 (VolumeAccumBuffer 슬롯 지정용)
 float BulgeRadialRatio;  // Radial vs Axial 방향 비율 (0.0~1.0, 기본 0.7)
 float UpperBulgeStrength;  // 상단(축 양수) Bulge 강도 배수
 float LowerBulgeStrength;  // 하단(축 음수) Bulge 강도 배수
-uint bUseSDFInfluence;   // 0 = Manual (Component Space 직접), 1 = SDF 모드
+uint bUseSDFInfluence;   // 0 = VirtualRing (Component Space 직접), 1 = SDF 모드
 
 // Ring Center/Axis (SDF Local Space) - SDF 모드용
 float3 SDFLocalRingCenter;
 float3 SDFLocalRingAxis;
 
-// Ring Center/Axis (Component Space) - Manual 모드용
+// Ring Center/Axis (Component Space) - VirtualRing 모드용
 float3 RingCenter;
 float3 RingAxis;
 float RingHeight;
@@ -173,8 +173,8 @@ float3 ComputeFleshCoveringDirection(float3 LocalPos, FRingGeometry Ring)
     return (len > 0.0001) ? (CombinedDir / len) : RadialDir;
 }
 
-// Manual 모드 방향 계산 (Component Space에서 직접, SDF 변환 없음)
-float3 ComputeFleshCoveringDirection_Manual(float3 ComponentPos)
+// VirtualRing 모드 방향 계산 (Component Space에서 직접, SDF 변환 없음)
+float3 ComputeFleshCoveringDirection_VirtualRing(float3 ComponentPos)
 {
     float3 ToVertex = ComponentPos - RingCenter;
     float axialComponent = dot(ToVertex, RingAxis);
@@ -270,7 +270,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
-    // ===== 방향 필터링 및 Bulge 방향 계산: SDF 모드 vs Manual 모드 분기 =====
+    // ===== 방향 필터링 및 Bulge 방향 계산: SDF 모드 vs VirtualRing 모드 분기 =====
     float3 BulgeDirComponent;
     float axialComponentForAsymmetric = 0.0;  // 비대칭 Bulge 강도용
 
@@ -303,7 +303,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     }
     else
     {
-        // ===== Manual 모드: Component Space에서 직접 계산 (SDF 변환 없음) =====
+        // ===== VirtualRing 모드: Component Space에서 직접 계산 (SDF 변환 없음) =====
 
         // 축방향 거리 계산 (방향 필터링용)
         float3 ToVertex = Pos - RingCenter;
@@ -323,7 +323,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         }
 
         // Bulge 방향: Component Space에서 직접 계산
-        BulgeDirComponent = ComputeFleshCoveringDirection_Manual(Pos);
+        BulgeDirComponent = ComputeFleshCoveringDirection_VirtualRing(Pos);
     }
 
     // 방향 벡터 정규화 및 유효성 검사

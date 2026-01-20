@@ -738,17 +738,17 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	// InfluenceMode 핸들 가져오기
 	TSharedPtr<IPropertyHandle> InfluenceModeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, InfluenceMode));
 
-	// 현재 InfluenceMode가 Manual인지 확인 (초기 상태용)
-	bool bIsManualMode = false;
+	// 현재 InfluenceMode가 VirtualRing인지 확인 (초기 상태용)
+	bool bIsVirtualRingMode = false;
 	if (InfluenceModeHandle.IsValid())
 	{
 		uint8 ModeValue = 0;
 		InfluenceModeHandle->GetValue(ModeValue);
-		bIsManualMode = (static_cast<EFleshRingInfluenceMode>(ModeValue) == EFleshRingInfluenceMode::VirtualRing);
+		bIsVirtualRingMode = (static_cast<EFleshRingInfluenceMode>(ModeValue) == EFleshRingInfluenceMode::VirtualRing);
 	}
 
 	// VirtualRing 모드 동적 체크용 TAttribute (Ring Transform에 사용)
-	TAttribute<bool> IsManualModeAttr = TAttribute<bool>::Create([InfluenceModeHandle]() -> bool
+	TAttribute<bool> IsVirtualRingModeAttr = TAttribute<bool>::Create([InfluenceModeHandle]() -> bool
 	{
 		if (!InfluenceModeHandle.IsValid())
 		{
@@ -1147,16 +1147,16 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			SNew(STextBlock)
 			.Text(LOCTEXT("RingTransformSubHeader", "Ring Transform"))
 			.Font(IDetailLayoutBuilder::GetDetailFont())
-			.ColorAndOpacity_Lambda([IsManualModeAttr]() -> FSlateColor
+			.ColorAndOpacity_Lambda([IsVirtualRingModeAttr]() -> FSlateColor
 			{
-				return IsManualModeAttr.Get() ? FSlateColor::UseForeground() : FSlateColor::UseSubduedForeground();
+				return IsVirtualRingModeAttr.Get() ? FSlateColor::UseForeground() : FSlateColor::UseSubduedForeground();
 			})
 		];
 
 	if (RingRadiusHandle.IsValid())
 	{
 		RingTransformSubGroup.AddPropertyRow(RingRadiusHandle.ToSharedRef())
-			.IsEnabled(IsManualModeAttr)
+			.IsEnabled(IsVirtualRingModeAttr)
 			.OverrideResetToDefault(
 				FResetToDefaultOverride::Create(
 					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
@@ -1173,7 +1173,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	if (RingThicknessHandle.IsValid())
 	{
 		RingTransformSubGroup.AddPropertyRow(RingThicknessHandle.ToSharedRef())
-			.IsEnabled(IsManualModeAttr)
+			.IsEnabled(IsVirtualRingModeAttr)
 			.OverrideResetToDefault(
 				FResetToDefaultOverride::Create(
 					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
@@ -1190,7 +1190,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	if (RingHeightHandle.IsValid())
 	{
 		RingTransformSubGroup.AddPropertyRow(RingHeightHandle.ToSharedRef())
-			.IsEnabled(IsManualModeAttr)
+			.IsEnabled(IsVirtualRingModeAttr)
 			.OverrideResetToDefault(
 				FResetToDefaultOverride::Create(
 					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {

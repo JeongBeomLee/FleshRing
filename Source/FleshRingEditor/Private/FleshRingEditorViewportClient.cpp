@@ -495,7 +495,7 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 				}
 				return;
 			}
-			// Ring 기즈모 클릭 (전체 밴드 또는 Manual 기즈모)
+			// Ring 기즈모 클릭 (전체 밴드 또는 Virtual Ring 기즈모)
 			if (HitProxy->IsA(HFleshRingGizmoHitProxy::StaticGetType()))
 			{
 				HFleshRingGizmoHitProxy* GizmoProxy = static_cast<HFleshRingGizmoHitProxy*>(HitProxy);

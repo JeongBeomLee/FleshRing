@@ -844,7 +844,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		else
 		{
 			// VirtualRing 모드: 고정 반경 기반 Bulge
-			FManualBulgeProvider BulgeProvider;
+			FVirtualRingBulgeProvider BulgeProvider;
 			BulgeProvider.InitFromRingParams(
 				FVector3f(DispatchData.Params.RingCenter),
 				FVector3f(DispatchData.Params.RingAxis),

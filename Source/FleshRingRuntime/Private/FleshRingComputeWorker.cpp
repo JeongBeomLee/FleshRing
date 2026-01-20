@@ -497,12 +497,12 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				else
 				{
 					// [DEBUG] TightnessCS Dispatch VirtualRing 로그 (필요시 주석 해제)
-					// static bool bLoggedManualDispatch = false;
-					// if (!bLoggedManualDispatch)
+					// static bool bLoggedVirtualRingDispatch = false;
+					// if (!bLoggedVirtualRingDispatch)
 					// {
 					// 	UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] TightnessCS Dispatch: VirtualRing Mode, Verts=%d, Strength=%.2f"),
 					// 		Params.NumAffectedVertices, Params.TightnessStrength);
-					// 	bLoggedManualDispatch = true;
+					// 	bLoggedVirtualRingDispatch = true;
 					// }
 				}
 

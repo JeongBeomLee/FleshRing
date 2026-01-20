@@ -59,7 +59,7 @@ private:
  * - Ring 정보: 직접 입력받음 (SDF 바운드에서 추론 안 함)
  * - Ring 축: 직접 입력받음 (자동 감지 안 함)
  */
-class FLESHRINGRUNTIME_API FManualBulgeProvider : public IBulgeRegionProvider
+class FLESHRINGRUNTIME_API FVirtualRingBulgeProvider : public IBulgeRegionProvider
 {
 public:
 	// Ring 기하 정보 (Component Space)
@@ -74,7 +74,7 @@ public:
 	EFleshRingFalloffType FalloffType = EFleshRingFalloffType::WendlandC2;
 
 public:
-	FManualBulgeProvider() = default;
+	FVirtualRingBulgeProvider() = default;
 
 	/**
 	 * Ring 파라미터로 초기화
@@ -111,7 +111,7 @@ private:
  * Virtual Band(VirtualBand) 모드용 Bulge 영역 계산
  * SDF 없이 4-반경 가변 형상으로 Upper/Lower Section에서 Bulge 적용
  *
- * FManualBulgeProvider와의 차이점:
+ * FVirtualRingBulgeProvider와의 차이점:
  * - 고정 반경 대신 GetRadiusAtHeight()로 가변 반경 사용
  * - Band Section(중간)은 Bulge 제외 (Tightness만 적용)
  * - Upper/Lower Section에서만 Bulge 적용

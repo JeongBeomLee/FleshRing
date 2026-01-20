@@ -13,7 +13,7 @@
 Buffer<float> SourcePositions;              // 메시의 원본 정점 위치(바인드 포즈 컴포넌트 스페이스)
 StructuredBuffer<uint> AffectedIndices;     // 영향받는 정점 인덱스 (출력용)
 // NOTE: Influences 버퍼 제거됨 - GPU에서 직접 Influence 계산
-// (CalculateManualInfluence, CalculateVirtualBandInfluence)
+// (CalculateVirtualRingInfluence, CalculateVirtualBandInfluence)
 StructuredBuffer<uint> RepresentativeIndices; // UV seam 용접용 대표 정점 인덱스 (입력용)
 RWBuffer<float> OutputPositions;            // 출력: 변형된 정점 위치
 RWBuffer<uint> VolumeAccumBuffer;           // 출력: Bulge 패스용 부피 누적 버퍼 (Atomic 연산)
@@ -62,12 +62,12 @@ float3 RingAxis;            // Ring axis direction (normalized)
                             // 링 축 방향 (정규화됨)
 float TightnessStrength;    // 조이기 변형 강도
 
-// Manual 모드 GPU Influence 계산용 파라미터
+// VirtualRing 모드 GPU Influence 계산용 파라미터
 float RingRadius;           // 링 내부 반지름
 float RingHeight;            // 링 높이 (축 방향)
 float RingThickness;        // 링 두께 (Radial falloff 범위)
 uint FalloffType;           // Falloff 타입 (0=Linear, 1=Quadratic, 2=Hermite)
-uint InfluenceMode;         // Influence 모드 (0=Auto/SDF, 1=Manual, 2=VirtualBand)
+uint InfluenceMode;         // Influence 모드 (0=Auto/SDF, 1=VirtualRing, 2=VirtualBand)
 
 // ============================================================================
 // VirtualBand (Virtual Band) Parameters - 가변 반경 GPU Influence 계산용
@@ -88,7 +88,7 @@ Texture3D<float> SDFTexture;
 SamplerState SDFSampler;
 float3 SDFBoundsMin;
 float3 SDFBoundsMax;
-uint bUseSDFInfluence;              // 0 = Manual, 1 = SDF
+uint bUseSDFInfluence;              // 0 = VirtualRing, 1 = SDF
 float4x4 ComponentToSDFLocal;       // Component → SDF Local (row vector 곱셈 사용)
 float4x4 SDFLocalToComponent;       // SDF Local → Component (스케일 포함 정확한 역변환)
 
@@ -211,8 +211,8 @@ void WritePosition(uint VertexIndex, float3 Pos)
 }
 
 // ============================================================================
-// Manual Mode GPU Influence Calculation Functions
-// Manual 모드 GPU Influence 계산 함수
+// VirtualRing Mode GPU Influence Calculation Functions
+// VirtualRing 모드 GPU Influence 계산 함수
 // ============================================================================
 
 // CPU의 CalculateFalloff() 동일 로직
@@ -238,8 +238,8 @@ float CalculateFalloff(float Distance, float MaxDistance, uint InFalloffType)
 }
 
 // ============================================================================
-// Manual 모드용 GPU Influence 계산
-// CPU의 FDistanceBasedVertexSelector::SelectVertices() Manual 분기와 동일 로직
+// VirtualRing 모드용 GPU Influence 계산
+// CPU의 FDistanceBasedVertexSelector::SelectVertices() VirtualRing 분기와 동일 로직
 // ============================================================================
 //
 // [Influence 계산 흐름]
@@ -263,7 +263,7 @@ float CalculateFalloff(float Distance, float MaxDistance, uint InFalloffType)
 //  - → Stocking이 더 많이 이동 → 레이어 역전!
 //
 // ============================================================================
-float CalculateManualInfluence(float3 VertexPos)
+float CalculateVirtualRingInfluence(float3 VertexPos)
 {
     // Step 1: 버텍스 위치를 링 좌표계로 분해
     float3 ToVertex = VertexPos - RingCenter;
@@ -432,7 +432,7 @@ float CalculateVirtualBandInfluence(float3 VertexPos)
 // Tightness Deformation Functions
 // ============================================================================
 
-// Manual 모드: 단순 반경 방향 내부 변위
+// VirtualRing 모드: 단순 반경 방향 내부 변위
 float3 ApplyTightnessDeformation(float3 Pos, float3 Center, float3 Axis, float Influence, float Strength)
 {
     float3 ToVertex = Pos - Center;
@@ -447,7 +447,7 @@ float3 ApplyTightnessDeformation(float3 Pos, float3 Center, float3 Axis, float I
     return Pos + InwardDir * Strength * Influence;
 }
 
-// Manual 모드: 원통형 + 토러스 블렌딩 압축 (테스트용)
+// VirtualRing 모드: 원통형 + 토러스 블렌딩 압축 (테스트용)
 // TorusBlendRatio: 0 = 순수 원통형(기존), 1 = 순수 토러스 노말
 // 토러스 노말은 링 가장자리에서 살이 링 중심 방향으로 모이는 효과
 float3 ApplyTightnessDeformation_TorusBlend(float3 Pos, float3 Center, float3 Axis, float Influence, float Strength)
@@ -895,12 +895,12 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     }
     else
     {
-        // ===== Manual 모드: GPU에서 고정 반경 기반 Influence 계산 =====
+        // ===== VirtualRing 모드: GPU에서 고정 반경 기반 Influence 계산 =====
         // GPU에서 BindPos 기준으로 Influence 직접 계산 (CPU Influences 버퍼 사용 안함)
-        Influence = CalculateManualInfluence(BindPos);
+        Influence = CalculateVirtualRingInfluence(BindPos);
     }
 
-    // ===== SDF가 아닌 모드 공통 처리 (Manual/VirtualBand) =====
+    // ===== SDF가 아닌 모드 공통 처리 (VirtualRing/VirtualBand) =====
     if (bUseSDFInfluence == 0)
     {
 

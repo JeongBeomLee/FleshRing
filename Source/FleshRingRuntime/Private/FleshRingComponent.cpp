@@ -817,7 +817,7 @@ void UFleshRingComponent::InitializeForEditorPreview()
 	FlushRenderingCommands();
 
 	// 유효한 SDF 캐시가 있거나 VirtualRing 모드 Ring이 있어야 Deformer 설정
-	// (Auto 모드 SDF 실패는 여전히 개별 스킵, Manual 모드는 SDF 없이 작동)
+	// (Auto 모드 SDF 실패는 여전히 개별 스킵, VirtualRing 모드는 SDF 없이 작동)
 	if (!HasAnyValidSDFCaches() && !HasAnyNonSDFRings())
 	{
 		UE_LOG(LogFleshRingComponent, Warning, TEXT("InitializeForEditorPreview: No valid SDF caches and no VirtualRing mode rings, skipping Deformer setup"));
@@ -1322,7 +1322,7 @@ void UFleshRingComponent::SetupRingMeshes()
 	{
 		const FFleshRingSettings& Ring = FleshRingAsset->Rings[RingIndex];
 
-		// VirtualBand 모드: 기즈모로 피킹 (Manual 모드와 동일 방식)
+		// VirtualBand 모드: 기즈모로 피킹 (VirtualRing 모드와 동일 방식)
 		// SDF 생성은 GenerateSDF()에서 직접 처리하므로 여기서는 메시 컴포넌트 생성 안 함
 		if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 		{
@@ -2783,7 +2783,7 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 		float RingRadius;
 		int32 DetectedDirection = 0;
 		bool bUseLocalSpace = false;  // VirtualRing 모드는 Component Space 직접 사용
-		FQuat ManualRingRotation = FQuat::Identity;  // VirtualRing 모드 OBB 쿼리용
+		FQuat VirtualRingRotation = FQuat::Identity;  // VirtualRing 모드 OBB 쿼리용
 
 		// ★ InfluenceMode 기반 분기: Auto 모드일 때만 SDFCache 접근
 		const FRingSDFCache* SDFCache = nullptr;
@@ -2841,7 +2841,7 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 			// RingAxis = Bone Rotation * RingRotation의 Z축
 			const FQuat WorldRingRotation = BoneRotation * RingSettings.RingRotation;
 			RingAxis = FVector3f(WorldRingRotation.RotateVector(FVector::ZAxisVector));
-			ManualRingRotation = WorldRingRotation;  // OBB 쿼리용 저장
+			VirtualRingRotation = WorldRingRotation;  // OBB 쿼리용 저장
 
 			// Ring 크기는 직접 사용
 			RingHeight = RingSettings.RingHeight;
@@ -2850,7 +2850,7 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 		}
 		else
 		{
-			// SDF 없고 Manual도 아니면 스킵
+			// SDF 없고 VirtualRing도 아니면 스킵
 			continue;
 		}
 
@@ -2903,7 +2903,7 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 				// VirtualRing 모드: OBB 쿼리 (Ring 회전 반영, Bulge 영역 포함)
 				FTransform RingLocalToComponent;
 				RingLocalToComponent.SetLocation(FVector(RingCenter));
-				RingLocalToComponent.SetRotation(ManualRingRotation);
+				RingLocalToComponent.SetRotation(VirtualRingRotation);
 				RingLocalToComponent.SetScale3D(FVector::OneVector);
 
 				const float MaxExtent = FMath::Max(RadialLimit * 1.5f, AxialLimit);
@@ -3110,7 +3110,7 @@ void UFleshRingComponent::DrawBulgeDirectionArrow(int32 RingIndex)
 	}
 	else
 	{
-		// SDF 없고 Manual도 아니면 스킵
+		// SDF 없고 VirtualRing도 아니면 스킵
 		return;
 	}
 
