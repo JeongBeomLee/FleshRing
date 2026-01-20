@@ -237,6 +237,11 @@ struct FFleshRingWorkItem
 		// 인덱스: 전체 버텍스 인덱스, 값: 1=Affected/앵커, 0=Non-Affected/자유
 		// 이웃의 앵커 여부를 조회하여 PBD 가중치 분배 결정
 		TArray<uint32> FullIsAnchorMap;
+
+		// ===== 캐시된 Zero 배열 (bPBDAnchorAffectedVertices=false일 때 사용) =====
+		// 매 틱 할당을 피하기 위해 미리 생성해둔 Zero-filled 배열
+		TArray<uint32> CachedZeroIsAnchorFlags;   // PBD 대상 버텍스 수 크기
+		TArray<uint32> CachedZeroFullAnchorMap;   // 전체 버텍스 수 크기
 	};
 	TSharedPtr<TArray<FRingDispatchData>> RingDispatchDataPtr;
 

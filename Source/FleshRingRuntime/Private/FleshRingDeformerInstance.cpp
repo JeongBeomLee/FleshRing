@@ -517,6 +517,22 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		DispatchData.FullDeformAmountMap = RingData.FullDeformAmountMap;
 		DispatchData.FullIsAnchorMap = RingData.FullIsAnchorMap;
 
+		// bPBDAnchorAffectedVertices=false일 때 사용할 Zero 배열 캐시 (매 틱 할당 방지)
+		if (!DispatchData.bPBDAnchorAffectedVertices && DispatchData.bEnablePBDEdgeConstraint)
+		{
+			// PBD 대상 버텍스 수: Extended 또는 PostProcessing 중 큰 쪽
+			const int32 NumPBDVertices = FMath::Max(
+				DispatchData.ExtendedSmoothingIndices.Num(),
+				DispatchData.PostProcessingIndices.Num());
+			const int32 NumTotalVertices = DispatchData.FullIsAnchorMap.Num();
+
+			if (NumPBDVertices > 0 && NumTotalVertices > 0)
+			{
+				DispatchData.CachedZeroIsAnchorFlags.SetNumZeroed(NumPBDVertices);
+				DispatchData.CachedZeroFullAnchorMap.SetNumZeroed(NumTotalVertices);
+			}
+		}
+
 		// ===== Self-Collision Detection용 삼각형 추출 =====
 		// 스타킹-살 충돌 검사를 위해 메시의 모든 삼각형 포함
 		// (SDF 영향권 내 삼각형만으로는 스타킹만 포함되고 살은 포함 안 됨)

@@ -1344,12 +1344,10 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				}
 				else
 				{
-					// 모든 버텍스를 자유롭게 (앵커 없음)
-					TArray<uint32> AllFreeFlags;
-					AllFreeFlags.SetNumZeroed(NumAffected);  // 모두 0
+					// 캐시된 Zero 배열 사용 (매 틱 할당 방지)
 					GraphBuilder.QueueBufferUpload(
 						IsAnchorFlagsBuffer,
-						AllFreeFlags.GetData(),
+						DispatchData.CachedZeroIsAnchorFlags.GetData(),
 						NumAffected * sizeof(uint32),
 						ERDGInitialDataFlags::None
 					);
@@ -1373,12 +1371,10 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				}
 				else
 				{
-					// 모든 버텍스를 자유롭게 (앵커 없음)
-					TArray<uint32> AllFreeMap;
-					AllFreeMap.SetNumZeroed(DispatchData.FullIsAnchorMap.Num());  // 모두 0
+					// 캐시된 Zero 배열 사용 (매 틱 할당 방지)
 					GraphBuilder.QueueBufferUpload(
 						FullIsAnchorMapBuffer,
-						AllFreeMap.GetData(),
+						DispatchData.CachedZeroFullAnchorMap.GetData(),
 						DispatchData.FullIsAnchorMap.Num() * sizeof(uint32),
 						ERDGInitialDataFlags::None
 					);

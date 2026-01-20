@@ -2923,42 +2923,8 @@ void FFleshRingAffectedVerticesManager::BuildExtendedPBDAdjacencyData(
         return;
     }
 
-    // Step 1: Build VertexIndex → ThreadIndex lookup
-    TMap<uint32, int32> VertexToThreadIndex;
-    for (int32 ThreadIdx = 0; ThreadIdx < NumExtended; ++ThreadIdx)
-    {
-        VertexToThreadIndex.Add(RingData.ExtendedSmoothingIndices[ThreadIdx], ThreadIdx);
-    }
-
-    // Step 2: Build per-vertex neighbor set with rest lengths
-    // CachedVertexNeighbors 사용 (토폴로지 캐시 필수)
-    TArray<TMap<uint32, float>> VertexNeighborsWithRestLen;
-    VertexNeighborsWithRestLen.SetNum(NumExtended);
-
-    if (bTopologyCacheBuilt && CachedVertexNeighbors.Num() > 0)
-    {
-        for (int32 ThreadIdx = 0; ThreadIdx < NumExtended; ++ThreadIdx)
-        {
-            const uint32 VertexIndex = RingData.ExtendedSmoothingIndices[ThreadIdx];
-            const TSet<uint32>* NeighborsPtr = CachedVertexNeighbors.Find(VertexIndex);
-
-            if (NeighborsPtr)
-            {
-                const FVector3f& Pos0 = AllVertices[VertexIndex];
-
-                for (uint32 NeighborIdx : *NeighborsPtr)
-                {
-                    if (NeighborIdx < static_cast<uint32>(AllVertices.Num()))
-                    {
-                        const FVector3f& Pos1 = AllVertices[NeighborIdx];
-                        const float RestLength = FVector3f::Distance(Pos0, Pos1);
-                        VertexNeighborsWithRestLen[ThreadIdx].Add(NeighborIdx, RestLength);
-                    }
-                }
-            }
-        }
-    }
-    else
+    // 토폴로지 캐시 검증
+    if (!bTopologyCacheBuilt || CachedVertexNeighbors.Num() == 0)
     {
         UE_LOG(LogFleshRingVertices, Warning,
             TEXT("BuildExtendedPBDAdjacencyData: Topology cache not built, skipping"));
@@ -2966,38 +2932,51 @@ void FFleshRingAffectedVerticesManager::BuildExtendedPBDAdjacencyData(
         return;
     }
 
-    // Step 3: Pack adjacency data with rest lengths
+    // Single-pass: CachedVertexNeighbors에서 직접 Pack (중간 TMap 제거)
     const int32 PackedSizePerVertex = FRingAffectedData::PBD_ADJACENCY_PACKED_SIZE;
     RingData.ExtendedPBDAdjacencyWithRestLengths.Reset(NumExtended * PackedSizePerVertex);
     RingData.ExtendedPBDAdjacencyWithRestLengths.AddZeroed(NumExtended * PackedSizePerVertex);
 
     for (int32 ThreadIdx = 0; ThreadIdx < NumExtended; ++ThreadIdx)
     {
-        const TMap<uint32, float>& NeighborsMap = VertexNeighborsWithRestLen[ThreadIdx];
-        const int32 NeighborCount = FMath::Min(NeighborsMap.Num(), FRingAffectedData::PBD_MAX_NEIGHBORS);
+        const uint32 VertexIndex = RingData.ExtendedSmoothingIndices[ThreadIdx];
         const int32 BaseOffset = ThreadIdx * PackedSizePerVertex;
 
-        RingData.ExtendedPBDAdjacencyWithRestLengths[BaseOffset] = static_cast<uint32>(NeighborCount);
+        const TSet<uint32>* NeighborsPtr = CachedVertexNeighbors.Find(VertexIndex);
+        if (!NeighborsPtr)
+        {
+            // 이웃 없음
+            RingData.ExtendedPBDAdjacencyWithRestLengths[BaseOffset] = 0;
+            continue;
+        }
 
+        const FVector3f& Pos0 = AllVertices[VertexIndex];
         int32 SlotIdx = 0;
-        for (const auto& Pair : NeighborsMap)
+
+        for (uint32 NeighborIdx : *NeighborsPtr)
         {
             if (SlotIdx >= FRingAffectedData::PBD_MAX_NEIGHBORS)
             {
                 break;
             }
 
-            const uint32 NeighborIdx = Pair.Key;
-            const float RestLength = Pair.Value;
+            if (NeighborIdx < static_cast<uint32>(AllVertices.Num()))
+            {
+                const FVector3f& Pos1 = AllVertices[NeighborIdx];
+                const float RestLength = FVector3f::Distance(Pos0, Pos1);
 
-            RingData.ExtendedPBDAdjacencyWithRestLengths[BaseOffset + 1 + SlotIdx * 2] = NeighborIdx;
+                RingData.ExtendedPBDAdjacencyWithRestLengths[BaseOffset + 1 + SlotIdx * 2] = NeighborIdx;
 
-            uint32 RestLengthAsUint;
-            FMemory::Memcpy(&RestLengthAsUint, &RestLength, sizeof(float));
-            RingData.ExtendedPBDAdjacencyWithRestLengths[BaseOffset + 1 + SlotIdx * 2 + 1] = RestLengthAsUint;
+                uint32 RestLengthAsUint;
+                FMemory::Memcpy(&RestLengthAsUint, &RestLength, sizeof(float));
+                RingData.ExtendedPBDAdjacencyWithRestLengths[BaseOffset + 1 + SlotIdx * 2 + 1] = RestLengthAsUint;
 
-            ++SlotIdx;
+                ++SlotIdx;
+            }
         }
+
+        // 실제 기록된 이웃 개수
+        RingData.ExtendedPBDAdjacencyWithRestLengths[BaseOffset] = static_cast<uint32>(SlotIdx);
     }
 
     UE_LOG(LogFleshRingVertices, Verbose,
