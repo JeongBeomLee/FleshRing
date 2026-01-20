@@ -566,13 +566,12 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		}
 
 		// SDF 캐시 데이터 전달 (렌더 스레드로 안전하게 복사)
-		// Auto 또는 ProceduralBand 모드 + SDF 유효할 때만 SDF 모드 사용
+		// Auto 모드 + SDF 유효할 때만 SDF 모드 사용 (ProceduralBand는 SDF 미생성)
 		if (FleshRingComponent.IsValid())
 		{
 			const FRingSDFCache* SDFCache = FleshRingComponent->GetRingSDFCache(RingIndex);
 			const bool bUseSDFForThisRing =
-				(RingInfluenceMode == EFleshRingInfluenceMode::Auto ||
-				 RingInfluenceMode == EFleshRingInfluenceMode::ProceduralBand) &&
+				(RingInfluenceMode == EFleshRingInfluenceMode::Auto) &&
 				(SDFCache && SDFCache->IsValid());
 
 			if (bUseSDFForThisRing)

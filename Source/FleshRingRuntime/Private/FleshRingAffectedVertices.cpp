@@ -316,8 +316,12 @@ void FDistanceBasedVertexSelector::SelectVertices(
     const FTransform& BoneTransform = Context.BoneTransform;
     const TArray<FVector3f>& AllVertices = Context.AllVertices;
 
-    // OBB 지원: SDFCache가 유효하면 BoundsMin/Max와 LocalToComponent 사용
-    const bool bUseOBB = Context.SDFCache && Context.SDFCache->bCached;
+    // ★ InfluenceMode 기반 분기: Auto 모드일 때만 SDFCache 유효성 체크
+    bool bUseOBB = false;
+    if (Ring.InfluenceMode == EFleshRingInfluenceMode::Auto)
+    {
+        bUseOBB = (Context.SDFCache && Context.SDFCache->bCached);
+    }
 
     // Reserve estimated capacity (assume ~25% vertices affected)
     OutAffected.Reserve(AllVertices.Num() / 4);
@@ -1613,12 +1617,11 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         );
 
         // Ring별 InfluenceMode에 따라 Selector 결정
-        // Auto 또는 ProceduralBand 모드 + SDF 유효 → SDFBoundsBasedSelector
-        // Manual 모드 또는 SDF 무효 → DistanceBasedSelector
+        // Auto 모드 + SDF 유효 → SDFBoundsBasedSelector
+        // Manual/ProceduralBand 모드 또는 SDF 무효 → DistanceBasedSelector/VirtualBandVertexSelector
         TSharedPtr<IVertexSelector> RingSelector;
         const bool bUseSDFForThisRing =
-            (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto ||
-             RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand) &&
+            (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto) &&
             (SDFCache && SDFCache->IsValid());
 
         if (bUseSDFForThisRing)

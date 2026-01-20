@@ -2651,12 +2651,18 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 		bool bUseLocalSpace = false;  // Manual 모드는 Component Space 직접 사용
 		FQuat ManualRingRotation = FQuat::Identity;  // Manual 모드 OBB 쿼리용
 
-		const FRingSDFCache* SDFCache = GetRingSDFCache(RingIdx);
-		const bool bHasValidSDF = SDFCache && SDFCache->IsValid();
+		// ★ InfluenceMode 기반 분기: Auto 모드일 때만 SDFCache 접근
+		const FRingSDFCache* SDFCache = nullptr;
+		bool bHasValidSDF = false;
+		if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto)
+		{
+			SDFCache = GetRingSDFCache(RingIdx);
+			bHasValidSDF = (SDFCache && SDFCache->IsValid());
+		}
 
 		if (bHasValidSDF)
 		{
-			// ===== Auto/ProceduralBand 모드: SDF 캐시에서 Ring 정보 가져오기 =====
+			// ===== Auto 모드: SDF 캐시에서 Ring 정보 가져오기 =====
 			bUseLocalSpace = true;
 			LocalToComponent = SDFCache->LocalToComponent;
 			FVector3f BoundsMin = SDFCache->BoundsMin;
@@ -2899,8 +2905,15 @@ void UFleshRingComponent::DrawBulgeDirectionArrow(int32 RingIndex)
 	}
 
 	USkeletalMeshComponent* SkelMesh = ResolvedTargetMesh.Get();
-	const FRingSDFCache* SDFCache = GetRingSDFCache(RingIndex);
-	const bool bHasValidSDF = SDFCache && SDFCache->IsValid();
+
+	// ★ InfluenceMode 기반 분기: Auto 모드일 때만 SDFCache 접근
+	const FRingSDFCache* SDFCache = nullptr;
+	bool bHasValidSDF = false;
+	if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto)
+	{
+		SDFCache = GetRingSDFCache(RingIndex);
+		bHasValidSDF = (SDFCache && SDFCache->IsValid());
+	}
 
 	// ===== Ring 정보 계산: SDF 모드 vs Manual 모드 분기 =====
 	FVector WorldCenter;
@@ -2910,7 +2923,7 @@ void UFleshRingComponent::DrawBulgeDirectionArrow(int32 RingIndex)
 
 	if (bHasValidSDF)
 	{
-		// ===== Auto/ProceduralBand 모드: SDF 캐시에서 정보 가져오기 =====
+		// ===== Auto 모드: SDF 캐시에서 정보 가져오기 =====
 		DetectedDirection = SDFCache->DetectedBulgeDirection;
 
 		// OBB 중심 위치 (로컬 공간)
