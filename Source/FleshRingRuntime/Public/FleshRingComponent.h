@@ -256,8 +256,10 @@ public:
 	 * 베이킹 등 메시가 변경될 때 호출하여 Deformer의 GPU 버퍼를
 	 * 새 메시 크기에 맞게 재할당합니다.
 	 */
+#if WITH_EDITOR
 	UFUNCTION(BlueprintCallable, Category = "FleshRing|Editor")
 	void ReinitializeDeformer();
+#endif
 
 	/**
 	 * 에디터 프리뷰 환경에서 Deformer를 초기화합니다.

@@ -546,6 +546,7 @@ void UFleshRingComponent::CleanupDeformer()
 	bUsingBakedMesh = false;
 }
 
+#if WITH_EDITOR
 void UFleshRingComponent::ReinitializeDeformer()
 {
 	USkeletalMeshComponent* TargetMesh = ResolvedTargetMesh.Get();
@@ -591,6 +592,7 @@ void UFleshRingComponent::ReinitializeDeformer()
 		*TargetMesh->GetSkeletalMeshAsset()->GetName(),
 		TargetMesh->GetSkeletalMeshAsset()->GetResourceForRendering()->LODRenderData[0].StaticVertexBuffers.PositionVertexBuffer.GetNumVertices());
 }
+#endif // WITH_EDITOR
 
 void UFleshRingComponent::GenerateSDF()
 {
@@ -1080,11 +1082,6 @@ void UFleshRingComponent::SwapFleshRingAsset(UFleshRingAsset* NewAsset)
 
 		// 기존 에셋 정리
 		CleanupRingMeshes();
-		// TODO: 런타임에 디포머 없음. 지워도 될 듯
-		if (InternalDeformer)
-		{
-			CleanupDeformer();
-		}
 
 		// 원본 메시 복원
 		// SetSkeletalMeshAsset은 애니메이션 상태를 자동으로 보존함
