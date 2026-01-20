@@ -499,26 +499,27 @@ public:
 	 */
 	void InvalidateDebugCaches(int32 DirtyRingIndex = INDEX_NONE)
 	{
+		// Ring 이동 시 디버그 캐시 무효화
+		// 캐시 플래그와 실제 데이터 모두 리셋하여 다음 프레임에서 재계산 보장
+		bDebugAffectedVerticesCached = false;
+		bDebugBulgeVerticesCached = false;
+
 		if (DirtyRingIndex == INDEX_NONE)
 		{
 			// 전체 무효화: 모든 데이터 리셋
-			bDebugAffectedVerticesCached = false;
-			bDebugBulgeVerticesCached = false;
+			DebugAffectedData.Reset();
+			DebugBulgeData.Reset();
 		}
 		else
 		{
 			// 특정 Ring만 무효화: 해당 Ring 데이터만 Reset
-			// 캐싱 함수가 다시 호출되도록 플래그도 false로 설정
-			// (캐싱 함수 내부에서 이미 데이터 있는 Ring은 스킵)
 			if (DebugAffectedData.IsValidIndex(DirtyRingIndex))
 			{
 				DebugAffectedData[DirtyRingIndex].Vertices.Reset();
-				bDebugAffectedVerticesCached = false;
 			}
 			if (DebugBulgeData.IsValidIndex(DirtyRingIndex))
 			{
 				DebugBulgeData[DirtyRingIndex].Vertices.Reset();
-				bDebugBulgeVerticesCached = false;
 			}
 		}
 	}

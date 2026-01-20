@@ -231,16 +231,94 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	// 현재 LOD의 데이터 참조
 	FLODDeformationData& CurrentLODData = LODData[LODIndex];
 
-	// AffectedVertices가 등록되지 않았으면 Fallback
-	if (!CurrentLODData.bAffectedVerticesRegistered || CurrentLODData.AffectedVerticesManager.GetTotalAffectedCount() == 0)
+	// AffectedVertices가 등록되지 않았으면 Fallback 또는 Passthrough
+	const int32 TotalAffectedCount = CurrentLODData.AffectedVerticesManager.GetTotalAffectedCount();
+	if (!CurrentLODData.bAffectedVerticesRegistered || TotalAffectedCount == 0)
 	{
-		if (InDesc.FallbackDelegate.IsBound())
+		// 이전에 변형이 있었는지 확인 (캐시 버퍼 유효성으로 판단)
+		const bool bHadPreviousDeformation =
+			CurrentLODData.CachedTightenedBindPoseShared.IsValid() &&
+			CurrentLODData.CachedTightenedBindPoseShared->IsValid();
+
+		if (bHadPreviousDeformation)
 		{
-			ENQUEUE_RENDER_COMMAND(FleshRingFallback)([FallbackDelegate = InDesc.FallbackDelegate](FRHICommandListImmediate& RHICmdList)
+			// ===== Passthrough Mode =====
+			// 이전에 변형이 있었는데 AffectedVertices가 0이 됨
+			// → 원본 데이터로 SkinningCS를 한 번 실행하여 탄젠트 잔상 제거
+			FSkeletalMeshObject* MeshObjectForPassthrough = SkinnedMeshComp->MeshObject;
+			if (MeshObjectForPassthrough && !MeshObjectForPassthrough->IsCPUSkinned())
 			{
-				FallbackDelegate.ExecuteIfBound();
-			});
+				FFleshRingWorkItem PassthroughWorkItem;
+				PassthroughWorkItem.DeformerInstance = this;
+				PassthroughWorkItem.MeshObject = MeshObjectForPassthrough;
+				PassthroughWorkItem.LODIndex = LODIndex;
+				PassthroughWorkItem.bPassthroughMode = true;
+				PassthroughWorkItem.FallbackDelegate = InDesc.FallbackDelegate;
+
+				// 버텍스 수 설정
+				const FSkeletalMeshRenderData& RenderData = MeshObjectForPassthrough->GetSkeletalMeshRenderData();
+				const FSkeletalMeshLODRenderData& LODData_Render = RenderData.LODRenderData[LODIndex];
+				PassthroughWorkItem.TotalVertexCount = LODData_Render.GetNumVertices();
+
+				// 원본 소스 포지션 전달 (SkinningCS에서 원본 탄젠트 출력용)
+				if (CurrentLODData.CachedSourcePositions.Num() > 0)
+				{
+					PassthroughWorkItem.SourceDataPtr = MakeShared<TArray<float>>(CurrentLODData.CachedSourcePositions);
+				}
+
+				FFleshRingComputeWorker* Worker = FFleshRingComputeSystem::Get().GetWorker(Scene);
+				if (Worker)
+				{
+					Worker->EnqueueWork(MoveTemp(PassthroughWorkItem));
+				}
+			}
+
+			// 캐시 클리어 (Passthrough 작업 후 다시 실행되지 않도록)
+			CurrentLODData.CachedTightenedBindPoseShared.Reset();
+			CurrentLODData.bTightenedBindPoseCached = false;
+			CurrentLODData.CachedTightnessVertexCount = 0;
+
+			// 노말/탄젠트 캐시도 클리어
+			if (CurrentLODData.CachedNormalsShared.IsValid())
+			{
+				CurrentLODData.CachedNormalsShared->SafeRelease();
+				CurrentLODData.CachedNormalsShared.Reset();
+			}
+			if (CurrentLODData.CachedTangentsShared.IsValid())
+			{
+				CurrentLODData.CachedTangentsShared->SafeRelease();
+				CurrentLODData.CachedTangentsShared.Reset();
+			}
 		}
+		else
+		{
+			// 이전 변형 없음 → 기존 Fallback
+			if (InDesc.FallbackDelegate.IsBound())
+			{
+				ENQUEUE_RENDER_COMMAND(FleshRingFallback)([FallbackDelegate = InDesc.FallbackDelegate](FRHICommandListImmediate& RHICmdList)
+				{
+					FallbackDelegate.ExecuteIfBound();
+				});
+			}
+		}
+
+		// GPU 디버그 버퍼들 클리어
+		if (CurrentLODData.CachedDebugInfluencesShared.IsValid())
+		{
+			CurrentLODData.CachedDebugInfluencesShared->SafeRelease();
+			CurrentLODData.CachedDebugInfluencesShared.Reset();
+		}
+		if (CurrentLODData.CachedDebugPointBufferShared.IsValid())
+		{
+			CurrentLODData.CachedDebugPointBufferShared->SafeRelease();
+			CurrentLODData.CachedDebugPointBufferShared.Reset();
+		}
+		if (CurrentLODData.CachedDebugBulgePointBufferShared.IsValid())
+		{
+			CurrentLODData.CachedDebugBulgePointBufferShared->SafeRelease();
+			CurrentLODData.CachedDebugBulgePointBufferShared.Reset();
+		}
+
 		return;
 	}
 
@@ -1341,6 +1419,15 @@ void UFleshRingDeformerInstance::InvalidateTightnessCache(int32 DirtyRingIndex)
     for (FLODDeformationData& Data : LODData)
     {
         Data.bTightenedBindPoseCached = false;
+
+        // Note: CachedTightenedBindPoseShared/CachedNormalsShared/CachedTangentsShared는
+        // 여기서 해제하지 않음! EnqueueWork()에서 AffectedVertices == 0일 때
+        // Passthrough Skinning을 위해 버퍼 유효성이 필요함.
+        // Passthrough 완료 후 EnqueueWork()에서 해제됨.
+
+        // GPU 디버그 포인트 버퍼는 여기서 클리어하지 않음
+        // 드래그 중에도 포인트가 보여야 하므로, AffectedCount == 0일 때만
+        // EnqueueWork Fallback에서 클리어함
 
         // 3. GPU Influence Readback 캐시도 무효화
         // 새 TightnessCS 결과가 Readback될 때까지 CPU fallback 사용

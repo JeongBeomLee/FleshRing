@@ -174,6 +174,85 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 		return;
 	}
 
+	// ===== Passthrough Mode =====
+	// AffectedVertices가 0이 되었을 때 원본 데이터로 SkinningCS 한 번 실행
+	// 이전 변형의 탄젠트 잔상을 제거하기 위해 필요
+	if (WorkItem.bPassthroughMode)
+	{
+		// 원본 소스 포지션이 없으면 Fallback
+		if (!WorkItem.SourceDataPtr.IsValid() || WorkItem.SourceDataPtr->Num() == 0)
+		{
+			UE_LOG(LogFleshRingWorker, Warning, TEXT("FleshRing: Passthrough 모드지만 SourceDataPtr 없음"));
+			ExternalAccessQueue.Submit(GraphBuilder);
+			WorkItem.FallbackDelegate.ExecuteIfBound();
+			return;
+		}
+
+		// 원본 바인드 포즈 버퍼 생성
+		FRDGBufferRef PassthroughPositionBuffer = GraphBuilder.CreateBuffer(
+			FRDGBufferDesc::CreateBufferDesc(sizeof(float), ActualBufferSize),
+			TEXT("FleshRing_PassthroughPositions")
+		);
+		GraphBuilder.QueueBufferUpload(
+			PassthroughPositionBuffer,
+			WorkItem.SourceDataPtr->GetData(),
+			ActualBufferSize * sizeof(float),
+			ERDGInitialDataFlags::None
+		);
+
+		// SkinningCS 실행 (원본 탄젠트 사용 - RecomputedNormals/Tangents = nullptr)
+		const FSkinWeightVertexBuffer* WeightBuffer = LODData.GetSkinWeightVertexBuffer();
+		FRHIShaderResourceView* InputWeightStreamSRV = WeightBuffer ?
+			WeightBuffer->GetDataVertexBuffer()->GetSRV() : nullptr;
+
+		FRHIShaderResourceView* SourceTangentsSRV = LODData.StaticVertexBuffers.StaticMeshVertexBuffer.GetTangentsSRV();
+
+		if (!InputWeightStreamSRV)
+		{
+			// 웨이트 없으면 그냥 복사
+			AddCopyBufferPass(GraphBuilder, OutputPositionBuffer, PassthroughPositionBuffer);
+		}
+		else
+		{
+			// Tangent 출력 버퍼 할당
+			FRDGBuffer* OutputTangentBuffer = FSkeletalMeshDeformerHelpers::AllocateVertexFactoryTangentBuffer(
+				GraphBuilder, ExternalAccessQueue, MeshObject, LODIndex, TEXT("FleshRingPassthroughTangent"));
+
+			const int32 NumSections = LODData.RenderSections.Num();
+
+			for (int32 SectionIndex = 0; SectionIndex < NumSections; ++SectionIndex)
+			{
+				const FSkelMeshRenderSection& Section = LODData.RenderSections[SectionIndex];
+
+				FRHIShaderResourceView* BoneMatricesSRV = FSkeletalMeshDeformerHelpers::GetBoneBufferForReading(
+					MeshObject, LODIndex, SectionIndex, false);
+				if (!BoneMatricesSRV) continue;
+
+				FSkinningDispatchParams SkinParams;
+				SkinParams.BaseVertexIndex = Section.BaseVertexIndex;
+				SkinParams.NumVertices = Section.NumVertices;
+				SkinParams.InputWeightStride = WeightBuffer->GetConstantInfluencesVertexStride();
+				SkinParams.InputWeightIndexSize = WeightBuffer->GetBoneIndexByteSize() |
+					(WeightBuffer->GetBoneWeightByteSize() << 8);
+				SkinParams.NumBoneInfluences = WeightBuffer->GetMaxBoneInfluences();
+
+				// RecomputedNormalsBuffer와 RecomputedTangentsBuffer는 nullptr
+				// → SkinningCS가 원본 탄젠트 사용
+				DispatchFleshRingSkinningCS(GraphBuilder, SkinParams, PassthroughPositionBuffer,
+					SourceTangentsSRV, OutputPositionBuffer, nullptr,
+					OutputTangentBuffer, BoneMatricesSRV, nullptr, InputWeightStreamSRV,
+					nullptr, nullptr);  // RecomputedNormalsBuffer, RecomputedTangentsBuffer = nullptr
+			}
+		}
+
+		// VertexFactory 버퍼 업데이트 (이전 위치 무효화)
+		FSkeletalMeshDeformerHelpers::UpdateVertexFactoryBufferOverrides(
+			GraphBuilder, MeshObject, LODIndex, true);
+
+		ExternalAccessQueue.Submit(GraphBuilder);
+		return;
+	}
+
 	// TightenedBindPose 버퍼 처리
 	FRDGBufferRef TightenedBindPoseBuffer = nullptr;
 

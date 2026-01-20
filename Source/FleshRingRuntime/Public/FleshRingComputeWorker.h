@@ -334,6 +334,11 @@ struct FFleshRingWorkItem
 
 	// Fallback 델리게이트
 	FSimpleDelegate FallbackDelegate;
+
+	// ===== Passthrough Mode =====
+	// AffectedVertices가 0이 될 때 한 번만 원본 데이터로 SkinningCS 실행
+	// TightnessCS 건너뛰고 원본 탄젠트를 출력하여 이전 변형 잔상 제거
+	bool bPassthroughMode = false;
 };
 
 // ============================================================================
