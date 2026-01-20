@@ -236,6 +236,9 @@ private:
 	/** 이 Ring이 현재 선택되어 있는지 확인 */
 	bool IsThisRingSelected() const;
 
+	/** 헤더 배경색 반환 (선택 상태에 따라 하이라이트) */
+	FSlateColor GetHeaderBackgroundColor() const;
+
 	/** 배열 인덱스 캐시 */
 	int32 CachedArrayIndex = INDEX_NONE;
 

@@ -569,17 +569,23 @@ void FFleshRingSettingsCustomization::CustomizeHeader(
 
 	HeaderRow.WholeRowContent()
 	[
-		SNew(SClickableRowButton)
-		.OnClicked(FSimpleDelegate::CreateRaw(this, &FFleshRingSettingsCustomization::OnHeaderClickedVoid))
-		.OnDoubleClicked(FSimpleDelegate::CreateLambda([this]() {
-			if (RingNameWidget.IsValid())
-			{
-				RingNameWidget->EnterEditingMode();
-			}
-		}))
-		.ToolTipText(TooltipText)
+		// 선택 상태에 따른 배경색 하이라이트 (HighlightProperty 대체)
+		SNew(SBorder)
+		.BorderImage(FAppStyle::GetBrush("WhiteBrush"))
+		.BorderBackgroundColor(this, &FFleshRingSettingsCustomization::GetHeaderBackgroundColor)
+		.Padding(0)
 		[
-			SNew(SHorizontalBox)
+			SNew(SClickableRowButton)
+			.OnClicked(FSimpleDelegate::CreateRaw(this, &FFleshRingSettingsCustomization::OnHeaderClickedVoid))
+			.OnDoubleClicked(FSimpleDelegate::CreateLambda([this]() {
+				if (RingNameWidget.IsValid())
+				{
+					RingNameWidget->EnterEditingMode();
+				}
+			}))
+			.ToolTipText(TooltipText)
+			[
+				SNew(SHorizontalBox)
 			// 좌측 열: Ring 이름 (35%, 클리핑 적용)
 			+ SHorizontalBox::Slot()
 			.FillWidth(0.35f)
@@ -695,6 +701,7 @@ void FFleshRingSettingsCustomization::CustomizeHeader(
 				]
 			]
 		]
+		]  // SBorder 닫기
 	];
 }
 
@@ -1810,6 +1817,16 @@ bool FFleshRingSettingsCustomization::IsThisRingSelected() const
 		return Asset->EditorSelectedRingIndex == CachedArrayIndex;
 	}
 	return false;
+}
+
+FSlateColor FFleshRingSettingsCustomization::GetHeaderBackgroundColor() const
+{
+	if (IsThisRingSelected())
+	{
+		// 선택 시 하이라이트 색상 (Unreal Editor의 선택 색상과 유사)
+		return FLinearColor(0.1f, 0.4f, 0.7f, 0.3f);
+	}
+	return FLinearColor::Transparent;
 }
 
 void FFleshRingSettingsCustomization::BuildBoneTree()

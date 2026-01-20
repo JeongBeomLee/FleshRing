@@ -597,10 +597,19 @@ void FFleshRingAssetEditor::OnObjectTransacted(UObject* Object, const FTransacti
 								This->SkeletonTreeWidget->RefreshTree();
 							}
 
-							// DetailsView 강제 갱신 (Undo/Redo 후 배열 상태 반영)
-							if (This->DetailsView.IsValid())
+							// Undo/Redo 시 ForceRefresh() 호출하지 않음
+							// (스크롤 위치 유지를 위함 - Unreal Engine이 자동으로 프로퍼티 값 갱신)
+							// 배열 크기 변경(Ring 추가/삭제) 시 UI 불일치 가능성 있음 - 테스트 필요
+
+							// 이전 선택 인덱스 저장 (ApplySelectionFromAsset 전에)
+							int32 PreviousSelectedRingIndex = INDEX_NONE;
+							if (This->ViewportWidget.IsValid())
 							{
-								This->DetailsView->ForceRefresh();
+								TSharedPtr<FFleshRingPreviewScene> PreviewScene = This->ViewportWidget->GetPreviewScene();
+								if (PreviewScene.IsValid())
+								{
+									PreviousSelectedRingIndex = PreviewScene->GetSelectedRingIndex();
+								}
 							}
 
 							// 에셋의 선택 상태를 뷰포트에 반영 (Undo/Redo로 복원된 값)
@@ -610,32 +619,21 @@ void FFleshRingAssetEditor::OnObjectTransacted(UObject* Object, const FTransacti
 
 							This->bSyncingFromViewport = false;
 
-							// DetailsView 하이라이트를 다음 틱에서 다시 적용
-							// (ForceRefresh() 후 즉시 HighlightProperty가 작동하지 않을 수 있음)
-							if (This->EditingAsset && GEditor)
+							// 선택된 Ring이 변경된 경우에만 디테일 패널 스크롤 이동
+							// (프로퍼티 값만 변경된 Undo/Redo 시에는 스크롤 유지)
+							int32 NewSelectedRingIndex = This->EditingAsset ? This->EditingAsset->EditorSelectedRingIndex : INDEX_NONE;
+							if (NewSelectedRingIndex != PreviousSelectedRingIndex && NewSelectedRingIndex >= 0)
 							{
-								int32 RingIndex = This->EditingAsset->EditorSelectedRingIndex;
-								if (RingIndex >= 0 && This->EditingAsset->Rings.IsValidIndex(RingIndex))
+								if (This->DetailsView.IsValid() && This->EditingAsset)
 								{
-									GEditor->GetTimerManager()->SetTimerForNextTick(
-										[WeakThis, RingIndex]()
-										{
-											if (TSharedPtr<FFleshRingAssetEditor> InnerThis = WeakThis.Pin())
-											{
-												if (InnerThis->DetailsView.IsValid() && InnerThis->EditingAsset &&
-													InnerThis->EditingAsset->Rings.IsValidIndex(RingIndex))
-												{
-													FProperty* RingsProperty = UFleshRingAsset::StaticClass()->FindPropertyByName(
-														GET_MEMBER_NAME_CHECKED(UFleshRingAsset, Rings));
-													if (RingsProperty)
-													{
-														TSharedRef<FPropertyPath> PropertyPath = FPropertyPath::CreateEmpty();
-														PropertyPath->AddProperty(FPropertyInfo(RingsProperty, RingIndex));
-														InnerThis->DetailsView->HighlightProperty(*PropertyPath);
-													}
-												}
-											}
-										});
+									FProperty* RingsProperty = UFleshRingAsset::StaticClass()->FindPropertyByName(
+										GET_MEMBER_NAME_CHECKED(UFleshRingAsset, Rings));
+									if (RingsProperty)
+									{
+										TSharedRef<FPropertyPath> PropertyPath = FPropertyPath::CreateEmpty();
+										PropertyPath->AddProperty(FPropertyInfo(RingsProperty, NewSelectedRingIndex));
+										This->DetailsView->ScrollPropertyIntoView(*PropertyPath, false);
+									}
 								}
 							}
 
@@ -719,26 +717,18 @@ void FFleshRingAssetEditor::OnRingSelected(int32 RingIndex)
 		}
 	}
 
-	// Details 패널 하이라이트 처리 (항상 수행)
-	if (DetailsView.IsValid())
+	// 스켈레톤 트리에서 선택 시 디테일 패널 스크롤 이동
+	// (bSyncingFromViewport가 false = 스켈레톤 트리에서 직접 선택됨)
+	// (뷰포트에서 선택 시에는 OnRingSelectedInViewport에서 스크롤 처리)
+	if (!bSyncingFromViewport && DetailsView.IsValid() && EditingAsset && RingIndex >= 0)
 	{
-		if (RingIndex >= 0 && EditingAsset)
+		FProperty* RingsProperty = UFleshRingAsset::StaticClass()->FindPropertyByName(
+			GET_MEMBER_NAME_CHECKED(UFleshRingAsset, Rings));
+		if (RingsProperty)
 		{
-			// Rings 배열 프로퍼티 찾기
-			FProperty* RingsProperty = UFleshRingAsset::StaticClass()->FindPropertyByName(GET_MEMBER_NAME_CHECKED(UFleshRingAsset, Rings));
-			if (RingsProperty)
-			{
-				// FPropertyPath 구성: Rings[RingIndex]
-				TSharedRef<FPropertyPath> PropertyPath = FPropertyPath::CreateEmpty();
-				PropertyPath->AddProperty(FPropertyInfo(RingsProperty, RingIndex));
-
-				DetailsView->HighlightProperty(*PropertyPath);
-			}
-		}
-		else
-		{
-			// Ring 선택 해제 시 하이라이트 해제
-			DetailsView->HighlightProperty(*FPropertyPath::CreateEmpty());
+			TSharedRef<FPropertyPath> PropertyPath = FPropertyPath::CreateEmpty();
+			PropertyPath->AddProperty(FPropertyInfo(RingsProperty, RingIndex));
+			DetailsView->ScrollPropertyIntoView(*PropertyPath, false);
 		}
 	}
 }
@@ -763,6 +753,19 @@ void FFleshRingAssetEditor::OnRingSelectedInViewport(int32 RingIndex, EFleshRing
 	if (SkeletonTreeWidget.IsValid())
 	{
 		SkeletonTreeWidget->SelectRingByIndex(RingIndex);
+	}
+
+	// 뷰포트에서 선택 시 디테일 패널 스크롤 이동 (HighlightProperty 대체)
+	if (DetailsView.IsValid() && EditingAsset && RingIndex >= 0)
+	{
+		FProperty* RingsProperty = UFleshRingAsset::StaticClass()->FindPropertyByName(
+			GET_MEMBER_NAME_CHECKED(UFleshRingAsset, Rings));
+		if (RingsProperty)
+		{
+			TSharedRef<FPropertyPath> PropertyPath = FPropertyPath::CreateEmpty();
+			PropertyPath->AddProperty(FPropertyInfo(RingsProperty, RingIndex));
+			DetailsView->ScrollPropertyIntoView(*PropertyPath, false);
+		}
 	}
 
 	bSyncingFromViewport = false;
@@ -982,25 +985,6 @@ void FFleshRingAssetEditor::ApplySelectionFromAsset()
 		bSyncingFromViewport = true;
 		SkeletonTreeWidget->SelectRingByIndex(RingIndex);
 		bSyncingFromViewport = false;
-	}
-
-	// Details 패널 하이라이트 (Undo/Redo 시 확실하게 복원)
-	if (DetailsView.IsValid())
-	{
-		if (RingIndex >= 0 && EditingAsset->Rings.IsValidIndex(RingIndex))
-		{
-			FProperty* RingsProperty = UFleshRingAsset::StaticClass()->FindPropertyByName(GET_MEMBER_NAME_CHECKED(UFleshRingAsset, Rings));
-			if (RingsProperty)
-			{
-				TSharedRef<FPropertyPath> PropertyPath = FPropertyPath::CreateEmpty();
-				PropertyPath->AddProperty(FPropertyInfo(RingsProperty, RingIndex));
-				DetailsView->HighlightProperty(*PropertyPath);
-			}
-		}
-		else
-		{
-			DetailsView->HighlightProperty(*FPropertyPath::CreateEmpty());
-		}
 	}
 }
 
