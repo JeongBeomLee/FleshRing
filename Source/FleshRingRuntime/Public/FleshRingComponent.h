@@ -217,6 +217,10 @@ public:
 	/** VirtualBand 와이어프레임 표시 */
 	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
 	bool bShowProceduralBandWireframe = true;
+
+	/** Bulge 영향 범위 원기둥 표시 */
+	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
+	bool bShowBulgeRange = false;
 #endif
 
 	// =====================================
@@ -554,5 +558,8 @@ private:
 
 	/** VirtualBand 와이어프레임 그리기 */
 	void DrawProceduralBandWireframe(int32 RingIndex);
+
+	/** Bulge 영향 범위 원기둥 그리기 */
+	void DrawBulgeRange(int32 RingIndex);
 #endif
 };

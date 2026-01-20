@@ -158,6 +158,7 @@ public:
 	void ToggleShowSDFSlice();
 	void ToggleShowBulgeHeatmap();
 	void ToggleShowBulgeArrows();
+	void ToggleShowBulgeRange();
 
 	// 디버그 시각화 상태
 	bool ShouldShowDebugVisualization() const;
@@ -166,6 +167,7 @@ public:
 	bool ShouldShowSDFSlice() const;
 	bool ShouldShowBulgeHeatmap() const;
 	bool ShouldShowBulgeArrows() const;
+	bool ShouldShowBulgeRange() const;
 
 	// Debug Slice Z
 	int32 GetDebugSliceZ() const;
@@ -308,6 +310,7 @@ private:
 	bool bCachedShowSDFSlice = false;
 	bool bCachedShowBulgeHeatmap = false;
 	bool bCachedShowBulgeArrows = true;  // 기본값 켜짐
+	bool bCachedShowBulgeRange = false;
 	int32 CachedDebugSliceZ = 32;
 
 	// Local/World 좌표계 플래그 (커스텀 관리)

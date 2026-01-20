@@ -1446,6 +1446,11 @@ void UFleshRingComponent::DrawDebugVisualization()
 			// 방향 화살표는 항상 표시
 			DrawBulgeDirectionArrow(RingIndex);
 		}
+
+		if (bShowBulgeRange)
+		{
+			DrawBulgeRange(RingIndex);
+		}
 	}
 }
 
@@ -3038,6 +3043,419 @@ void UFleshRingComponent::DrawBulgeDirectionArrow(int32 RingIndex)
 		GEngine->AddOnScreenDebugMessage(-1, 0.0f, ArrowColor,
 			FString::Printf(TEXT("Ring[%d] Bulge Dir: %s (Detected: %d, Final: %d)"),
 				RingIndex, *ModeStr, DetectedDirection, FinalDirection));
+	}
+}
+
+void UFleshRingComponent::DrawBulgeRange(int32 RingIndex)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	if (!FleshRingAsset || !FleshRingAsset->Rings.IsValidIndex(RingIndex))
+	{
+		return;
+	}
+
+	const FFleshRingSettings& RingSettings = FleshRingAsset->Rings[RingIndex];
+
+	// Bulge 비활성화면 스킵
+	if (!RingSettings.bEnableBulge)
+	{
+		return;
+	}
+
+	USkeletalMeshComponent* SkelMesh = ResolvedTargetMesh.Get();
+
+	// 색상 (주황색)
+	const FColor CylinderColor(255, 180, 50, 200);
+	const float LineThickness = 0.15f;
+	const int32 CircleSegments = 32;
+
+	// ★ Falloff 타입별 보정 계수 (Evaluate(q) = KINDA_SMALL_NUMBER 기준)
+	// 실제 Bulge 선택: BulgeInfluence > 0.0001 이면 포함
+	auto GetFalloffCorrection = [](EFleshRingFalloffType FalloffType) -> float
+	{
+		switch (FalloffType)
+		{
+		case EFleshRingFalloffType::Linear:
+			return 1.0f;    // 1-q = 0.0001 → q ≈ 1.0
+		case EFleshRingFalloffType::Quadratic:
+			return 0.99f;   // (1-q)² = 0.0001 → q = 0.99
+		case EFleshRingFalloffType::Hermite:
+			return 0.99f;   // t²(3-2t) = 0.0001 → q ≈ 0.99
+		case EFleshRingFalloffType::WendlandC2:
+			return 0.93f;   // (1-q)⁴(4q+1) = 0.0001 → q ≈ 0.93
+		case EFleshRingFalloffType::Smootherstep:
+			return 0.98f;   // t³(t(6t-15)+10) = 0.0001 → q ≈ 0.98
+		default:
+			return 1.0f;
+		}
+	};
+	const float FalloffCorrection = GetFalloffCorrection(RingSettings.BulgeFalloff);
+
+	// ===== ProceduralBand 모드: 가변 반경 형상 =====
+	if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::ProceduralBand)
+	{
+		const FProceduralBandSettings& Band = RingSettings.ProceduralBand;
+
+		// Bone Transform 가져오기
+		FTransform BoneTransform = FTransform::Identity;
+		if (SkelMesh)
+		{
+			int32 BoneIndex = SkelMesh->GetBoneIndex(RingSettings.BoneName);
+			if (BoneIndex != INDEX_NONE)
+			{
+				BoneTransform = SkelMesh->GetBoneTransform(BoneIndex);
+			}
+		}
+
+		// Band Center/Axis (World Space)
+		const FQuat BoneRotation = BoneTransform.GetRotation();
+		const FVector WorldBandOffset = BoneRotation.RotateVector(Band.BandOffset);
+		const FVector WorldCenter = BoneTransform.GetLocation() + WorldBandOffset;
+		const FQuat WorldBandRotation = BoneRotation * Band.BandRotation;
+		const FVector WorldZAxis = WorldBandRotation.RotateVector(FVector::ZAxisVector);
+
+		// 축에 수직인 두 벡터 계산
+		FVector Tangent, Binormal;
+		WorldZAxis.FindBestAxisVectors(Tangent, Binormal);
+
+		const float BandHalfHeight = Band.BandHeight * 0.5f;
+		const float RadialRange = RingSettings.BulgeRadialRange;
+		// Falloff 타입별 보정 적용
+		const float AxialRange = RingSettings.BulgeAxialRange * FalloffCorrection;
+
+		// 상단 Bulge 영역 (UpperBulgeStrength > 0)
+		// Band 상단(+BandHalfHeight)에서 Upper Section 끝(+BandHalfHeight + Upper.Height)까지
+		// + AxialRange 확장
+		if (RingSettings.UpperBulgeStrength > 0.01f && Band.Upper.Height > 0.01f)
+		{
+			const float UpperStart = BandHalfHeight;
+			const float UpperEnd = BandHalfHeight + Band.Upper.Height * AxialRange;
+			const int32 NumSlices = 4;
+
+			// 여러 높이에서 원 그리기 (가변 반경 표현)
+			TArray<FVector> SlicePositions;
+			TArray<float> SliceRadii;
+
+			for (int32 i = 0; i <= NumSlices; ++i)
+			{
+				float T = static_cast<float>(i) / static_cast<float>(NumSlices);
+				float LocalZ = FMath::Lerp(UpperStart, UpperEnd, T);
+				float BaseRadius = Band.GetRadiusAtHeight(LocalZ);
+				float BulgeRadius = BaseRadius * RadialRange;
+
+				FVector SlicePos = WorldCenter + WorldZAxis * LocalZ;
+				SlicePositions.Add(SlicePos);
+				SliceRadii.Add(BulgeRadius);
+
+				// 원 그리기
+				DrawDebugCircle(World, SlicePos, BulgeRadius, CircleSegments, CylinderColor, false, -1.0f, SDPG_Foreground, LineThickness, Tangent, Binormal, false);
+			}
+
+			// 세로 라인 4개 (슬라이스 연결)
+			for (int32 LineIdx = 0; LineIdx < 4; ++LineIdx)
+			{
+				float Angle = static_cast<float>(LineIdx) / 4.0f * 2.0f * PI;
+				FVector Dir = Tangent * FMath::Cos(Angle) + Binormal * FMath::Sin(Angle);
+
+				for (int32 i = 0; i < SlicePositions.Num() - 1; ++i)
+				{
+					FVector Start = SlicePositions[i] + Dir * SliceRadii[i];
+					FVector End = SlicePositions[i + 1] + Dir * SliceRadii[i + 1];
+					DrawDebugLine(World, Start, End, CylinderColor, false, -1.0f, SDPG_Foreground, LineThickness);
+				}
+			}
+		}
+
+		// 하단 Bulge 영역 (LowerBulgeStrength > 0)
+		// Band 하단(-BandHalfHeight)에서 Lower Section 끝(-BandHalfHeight - Lower.Height)까지
+		// + AxialRange 확장
+		if (RingSettings.LowerBulgeStrength > 0.01f && Band.Lower.Height > 0.01f)
+		{
+			const float LowerStart = -BandHalfHeight;
+			const float LowerEnd = -BandHalfHeight - Band.Lower.Height * AxialRange;
+			const int32 NumSlices = 4;
+
+			// 여러 높이에서 원 그리기 (가변 반경 표현)
+			TArray<FVector> SlicePositions;
+			TArray<float> SliceRadii;
+
+			for (int32 i = 0; i <= NumSlices; ++i)
+			{
+				float T = static_cast<float>(i) / static_cast<float>(NumSlices);
+				float LocalZ = FMath::Lerp(LowerStart, LowerEnd, T);
+				float BaseRadius = Band.GetRadiusAtHeight(LocalZ);
+				float BulgeRadius = BaseRadius * RadialRange;
+
+				FVector SlicePos = WorldCenter + WorldZAxis * LocalZ;
+				SlicePositions.Add(SlicePos);
+				SliceRadii.Add(BulgeRadius);
+
+				// 원 그리기
+				DrawDebugCircle(World, SlicePos, BulgeRadius, CircleSegments, CylinderColor, false, -1.0f, SDPG_Foreground, LineThickness, Tangent, Binormal, false);
+			}
+
+			// 세로 라인 4개 (슬라이스 연결)
+			for (int32 LineIdx = 0; LineIdx < 4; ++LineIdx)
+			{
+				float Angle = static_cast<float>(LineIdx) / 4.0f * 2.0f * PI;
+				FVector Dir = Tangent * FMath::Cos(Angle) + Binormal * FMath::Sin(Angle);
+
+				for (int32 i = 0; i < SlicePositions.Num() - 1; ++i)
+				{
+					FVector Start = SlicePositions[i] + Dir * SliceRadii[i];
+					FVector End = SlicePositions[i + 1] + Dir * SliceRadii[i + 1];
+					DrawDebugLine(World, Start, End, CylinderColor, false, -1.0f, SDPG_Foreground, LineThickness);
+				}
+			}
+		}
+
+		return;
+	}
+
+	// ===== Auto/Manual 모드: 원뿔 형태 =====
+	const FRingSDFCache* SDFCache = GetRingSDFCache(RingIndex);
+	const bool bHasValidSDF = SDFCache && SDFCache->IsValid();
+
+	// ★ SDF 모드: 로컬 스페이스에서 모든 점을 계산한 뒤 월드로 변환
+	// LocalToComponent에 스케일이 포함될 수 있으므로, 개별 점을 변환해야 함
+	if (bHasValidSDF)
+	{
+		// SDF 바운드에서 기하 정보 계산 (로컬 스페이스)
+		const FVector3f BoundsSize = SDFCache->BoundsMax - SDFCache->BoundsMin;
+		const FVector LocalCenter = FVector(SDFCache->BoundsMin + SDFCache->BoundsMax) * 0.5f;
+		const float RingHeight = FMath::Min3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z);
+		const float RingRadius = FMath::Max3(BoundsSize.X, BoundsSize.Y, BoundsSize.Z) * 0.5f;
+
+		// Ring 축 = 가장 짧은 SDF 바운드 축 (실제 Bulge 계산과 동일)
+		FVector LocalRingAxis;
+		if (BoundsSize.X <= BoundsSize.Y && BoundsSize.X <= BoundsSize.Z)
+		{
+			LocalRingAxis = FVector(1.0f, 0.0f, 0.0f);
+		}
+		else if (BoundsSize.Y <= BoundsSize.X && BoundsSize.Y <= BoundsSize.Z)
+		{
+			LocalRingAxis = FVector(0.0f, 1.0f, 0.0f);
+		}
+		else
+		{
+			LocalRingAxis = FVector(0.0f, 0.0f, 1.0f);
+		}
+
+		// 축에 수직인 두 벡터 (로컬 스페이스)
+		FVector LocalTangent, LocalBinormal;
+		LocalRingAxis.FindBestAxisVectors(LocalTangent, LocalBinormal);
+
+		// 로컬 → 월드 트랜스폼
+		FTransform LocalToWorld = SDFCache->LocalToComponent;
+		if (SkelMesh)
+		{
+			LocalToWorld = LocalToWorld * SkelMesh->GetComponentTransform();
+		}
+
+		// Bulge 범위 (로컬 스페이스) - Falloff 타입별 보정 적용
+		const float BulgeRadialExtent = RingRadius * RingSettings.BulgeRadialRange;
+		const float AxialExtent = RingHeight * 0.5f * RingSettings.BulgeAxialRange * FalloffCorrection;
+		const float RingHalfHeight = RingHeight * 0.5f;
+
+		const int32 NumSlices = 4;
+
+		// 람다: 로컬 스페이스 점을 월드로 변환
+		auto TransformToWorld = [&LocalToWorld](const FVector& LocalPos) -> FVector
+		{
+			return LocalToWorld.TransformPosition(LocalPos);
+		};
+
+		// 상단 원뿔 (UpperBulgeStrength > 0)
+		if (RingSettings.UpperBulgeStrength > 0.01f)
+		{
+			// 각 슬라이스의 원 점들을 저장 (월드 스페이스)
+			TArray<TArray<FVector>> SliceCirclePoints;
+			SliceCirclePoints.SetNum(NumSlices + 1);
+
+			for (int32 i = 0; i <= NumSlices; ++i)
+			{
+				float T = static_cast<float>(i) / static_cast<float>(NumSlices);
+				float LocalZ = RingHalfHeight + AxialExtent * T;
+				float DynamicRadius = BulgeRadialExtent * (1.0f + T * 0.5f);
+
+				// 로컬 스페이스에서 원의 중심
+				FVector LocalSliceCenter = LocalCenter + LocalRingAxis * LocalZ;
+
+				// 원의 점들을 로컬에서 계산 후 월드로 변환
+				TArray<FVector>& CirclePoints = SliceCirclePoints[i];
+				CirclePoints.SetNum(CircleSegments + 1);
+
+				for (int32 j = 0; j <= CircleSegments; ++j)
+				{
+					float Angle = static_cast<float>(j) / static_cast<float>(CircleSegments) * 2.0f * PI;
+					FVector LocalPoint = LocalSliceCenter + LocalTangent * (FMath::Cos(Angle) * DynamicRadius) + LocalBinormal * (FMath::Sin(Angle) * DynamicRadius);
+					CirclePoints[j] = TransformToWorld(LocalPoint);
+				}
+
+				// 원 그리기
+				for (int32 j = 0; j < CircleSegments; ++j)
+				{
+					DrawDebugLine(World, CirclePoints[j], CirclePoints[j + 1], CylinderColor, false, -1.0f, SDPG_Foreground, LineThickness);
+				}
+			}
+
+			// 세로 라인 4개 (슬라이스 연결)
+			for (int32 LineIdx = 0; LineIdx < 4; ++LineIdx)
+			{
+				int32 PointIdx = (CircleSegments * LineIdx) / 4;
+				for (int32 i = 0; i < NumSlices; ++i)
+				{
+					DrawDebugLine(World, SliceCirclePoints[i][PointIdx], SliceCirclePoints[i + 1][PointIdx], CylinderColor, false, -1.0f, SDPG_Foreground, LineThickness);
+				}
+			}
+		}
+
+		// 하단 원뿔 (LowerBulgeStrength > 0)
+		if (RingSettings.LowerBulgeStrength > 0.01f)
+		{
+			TArray<TArray<FVector>> SliceCirclePoints;
+			SliceCirclePoints.SetNum(NumSlices + 1);
+
+			for (int32 i = 0; i <= NumSlices; ++i)
+			{
+				float T = static_cast<float>(i) / static_cast<float>(NumSlices);
+				float LocalZ = -RingHalfHeight - AxialExtent * T;
+				float DynamicRadius = BulgeRadialExtent * (1.0f + T * 0.5f);
+
+				FVector LocalSliceCenter = LocalCenter + LocalRingAxis * LocalZ;
+
+				TArray<FVector>& CirclePoints = SliceCirclePoints[i];
+				CirclePoints.SetNum(CircleSegments + 1);
+
+				for (int32 j = 0; j <= CircleSegments; ++j)
+				{
+					float Angle = static_cast<float>(j) / static_cast<float>(CircleSegments) * 2.0f * PI;
+					FVector LocalPoint = LocalSliceCenter + LocalTangent * (FMath::Cos(Angle) * DynamicRadius) + LocalBinormal * (FMath::Sin(Angle) * DynamicRadius);
+					CirclePoints[j] = TransformToWorld(LocalPoint);
+				}
+
+				for (int32 j = 0; j < CircleSegments; ++j)
+				{
+					DrawDebugLine(World, CirclePoints[j], CirclePoints[j + 1], CylinderColor, false, -1.0f, SDPG_Foreground, LineThickness);
+				}
+			}
+
+			for (int32 LineIdx = 0; LineIdx < 4; ++LineIdx)
+			{
+				int32 PointIdx = (CircleSegments * LineIdx) / 4;
+				for (int32 i = 0; i < NumSlices; ++i)
+				{
+					DrawDebugLine(World, SliceCirclePoints[i][PointIdx], SliceCirclePoints[i + 1][PointIdx], CylinderColor, false, -1.0f, SDPG_Foreground, LineThickness);
+				}
+			}
+		}
+
+		return;
+	}
+
+	// ===== Manual 모드: 기존 방식 =====
+	if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Manual)
+	{
+		FTransform BoneTransform = FTransform::Identity;
+		if (SkelMesh)
+		{
+			int32 BoneIndex = SkelMesh->GetBoneIndex(RingSettings.BoneName);
+			if (BoneIndex != INDEX_NONE)
+			{
+				BoneTransform = SkelMesh->GetBoneTransform(BoneIndex);
+			}
+		}
+
+		const FQuat BoneRotation = BoneTransform.GetRotation();
+		const FVector WorldRingOffset = BoneRotation.RotateVector(RingSettings.RingOffset);
+		const FVector WorldCenter = BoneTransform.GetLocation() + WorldRingOffset;
+
+		const FQuat WorldRingRotation = BoneRotation * RingSettings.RingRotation;
+		const FVector WorldZAxis = WorldRingRotation.RotateVector(FVector::ZAxisVector);
+
+		// Bulge 범위 계산 - Falloff 타입별 보정 적용
+		const float RingRadius = RingSettings.RingRadius;
+		const float RingHeight = RingSettings.RingHeight;
+		const float BulgeRadialExtent = RingRadius * RingSettings.BulgeRadialRange;
+		const float AxialExtent = RingHeight * 0.5f * RingSettings.BulgeAxialRange * FalloffCorrection;
+		const float RingHalfHeight = RingHeight * 0.5f;
+
+		// 축에 수직인 두 벡터
+		FVector Tangent, Binormal;
+		WorldZAxis.FindBestAxisVectors(Tangent, Binormal);
+
+		const int32 NumSlices = 4;
+
+		// 상단 원뿔 (UpperBulgeStrength > 0)
+		if (RingSettings.UpperBulgeStrength > 0.01f)
+		{
+			TArray<FVector> SlicePositions;
+			TArray<float> SliceRadii;
+
+			for (int32 i = 0; i <= NumSlices; ++i)
+			{
+				float T = static_cast<float>(i) / static_cast<float>(NumSlices);
+				float LocalZ = RingHalfHeight + AxialExtent * T;
+				float DynamicRadius = BulgeRadialExtent * (1.0f + T * 0.5f);
+
+				FVector SlicePos = WorldCenter + WorldZAxis * LocalZ;
+				SlicePositions.Add(SlicePos);
+				SliceRadii.Add(DynamicRadius);
+
+				DrawDebugCircle(World, SlicePos, DynamicRadius, CircleSegments, CylinderColor, false, -1.0f, SDPG_Foreground, LineThickness, Tangent, Binormal, false);
+			}
+
+			for (int32 LineIdx = 0; LineIdx < 4; ++LineIdx)
+			{
+				float Angle = static_cast<float>(LineIdx) / 4.0f * 2.0f * PI;
+				FVector Dir = Tangent * FMath::Cos(Angle) + Binormal * FMath::Sin(Angle);
+
+				for (int32 i = 0; i < SlicePositions.Num() - 1; ++i)
+				{
+					FVector Start = SlicePositions[i] + Dir * SliceRadii[i];
+					FVector End = SlicePositions[i + 1] + Dir * SliceRadii[i + 1];
+					DrawDebugLine(World, Start, End, CylinderColor, false, -1.0f, SDPG_Foreground, LineThickness);
+				}
+			}
+		}
+
+		// 하단 원뿔 (LowerBulgeStrength > 0)
+		if (RingSettings.LowerBulgeStrength > 0.01f)
+		{
+			TArray<FVector> SlicePositions;
+			TArray<float> SliceRadii;
+
+			for (int32 i = 0; i <= NumSlices; ++i)
+			{
+				float T = static_cast<float>(i) / static_cast<float>(NumSlices);
+				float LocalZ = -RingHalfHeight - AxialExtent * T;
+				float DynamicRadius = BulgeRadialExtent * (1.0f + T * 0.5f);
+
+				FVector SlicePos = WorldCenter + WorldZAxis * LocalZ;
+				SlicePositions.Add(SlicePos);
+				SliceRadii.Add(DynamicRadius);
+
+				DrawDebugCircle(World, SlicePos, DynamicRadius, CircleSegments, CylinderColor, false, -1.0f, SDPG_Foreground, LineThickness, Tangent, Binormal, false);
+			}
+
+			for (int32 LineIdx = 0; LineIdx < 4; ++LineIdx)
+			{
+				float Angle = static_cast<float>(LineIdx) / 4.0f * 2.0f * PI;
+				FVector Dir = Tangent * FMath::Cos(Angle) + Binormal * FMath::Sin(Angle);
+
+				for (int32 i = 0; i < SlicePositions.Num() - 1; ++i)
+				{
+					FVector Start = SlicePositions[i] + Dir * SliceRadii[i];
+					FVector End = SlicePositions[i + 1] + Dir * SliceRadii[i + 1];
+					DrawDebugLine(World, Start, End, CylinderColor, false, -1.0f, SDPG_Foreground, LineThickness);
+				}
+			}
+		}
 	}
 }
 

@@ -662,6 +662,40 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 			EUserInterfaceActionType::ToggleButton
 		);
 
+		// Show Bulge Range (원기둥 범위 시각화)
+		MenuBuilder.AddMenuEntry(
+			LOCTEXT("ShowBulgeRange", "Show Bulge Range"),
+			LOCTEXT("ShowBulgeRangeTooltip", "Show/Hide bulge influence range as cylinder wireframe"),
+			FSlateIcon(),
+			FUIAction(
+				FExecuteAction::CreateLambda([WeakViewportClient]()
+				{
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+					{
+						Client->ToggleShowBulgeRange();
+					}
+				}),
+				FCanExecuteAction::CreateLambda([WeakViewportClient]()
+				{
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+					{
+						return Client->ShouldShowDebugVisualization();
+					}
+					return false;
+				}),
+				FIsActionChecked::CreateLambda([WeakViewportClient]()
+				{
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+					{
+						return Client->ShouldShowBulgeRange();
+					}
+					return false;
+				})
+			),
+			NAME_None,
+			EUserInterfaceActionType::ToggleButton
+		);
+
 		// Show SDF Slice
 		MenuBuilder.AddMenuEntry(
 			LOCTEXT("ShowSDFSlice", "Show SDF Slice"),
