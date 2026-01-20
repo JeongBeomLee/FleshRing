@@ -113,15 +113,10 @@ void UFleshRingComponent::BeginPlay()
 				FindTargetMeshOnly();
 			}
 			ApplyBakedMesh();
-			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Using baked mesh for runtime"));
 		}
-		else
-		{
-			// ★ 베이크된 메시 없음: 원본 메시 그대로 사용
-			// - 스켈레탈 메시는 원본 그대로 애니메이션됨
-			// - Ring 메시는 OnRegister()에서 이미 본에 부착됨
-			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: No baked mesh, using original mesh with ring attachments"));
-		}
+		// 베이크된 메시 없음: 원본 메시 그대로 사용
+		// - 스켈레탈 메시는 원본 그대로 애니메이션됨
+		// - Ring 메시는 OnRegister()에서 이미 본에 부착됨
 	}
 }
 
@@ -162,6 +157,7 @@ void UFleshRingComponent::OnRegister()
 	// SetSkeletalMesh()가 OnRegister 시점에 호출되면 애니메이션 초기화를 방해함
 	// 메시 변경이 필요한 경우 BeginPlay에서 처리
 	bool bIsGameWorld = GetWorld() && GetWorld()->IsGameWorld();
+
 	if (bIsGameWorld)
 	{
 		// 대상 메시만 찾음 (메시 변경 없음)
@@ -310,15 +306,62 @@ void UFleshRingComponent::FindTargetMeshOnly()
 			return;
 		}
 
-		// 첫 번째 SkeletalMeshComponent 사용
-		ResolvedTargetMesh = SkeletalMeshComponents[0];
-		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Auto-discovered target mesh '%s' on owner '%s'"),
-			*SkeletalMeshComponents[0]->GetName(), *Owner->GetName());
-
-		if (SkeletalMeshComponents.Num() > 1)
+		// 자동 매칭: FleshRingAsset->TargetSkeletalMesh와 일치하는 컴포넌트 찾기
+		USkeletalMeshComponent* MatchedComponent = nullptr;
+		if (FleshRingAsset && !FleshRingAsset->TargetSkeletalMesh.IsNull())
 		{
-			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Found %d SkeletalMeshComponents, using first one. Use bUseCustomTarget for manual selection."),
-				SkeletalMeshComponents.Num());
+			USkeletalMesh* TargetMesh = FleshRingAsset->TargetSkeletalMesh.LoadSynchronous();
+			UE_LOG(LogFleshRingComponent, Log,
+				TEXT("[%s] Auto-matching: Looking for TargetSkeletalMesh '%s' among %d components"),
+				*GetName(), TargetMesh ? *TargetMesh->GetName() : TEXT("null"), SkeletalMeshComponents.Num());
+
+			if (TargetMesh)
+			{
+				for (USkeletalMeshComponent* Comp : SkeletalMeshComponents)
+				{
+					USkeletalMesh* CompMesh = Comp ? Comp->GetSkeletalMeshAsset() : nullptr;
+					UE_LOG(LogFleshRingComponent, Log,
+						TEXT("[%s]   Checking '%s' -> Mesh='%s' (Match=%d)"),
+						*GetName(), Comp ? *Comp->GetName() : TEXT("null"),
+						CompMesh ? *CompMesh->GetName() : TEXT("null"),
+						CompMesh == TargetMesh);
+
+					if (Comp && CompMesh == TargetMesh)
+					{
+						MatchedComponent = Comp;
+						UE_LOG(LogFleshRingComponent, Log,
+							TEXT("[%s] ★ Auto-matched! Component='%s', TargetMesh='%s'"),
+							*GetName(), *Comp->GetName(), *TargetMesh->GetName());
+						break;
+					}
+				}
+			}
+		}
+		else
+		{
+			UE_LOG(LogFleshRingComponent, Warning,
+				TEXT("[%s] Auto-matching skipped: FleshRingAsset=%p, TargetSkeletalMesh.IsNull=%d"),
+				*GetName(), FleshRingAsset.Get(),
+				FleshRingAsset ? FleshRingAsset->TargetSkeletalMesh.IsNull() : -1);
+		}
+
+		if (MatchedComponent)
+		{
+			ResolvedTargetMesh = MatchedComponent;
+		}
+		else
+		{
+			// 매칭 실패 시 첫 번째 SkeletalMeshComponent 사용 (기존 동작)
+			ResolvedTargetMesh = SkeletalMeshComponents[0];
+			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: No matching mesh found, using first one '%s' on owner '%s'"),
+				*SkeletalMeshComponents[0]->GetName(), *Owner->GetName());
+
+			if (SkeletalMeshComponents.Num() > 1)
+			{
+				UE_LOG(LogFleshRingComponent, Warning,
+					TEXT("FleshRingComponent: Found %d SkeletalMeshComponents but none matched TargetSkeletalMesh. Using first one."),
+					SkeletalMeshComponents.Num());
+			}
 		}
 	}
 }
@@ -419,6 +462,10 @@ void UFleshRingComponent::SetupDeformer()
 		UE_LOG(LogFleshRingComponent, Error, TEXT("FleshRingComponent: Failed to create internal deformer"));
 		return;
 	}
+
+	// Owner FleshRingComponent 설정 (다중 컴포넌트 환경 지원)
+	// CreateInstance() 시점에 올바른 FleshRingComponent가 DeformerInstance에 전달됨
+	InternalDeformer->SetOwnerFleshRingComponent(this);
 
 	// SkeletalMeshComponent에 Deformer 등록
 	TargetMesh->SetMeshDeformer(InternalDeformer);
@@ -1033,6 +1080,7 @@ void UFleshRingComponent::SwapFleshRingAsset(UFleshRingAsset* NewAsset)
 
 		// 기존 에셋 정리
 		CleanupRingMeshes();
+		// TODO: 런타임에 디포머 없음. 지워도 될 듯
 		if (InternalDeformer)
 		{
 			CleanupDeformer();
@@ -1081,6 +1129,97 @@ void UFleshRingComponent::SwapFleshRingAsset(UFleshRingAsset* NewAsset)
 	ApplyBakedMesh();
 
 	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Swapped to baked asset '%s'"), *NewAsset->GetName());
+}
+
+bool UFleshRingComponent::SwapRingAssetForModular(UFleshRingAsset* NewAsset, bool bPreserveLeaderPose)
+{
+	// 1. BakedMesh 체크 (상태 변경 전에 먼저 검증)
+	if (NewAsset && !NewAsset->HasBakedMesh())
+	{
+		UE_LOG(LogFleshRingComponent, Warning,
+			TEXT("[%s] SwapRingAssetForModular: NewAsset '%s' has no BakedMesh, cannot apply at runtime"),
+			*GetName(), *NewAsset->GetName());
+		return false;
+	}
+
+	// 2. 엣지 케이스: FleshRingAsset 없이 시작한 경우
+	// 새 에셋의 TargetSkeletalMesh를 기준으로 타겟을 다시 찾아야 함
+	const bool bNeedRetarget = !FleshRingAsset && NewAsset;
+	if (bNeedRetarget)
+	{
+		FleshRingAsset = NewAsset;
+		FindTargetMeshOnly();
+	}
+
+	USkeletalMeshComponent* TargetMesh = ResolvedTargetMesh.Get();
+	if (!TargetMesh)
+	{
+		UE_LOG(LogFleshRingComponent, Warning,
+			TEXT("[%s] SwapRingAssetForModular: No target mesh resolved"), *GetName());
+		return false;
+	}
+
+	// 3. Leader Pose 백업 (필요 시)
+	TWeakObjectPtr<USkinnedMeshComponent> CachedLeaderPose;
+	if (bPreserveLeaderPose)
+	{
+		CachedLeaderPose = TargetMesh->LeaderPoseComponent;
+	}
+
+	// 4. 기존 Ring 메시 및 Deformer 정리
+	CleanupRingMeshes();
+	if (InternalDeformer)
+	{
+		CleanupDeformer();
+	}
+
+	// 5. 링 효과 제거 (nullptr 전달 시)
+	if (!NewAsset)
+	{
+		// 원본 메시 복원
+		if (CachedOriginalMesh.IsValid())
+		{
+			TargetMesh->SetSkeletalMeshAsset(CachedOriginalMesh.Get());
+		}
+		FleshRingAsset = nullptr;
+		bUsingBakedMesh = false;
+
+		// Leader Pose 복원
+		if (bPreserveLeaderPose && CachedLeaderPose.IsValid())
+		{
+			TargetMesh->SetLeaderPoseComponent(CachedLeaderPose.Get());
+		}
+
+		return true;
+	}
+
+	// 6. 새 에셋 적용 (bNeedRetarget 경우 이미 할당됨)
+	if (!bNeedRetarget)
+	{
+		FleshRingAsset = NewAsset;
+	}
+
+	// 7. 원본 메시 캐시 (아직 없으면)
+	if (!CachedOriginalMesh.IsValid())
+	{
+		CachedOriginalMesh = TargetMesh->GetSkeletalMeshAsset();
+	}
+
+	// 8. BakedMesh 적용
+	TargetMesh->SetSkeletalMeshAsset(FleshRingAsset->SubdivisionSettings.BakedMesh);
+	bUsingBakedMesh = true;
+
+	// 9. Leader Pose 복원
+	if (bPreserveLeaderPose && CachedLeaderPose.IsValid())
+	{
+		TargetMesh->SetLeaderPoseComponent(CachedLeaderPose.Get());
+	}
+
+	// 10. Ring 메시 재설정 및 베이크된 트랜스폼 적용
+	SetupRingMeshes();
+	ApplyBakedRingTransforms();
+
+	return true;
 }
 
 void UFleshRingComponent::ApplyBakedMesh()
@@ -1156,11 +1295,6 @@ void UFleshRingComponent::ApplyBakedRingTransforms()
 			// 본에 부착된 상태이므로 상대 트랜스폼으로 설정
 			const FTransform& BakedTransform = BakedTransforms[RingIndex];
 			MeshComp->SetRelativeTransform(BakedTransform);
-
-			UE_LOG(LogFleshRingComponent, Verbose, TEXT("FleshRingComponent: Ring[%d] applied baked transform: Loc=%s Rot=%s"),
-				RingIndex,
-				*BakedTransform.GetLocation().ToString(),
-				*BakedTransform.GetRotation().Rotator().ToString());
 		}
 	}
 }
@@ -1223,7 +1357,8 @@ void UFleshRingComponent::SetupRingMeshes()
 		}
 
 		// FleshRingMeshComponent 생성 (에디터에서 본보다 높은 피킹 우선순위)
-		FName ComponentName = FName(*FString::Printf(TEXT("RingMesh_%d"), RingIndex));
+		// 다중 FleshRingComponent 환경에서 이름 충돌 방지: 컴포넌트 이름 포함
+		FName ComponentName = FName(*FString::Printf(TEXT("%s_RingMesh_%d"), *GetName(), RingIndex));
 		UFleshRingMeshComponent* MeshComp = NewObject<UFleshRingMeshComponent>(Owner, ComponentName);
 		if (!MeshComp)
 		{
@@ -1259,13 +1394,7 @@ void UFleshRingComponent::SetupRingMeshes()
 		MeshComp->SetRelativeScale3D(Ring.MeshScale);
 
 		RingMeshComponents.Add(MeshComp);
-
-		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] mesh '%s' attached to bone '%s'"),
-			RingIndex, *RingMesh->GetName(), *Ring.BoneName.ToString());
 	}
-
-	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: SetupRingMeshes completed, %d meshes created"),
-		RingMeshComponents.Num());
 
 	// bShowRingMesh 상태에 따라 Visibility 적용 (에디터 Show Flag 동기화)
 	UpdateRingMeshVisibility();

@@ -2,6 +2,7 @@
 
 #include "FleshRingDeformer.h"
 #include "FleshRingDeformerInstance.h"
+#include "FleshRingComponent.h"
 #include "Components/MeshComponent.h"
 #include "Components/PrimitiveComponent.h"
 
@@ -26,10 +27,21 @@ UMeshDeformerInstance* UFleshRingDeformer::CreateInstance(UMeshComponent* InMesh
 	InMeshComponent->ShadowCacheInvalidationBehavior = EShadowCacheInvalidationBehavior::Always;
 
 	UFleshRingDeformerInstance* Instance = NewObject<UFleshRingDeformerInstance>(InMeshComponent);
-	Instance->SetupFromDeformer(this, InMeshComponent);
+	// Owner FleshRingComponent를 명시적으로 전달 (다중 컴포넌트 환경 지원)
+	Instance->SetupFromDeformer(this, InMeshComponent, OwnerFleshRingComponent.Get());
 
 	// 생성된 Instance 캐싱 (FleshRingComponent에서 접근용)
 	ActiveInstance = Instance;
 
 	return Instance;
+}
+
+void UFleshRingDeformer::SetOwnerFleshRingComponent(UFleshRingComponent* InComponent)
+{
+	OwnerFleshRingComponent = InComponent;
+}
+
+UFleshRingComponent* UFleshRingDeformer::GetOwnerFleshRingComponent() const
+{
+	return OwnerFleshRingComponent.Get();
 }

@@ -28,7 +28,17 @@ public:
 	// UObject interface
 	virtual void BeginDestroy() override;
 
-	void SetupFromDeformer(UFleshRingDeformer* InDeformer, UMeshComponent* InMeshComponent);
+	/**
+	 * Deformer로부터 설정 초기화
+	 * @param InDeformer - 소스 Deformer
+	 * @param InMeshComponent - 대상 MeshComponent
+	 * @param InOwnerFleshRingComponent - 이 Deformer를 소유하는 FleshRingComponent (다중 컴포넌트 환경 지원)
+	 *                                    nullptr이면 기존 방식(FindComponentByClass) 사용
+	 */
+	void SetupFromDeformer(
+		UFleshRingDeformer* InDeformer,
+		UMeshComponent* InMeshComponent,
+		UFleshRingComponent* InOwnerFleshRingComponent = nullptr);
 
 	// UMeshDeformerInstance interface
 	virtual void AllocateResources() override;

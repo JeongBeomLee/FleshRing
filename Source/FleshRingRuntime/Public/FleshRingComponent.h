@@ -145,8 +145,20 @@ public:
 	 * 런타임에서 FleshRingAsset 교체
 	 * 베이크된 에셋 간 전환 시 애니메이션 끊김 없이 즉시 교체
 	 */
+	/** 런타임 링 에셋 교체 (기존 API, 하위 호환성 유지) */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing")
 	void SwapFleshRingAsset(UFleshRingAsset* NewAsset);
+
+	/**
+	 * 모듈러 캐릭터용 런타임 링 에셋 교체
+	 * Leader Pose 설정 보존 옵션 제공
+	 *
+	 * @param NewAsset - 새로 적용할 FleshRingAsset (nullptr이면 링 효과 제거 + 원본 메시 복원)
+	 * @param bPreserveLeaderPose - LeaderPoseComponent 설정 보존 여부
+	 * @return 성공 여부
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FleshRing|Modular")
+	bool SwapRingAssetForModular(UFleshRingAsset* NewAsset, bool bPreserveLeaderPose = true);
 
 	/** 베이크 모드로 동작 중인지 여부 (Deformer 없이 BakedMesh 사용) */
 	UFUNCTION(BlueprintPure, Category = "FleshRing")
@@ -161,7 +173,7 @@ public:
 	bool bUseCustomTarget = false;
 
 	/** 수동 지정 대상 (bUseCustomTarget이 true일 때만 사용) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Settings", AdvancedDisplay, meta = (EditCondition = "bUseCustomTarget"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Settings", AdvancedDisplay, meta = (EditCondition = "bUseCustomTarget", UseComponentPicker))
 	TObjectPtr<USkeletalMeshComponent> CustomTargetMesh;
 
 	// =====================================

@@ -62,59 +62,61 @@ void UFleshRingDeformerInstance::BeginDestroy()
 	Super::BeginDestroy();
 }
 
-void UFleshRingDeformerInstance::SetupFromDeformer(UFleshRingDeformer* InDeformer, UMeshComponent* InMeshComponent)
+void UFleshRingDeformerInstance::SetupFromDeformer(
+	UFleshRingDeformer* InDeformer,
+	UMeshComponent* InMeshComponent,
+	UFleshRingComponent* InOwnerFleshRingComponent)
 {
 	Deformer = InDeformer;
 	MeshComponent = InMeshComponent;
 	Scene = InMeshComponent ? InMeshComponent->GetScene() : nullptr;
 	LastLodIndex = INDEX_NONE;
 
-	// FleshRingComponent 찾기 및 모든 LOD에 대해 AffectedVertices 등록
-	if (AActor* Owner = InMeshComponent->GetOwner())
+	// NOTE: 명시적으로 전달된 FleshRingComponent 사용 (다중 컴포넌트 환경 지원)
+	if (InOwnerFleshRingComponent)
 	{
+		FleshRingComponent = InOwnerFleshRingComponent;
+	}
+	else if (AActor* Owner = InMeshComponent->GetOwner())
+	{
+		// 하위 호환성: 전달되지 않은 경우 기존 방식 (단일 컴포넌트 환경)
 		FleshRingComponent = Owner->FindComponentByClass<UFleshRingComponent>();
-		if (FleshRingComponent.IsValid())
+	}
+
+	// FleshRingComponent가 유효하면 모든 LOD에 대해 AffectedVertices 등록
+	if (FleshRingComponent.IsValid())
+	{
+		USkeletalMeshComponent* SkelMesh = Cast<USkeletalMeshComponent>(InMeshComponent);
+		if (SkelMesh)
 		{
-			USkeletalMeshComponent* SkelMesh = Cast<USkeletalMeshComponent>(InMeshComponent);
-			if (SkelMesh)
+			// LOD 개수 파악
+			USkeletalMesh* Mesh = SkelMesh->GetSkeletalMeshAsset();
+			if (Mesh)
 			{
-				// LOD 개수 파악
-				USkeletalMesh* Mesh = SkelMesh->GetSkeletalMeshAsset();
-				if (Mesh)
+				const FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
+				if (RenderData)
 				{
-					const FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
-					if (RenderData)
+					NumLODs = RenderData->LODRenderData.Num();
+					LODData.SetNum(NumLODs);
+
+					// 각 LOD에 대해 AffectedVertices 등록
+					// Ring별 InfluenceMode에 따라 Selector가 자동 결정됨 (RegisterAffectedVertices 내부)
+					int32 SuccessCount = 0;
+					for (int32 LODIndex = 0; LODIndex < NumLODs; ++LODIndex)
 					{
-						NumLODs = RenderData->LODRenderData.Num();
-						LODData.SetNum(NumLODs);
+						LODData[LODIndex].bAffectedVerticesRegistered =
+							LODData[LODIndex].AffectedVerticesManager.RegisterAffectedVertices(
+								FleshRingComponent.Get(), SkelMesh, LODIndex);
 
-						// 각 LOD에 대해 AffectedVertices 등록
-						// Ring별 InfluenceMode에 따라 Selector가 자동 결정됨 (RegisterAffectedVertices 내부)
-						int32 SuccessCount = 0;
-						for (int32 LODIndex = 0; LODIndex < NumLODs; ++LODIndex)
+						if (LODData[LODIndex].bAffectedVerticesRegistered)
 						{
-							LODData[LODIndex].bAffectedVerticesRegistered =
-								LODData[LODIndex].AffectedVerticesManager.RegisterAffectedVertices(
-									FleshRingComponent.Get(), SkelMesh, LODIndex);
-
-							if (LODData[LODIndex].bAffectedVerticesRegistered)
-							{
-								SuccessCount++;
-							}
+							SuccessCount++;
 						}
-
-						UE_LOG(LogFleshRing, Log, TEXT("AffectedVertices 등록 완료: %d/%d LODs"),
-							SuccessCount, NumLODs);
 					}
 				}
 			}
 		}
-		else
-		{
-			UE_LOG(LogFleshRing, Warning, TEXT("FleshRingComponent를 찾을 수 없음"));
-		}
 	}
-
 }
 
 void UFleshRingDeformerInstance::AllocateResources()
@@ -290,7 +292,6 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	{
 		bInvalidatePreviousPosition = true;
 		LastLodIndex = LODIndex;
-		UE_LOG(LogFleshRing, Log, TEXT("FleshRing: LOD changed to %d"), LODIndex);
 	}
 
 	// ================================================================
@@ -307,10 +308,6 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			{
 				const FSkeletalMeshLODRenderData& RenderLODData = RenderData->LODRenderData[LODIndex];
 				const uint32 NumVerts = RenderLODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
-
-				// ★ 디버그: 캐싱되는 메시 정보 출력
-				UE_LOG(LogFleshRing, Log, TEXT("EnqueueWork: Caching source positions from mesh '%s' with %u vertices"),
-					*SkelMesh->GetName(), NumVerts);
 
 				CurrentLODData.CachedSourcePositions.SetNum(NumVerts * 3);
 				for (uint32 i = 0; i < NumVerts; ++i)
@@ -1292,11 +1289,6 @@ bool UFleshRingDeformerInstance::ReadbackDeformedGeometry(
 
 void UFleshRingDeformerInstance::InvalidateTightnessCache(int32 DirtyRingIndex)
 {
-    // ★ 디버그 로그: 어떤 Ring이 Dirty로 마킹되는지 확인
-    UE_LOG(LogFleshRing, Log,
-        TEXT("InvalidateTightnessCache: DirtyRingIndex=%d (%s)"),
-        DirtyRingIndex,
-        DirtyRingIndex == INDEX_NONE ? TEXT("ALL RINGS") : TEXT("SINGLE RING"));
     // 1. AffectedVertices 재등록 (Ring 트랜스폼 변경 시 영향받는 정점이 달라질 수 있음)
     if (FleshRingComponent.IsValid())
     {
@@ -1310,13 +1302,11 @@ void UFleshRingDeformerInstance::InvalidateTightnessCache(int32 DirtyRingIndex)
                 {
                     // 전체 무효화
                     LODData[LODIndex].AffectedVerticesManager.MarkAllRingsDirty();
-                    UE_LOG(LogFleshRing, Log, TEXT("  LOD[%d]: MarkAllRingsDirty()"), LODIndex);
                 }
                 else
                 {
                     // 특정 Ring만 무효화
                     LODData[LODIndex].AffectedVerticesManager.MarkRingDirty(DirtyRingIndex);
-                    UE_LOG(LogFleshRing, Log, TEXT("  LOD[%d]: MarkRingDirty(%d)"), LODIndex, DirtyRingIndex);
                 }
 
                 // RegisterAffectedVertices는 dirty한 Ring만 처리함
@@ -1365,18 +1355,6 @@ void UFleshRingDeformerInstance::InvalidateForMeshChange()
 	if (SkelMesh)
 	{
 		USkeletalMesh* Mesh = SkelMesh->GetSkeletalMeshAsset();
-
-		// ★ 디버그: 어떤 메시로 재초기화하는지 출력
-		if (Mesh)
-		{
-			const FSkeletalMeshRenderData* TempRenderData = Mesh->GetResourceForRendering();
-			if (TempRenderData && TempRenderData->LODRenderData.Num() > 0)
-			{
-				const uint32 TempNumVerts = TempRenderData->LODRenderData[0].StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
-				UE_LOG(LogFleshRing, Log, TEXT("InvalidateForMeshChange: Reinitializing for mesh '%s' with %u vertices"),
-					*Mesh->GetName(), TempNumVerts);
-			}
-		}
 		if (Mesh)
 		{
 			const FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
@@ -1387,7 +1365,6 @@ void UFleshRingDeformerInstance::InvalidateForMeshChange()
 				// LOD 개수가 다르면 배열 재생성
 				if (NewNumLODs != NumLODs)
 				{
-					UE_LOG(LogFleshRing, Log, TEXT("InvalidateForMeshChange: LOD count changed %d -> %d"), NumLODs, NewNumLODs);
 					LODData.Empty();
 					NumLODs = NewNumLODs;
 					LODData.SetNum(NumLODs);
@@ -1409,21 +1386,12 @@ void UFleshRingDeformerInstance::InvalidateForMeshChange()
 				// Step 3: 각 LOD에 대해 AffectedVertices 재등록
 				if (FleshRingComponent.IsValid())
 				{
-					int32 SuccessCount = 0;
 					for (int32 LODIndex = 0; LODIndex < NumLODs; ++LODIndex)
 					{
 						LODData[LODIndex].bAffectedVerticesRegistered =
 							LODData[LODIndex].AffectedVerticesManager.RegisterAffectedVertices(
 								FleshRingComponent.Get(), SkelMesh, LODIndex);
-
-						if (LODData[LODIndex].bAffectedVerticesRegistered)
-						{
-							SuccessCount++;
-						}
 					}
-
-					UE_LOG(LogFleshRing, Log, TEXT("InvalidateForMeshChange: AffectedVertices re-registered for %d/%d LODs"),
-						SuccessCount, NumLODs);
 				}
 			}
 		}
@@ -1434,6 +1402,4 @@ void UFleshRingDeformerInstance::InvalidateForMeshChange()
 
 	// LOD 변경 추적 리셋
 	LastLodIndex = INDEX_NONE;
-
-	UE_LOG(LogFleshRing, Log, TEXT("InvalidateForMeshChange: Complete reinitialization for new mesh"));
 }

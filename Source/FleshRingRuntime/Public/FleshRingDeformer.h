@@ -7,6 +7,7 @@
 #include "FleshRingDeformer.generated.h"
 
 class UFleshRingDeformerInstance;
+class UFleshRingComponent;
 
 UCLASS(Blueprintable, BlueprintType, Meta = (DisplayName = "Flesh Ring Deformer"))
 class FLESHRINGRUNTIME_API UFleshRingDeformer : public UMeshDeformer
@@ -41,4 +42,15 @@ private:
 	/** 생성된 DeformerInstance 캐싱 (GetActiveInstance()로 접근) */
 	UPROPERTY(Transient)
 	TWeakObjectPtr<UFleshRingDeformerInstance> ActiveInstance;
+
+	/** 이 Deformer를 생성/관리하는 FleshRingComponent (다중 컴포넌트 환경 지원) */
+	UPROPERTY(Transient)
+	TWeakObjectPtr<UFleshRingComponent> OwnerFleshRingComponent;
+
+public:
+	/** Owner FleshRingComponent 설정 (SetupDeformer에서 호출) */
+	void SetOwnerFleshRingComponent(UFleshRingComponent* InComponent);
+
+	/** Owner FleshRingComponent 반환 */
+	UFleshRingComponent* GetOwnerFleshRingComponent() const;
 };
