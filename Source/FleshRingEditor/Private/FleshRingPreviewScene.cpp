@@ -951,46 +951,62 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 
 	FSubdivisionTopologyResult TopologyResult;
 
-	if (CurrentAsset->Rings.Num() > 0 && Processor.HasBoneInfo())
+	// ★ Ring이 없으면 subdivision 스킵 (런타임 동작과 일치)
+	if (CurrentAsset->Rings.Num() == 0)
 	{
-		const FReferenceSkeleton& RefSkeleton = SourceMesh->GetRefSkeleton();
-		TArray<int32> RingBoneIndices;
-		for (const FFleshRingSettings& Ring : CurrentAsset->Rings)
+		UE_LOG(LogTemp, Warning,
+			TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: Ring이 없어 Subdivision을 건너뜀"));
+		GUndo = OldGUndo;
+		return;
+	}
+
+	if (!Processor.HasBoneInfo())
+	{
+		// Ring 있음 + BoneInfo 없음 -> 스킵 (비정상 상황)
+		UE_LOG(LogTemp, Error,
+			TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: BoneInfo가 없어 Subdivision을 건너뜀. ")
+			TEXT("SkeletalMesh '%s'에 SkinWeightBuffer가 없거나 본 웨이트 추출에 실패했습니다."),
+			SourceMesh ? *SourceMesh->GetName() : TEXT("null"));
+		GUndo = OldGUndo;
+		return;
+	}
+
+	// Ring 부착 본 인덱스 수집
+	const FReferenceSkeleton& RefSkeleton = SourceMesh->GetRefSkeleton();
+	TArray<int32> RingBoneIndices;
+	for (const FFleshRingSettings& Ring : CurrentAsset->Rings)
+	{
+		int32 BoneIdx = RefSkeleton.FindBoneIndex(Ring.BoneName);
+		if (BoneIdx != INDEX_NONE)
 		{
-			int32 BoneIdx = RefSkeleton.FindBoneIndex(Ring.BoneName);
-			if (BoneIdx != INDEX_NONE)
-			{
-				RingBoneIndices.Add(BoneIdx);
-			}
-		}
-
-		TSet<int32> TargetBones = FFleshRingSubdivisionProcessor::GatherNeighborBones(
-			RefSkeleton, RingBoneIndices, CurrentAsset->SubdivisionSettings.PreviewBoneHopCount);
-
-		FBoneRegionSubdivisionParams BoneParams;
-		BoneParams.TargetBoneIndices = TargetBones;
-		BoneParams.BoneWeightThreshold = static_cast<uint8>(CurrentAsset->SubdivisionSettings.PreviewBoneWeightThreshold * 255);
-		BoneParams.NeighborHopCount = CurrentAsset->SubdivisionSettings.PreviewBoneHopCount;
-		BoneParams.MaxSubdivisionLevel = CurrentAsset->SubdivisionSettings.PreviewSubdivisionLevel;
-
-		if (!Processor.ProcessBoneRegion(TopologyResult, BoneParams))
-		{
-			if (!Processor.ProcessUniform(TopologyResult, CurrentAsset->SubdivisionSettings.PreviewSubdivisionLevel))
-			{
-				UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: Subdivision 실패"));
-				GUndo = OldGUndo;
-				return;
-			}
+			RingBoneIndices.Add(BoneIdx);
 		}
 	}
-	else
+
+	// ★ 유효한 BoneName을 가진 Ring이 없으면 스킵
+	if (RingBoneIndices.Num() == 0)
 	{
-		if (!Processor.ProcessUniform(TopologyResult, CurrentAsset->SubdivisionSettings.PreviewSubdivisionLevel))
-		{
-			UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: Subdivision 실패"));
-			GUndo = OldGUndo;
-			return;
-		}
+		UE_LOG(LogTemp, Warning,
+			TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: 유효한 BoneName을 가진 Ring이 없어 Subdivision을 건너뜀. ")
+			TEXT("Ring에 BoneName을 설정해주세요."));
+		GUndo = OldGUndo;
+		return;
+	}
+
+	TSet<int32> TargetBones = FFleshRingSubdivisionProcessor::GatherNeighborBones(
+		RefSkeleton, RingBoneIndices, CurrentAsset->SubdivisionSettings.PreviewBoneHopCount);
+
+	FBoneRegionSubdivisionParams BoneParams;
+	BoneParams.TargetBoneIndices = TargetBones;
+	BoneParams.BoneWeightThreshold = static_cast<uint8>(CurrentAsset->SubdivisionSettings.PreviewBoneWeightThreshold * 255);
+	BoneParams.NeighborHopCount = CurrentAsset->SubdivisionSettings.PreviewBoneHopCount;
+	BoneParams.MaxSubdivisionLevel = CurrentAsset->SubdivisionSettings.PreviewSubdivisionLevel;
+
+	if (!Processor.ProcessBoneRegion(TopologyResult, BoneParams))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: ProcessBoneRegion 실패"));
+		GUndo = OldGUndo;
+		return;
 	}
 
 	// 4. 새 버텍스 데이터 보간
