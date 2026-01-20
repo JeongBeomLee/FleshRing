@@ -38,8 +38,8 @@ enum class EFleshRingInfluenceMode : uint8
 	/** SDF 기반 자동 계산 */
 	Auto	UMETA(DisplayName = "Auto (SDF-based)"),
 
-	/** 수동 Radius 지정 */
-	Manual	UMETA(DisplayName = "Manual"),
+	/** 수동 Radius 지정 (가상 Ring) */
+	VirtualRing	UMETA(DisplayName = "Virtual Ring"),
 
 	/** 가상 밴드 (스타킹/타이즈용 가상 틀) */
 	ProceduralBand	UMETA(DisplayName = "Virtual Band")
@@ -605,16 +605,16 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
 	EFleshRingInfluenceMode InfluenceMode = EFleshRingInfluenceMode::Auto;
 
-	/** Ring 반지름 (Manual 모드에서만 사용) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::Manual", ClampMin = "0.1", ClampMax = "100.0"))
+	/** Ring 반지름 (VirtualRing 모드에서만 사용) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::VirtualRing", ClampMin = "0.1", ClampMax = "100.0"))
 	float RingRadius = 5.0f;
 
 	/** 링 두께 - 반경 방향 벽 두께 (안쪽→바깥쪽) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::Manual", ClampMin = "0.1", ClampMax = "20.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::VirtualRing", ClampMin = "0.1", ClampMax = "20.0"))
 	float RingThickness = 1.0f;
 
 	/** 링 높이 - 축 방향 전체 높이 (위아래 각각 RingHeight/2) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::Manual", ClampMin = "0.1", ClampMax = "50.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::VirtualRing", ClampMin = "0.1", ClampMax = "50.0"))
 	float RingHeight = 2.0f;
 
 	/** [DEPRECATED] RingWidth → RingHeight 마이그레이션용 */
@@ -622,11 +622,11 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	float RingWidth_DEPRECATED = 0.0f;
 
 	/** Bone 기준 Ring 위치 오프셋 (변형 영역) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::Manual"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::VirtualRing"))
 	FVector RingOffset = FVector::ZeroVector;
 
 	/** Ring 회전 Euler 각도 (UI 편집용, 제한 없음) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::Manual", DisplayName = "Ring Rotation"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::VirtualRing", DisplayName = "Ring Rotation"))
 	FRotator RingEulerRotation = FRotator(-90.0f, 0.0f, 0.0f);
 
 	/** Bulge 효과 활성화 (부피 보존) */
