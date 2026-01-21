@@ -1545,6 +1545,12 @@ void UFleshRingComponent::DrawDebugVisualization()
 
 	if (!bShowDebugVisualization)
 	{
+		// 디버그 시각화 비활성화 시 Scene Proxy 버퍼도 클리어
+		if (DebugPointComponent)
+		{
+			DebugPointComponent->ClearTightnessBuffer();
+			DebugPointComponent->ClearBulgeBuffer();
+		}
 		return;
 	}
 

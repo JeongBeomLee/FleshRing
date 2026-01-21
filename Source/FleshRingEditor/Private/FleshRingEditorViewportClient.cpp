@@ -387,6 +387,12 @@ bool FFleshRingEditorViewportClient::InputKey(const FInputKeyEventArgs& EventArg
 					Invalidate();
 					return true;
 				}
+				if (EventArgs.Key == EKeys::Four)
+				{
+					ToggleShowBulgeRange();
+					Invalidate();
+					return true;
+				}
 			}
 			// Ctrl+숫자키로 Debug 옵션 토글 (SDF Slice, Bulge Direction)
 			else if (bCtrl && !bShift)

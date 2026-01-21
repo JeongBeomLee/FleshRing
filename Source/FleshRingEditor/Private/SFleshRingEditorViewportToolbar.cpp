@@ -665,7 +665,7 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 		// Show Bulge Range (원기둥 범위 시각화)
 		MenuBuilder.AddMenuEntry(
 			LOCTEXT("ShowBulgeRange", "Show Bulge Range"),
-			LOCTEXT("ShowBulgeRangeTooltip", "Show/Hide bulge influence range as cylinder wireframe"),
+			LOCTEXT("ShowBulgeRangeTooltip", "Show/Hide bulge influence range as cylinder wireframe (Shift+4)"),
 			FSlateIcon(),
 			FUIAction(
 				FExecuteAction::CreateLambda([WeakViewportClient]()
