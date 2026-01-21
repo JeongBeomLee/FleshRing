@@ -40,20 +40,7 @@ float3 RingCenter;
 float3 RingAxis;
 float RingHeight;
 
-// ===== Debug Point Output =====
-// GPU 디버그 렌더링용 포인트 버퍼 출력
-// Debug point structure: WorldPosition (float3) + Influence (float) + RingIndex (uint) + Padding (uint) = 24 bytes
-struct FDebugPoint
-{
-    float3 WorldPosition;
-    float Influence;
-    uint RingIndex;         // Ring 인덱스 (가시성 필터링용)
-    uint Padding;           // 정렬 패딩
-};
-RWStructuredBuffer<FDebugPoint> DebugBulgePointBuffer;
-uint bOutputDebugBulgePoints;       // 0 = 비활성화, 1 = 활성화
-uint DebugBulgePointBaseOffset;     // 다중 링 지원용 오프셋
-float4x4 BulgeLocalToWorld;         // Component -> World 변환 행렬
+// NOTE: Debug Point Output 제거됨 - DebugPointOutputCS에서 최종 위치 기반으로 처리
 
 #ifndef THREADGROUP_SIZE
 #define THREADGROUP_SIZE 64
@@ -212,21 +199,6 @@ float3 ComputeFleshCoveringDirection_VirtualRing(float3 ComponentPos)
 #define DEBUG_IGNORE_VOLUME 0
 #define DEBUG_FIXED_STRENGTH 2.0
 
-// 무효 디버그 포인트 쓰기 헬퍼 (early return 시 호출)
-// Influence = -1은 "이 포인트는 무효/스킵" 마커
-void WriteInvalidDebugPoint(uint ThreadIndex)
-{
-    if (bOutputDebugBulgePoints != 0)
-    {
-        FDebugPoint InvalidPoint;
-        InvalidPoint.WorldPosition = float3(0, 0, 0);
-        InvalidPoint.Influence = -1.0;  // 무효 마커
-        InvalidPoint.RingIndex = RingIndex;
-        InvalidPoint.Padding = 0;
-        DebugBulgePointBuffer[DebugBulgePointBaseOffset + ThreadIndex] = InvalidPoint;
-    }
-}
-
 [numthreads(THREADGROUP_SIZE, 1, 1)]
 void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 {
@@ -239,7 +211,6 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
     if (VertexIndex >= NumTotalVertices)
     {
-        WriteInvalidDebugPoint(ThreadIndex);
         return;
     }
 
@@ -259,7 +230,6 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     float CPUInfluence = BulgeInfluences[ThreadIndex];
     if (CPUInfluence < 0.001)
     {
-        WriteInvalidDebugPoint(ThreadIndex);
         WritePosition(VertexIndex, Pos);
         return;
     }
@@ -270,7 +240,6 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
     if (VolumeLoss < 0.001)
     {
-        WriteInvalidDebugPoint(ThreadIndex);
         WritePosition(VertexIndex, Pos);
         return;
     }
@@ -296,7 +265,6 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
             int vertexSide = (axialComponent > 0.0) ? 1 : -1;
             if (vertexSide != BulgeAxisDirection)
             {
-                WriteInvalidDebugPoint(ThreadIndex);
                 WritePosition(VertexIndex, Pos);
                 return;
             }
@@ -321,7 +289,6 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
             int vertexSide = (axialComponent > 0.0) ? 1 : -1;
             if (vertexSide != BulgeAxisDirection)
             {
-                WriteInvalidDebugPoint(ThreadIndex);
                 WritePosition(VertexIndex, Pos);
                 return;
             }
@@ -335,7 +302,6 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     float dirLen = length(BulgeDirComponent);
     if (dirLen < 0.0001 || isnan(dirLen) || isinf(dirLen))
     {
-        WriteInvalidDebugPoint(ThreadIndex);
         WritePosition(VertexIndex, Pos);
         return;
     }
@@ -361,7 +327,6 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
     if (any(isnan(PosDelta)) || any(isinf(PosDelta)))
     {
-        WriteInvalidDebugPoint(ThreadIndex);
         WritePosition(VertexIndex, Pos);
         return;
     }
@@ -372,18 +337,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         PosDelta = PosDelta * (MaxBulgeDistance / deltaLen);
     }
 
-    // ===== Debug Point Output =====
-    // GPU 디버그 렌더링용 포인트 버퍼 출력
-    if (bOutputDebugBulgePoints != 0)
-    {
-        FDebugPoint DebugPoint;
-        // 변형된 위치를 월드 공간으로 변환
-        DebugPoint.WorldPosition = mul(float4(Pos + PosDelta, 1.0), BulgeLocalToWorld).xyz;
-        DebugPoint.Influence = CPUInfluence;
-        DebugPoint.RingIndex = RingIndex;
-        DebugPoint.Padding = 0;
-        DebugBulgePointBuffer[DebugBulgePointBaseOffset + ThreadIndex] = DebugPoint;
-    }
+    // NOTE: Debug Point Output 제거됨 - DebugPointOutputCS에서 최종 위치 기반으로 처리
 
     WritePosition(VertexIndex, Pos + PosDelta);
 }

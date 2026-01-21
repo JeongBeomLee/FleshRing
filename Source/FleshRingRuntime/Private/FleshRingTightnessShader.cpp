@@ -50,8 +50,8 @@ void DispatchFleshRingTightnessCS(
     FRDGBufferRef OutputPositionsBuffer,
     FRDGTextureRef SDFTexture,
     FRDGBufferRef VolumeAccumBuffer,
-    FRDGBufferRef DebugInfluencesBuffer,
-    FRDGBufferRef DebugPointBuffer)
+    FRDGBufferRef DebugInfluencesBuffer)
+    // NOTE: DebugPointBuffer 제거됨 - DebugPointOutputCS에서 처리
 {
     // Early out if no vertices to process
     // 처리할 버텍스가 없으면 조기 반환
@@ -221,6 +221,7 @@ void DispatchFleshRingTightnessCS(
     // ===== Debug Influence Output Parameters =====
     // ===== 디버그 Influence 출력 파라미터 =====
     PassParameters->bOutputDebugInfluences = Params.bOutputDebugInfluences;
+    // NOTE: DebugInfluenceBaseOffset 제거됨 - DebugPointBaseOffset 재사용 (동일한 오프셋)
 
     if (DebugInfluencesBuffer && Params.bOutputDebugInfluences)
     {
@@ -241,45 +242,11 @@ void DispatchFleshRingTightnessCS(
         PassParameters->bOutputDebugInfluences = 0;
     }
 
-    // ===== Debug Point Buffer Parameters =====
-    // ===== 디버그 포인트 버퍼 파라미터 =====
-    PassParameters->bOutputDebugPoints = Params.bOutputDebugPoints;
+    // DebugPointBaseOffset은 DebugInfluences에도 사용됨
     PassParameters->DebugPointBaseOffset = Params.DebugPointBaseOffset;
-    PassParameters->LocalToWorld = Params.LocalToWorld;
 
-    if (DebugPointBuffer && Params.bOutputDebugPoints)
-    {
-        // DebugPointBuffer가 제공되고 출력이 활성화되면 바인딩
-        PassParameters->DebugPointBuffer = GraphBuilder.CreateUAV(DebugPointBuffer);
-
-        static bool bLoggedReal = false;
-        if (!bLoggedReal)
-        {
-            UE_LOG(LogTemp, Log, TEXT("[TightnessShader] Using REAL DebugPointBuffer"));
-            bLoggedReal = true;
-        }
-    }
-    else
-    {
-        // DebugPointBuffer가 없거나 비활성화면 Dummy 생성 (RDG 요구사항)
-        FRDGBufferRef DummyDebugPointBuffer = GraphBuilder.CreateBuffer(
-            FRDGBufferDesc::CreateStructuredDesc(sizeof(FFleshRingDebugPoint), 1),
-            TEXT("FleshRingTightness_DummyDebugPointBuffer")
-        );
-        // Dummy 버퍼 초기화 (RDG Producer 필요)
-        AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DummyDebugPointBuffer), 0u);
-        PassParameters->DebugPointBuffer = GraphBuilder.CreateUAV(DummyDebugPointBuffer);
-        // Dummy일 때는 출력 비활성화 강제
-        PassParameters->bOutputDebugPoints = 0;
-
-        static bool bLoggedDummy = false;
-        if (!bLoggedDummy)
-        {
-            UE_LOG(LogTemp, Warning, TEXT("[TightnessShader] Using DUMMY DebugPointBuffer! DebugPointBuffer=%p, bOutputDebugPoints=%d"),
-                DebugPointBuffer, Params.bOutputDebugPoints);
-            bLoggedDummy = true;
-        }
-    }
+    // NOTE: DebugPointBuffer, bOutputDebugPoints, LocalToWorld 제거됨
+    // DebugPointOutputCS에서 최종 위치 기반으로 처리
 
     // Get shader reference
     // 셰이더 참조 가져오기
@@ -453,16 +420,7 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
     PassParameters->DebugInfluences = GraphBuilder.CreateUAV(DummyDebugInfluencesBuffer, PF_R32_FLOAT);
     PassParameters->bOutputDebugInfluences = 0;
 
-    // ===== Debug Point Buffer (Dummy for deprecated function) =====
-    // ===== 디버그 포인트 버퍼 (Deprecated 함수용 Dummy) =====
-    FRDGBufferRef DummyDebugPointBuffer = GraphBuilder.CreateBuffer(
-        FRDGBufferDesc::CreateStructuredDesc(sizeof(FFleshRingDebugPoint), 1),
-        TEXT("FleshRingTightness_DummyDebugPointBuffer_Deprecated")
-    );
-    AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DummyDebugPointBuffer), 0u);
-    PassParameters->DebugPointBuffer = GraphBuilder.CreateUAV(DummyDebugPointBuffer);
-    PassParameters->bOutputDebugPoints = 0;
-    PassParameters->LocalToWorld = FMatrix44f::Identity;
+    // NOTE: Debug Point Buffer 제거됨 - DebugPointOutputCS에서 처리
 
     // Get shader reference
     // 셰이더 참조 가져오기
@@ -500,8 +458,7 @@ void DispatchFleshRingTightnessCS_WithReadback(
     FRHIGPUBufferReadback* Readback,
     FRDGTextureRef SDFTexture,
     FRDGBufferRef VolumeAccumBuffer,
-    FRDGBufferRef DebugInfluencesBuffer,
-    FRDGBufferRef DebugPointBuffer)
+    FRDGBufferRef DebugInfluencesBuffer)
 {
     // Dispatch the compute shader
     // 컴퓨트 셰이더 디스패치
@@ -514,8 +471,7 @@ void DispatchFleshRingTightnessCS_WithReadback(
         OutputPositionsBuffer,
         SDFTexture,
         VolumeAccumBuffer,
-        DebugInfluencesBuffer,
-        DebugPointBuffer
+        DebugInfluencesBuffer
     );
 
     // Add readback pass (GPU → CPU data transfer)

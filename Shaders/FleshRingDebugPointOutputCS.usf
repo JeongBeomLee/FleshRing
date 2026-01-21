@@ -1,0 +1,91 @@
+// FleshRingDebugPointOutputCS.usf
+// Purpose: Output debug points at final transformed positions (after all deformation passes)
+// This shader runs after all transformation passes (Tightness, Bulge, Smoothing, etc.)
+// to ensure debug points reflect the final mesh state.
+
+#include "/Engine/Public/Platform.ush"
+
+// Debug point structure: WorldPosition (float3) + Influence (float) + RingIndex (uint) + Padding (uint) = 24 bytes
+struct FDebugPoint
+{
+    float3 WorldPosition;   // World space position
+    float Influence;        // Influence value (0~1)
+    uint RingIndex;         // Ring index (for visibility filtering)
+    uint Padding;           // Alignment padding
+};
+
+// Input Buffers
+Buffer<float> FinalPositions;                  // Final transformed positions (after all CS passes)
+StructuredBuffer<uint> VertexIndices;          // Vertex indices to output
+Buffer<float> Influences;                      // GPU-computed influence values (from TightnessCS DebugInfluences)
+
+// Output Buffer
+RWStructuredBuffer<FDebugPoint> DebugPointBuffer;
+
+// Parameters
+uint NumVertices;           // Number of vertices to process
+uint NumTotalVertices;      // Total mesh vertex count (for bounds checking)
+uint RingIndex;             // Ring index (for visibility filtering)
+uint BaseOffset;            // Base offset in DebugPointBuffer (multi-ring support)
+uint InfluenceBaseOffset;   // Base offset in Influences buffer (multi-ring support)
+float4x4 LocalToWorld;      // Local to world transform matrix
+
+#ifndef THREADGROUP_SIZE
+#define THREADGROUP_SIZE 64
+#endif
+
+// Read vertex position from buffer (3 floats per vertex)
+float3 ReadPosition(uint VertexIndex)
+{
+    uint BaseIndex = VertexIndex * 3;
+    return float3(
+        FinalPositions[BaseIndex + 0],
+        FinalPositions[BaseIndex + 1],
+        FinalPositions[BaseIndex + 2]
+    );
+}
+
+[numthreads(THREADGROUP_SIZE, 1, 1)]
+void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    uint ThreadIndex = DispatchThreadId.x;
+
+    // Bounds check
+    if (ThreadIndex >= NumVertices)
+    {
+        return;
+    }
+
+    // Get vertex index
+    uint VertexIndex = VertexIndices[ThreadIndex];
+
+    // Safety check: Ensure vertex index is valid
+    if (VertexIndex >= NumTotalVertices)
+    {
+        // Write invalid point marker
+        FDebugPoint InvalidPoint;
+        InvalidPoint.WorldPosition = float3(0, 0, 0);
+        InvalidPoint.Influence = -1.0;  // Invalid marker
+        InvalidPoint.RingIndex = RingIndex;
+        InvalidPoint.Padding = 0;
+        DebugPointBuffer[BaseOffset + ThreadIndex] = InvalidPoint;
+        return;
+    }
+
+    // Read final transformed position
+    float3 FinalPos = ReadPosition(VertexIndex);
+
+    // Get influence value from GPU-computed buffer (with offset for multi-ring support)
+    float Influence = Influences[InfluenceBaseOffset + ThreadIndex];
+
+    // Transform to world space
+    float3 WorldPos = mul(float4(FinalPos, 1.0), LocalToWorld).xyz;
+
+    // Write debug point
+    FDebugPoint Point;
+    Point.WorldPosition = WorldPos;
+    Point.Influence = Influence;
+    Point.RingIndex = RingIndex;
+    Point.Padding = 0;
+    DebugPointBuffer[BaseOffset + ThreadIndex] = Point;
+}

@@ -18,17 +18,7 @@ StructuredBuffer<uint> RepresentativeIndices; // UV seam 용접용 대표 정점
 RWBuffer<float> OutputPositions;            // 출력: 변형된 정점 위치
 RWBuffer<uint> VolumeAccumBuffer;           // 출력: Bulge 패스용 부피 누적 버퍼 (Atomic 연산)
 RWBuffer<float> DebugInfluences;            // 출력: 디버그용 Influence 값 (ThreadIndex당 1 float)
-
-// GPU 디버그 렌더링용 포인트 버퍼
-// Debug point structure: WorldPosition (float3) + Influence (float) + RingIndex (uint) + Padding (uint) = 24 bytes
-struct FDebugPoint
-{
-    float3 WorldPosition;   // 월드 공간 위치
-    float Influence;        // Influence 값 (0~1)
-    uint RingIndex;         // Ring 인덱스 (가시성 필터링용)
-    uint Padding;           // 정렬 패딩
-};
-RWStructuredBuffer<FDebugPoint> DebugPointBuffer;  // 출력: GPU 렌더링용 디버그 포인트
+// NOTE: DebugPointBuffer 제거됨 - DebugPointOutputCS에서 최종 위치 기반으로 출력
 
 // ============================================================================
 // Skinning Data (from GpuSkinCommon.ush pattern)
@@ -108,9 +98,8 @@ uint bAccumulateVolume;     // Bulge용 부피 누적 활성화
 float FixedPointScale;      // float → uint 변환 스케일
 uint RingIndex;             // VolumeAccumBuffer 슬롯
 uint bOutputDebugInfluences; // 디버그 Influence 출력 활성화
-uint bOutputDebugPoints;     // 디버그 포인트 버퍼 출력 활성화
-uint DebugPointBaseOffset;   // 디버그 포인트 버퍼 오프셋 (다중 링 지원)
-float4x4 LocalToWorld;       // 로컬 → 월드 변환 행렬 (DebugPointBuffer용)
+uint DebugPointBaseOffset;   // 디버그 버퍼 오프셋 (다중 링 지원, DebugInfluences에 사용)
+// NOTE: bOutputDebugPoints, LocalToWorld 제거됨 - DebugPointOutputCS에서 처리
 
 // Z축 상단 확장 거리 (절대값, cm) - 스무딩 영역 확장용
 float BoundsZTop;
@@ -912,20 +901,9 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
             // 디버그 출력: 영향 없는 버텍스도 0 기록
             if (bOutputDebugInfluences != 0)
             {
-                DebugInfluences[ThreadIndex] = 0.0;
+                DebugInfluences[DebugPointBaseOffset + ThreadIndex] = 0.0;
             }
-            // 영향 없는 버텍스도 포인트 출력 (Influence=0)
-            if (bOutputDebugPoints != 0)
-            {
-                // 로컬 위치를 월드 공간으로 변환
-                float3 WorldPos = mul(float4(Pos, 1.0), LocalToWorld).xyz;
-                FDebugPoint DebugPoint;
-                DebugPoint.WorldPosition = WorldPos;
-                DebugPoint.Influence = 0.0;
-                DebugPoint.RingIndex = RingIndex;
-                DebugPoint.Padding = 0;
-                DebugPointBuffer[DebugPointBaseOffset + ThreadIndex] = DebugPoint;
-            }
+            // NOTE: DebugPointBuffer 출력 제거됨 - DebugPointOutputCS에서 처리
             WritePosition(WriteIndex, Pos);
             return;
         }
@@ -946,7 +924,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     // ========================================
     if (bOutputDebugInfluences != 0)
     {
-        DebugInfluences[ThreadIndex] = Influence;
+        DebugInfluences[DebugPointBaseOffset + ThreadIndex] = Influence;
     }
     
     // ========================================
@@ -980,21 +958,5 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     // 모든 UV 중복 버텍스가 동일한 결과를 각자의 위치에 기록함
     WritePosition(WriteIndex, NewPos);
 
-    // ========================================
-    // Step 5: Debug Point Buffer Output
-    // 5단계: 디버그 포인트 버퍼 출력
-    // ========================================
-    // GPU 렌더링용 디버그 포인트: 월드 공간 위치 + Influence 값
-    // SceneViewExtension에서 직접 렌더링 (CPU Readback 불필요)
-    if (bOutputDebugPoints != 0)
-    {
-        // 변형된 위치를 월드 공간으로 변환
-        float3 WorldPos = mul(float4(NewPos, 1.0), LocalToWorld).xyz;
-        FDebugPoint DebugPoint;
-        DebugPoint.WorldPosition = WorldPos;
-        DebugPoint.Influence = Influence;
-        DebugPoint.RingIndex = RingIndex;
-        DebugPoint.Padding = 0;
-        DebugPointBuffer[DebugPointBaseOffset + ThreadIndex] = DebugPoint;
-    }
+    // NOTE: DebugPointBuffer 출력 제거됨 - DebugPointOutputCS에서 최종 위치 기반으로 처리
 }

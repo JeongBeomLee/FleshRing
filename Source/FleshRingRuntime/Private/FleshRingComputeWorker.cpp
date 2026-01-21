@@ -5,6 +5,7 @@
 #include "FleshRingSkinningShader.h"
 #include "FleshRingHeatPropagationShader.h"
 #include "FleshRingUVSyncShader.h"
+#include "FleshRingDebugPointOutputShader.h"
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
 #include "SkeletalMeshDeformerHelpers.h"
@@ -317,22 +318,24 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 
 		// ===== DebugInfluencesBuffer 생성 (디버그 Influence 출력 활성화 시) =====
 		// GPU에서 계산된 Influence 값을 캐싱하여 DrawDebugPoint에서 시각화
+		// [버그 수정] FMath::Max → 합산으로 변경
+		// 다중 Ring에서 InfluenceCumulativeOffset이 누적되므로 버퍼 크기도 합산해야 함
 		FRDGBufferRef DebugInfluencesBuffer = nullptr;
-		uint32 MaxAffectedVertices = 0;
+		uint32 TotalInfluenceVertices = 0;
 
 		if (WorkItem.bOutputDebugInfluences && NumRings > 0)
 		{
-			// 모든 Ring 중 가장 큰 NumAffectedVertices 계산
+			// 모든 Ring의 NumAffectedVertices 합산 (다중 Ring 지원)
 			for (int32 RingIdx = 0; RingIdx < NumRings; ++RingIdx)
 			{
 				const FFleshRingWorkItem::FRingDispatchData& Data = (*WorkItem.RingDispatchDataPtr)[RingIdx];
-				MaxAffectedVertices = FMath::Max(MaxAffectedVertices, Data.Params.NumAffectedVertices);
+				TotalInfluenceVertices += Data.Params.NumAffectedVertices;
 			}
 
-			if (MaxAffectedVertices > 0)
+			if (TotalInfluenceVertices > 0)
 			{
 				DebugInfluencesBuffer = GraphBuilder.CreateBuffer(
-					FRDGBufferDesc::CreateBufferDesc(sizeof(float), MaxAffectedVertices),
+					FRDGBufferDesc::CreateBufferDesc(sizeof(float), TotalInfluenceVertices),
 					TEXT("FleshRing_DebugInfluences")
 				);
 				// 0으로 초기화
@@ -393,7 +396,8 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 		// TightnessCS 적용
 		if (WorkItem.RingDispatchDataPtr.IsValid())
 		{
-			// 디버그 포인트 버퍼 오프셋 (다중 링 지원)
+			// 디버그 포인트/Influence 버퍼 오프셋 (다중 링 지원)
+			// DebugPointBaseOffset과 DebugInfluenceBaseOffset은 동일 (같은 NumAffectedVertices 단위)
 			uint32 DebugPointCumulativeOffset = 0;
 
 			for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
@@ -522,18 +526,14 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				}
 
 				// 디버그 Influence 출력 활성화
+				// DebugInfluences 버퍼도 DebugPointBaseOffset 사용 (동일한 오프셋)
 				if (WorkItem.bOutputDebugInfluences && DebugInfluencesBuffer)
 				{
 					Params.bOutputDebugInfluences = 1;
+					Params.DebugPointBaseOffset = DebugPointCumulativeOffset;
 				}
 
-				// 디버그 포인트 출력 활성화 (GPU 렌더링)
-				if (WorkItem.bOutputDebugPoints && DebugPointBuffer)
-				{
-					Params.bOutputDebugPoints = 1;
-					Params.DebugPointBaseOffset = DebugPointCumulativeOffset;
-					Params.LocalToWorld = WorkItem.LocalToWorldMatrix;
-				}
+				// NOTE: DebugPointBuffer 출력은 DebugPointOutputCS에서 최종 위치 기반으로 처리
 
 				DispatchFleshRingTightnessCS(
 					GraphBuilder,
@@ -545,11 +545,10 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					TightenedBindPoseBuffer,
 					SDFTextureRDG,
 					VolumeAccumBuffer,
-					DebugInfluencesBuffer,
-					DebugPointBuffer
+					DebugInfluencesBuffer
 				);
 
-				// 다음 링을 위해 오프셋 누적
+				// 디버그 포인트/Influence 오프셋 누적 (다음 Ring을 위해)
 				DebugPointCumulativeOffset += Params.NumAffectedVertices;
 			}
 		}
@@ -653,10 +652,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					BulgeParams.RingHeight = DispatchData.Params.RingHeight;
 				}
 
-				// ===== Debug Point Output 파라미터 설정 =====
-				BulgeParams.bOutputDebugBulgePoints = WorkItem.bOutputDebugBulgePoints && DebugBulgePointBuffer;
-				BulgeParams.DebugBulgePointBaseOffset = DebugBulgePointCumulativeOffset;  // 다중 링 누적 오프셋
-				BulgeParams.BulgeLocalToWorld = WorkItem.LocalToWorldMatrix;
+				// NOTE: 디버그 포인트 출력은 DebugPointOutputCS에서 최종 위치로 처리
 
 				// [DEBUG] BulgeCS Dispatch 로그 (필요시 주석 해제)
 				// static TSet<int32> LoggedBulgeRings;
@@ -675,15 +671,11 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					BulgeInfluencesBuffer,
 					VolumeAccumBuffer,
 					BulgeOutputBuffer,        // OUTPUT (UAV) - 별도 출력 버퍼
-					RingSDFTextureRDG,
-					DebugBulgePointBuffer     // Debug Point Buffer
+					RingSDFTextureRDG
 				);
 
 				// 결과를 TightenedBindPoseBuffer로 복사 (다음 Ring이 이 결과 위에 누적)
 				AddCopyBufferPass(GraphBuilder, TightenedBindPoseBuffer, BulgeOutputBuffer);
-
-				// 다음 Ring을 위해 디버그 포인트 오프셋 누적
-				DebugBulgePointCumulativeOffset += NumBulgeVertices;
 			}
 		}
 
@@ -2198,6 +2190,118 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 			{
 				// [DEBUG] TangentRecomputeCS NULL 경고 (필요시 주석 해제)
 				// UE_LOG(LogFleshRingWorker, Warning, TEXT("[DEBUG] TangentRecomputeCS: SourceTangentsSRV is NULL! Tangent recomputation skipped."));
+			}
+		}
+
+		// ===== Debug Point Output Pass (모든 CS 완료 후 최종 변형 위치 기반) =====
+		// TightnessCS, BulgeCS에서 출력하면 중간 위치가 출력되므로,
+		// 모든 변형 패스(스무딩 포함) 완료 후 여기서 통합 출력
+		if (WorkItem.RingDispatchDataPtr.IsValid())
+		{
+			// Tightness 디버그 포인트 출력 (최종 위치)
+			// DebugInfluencesBuffer 필수: GPU에서 계산된 Influence 값을 사용
+			if (WorkItem.bOutputDebugPoints && DebugPointBuffer && DebugInfluencesBuffer)
+			{
+				// DebugPointBuffer와 DebugInfluencesBuffer는 동일한 오프셋 구조
+				// (둘 다 NumAffectedVertices 단위로 Ring별 연속 저장)
+				uint32 DebugCumulativeOffset = 0;
+
+				for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
+				{
+					const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
+					if (DispatchData.Params.NumAffectedVertices == 0) continue;
+
+					// 인덱스 버퍼 생성
+					FRDGBufferRef DebugIndicesBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), DispatchData.Indices.Num()),
+						*FString::Printf(TEXT("FleshRing_DebugTightnessIndices_Ring%d"), RingIdx)
+					);
+					GraphBuilder.QueueBufferUpload(
+						DebugIndicesBuffer,
+						DispatchData.Indices.GetData(),
+						DispatchData.Indices.Num() * sizeof(uint32),
+						ERDGInitialDataFlags::None
+					);
+
+					// 디버그 포인트 출력 패스 디스패치
+					// GPU에서 계산된 DebugInfluencesBuffer 사용 (CPU Influences 대신)
+					FDebugPointOutputDispatchParams DebugParams;
+					DebugParams.NumVertices = DispatchData.Params.NumAffectedVertices;
+					DebugParams.NumTotalVertices = ActualNumVertices;
+					DebugParams.RingIndex = DispatchData.OriginalRingIndex;
+					DebugParams.BaseOffset = DebugCumulativeOffset;
+					DebugParams.InfluenceBaseOffset = DebugCumulativeOffset;  // 동일한 오프셋 사용
+					DebugParams.LocalToWorld = WorkItem.LocalToWorldMatrix;
+
+					DispatchFleshRingDebugPointOutputCS(
+						GraphBuilder,
+						DebugParams,
+						TightenedBindPoseBuffer,  // 최종 변형된 위치
+						DebugIndicesBuffer,
+						DebugInfluencesBuffer,    // GPU에서 계산된 Influence
+						DebugPointBuffer
+					);
+
+					DebugCumulativeOffset += DebugParams.NumVertices;
+				}
+			}
+
+			// Bulge 디버그 포인트 출력 (최종 위치)
+			if (WorkItem.bOutputDebugBulgePoints && DebugBulgePointBuffer)
+			{
+				uint32 DebugBulgePointCumulativeOffset = 0;
+				for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
+				{
+					const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
+					if (!DispatchData.bEnableBulge || DispatchData.BulgeIndices.Num() == 0) continue;
+
+					const uint32 NumBulgeVertices = DispatchData.BulgeIndices.Num();
+
+					// 인덱스 버퍼 생성
+					FRDGBufferRef DebugBulgeIndicesBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumBulgeVertices),
+						*FString::Printf(TEXT("FleshRing_DebugBulgeIndices_Ring%d"), RingIdx)
+					);
+					GraphBuilder.QueueBufferUpload(
+						DebugBulgeIndicesBuffer,
+						DispatchData.BulgeIndices.GetData(),
+						NumBulgeVertices * sizeof(uint32),
+						ERDGInitialDataFlags::None
+					);
+
+					// Influence 버퍼 생성
+					FRDGBufferRef DebugBulgeInfluenceBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateStructuredDesc(sizeof(float), NumBulgeVertices),
+						*FString::Printf(TEXT("FleshRing_DebugBulgeInfluences_Ring%d"), RingIdx)
+					);
+					GraphBuilder.QueueBufferUpload(
+						DebugBulgeInfluenceBuffer,
+						DispatchData.BulgeInfluences.GetData(),
+						NumBulgeVertices * sizeof(float),
+						ERDGInitialDataFlags::None
+					);
+
+					// 디버그 포인트 출력 패스 디스패치
+					// Bulge Influence는 CPU에서 계산되어 전달되므로 그대로 사용
+					FDebugPointOutputDispatchParams DebugParams;
+					DebugParams.NumVertices = NumBulgeVertices;
+					DebugParams.NumTotalVertices = ActualNumVertices;
+					DebugParams.RingIndex = DispatchData.OriginalRingIndex;
+					DebugParams.BaseOffset = DebugBulgePointCumulativeOffset;
+					DebugParams.InfluenceBaseOffset = 0;  // CPU 업로드 버퍼는 Ring별로 분리되어 있음
+					DebugParams.LocalToWorld = WorkItem.LocalToWorldMatrix;
+
+					DispatchFleshRingDebugPointOutputCS(
+						GraphBuilder,
+						DebugParams,
+						TightenedBindPoseBuffer,  // 최종 변형된 위치
+						DebugBulgeIndicesBuffer,
+						DebugBulgeInfluenceBuffer,
+						DebugBulgePointBuffer
+					);
+
+					DebugBulgePointCumulativeOffset += NumBulgeVertices;
+				}
 			}
 		}
 

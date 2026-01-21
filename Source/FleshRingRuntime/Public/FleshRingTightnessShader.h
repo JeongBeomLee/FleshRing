@@ -78,22 +78,12 @@ public:
         // 디버그 Influence 출력 활성화 플래그
         SHADER_PARAMETER(uint32, bOutputDebugInfluences)
 
-        // Output: Debug point buffer for GPU rendering
-        // 출력: GPU 렌더링용 디버그 포인트 버퍼
-        // WorldPosition + Influence per point (16 bytes each)
-        SHADER_PARAMETER_RDG_BUFFER_UAV(RWStructuredBuffer<FFleshRingDebugPoint>, DebugPointBuffer)
-
-        // Flag to enable debug point output (0 = disabled, 1 = enabled)
-        // 디버그 포인트 출력 활성화 플래그
-        SHADER_PARAMETER(uint32, bOutputDebugPoints)
-
-        // Base offset for debug point buffer (multi-ring support)
-        // 디버그 포인트 버퍼 기본 오프셋 (다중 링 지원)
+        // Base offset for debug buffer (multi-ring support)
+        // 디버그 버퍼 기본 오프셋 (다중 링 지원) - DebugInfluences에 사용
         SHADER_PARAMETER(uint32, DebugPointBaseOffset)
 
-        // LocalToWorld matrix for DebugPointBuffer world space conversion
-        // DebugPointBuffer 월드 공간 변환용 LocalToWorld 행렬
-        SHADER_PARAMETER(FMatrix44f, LocalToWorld)
+        // NOTE: DebugPointBuffer, bOutputDebugPoints, LocalToWorld 제거됨
+        // DebugPointOutputCS에서 최종 위치 기반으로 처리
 
         // ===== Skinning Buffers (SRV - Read Only) =====
         // ===== 스키닝 버퍼 (SRV - 읽기 전용) =====
@@ -466,25 +456,16 @@ struct FTightnessDispatchParams
      */
     uint32 bOutputDebugInfluences;
 
-    /**
-     * Enable debug point output for GPU rendering
-     * GPU 렌더링을 위한 디버그 포인트 출력 활성화 (0 = 비활성, 1 = 활성)
-     */
-    uint32 bOutputDebugPoints;
+    // NOTE: DebugInfluenceBaseOffset 제거됨 - DebugPointBaseOffset 재사용 (동일한 오프셋)
+
+    // NOTE: bOutputDebugPoints, LocalToWorld 제거됨 - DebugPointOutputCS에서 처리
 
     /**
-     * Base offset for debug point buffer (multi-ring support)
-     * 디버그 포인트 버퍼 기본 오프셋 (다중 링 지원)
+     * Base offset for debug buffer (multi-ring support)
+     * 디버그 버퍼 기본 오프셋 (다중 링 지원) - DebugInfluences에 사용
      * Ring 0: offset 0, Ring 1: offset = Ring0.NumAffectedVertices, etc.
      */
     uint32 DebugPointBaseOffset;
-
-    /**
-     * LocalToWorld matrix for converting deformed positions to world space
-     * 변형된 위치를 월드 스페이스로 변환하기 위한 LocalToWorld 행렬
-     * Used by DebugPointBuffer output
-     */
-    FMatrix44f LocalToWorld;
 
     FTightnessDispatchParams()
         : RingCenter(FVector3f::ZeroVector)
@@ -522,9 +503,7 @@ struct FTightnessDispatchParams
         , FixedPointScale(1000.0f)
         , RingIndex(0)
         , bOutputDebugInfluences(0)
-        , bOutputDebugPoints(0)
         , DebugPointBaseOffset(0)
-        , LocalToWorld(FMatrix44f::Identity)
     {
     }
 };
@@ -658,9 +637,7 @@ inline FTightnessDispatchParams CreateTightnessParamsWithSkinning_Deprecated(
  * @param DebugInfluencesBuffer - (Optional) Debug influence output buffer
  *                                (옵션) 디버그 Influence 출력 버퍼
  *                                Params.bOutputDebugInfluences=1일 때 사용
- * @param DebugPointBuffer - (Optional) Debug point buffer for GPU rendering
- *                           (옵션) GPU 렌더링용 디버그 포인트 버퍼
- *                           Params.bOutputDebugPoints=1일 때 사용
+ * NOTE: DebugPointBuffer 제거됨 - DebugPointOutputCS에서 최종 위치 기반으로 처리
  */
 void DispatchFleshRingTightnessCS(
     FRDGBuilder& GraphBuilder,
@@ -672,8 +649,7 @@ void DispatchFleshRingTightnessCS(
     FRDGBufferRef OutputPositionsBuffer,
     FRDGTextureRef SDFTexture = nullptr,
     FRDGBufferRef VolumeAccumBuffer = nullptr,
-    FRDGBufferRef DebugInfluencesBuffer = nullptr,
-    FRDGBufferRef DebugPointBuffer = nullptr);
+    FRDGBufferRef DebugInfluencesBuffer = nullptr);
 
 /**
  * [DEPRECATED] Dispatch TightnessCS with GPU skinning (animated mode)
@@ -739,8 +715,7 @@ void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
  *                            (옵션) Bulge 패스용 부피 누적 버퍼
  * @param DebugInfluencesBuffer - (Optional) Debug influence output buffer
  *                                (옵션) 디버그 Influence 출력 버퍼
- * @param DebugPointBuffer - (Optional) Debug point buffer for GPU rendering
- *                           (옵션) GPU 렌더링용 디버그 포인트 버퍼
+ * NOTE: DebugPointBuffer 제거됨 - DebugPointOutputCS에서 처리
  */
 void DispatchFleshRingTightnessCS_WithReadback(
     FRDGBuilder& GraphBuilder,
@@ -753,5 +728,4 @@ void DispatchFleshRingTightnessCS_WithReadback(
     FRHIGPUBufferReadback* Readback,
     FRDGTextureRef SDFTexture = nullptr,
     FRDGBufferRef VolumeAccumBuffer = nullptr,
-    FRDGBufferRef DebugInfluencesBuffer = nullptr,
-    FRDGBufferRef DebugPointBuffer = nullptr);
+    FRDGBufferRef DebugInfluencesBuffer = nullptr);
