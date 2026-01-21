@@ -244,9 +244,8 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 	// ===== 공통 설정 =====
 
 	/** Subdivision 활성화 (Low-Poly 메시용) */
-	// ★ NonTransactional: Undo/Redo 트랜잭션에서 제외
-	// PreviewMesh가 트랜잭션에 참조되면 GC가 안 되어 메모리 누수 발생
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, NonTransactional, Category = "Subdivision")
+	// Undo/Redo 지원 (메시 작업은 GUndo=nullptr로 보호되어 GC 문제 없음)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision")
 	bool bEnableSubdivision = false;
 
 	/** 최소 엣지 길이 (이보다 작으면 subdivision 중단) */

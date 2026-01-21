@@ -758,6 +758,9 @@ uint32 FFleshRingPreviewScene::CalculatePreviewBoneConfigHash() const
 
 	uint32 Hash = 0;
 
+	// TargetSkeletalMesh 포인터 해시 (메시 변경 시 캐시 무효화)
+	Hash = HashCombine(Hash, GetTypeHash(CurrentAsset->TargetSkeletalMesh.Get()));
+
 	// 링 부착 본 목록 해시
 	for (const FFleshRingSettings& Ring : CurrentAsset->Rings)
 	{
