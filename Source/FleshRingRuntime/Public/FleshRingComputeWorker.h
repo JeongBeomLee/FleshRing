@@ -23,7 +23,6 @@
 
 class FSkeletalMeshObject;
 class UFleshRingDeformerInstance;
-class FFleshRingDebugViewExtension;
 struct IPooledRenderTarget;
 
 // ============================================================================
@@ -283,7 +282,7 @@ struct FFleshRingWorkItem
 
 	// ===== 디버그 포인트 버퍼 (GPU 렌더링) =====
 	// TightnessCS에서 출력된 디버그 포인트 (WorldPosition + Influence)
-	// SceneViewExtension에서 직접 GPU 렌더링 (CPU Readback 불필요)
+	// Scene Proxy에서 직접 GPU 렌더링 (CPU Readback 불필요)
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedDebugPointBufferSharedPtr;
 
 	// 디버그 포인트 출력 활성화 플래그
@@ -292,21 +291,15 @@ struct FFleshRingWorkItem
 	// LocalToWorld 행렬 (디버그 포인트 월드 변환용)
 	FMatrix44f LocalToWorldMatrix = FMatrix44f::Identity;
 
-	// ViewExtension 참조 (렌더 스레드에서 직접 버퍼 전달용)
-	TSharedPtr<FFleshRingDebugViewExtension, ESPMode::ThreadSafe> DebugViewExtension;
-
-	// 디버그 포인트 수 (ViewExtension에 전달)
-	uint32 DebugPointCount = 0;
-
 	// ===== Bulge 디버그 포인트 버퍼 (GPU 렌더링) =====
 	// BulgeCS에서 출력된 디버그 포인트 (WorldPosition + Influence)
-	// SceneViewExtension에서 직접 GPU 렌더링 (Tightness와 다른 색상)
+	// Scene Proxy에서 직접 GPU 렌더링 (Tightness와 다른 색상)
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedDebugBulgePointBufferSharedPtr;
 
 	// Bulge 디버그 포인트 출력 활성화 플래그
 	bool bOutputDebugBulgePoints = false;
 
-	// Bulge 디버그 포인트 수 (ViewExtension에 전달)
+	// Bulge 디버그 포인트 수
 	uint32 DebugBulgePointCount = 0;
 
 	// ===== GPU Readback 관련 =====

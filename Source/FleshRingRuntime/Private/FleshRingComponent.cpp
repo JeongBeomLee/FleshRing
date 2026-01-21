@@ -24,7 +24,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Rendering/SkeletalMeshRenderData.h"
 #include "Rendering/SkeletalMeshLODRenderData.h"
-#include "SceneViewExtension.h"
+#include "FleshRingDebugPointComponent.h"
 #endif
 
 DEFINE_LOG_CATEGORY_STATIC(LogFleshRingComponent, Log, All);
@@ -1545,12 +1545,6 @@ void UFleshRingComponent::DrawDebugVisualization()
 
 	if (!bShowDebugVisualization)
 	{
-		// GPU 디버그 렌더링 ViewExtension도 비활성화
-		if (bUseGPUDebugRendering && DebugViewExtension.IsValid())
-		{
-			DebugViewExtension->ClearDebugPointBuffer();
-			DebugViewExtension->ClearDebugBulgePointBuffer();
-		}
 		return;
 	}
 
@@ -1606,13 +1600,13 @@ void UFleshRingComponent::DrawDebugVisualization()
 		bDebugBulgeVerticesCached = false;
 	}
 
-	// GPU 디버그 렌더링 모드: ViewExtension + 셰이더로 원형 포인트 렌더링
-	// ★ DrawDebug 방식: 매 프레임 GPU에서 새로 계산, CPU 캐시 불필요
+	// GPU 디버그 렌더링 모드: 셰이더로 원형 포인트 렌더링
+	// Scene Proxy 방식: 에디터 기즈모 아래에 렌더링
 	// PointCount는 렌더 스레드에서 버퍼의 NumElements로 직접 읽음
 	if (bUseGPUDebugRendering)
 	{
-		UpdateDebugPointBuffer();
-		UpdateDebugBulgePointBuffer();
+		UpdateTightnessDebugPointComponent();
+		UpdateBulgeDebugPointComponent();
 	}
 
 	for (int32 RingIndex = 0; RingIndex < NumRings; ++RingIndex)
@@ -3711,124 +3705,6 @@ void UFleshRingComponent::DrawBulgeRange(int32 RingIndex)
 // GPU 디버그 렌더링 함수
 // ============================================================================
 
-void UFleshRingComponent::InitializeDebugViewExtension()
-{
-	// 이미 초기화되어 있으면 스킵
-	if (DebugViewExtension.IsValid())
-	{
-		return;
-	}
-
-	// SceneViewExtension 생성 및 등록
-	// FSceneViewExtensions::NewExtension을 통해 자동 등록됨
-	// FWorldSceneViewExtension을 상속하므로 특정 World에서만 활성화됨
-	UWorld* World = GetWorld();
-	if (!World)
-	{
-		return;
-	}
-
-	DebugViewExtension = FSceneViewExtensions::NewExtension<FFleshRingDebugViewExtension>(World);
-
-	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: GPU 디버그 렌더링 ViewExtension 초기화 완료 (World: %s)"), *World->GetName());
-}
-
-void UFleshRingComponent::UpdateDebugPointBuffer()
-{
-	// ViewExtension이 없으면 초기화
-	if (!DebugViewExtension.IsValid())
-	{
-		InitializeDebugViewExtension();
-	}
-
-	if (!DebugViewExtension.IsValid())
-	{
-		return;
-	}
-
-	// bShowAffectedVertices가 비활성화되면 렌더링 비활성화
-	if (!bShowAffectedVertices || !bShowDebugVisualization)
-	{
-		DebugViewExtension->ClearDebugPointBuffer();
-		return;
-	}
-
-	// DeformerInstance에서 캐싱된 DebugPointBuffer 가져오기
-	if (!InternalDeformer)
-	{
-		return;
-	}
-
-	UFleshRingDeformerInstance* DeformerInstance = InternalDeformer->GetActiveInstance();
-	if (!DeformerInstance)
-	{
-		return;
-	}
-
-	// CachedDebugPointBufferSharedPtr 가져오기
-	// PointCount는 ViewExtension에서 버퍼의 NumElements로 직접 읽음 (스레드 안전)
-	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> DebugPointBufferSharedPtr = DeformerInstance->GetCachedDebugPointBufferSharedPtr();
-	if (!DebugPointBufferSharedPtr.IsValid())
-	{
-		DebugViewExtension->ClearDebugPointBuffer();
-		return;
-	}
-
-	// ViewExtension에 SharedPtr 전달
-	DebugViewExtension->SetDebugPointBufferShared(DebugPointBufferSharedPtr);
-
-	// VisibleRingMask 업데이트 (Ring 가시성 필터링용)
-	DebugViewExtension->SetVisibleRingMask(GetVisibleRingMask());
-}
-
-void UFleshRingComponent::UpdateDebugBulgePointBuffer()
-{
-	// ViewExtension이 없으면 초기화
-	if (!DebugViewExtension.IsValid())
-	{
-		InitializeDebugViewExtension();
-	}
-
-	if (!DebugViewExtension.IsValid())
-	{
-		return;
-	}
-
-	// bShowBulgeHeatmap가 비활성화되면 렌더링 비활성화
-	if (!bShowBulgeHeatmap || !bShowDebugVisualization)
-	{
-		DebugViewExtension->ClearDebugBulgePointBuffer();
-		return;
-	}
-
-	// DeformerInstance에서 캐싱된 DebugBulgePointBuffer 가져오기
-	if (!InternalDeformer)
-	{
-		return;
-	}
-
-	UFleshRingDeformerInstance* DeformerInstance = InternalDeformer->GetActiveInstance();
-	if (!DeformerInstance)
-	{
-		return;
-	}
-
-	// CachedDebugBulgePointBufferSharedPtr 가져오기
-	// PointCount는 ViewExtension에서 버퍼의 NumElements로 직접 읽음 (스레드 안전)
-	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> DebugBulgePointBufferSharedPtr = DeformerInstance->GetCachedDebugBulgePointBufferSharedPtr();
-	if (!DebugBulgePointBufferSharedPtr.IsValid())
-	{
-		DebugViewExtension->ClearDebugBulgePointBuffer();
-		return;
-	}
-
-	// ViewExtension에 SharedPtr 전달
-	DebugViewExtension->SetDebugBulgePointBufferShared(DebugBulgePointBufferSharedPtr);
-
-	// VisibleRingMask 업데이트 (Ring 가시성 필터링용)
-	DebugViewExtension->SetVisibleRingMask(GetVisibleRingMask());
-}
-
 uint64 UFleshRingComponent::GetVisibleRingMask() const
 {
 	// FleshRingAsset이 없으면 모두 가시 (기본값)
@@ -3849,6 +3725,126 @@ uint64 UFleshRingComponent::GetVisibleRingMask() const
 	}
 
 	return Mask;
+}
+
+void UFleshRingComponent::InitializeDebugPointComponents()
+{
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return;
+	}
+
+	USceneComponent* AttachParent = Owner->GetRootComponent();
+
+	// 통합 디버그 포인트 컴포넌트 생성
+	if (!DebugPointComponent)
+	{
+		DebugPointComponent = NewObject<UFleshRingDebugPointComponent>(
+			Owner, UFleshRingDebugPointComponent::StaticClass(),
+			FName(*FString::Printf(TEXT("%s_DebugPoints"), *GetName())));
+
+		if (DebugPointComponent)
+		{
+			if (AttachParent)
+			{
+				DebugPointComponent->SetupAttachment(AttachParent);
+			}
+			DebugPointComponent->RegisterComponent();
+		}
+	}
+}
+
+void UFleshRingComponent::UpdateTightnessDebugPointComponent()
+{
+	// 컴포넌트가 없으면 초기화
+	if (!DebugPointComponent)
+	{
+		InitializeDebugPointComponents();
+	}
+
+	if (!DebugPointComponent)
+	{
+		return;
+	}
+
+	// bShowAffectedVertices가 비활성화되면 Tightness 렌더링 비활성화
+	if (!bShowAffectedVertices || !bShowDebugVisualization)
+	{
+		DebugPointComponent->ClearTightnessBuffer();
+		return;
+	}
+
+	// DeformerInstance에서 캐싱된 DebugPointBuffer 가져오기
+	if (!InternalDeformer)
+	{
+		DebugPointComponent->ClearTightnessBuffer();
+		return;
+	}
+
+	UFleshRingDeformerInstance* DeformerInstance = InternalDeformer->GetActiveInstance();
+	if (!DeformerInstance)
+	{
+		DebugPointComponent->ClearTightnessBuffer();
+		return;
+	}
+
+	// CachedDebugPointBufferSharedPtr 가져오기
+	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> DebugPointBufferSharedPtr = DeformerInstance->GetCachedDebugPointBufferSharedPtr();
+	if (!DebugPointBufferSharedPtr.IsValid())
+	{
+		DebugPointComponent->ClearTightnessBuffer();
+		return;
+	}
+
+	// DebugPointComponent에 Tightness 버퍼 전달
+	DebugPointComponent->SetTightnessBuffer(DebugPointBufferSharedPtr, GetVisibleRingMask());
+}
+
+void UFleshRingComponent::UpdateBulgeDebugPointComponent()
+{
+	// 컴포넌트가 없으면 초기화
+	if (!DebugPointComponent)
+	{
+		InitializeDebugPointComponents();
+	}
+
+	if (!DebugPointComponent)
+	{
+		return;
+	}
+
+	// bShowBulgeHeatmap가 비활성화되면 Bulge 렌더링 비활성화
+	if (!bShowBulgeHeatmap || !bShowDebugVisualization)
+	{
+		DebugPointComponent->ClearBulgeBuffer();
+		return;
+	}
+
+	// DeformerInstance에서 캐싱된 DebugBulgePointBuffer 가져오기
+	if (!InternalDeformer)
+	{
+		DebugPointComponent->ClearBulgeBuffer();
+		return;
+	}
+
+	UFleshRingDeformerInstance* DeformerInstance = InternalDeformer->GetActiveInstance();
+	if (!DeformerInstance)
+	{
+		DebugPointComponent->ClearBulgeBuffer();
+		return;
+	}
+
+	// CachedDebugBulgePointBufferSharedPtr 가져오기
+	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> DebugBulgePointBufferSharedPtr = DeformerInstance->GetCachedDebugBulgePointBufferSharedPtr();
+	if (!DebugBulgePointBufferSharedPtr.IsValid())
+	{
+		DebugPointComponent->ClearBulgeBuffer();
+		return;
+	}
+
+	// DebugPointComponent에 Bulge 버퍼 전달
+	DebugPointComponent->SetBulgeBuffer(DebugBulgePointBufferSharedPtr, GetVisibleRingMask());
 }
 
 #endif // WITH_EDITOR

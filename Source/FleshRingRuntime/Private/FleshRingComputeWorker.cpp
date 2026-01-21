@@ -15,7 +15,6 @@
 #include "Rendering/SkinWeightVertexBuffer.h"
 #include "RHIGPUReadback.h"
 #include "FleshRingDebugTypes.h"
-#include "FleshRingDebugViewExtension.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogFleshRingWorker, Log, All);
 

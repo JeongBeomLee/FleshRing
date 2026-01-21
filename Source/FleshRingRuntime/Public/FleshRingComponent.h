@@ -9,7 +9,7 @@
 #include "FleshRingTypes.h"
 #include "FleshRingDeformer.h"
 #include "FleshRingAffectedVertices.h"
-#include "FleshRingDebugViewExtension.h"
+#include "FleshRingDebugPointComponent.h"
 #include "RenderGraphResources.h"
 #include "FleshRingComponent.generated.h"
 
@@ -480,21 +480,16 @@ private:
 
 	// ===== GPU 디버그 렌더링 =====
 
-	/** GPU 디버그 포인트 렌더링용 SceneViewExtension */
-	TSharedPtr<FFleshRingDebugViewExtension> DebugViewExtension;
-
 	/** GPU 디버그 렌더링 활성화 (DrawDebugPoint 대체) */
 	bool bUseGPUDebugRendering = true;
+
+	/** 통합 디버그 포인트 컴포넌트 (Scene Proxy 사용, Tightness + Bulge 공유 depth buffer) */
+	UPROPERTY()
+	TObjectPtr<UFleshRingDebugPointComponent> DebugPointComponent;
 
 public:
 	/** GPU 디버그 렌더링 활성화 여부 반환 */
 	bool IsGPUDebugRenderingEnabled() const { return bUseGPUDebugRendering; }
-
-	/** GPU 디버그 렌더링용 ViewExtension 반환 (렌더 스레드에서 직접 버퍼 전달용) */
-	TSharedPtr<FFleshRingDebugViewExtension, ESPMode::ThreadSafe> GetDebugViewExtension() const
-	{
-		return StaticCastSharedPtr<FFleshRingDebugViewExtension, FFleshRingDebugViewExtension, ESPMode::ThreadSafe>(DebugViewExtension);
-	}
 
 	/**
 	 * 가시 Ring 비트마스크 반환 (디버그 포인트 필터링용)
@@ -546,14 +541,14 @@ public:
 	}
 
 private:
-	/** GPU 디버그 렌더링용 ViewExtension 초기화 */
-	void InitializeDebugViewExtension();
+	/** 디버그 포인트 컴포넌트 초기화 */
+	void InitializeDebugPointComponents();
 
-	/** GPU 디버그 렌더링용 포인트 버퍼 업데이트 */
-	void UpdateDebugPointBuffer();
+	/** Tightness 포인트 버퍼 업데이트 */
+	void UpdateTightnessDebugPointComponent();
 
-	/** GPU 디버그 렌더링용 Bulge 포인트 버퍼 업데이트 */
-	void UpdateDebugBulgePointBuffer();
+	/** Bulge 포인트 버퍼 업데이트 */
+	void UpdateBulgeDebugPointComponent();
 #endif
 
 #if WITH_EDITOR

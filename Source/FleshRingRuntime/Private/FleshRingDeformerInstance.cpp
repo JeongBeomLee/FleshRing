@@ -1074,12 +1074,6 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	WorkItem.bOutputDebugBulgePoints = bOutputDebugBulgePoints;
 	WorkItem.DebugBulgePointCount = MaxBulgeVertexCount;
 
-	// ViewExtension과 PointCount 설정 (렌더 스레드에서 직접 버퍼 전달용)
-	if (bOutputDebugPoints && FleshRingComponent.IsValid())
-	{
-		WorkItem.DebugViewExtension = FleshRingComponent->GetDebugViewExtension();
-		WorkItem.DebugPointCount = FleshRingComponent->GetDebugPointCount();
-	}
 
 	// LocalToWorld 매트릭스 설정 - ResolvedTargetMesh 우선 사용
 	USkeletalMeshComponent* TargetMeshComp = nullptr;
