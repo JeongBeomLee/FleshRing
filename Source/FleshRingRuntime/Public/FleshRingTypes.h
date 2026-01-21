@@ -35,14 +35,17 @@ enum class EBandSection : uint8
 UENUM(BlueprintType)
 enum class EFleshRingInfluenceMode : uint8
 {
-	/** SDF 기반 자동 계산 */
-	Auto	UMETA(DisplayName = "Auto (SDF-based)"),
+	/** 메시 기반 영향 범위 계산 (SDF) */
+	MeshBased	UMETA(DisplayName = "Mesh Based"),
 
 	/** 수동 Radius 지정 (가상 Ring) */
 	VirtualRing	UMETA(DisplayName = "Virtual Ring"),
 
 	/** 가상 밴드 (스타킹/타이즈용 가상 틀) */
-	VirtualBand	UMETA(DisplayName = "Virtual Band")
+	VirtualBand	UMETA(DisplayName = "Virtual Band"),
+
+	/** [DEPRECATED] Auto → MeshBased 리네이밍됨, 기존 에셋 호환성용 */
+	Auto = MeshBased	UMETA(Hidden)
 };
 
 /** 감쇠 곡선 타입 */
@@ -245,17 +248,17 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 
 	/** Subdivision 활성화 (Low-Poly 메시용) */
 	// Undo/Redo 지원 (메시 작업은 GUndo=nullptr로 보호되어 GC 문제 없음)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skeletal Mesh Detail Settings")
 	bool bEnableSubdivision = false;
 
-	/** 최소 엣지 길이 (이보다 작으면 subdivision 중단) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision", meta = (ClampMin = "0.1"))
+	/** 최소 엣지 길이 cm (이보다 작으면 subdivision 중단) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skeletal Mesh Detail Settings", meta = (ClampMin = "0.1", DisplayName = "Min Edge Length"))
 	float MinEdgeLength = 1.0f;
 
 	// ===== 에디터 프리뷰 설정 =====
 
 	/** 에디터 프리뷰용 Subdivision 레벨 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision", meta = (ClampMin = "1", ClampMax = "4"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skeletal Mesh Detail Settings", meta = (ClampMin = "1", ClampMax = "4"))
 	int32 PreviewSubdivisionLevel = 2;
 
 	/**
@@ -263,7 +266,7 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 	 * 0이면 BoneWeightThreshold만으로 영역 판단
 	 * 높을수록 subdivision 영역이 넓어지지만 성능 비용 증가
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision", meta = (ClampMin = "0", ClampMax = "3"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skeletal Mesh Detail Settings", meta = (ClampMin = "0", ClampMax = "3", DisplayName = "Bone Search Depth"))
 	int32 PreviewBoneHopCount = 1;
 
 	/**
@@ -271,13 +274,13 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 	 * 이 값 이상의 영향을 받는 버텍스만 subdivision 대상
 	 * 높을수록 subdivision 영역이 좁아져 성능 향상
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision", meta = (ClampMin = "0.01", ClampMax = "0.7"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skeletal Mesh Detail Settings", meta = (ClampMin = "0.01", ClampMax = "0.7", DisplayName = "Min Bone Influence"))
 	float PreviewBoneWeightThreshold = 0.1f;
 
 	// ===== 런타임 설정 =====
 
 	/** 최대 Subdivision 레벨 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision", meta = (ClampMin = "1", ClampMax = "6", EditCondition = "bEnableSubdivision"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skeletal Mesh Detail Settings", meta = (ClampMin = "1", ClampMax = "6", EditCondition = "bEnableSubdivision"))
 	int32 MaxSubdivisionLevel = 4;
 
 	// ===== 생성된 메시 (런타임) =====
@@ -287,7 +290,7 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 	 * GenerateSubdividedMesh()로 생성됨 - 런타임용 (Ring 영역만 subdivision)
 	 * NonTransactional: Undo 시스템에서 제외하여 GC 문제 방지
 	 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Subdivision", meta = (EditCondition = "bEnableSubdivision"), NonTransactional)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Skeletal Mesh Detail Settings", meta = (EditCondition = "bEnableSubdivision"), NonTransactional)
 	TObjectPtr<USkeletalMesh> SubdividedMesh;
 
 	/** Subdivision 생성 시점의 파라미터 해시 (재생성 필요 여부 판단용) */
@@ -437,11 +440,11 @@ struct FLESHRINGRUNTIME_API FVirtualBandSettings
 	// ===== 밴드 본체 (조임 지점) =====
 
 	/** 밴드 상단 반경 (Upper Section과 만나는 지점) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Band", meta = (ClampMin = "0.1"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Band", meta = (ClampMin = "0.1", DisplayName = "Band Top Radius"))
 	float MidUpperRadius = 8.0f;
 
 	/** 밴드 하단 반경 (Lower Section과 만나는 지점) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Band", meta = (ClampMin = "0.1"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Band", meta = (ClampMin = "0.1", DisplayName = "Band Bottom Radius"))
 	float MidLowerRadius = 8.0f;
 
 	/** 밴드 본체 높이 (조이는 영역) */
@@ -455,13 +458,13 @@ struct FLESHRINGRUNTIME_API FVirtualBandSettings
 	// ===== 상단 섹션 (살이 불룩해지는 영역) =====
 
 	/** Upper.Radius > MidUpperRadius → 위로 벌어지며 살이 불룩해짐 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Upper Section")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Upper Bulge Zone", meta = (DisplayName = "Upper Bulge Zone"))
 	FVirtualBandSection Upper;
 
 	// ===== 하단 섹션 (스타킹이 덮는 영역) =====
 
 	/** Lower.Radius ≥ MidLowerRadius → 아래로 벌어지며 스타킹이 덮음 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lower Section")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lower Bulge Zone", meta = (DisplayName = "Lower Bulge Zone"))
 	FVirtualBandSection Lower;
 
 	// ===== 메시 생성 품질 =====
@@ -600,13 +603,13 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
 	TSoftObjectPtr<UStaticMesh> RingMesh;
 
+	/** 영향 범위 결정 방식 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (DisplayName = "Effect Range Mode"))
+	EFleshRingInfluenceMode InfluenceMode = EFleshRingInfluenceMode::MeshBased;
+
 	/** 에디터에서 Ring 가시성 (Mesh, Gizmo, Debug 포함) - 눈 아이콘으로만 제어 */
 	UPROPERTY()
 	bool bEditorVisible = true;
-
-	/** 영향 범위 결정 방식 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
-	EFleshRingInfluenceMode InfluenceMode = EFleshRingInfluenceMode::Auto;
 
 	/** Ring 반지름 (VirtualRing 모드에서만 사용) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::VirtualRing", ClampMin = "0.1", ClampMax = "100.0"))
@@ -648,12 +651,12 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "0.0"))
 	float BulgeIntensity = 1.0f;
 
-	/** Bulge 축 방향 범위 (Ring 높이 대비 배수, 위아래로 얼마나 퍼지는지) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "1.0", ClampMax = "8.0"))
+	/** Bulge 수직 확산 범위 (Ring 높이 대비 배수, 위아래로 얼마나 퍼지는지) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "1.0", ClampMax = "8.0", DisplayName = "Bulge Vertical Spread"))
 	float BulgeAxialRange = 5.0f;
 
-	/** Bulge 반경 방향 범위 (Ring 반지름 대비 배수, 옆으로 얼마나 퍼지는지) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "1.0", ClampMax = "3.0"))
+	/** Bulge 수평 확산 범위 (Ring 반지름 대비 배수, 옆으로 얼마나 퍼지는지) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "1.0", ClampMax = "3.0", DisplayName = "Bulge Horizontal Spread"))
 	float BulgeRadialRange = 1.0f;
 
 	/** 상단 Bulge 강도 배수 (1.0 = 기본, 0.0 = 비활성) */
@@ -664,8 +667,13 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "0.0", ClampMax = "2.0"))
 	float LowerBulgeStrength = 1.0f;
 
-	/** Bulge 방향 비율: Radial(바깥) vs Axial(위아래) (0.0 = 순수 Axial, 1.0 = 순수 Radial, 0.7 = 기본) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "0.0", ClampMax = "1.0"))
+	/**
+	 * Bulge 방향 비율 (0 = 위아래로만, 1 = 바깥으로만, 0.7 = 기본)
+	 * 0.0: 위아래(Axial) 방향으로만 팽창
+	 * 1.0: 바깥(Radial) 방향으로만 팽창
+	 * 0.7: 기본값 - 바깥 방향 70%, 위아래 30%
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "0.0", ClampMax = "1.0", DisplayName = "Bulge Direction Bias"))
 	float BulgeRadialRatio = 0.7f;
 
 	/** 조이기 강도 */
@@ -673,23 +681,23 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	float TightnessStrength = 1.0f;
 
 	/**
-	 * SDF 바운드 X 방향 확장 (cm)
+	 * 효과 바운드 X 방향 확장 cm (Mesh Based 모드 전용)
 	 * SDF 텍스처 생성 및 버텍스 필터링 바운드를 X 방향으로 확장
 	 * 작은 Ring이 더 큰 영역을 커버해야 할 때 사용
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "10.0", DisplayName = "SDF Bounds Expand X (cm)"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "10.0", DisplayName = "Effect Bounds Expand X"))
 	float SDFBoundsExpandX = 0.0f;
 
 	/**
-	 * SDF 바운드 Y 방향 확장 (cm)
+	 * 효과 바운드 Y 방향 확장 cm (Mesh Based 모드 전용)
 	 * SDF 텍스처 생성 및 버텍스 필터링 바운드를 Y 방향으로 확장
 	 * 작은 Ring이 더 큰 영역를 커버해야 할 때 사용
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "10.0", DisplayName = "SDF Bounds Expand Y (cm)"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "10.0", DisplayName = "Effect Bounds Expand Y"))
 	float SDFBoundsExpandY = 0.0f;
 
 	/** 감쇠 곡선 타입 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (DisplayName = "Tightness Falloff"))
 	EFalloffType FalloffType = EFalloffType::Linear;
 
 	/**
@@ -698,7 +706,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	 * 기본값: Skin | Other (미분류 포함하여 "일단 동작하게")
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring",
-		meta = (Bitmask, BitmaskEnum = "/Script/FleshRingRuntime.EFleshRingLayerMask"))
+		meta = (DisplayName = "Target Material Layers", Bitmask, BitmaskEnum = "/Script/FleshRingRuntime.EFleshRingLayerMask"))
 	int32 AffectedLayerMask = static_cast<int32>(EFleshRingLayerMask::Skin) | static_cast<int32>(EFleshRingLayerMask::Other);
 
 	/** 가상 밴드 설정 (VirtualBand 모드에서만 사용) */
@@ -908,7 +916,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 
 	FFleshRingSettings()
 		: BoneName(NAME_None)
-		, InfluenceMode(EFleshRingInfluenceMode::Auto)
+		, InfluenceMode(EFleshRingInfluenceMode::MeshBased)
 		, RingRadius(5.0f)
 		, RingThickness(1.0f)
 		, RingHeight(2.0f)

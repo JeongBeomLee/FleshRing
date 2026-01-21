@@ -731,6 +731,15 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	// Bone 트리 빌드
 	BuildBoneTree();
 
+	// InfluenceMode 핸들 가져오기 (최상위에 배치하기 위해 먼저 처리)
+	TSharedPtr<IPropertyHandle> InfluenceModeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, InfluenceMode));
+
+	// ----- Effect Range Mode (최상위, BoneName 위) -----
+	if (InfluenceModeHandle.IsValid())
+	{
+		ChildBuilder.AddProperty(InfluenceModeHandle.ToSharedRef());
+	}
+
 	// BoneName을 검색 가능한 드롭다운으로 커스터마이징
 	if (BoneNameHandle.IsValid())
 	{
@@ -751,9 +760,6 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	// Rotation 핸들 캐싱
 	RingRotationHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingRotation));
 	MeshRotationHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshRotation));
-
-	// InfluenceMode 핸들 가져오기
-	TSharedPtr<IPropertyHandle> InfluenceModeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, InfluenceMode));
 
 	// 현재 InfluenceMode가 VirtualRing인지 확인 (초기 상태용)
 	bool bIsVirtualRingMode = false;
@@ -811,7 +817,6 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	// Ring 그룹에 들어갈 프로퍼티 이름들
 	TSet<FName> RingGroupProperties;
 	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingMesh));
-	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, InfluenceMode));
 	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingRadius));
 	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingThickness));
 	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingHeight));
@@ -958,6 +963,12 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 
 		// RingName은 헤더에서 인라인 편집 가능하므로 스킵
 		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingName))
+		{
+			continue;
+		}
+
+		// InfluenceMode는 최상위에서 이미 추가했으므로 스킵
+		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, InfluenceMode))
 		{
 			continue;
 		}
@@ -1139,23 +1150,6 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			);
 	}
 
-	if (InfluenceModeHandle.IsValid())
-	{
-		RingDefinitionGroup.AddPropertyRow(InfluenceModeHandle.ToSharedRef())
-			.OverrideResetToDefault(
-				FResetToDefaultOverride::Create(
-					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-						uint8 Value;
-						Handle->GetValue(Value);
-						return Value != static_cast<uint8>(EFleshRingInfluenceMode::Auto);
-					}),
-					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-						Handle->SetValue(static_cast<uint8>(EFleshRingInfluenceMode::Auto));
-					})
-				)
-			);
-	}
-
 	// ----- Ring Transform 서브그룹 (VirtualRing 모드용) -----
 	IDetailGroup& RingTransformSubGroup = RingDefinitionGroup.AddGroup(TEXT("RingTransform"), LOCTEXT("RingTransformSubGroup", "Ring Transform"));
 	RingTransformSubGroup.HeaderRow()
@@ -1298,6 +1292,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		if (BandOffsetHandle.IsValid())
 		{
 			VirtualBandSubGroup.AddPropertyRow(BandOffsetHandle.ToSharedRef())
+				.IsEnabled(IsVirtualBandModeAttr)
 				.CustomWidget()
 				.NameContent()
 				[
@@ -1324,6 +1319,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		if (BandEulerRotationHandle.IsValid())
 		{
 			VirtualBandSubGroup.AddPropertyRow(BandEulerRotationHandle.ToSharedRef())
+				.IsEnabled(IsVirtualBandModeAttr)
 				.CustomWidget()
 				.NameContent()
 				[
@@ -1369,8 +1365,19 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 				.IsEnabled(IsVirtualBandModeAttr);
 		}
 
-		// Mid 서브그룹
-		IDetailGroup& MidBandGroup = VirtualBandSubGroup.AddGroup(TEXT("MidBand"), LOCTEXT("MidBandGroup", "Mid"));
+		// Mid Band 서브그룹
+		IDetailGroup& MidBandGroup = VirtualBandSubGroup.AddGroup(TEXT("MidBand"), LOCTEXT("MidBandGroup", "Mid Band"));
+		MidBandGroup.HeaderRow()
+			.NameContent()
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("MidBandHeader", "Mid Band"))
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+				.ColorAndOpacity_Lambda([IsVirtualBandModeAttr]() -> FSlateColor
+				{
+					return IsVirtualBandModeAttr.Get() ? FSlateColor::UseForeground() : FSlateColor::UseSubduedForeground();
+				})
+			];
 
 		TSharedPtr<IPropertyHandle> MidUpperRadiusHandle = VirtualBandHandle->GetChildHandle(TEXT("MidUpperRadius"));
 		TSharedPtr<IPropertyHandle> MidLowerRadiusHandle = VirtualBandHandle->GetChildHandle(TEXT("MidLowerRadius"));

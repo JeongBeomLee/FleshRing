@@ -36,6 +36,14 @@ public:
 	TSoftObjectPtr<USkeletalMesh> TargetSkeletalMesh;
 
 	// =====================================
+	// Subdivision Settings (Skeletal Mesh Detail)
+	// =====================================
+
+	/** Subdivision 설정 (에디터 프리뷰 + 런타임) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skeletal Mesh Detail Settings", meta = (DisplayName = "Skeletal Mesh Detail Settings"))
+	FSubdivisionSettings SubdivisionSettings;
+
+	// =====================================
 	// Ring Settings
 	// =====================================
 
@@ -100,14 +108,6 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normal/Tangent Recompute", meta = (DisplayName = "Tangent Recompute Method", EditCondition = "bEnableNormalRecompute && bEnableTangentRecompute"))
 	ETangentRecomputeMethod TangentRecomputeMethod = ETangentRecomputeMethod::GramSchmidt;
-
-	// =====================================
-	// Subdivision Settings
-	// =====================================
-
-	/** Subdivision 설정 (에디터 프리뷰 + 런타임) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Subdivision Settings")
-	FSubdivisionSettings SubdivisionSettings;
 
 	// =====================================
 	// Editor Selection State (Undo 가능, 디스크 저장 시 초기화)
