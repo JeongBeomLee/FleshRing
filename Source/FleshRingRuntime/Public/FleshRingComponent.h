@@ -149,6 +149,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "FleshRing")
 	void SwapFleshRingAsset(UFleshRingAsset* NewAsset);
 
+	// ========================== Modular ==========================
 	/**
 	 * 모듈러 캐릭터용 런타임 링 에셋 교체
 	 * Leader Pose 설정 보존 옵션 제공
@@ -159,6 +160,16 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing|Modular")
 	bool SwapRingAssetForModular(UFleshRingAsset* NewAsset, bool bPreserveLeaderPose = true);
+
+	/**
+	 * Detach ring asset and remove ring meshes
+	 * SkeletalMesh remains unchanged
+	 *
+	 * @param bPreserveLeaderPose - Whether to preserve LeaderPoseComponent setting
+	 * @see UFleshRingModularLibrary::SwapModularPartWithRingCleanup
+	 */
+	void DetachRingAsset(bool bPreserveLeaderPose = true);
+	// ========================== Modular ==========================
 
 	/** 베이크 모드로 동작 중인지 여부 (Deformer 없이 BakedMesh 사용) */
 	UFUNCTION(BlueprintPure, Category = "FleshRing")

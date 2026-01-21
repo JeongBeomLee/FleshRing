@@ -1156,6 +1156,29 @@ bool UFleshRingComponent::SwapRingAssetForModular(UFleshRingAsset* NewAsset, boo
 		return false;
 	}
 
+	// 스켈레톤 호환성 검증 (모듈러 시스템 전제 조건)
+	if (NewAsset)
+	{
+		USkeletalMesh* CurrentMesh = TargetMesh->GetSkeletalMeshAsset();
+		USkeletalMesh* NewBakedMesh = NewAsset->SubdivisionSettings.BakedMesh;
+
+		if (CurrentMesh && NewBakedMesh)
+		{
+			USkeleton* CurrentSkeleton = CurrentMesh->GetSkeleton();
+			USkeleton* NewSkeleton = NewBakedMesh->GetSkeleton();
+
+			if (CurrentSkeleton != NewSkeleton)
+			{
+				UE_LOG(LogFleshRingComponent, Warning,
+					TEXT("[%s] SwapRingAssetForModular: Skeleton mismatch - Current: '%s', NewAsset BakedMesh: '%s'"),
+					*GetName(),
+					CurrentSkeleton ? *CurrentSkeleton->GetName() : TEXT("null"),
+					NewSkeleton ? *NewSkeleton->GetName() : TEXT("null"));
+				return false;
+			}
+		}
+	}
+
 	// 3. Leader Pose 백업 (필요 시)
 	TWeakObjectPtr<USkinnedMeshComponent> CachedLeaderPose;
 	if (bPreserveLeaderPose)
@@ -1173,9 +1196,19 @@ bool UFleshRingComponent::SwapRingAssetForModular(UFleshRingAsset* NewAsset, boo
 	// 5. 링 효과 제거 (nullptr 전달 시)
 	if (!NewAsset)
 	{
-		// 원본 메시 복원
-		if (CachedOriginalMesh.IsValid())
+		// 현재 에셋의 원본 메시로 복원 (파츠 교체는 유지, 링 효과만 해제)
+		// 예: 허벅지_A → 허벅지_B_BAKED로 교체 후 nullptr → 허벅지_B (원본)로 복원
+		if (FleshRingAsset && FleshRingAsset->TargetSkeletalMesh.IsValid())
 		{
+			USkeletalMesh* CurrentAssetOriginalMesh = FleshRingAsset->TargetSkeletalMesh.LoadSynchronous();
+			if (CurrentAssetOriginalMesh)
+			{
+				TargetMesh->SetSkeletalMeshAsset(CurrentAssetOriginalMesh);
+			}
+		}
+		else if (CachedOriginalMesh.IsValid())
+		{
+			// 폴백: 현재 에셋이 없으면 최초 원본으로
 			TargetMesh->SetSkeletalMeshAsset(CachedOriginalMesh.Get());
 		}
 		FleshRingAsset = nullptr;
@@ -1217,6 +1250,39 @@ bool UFleshRingComponent::SwapRingAssetForModular(UFleshRingAsset* NewAsset, boo
 	ApplyBakedRingTransforms();
 
 	return true;
+}
+
+void UFleshRingComponent::DetachRingAsset(bool bPreserveLeaderPose)
+{
+	USkeletalMeshComponent* TargetMesh = ResolvedTargetMesh.Get();
+	if (!TargetMesh)
+	{
+		return;
+	}
+
+	// Backup Leader Pose
+	TWeakObjectPtr<USkinnedMeshComponent> CachedLeaderPose;
+	if (bPreserveLeaderPose)
+	{
+		CachedLeaderPose = TargetMesh->LeaderPoseComponent;
+	}
+
+	// Remove ring meshes
+	CleanupRingMeshes();
+
+	// Reset state (SkeletalMesh remains unchanged)
+	FleshRingAsset = nullptr;
+	bUsingBakedMesh = false;
+
+	// Restore Leader Pose
+	if (bPreserveLeaderPose && CachedLeaderPose.IsValid())
+	{
+		TargetMesh->SetLeaderPoseComponent(CachedLeaderPose.Get());
+	}
+
+	UE_LOG(LogFleshRingComponent, Log,
+		TEXT("[%s] DetachRingAsset: Ring asset detached, SkeletalMesh unchanged"),
+		*GetName());
 }
 
 void UFleshRingComponent::ApplyBakedMesh()
