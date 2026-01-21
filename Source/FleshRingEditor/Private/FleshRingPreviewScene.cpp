@@ -124,7 +124,8 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 
 	CurrentAsset = InAsset;
 
-	if (!InAsset)
+	// ★ nullptr 및 GC된 객체 체크 (Timer 콜백에서 호출 시 유효하지 않을 수 있음)
+	if (!InAsset || !IsValid(InAsset))
 	{
 		return;
 	}
@@ -135,7 +136,18 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	// ============================================
 	// 1단계: 먼저 원본 메시로 설정 (FleshRingComponent 초기화용)
 	// ============================================
-	USkeletalMesh* OriginalMesh = InAsset->TargetSkeletalMesh.LoadSynchronous();
+	// ★ Soft Reference 유효성 체크 (오래된 에셋의 stale reference 방지)
+	USkeletalMesh* OriginalMesh = nullptr;
+	if (!InAsset->TargetSkeletalMesh.IsNull())
+	{
+		OriginalMesh = InAsset->TargetSkeletalMesh.LoadSynchronous();
+		// LoadSynchronous 후 추가 검증 (corrupt 객체 방지)
+		if (OriginalMesh && !IsValid(OriginalMesh))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("FleshRingPreviewScene: TargetSkeletalMesh reference is invalid (stale asset?)"));
+			OriginalMesh = nullptr;
+		}
+	}
 
 	// 메시 변경 여부 확인 (TargetSkeletalMesh 기준)
 	const bool bOriginalMeshChanged = (CachedOriginalMesh.Get() != OriginalMesh);
@@ -296,10 +308,14 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 				FlushRenderingCommands();
 			}
 
-			UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Using PreviewSubdividedMesh (Level %d, %d vertices)"),
-				InAsset->SubdivisionSettings.PreviewSubdivisionLevel,
-				PreviewSubdividedMesh->GetResourceForRendering() ?
-					PreviewSubdividedMesh->GetResourceForRendering()->LODRenderData[0].StaticVertexBuffers.PositionVertexBuffer.GetNumVertices() : 0);
+			// ★ GC 방지: 로깅 전 유효성 체크 (Timer 콜백에서 호출 시 객체가 destroyed될 수 있음)
+			if (IsValid(InAsset) && IsValid(PreviewSubdividedMesh))
+			{
+				FSkeletalMeshRenderData* RenderData = PreviewSubdividedMesh->GetResourceForRendering();
+				UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Using PreviewSubdividedMesh (Level %d, %d vertices)"),
+					InAsset->SubdivisionSettings.PreviewSubdivisionLevel,
+					RenderData ? RenderData->LODRenderData[0].StaticVertexBuffers.PositionVertexBuffer.GetNumVertices() : 0);
+			}
 		}
 	}
 	else

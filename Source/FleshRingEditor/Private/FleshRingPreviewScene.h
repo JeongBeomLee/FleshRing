@@ -79,8 +79,8 @@ public:
 	/** 프리뷰 메시 캐시 무효화 */
 	void InvalidatePreviewMeshCache();
 
-	/** 프리뷰 메시 유효 여부 */
-	bool HasValidPreviewMesh() const { return PreviewSubdividedMesh != nullptr; }
+	/** 프리뷰 메시 유효 여부 (GC된 객체 체크 포함) */
+	bool HasValidPreviewMesh() const { return PreviewSubdividedMesh != nullptr && IsValid(PreviewSubdividedMesh); }
 
 	/** 프리뷰 메시 재생성 필요 여부 */
 	bool NeedsPreviewMeshRegeneration() const;

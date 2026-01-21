@@ -11,12 +11,29 @@ namespace FleshRingUtils
 {
 	bool IsSkeletalMeshValid(USkeletalMesh* Mesh, bool bLogWarnings)
 	{
-		if (!Mesh)
+		// nullptr 또는 pending kill/GC된 객체 체크
+		if (!Mesh || !IsValid(Mesh))
 		{
 			return false;
 		}
 
-		// 렌더 리소스 체크
+		// 파괴 진행 중인 객체 체크 (corrupt 상태 방지)
+		if (Mesh->HasAnyFlags(RF_BeginDestroyed | RF_FinishDestroyed))
+		{
+			return false;
+		}
+
+		// 렌더 리소스 체크 (GetSkeleton() 먼저 호출하여 기본 접근 검증)
+		if (!Mesh->GetSkeleton())
+		{
+			if (bLogWarnings)
+			{
+				UE_LOG(LogFleshRingUtils, Warning, TEXT("IsSkeletalMeshValid: Mesh '%s' has no skeleton"),
+					*Mesh->GetName());
+			}
+			return false;
+		}
+
 		FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
 		if (!RenderData)
 		{

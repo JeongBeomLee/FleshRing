@@ -1115,7 +1115,179 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 			}
 		}
 
-		// ===== LaplacianCS Dispatch (BoneRatioCS 이후, NormalRecomputeCS 이전) =====
+		// ===== PBD Edge Constraint (BoneRatioCS 이후, LaplacianCS 이전) =====
+		// Tolerance 기반 PBD: Affected Vertices(앵커)를 고정하고 주변 버텍스만 보정
+		// 허용 범위(Tolerance) 내 변형은 유지, 범위 밖 극단적 변형만 보정
+		if (WorkItem.RingDispatchDataPtr.IsValid())
+		{
+			for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
+			{
+				const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
+
+				// PBD Edge Constraint가 비활성화되었으면 스킵
+				if (!DispatchData.bEnablePBDEdgeConstraint)
+				{
+					continue;
+				}
+
+				// ===== PBD 영역 선택 (통합된 SmoothingRegion 사용) =====
+				const bool bUseSmoothingRegion =
+					DispatchData.SmoothingRegionIndices.Num() > 0 &&
+					DispatchData.SmoothingRegionIsAnchor.Num() == DispatchData.SmoothingRegionIndices.Num() &&
+					DispatchData.SmoothingRegionPBDAdjacency.Num() > 0;
+
+				// SmoothingRegion 데이터가 없으면 스킵
+				if (!bUseSmoothingRegion)
+				{
+					continue;
+				}
+
+				// 통합된 데이터 소스 사용
+				const TArray<uint32>& IndicesSource = DispatchData.SmoothingRegionIndices;
+				const TArray<uint32>& IsAnchorSource = DispatchData.SmoothingRegionIsAnchor;
+				const TArray<uint32>& AdjacencySource = DispatchData.SmoothingRegionPBDAdjacency;
+				const TArray<uint32>& RepresentativeSource = DispatchData.SmoothingRegionRepresentativeIndices;
+
+				const uint32 NumAffected = IndicesSource.Num();
+				if (NumAffected == 0) continue;
+
+				// 인접 데이터가 없으면 스킵
+				if (AdjacencySource.Num() == 0)
+				{
+					continue;
+				}
+
+				// FullVertexAnchorFlags 검증
+				if (DispatchData.FullVertexAnchorFlags.Num() == 0)
+				{
+					continue;
+				}
+
+				// 영향받는 버텍스 인덱스 버퍼
+				FRDGBufferRef PBDIndicesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumAffected),
+					*FString::Printf(TEXT("FleshRing_PBDIndices_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					PBDIndicesBuffer,
+					IndicesSource.GetData(),
+					NumAffected * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// IsAnchorFlags 버퍼 (per-thread anchor flags)
+				// bPBDAnchorAffectedVertices=true: 1 = Affected (앵커, 고정), 0 = SmoothingRegion (자유)
+				// bPBDAnchorAffectedVertices=false: 모든 버텍스가 0 (자유, PBD 적용)
+				FRDGBufferRef IsAnchorFlagsBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumAffected),
+					*FString::Printf(TEXT("FleshRing_PBDIsAnchor_Ring%d"), RingIdx)
+				);
+
+				// bPBDAnchorAffectedVertices가 false면 모든 앵커를 해제 (모든 버텍스 자유)
+				if (DispatchData.bPBDAnchorAffectedVertices)
+				{
+					// 기존 IsAnchor 데이터 사용 (Affected=1, SmoothingRegion=0)
+					GraphBuilder.QueueBufferUpload(
+						IsAnchorFlagsBuffer,
+						IsAnchorSource.GetData(),
+						NumAffected * sizeof(uint32),
+						ERDGInitialDataFlags::None
+					);
+				}
+				else
+				{
+					// 캐시된 Zero 배열 사용 (매 틱 할당 방지)
+					GraphBuilder.QueueBufferUpload(
+						IsAnchorFlagsBuffer,
+						DispatchData.CachedZeroIsAnchorFlags.GetData(),
+						NumAffected * sizeof(uint32),
+						ERDGInitialDataFlags::None
+					);
+				}
+
+				// FullVertexAnchorFlags 버퍼 (전체 메시 크기, 이웃 앵커 여부 조회용)
+				FRDGBufferRef FullVertexAnchorFlagsBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), DispatchData.FullVertexAnchorFlags.Num()),
+					*FString::Printf(TEXT("FleshRing_FullVertexAnchorFlags_Ring%d"), RingIdx)
+				);
+
+				if (DispatchData.bPBDAnchorAffectedVertices)
+				{
+					// 기존 FullVertexAnchorFlags 사용
+					GraphBuilder.QueueBufferUpload(
+						FullVertexAnchorFlagsBuffer,
+						DispatchData.FullVertexAnchorFlags.GetData(),
+						DispatchData.FullVertexAnchorFlags.Num() * sizeof(uint32),
+						ERDGInitialDataFlags::None
+					);
+				}
+				else
+				{
+					// 캐시된 Zero 배열 사용 (매 틱 할당 방지)
+					GraphBuilder.QueueBufferUpload(
+						FullVertexAnchorFlagsBuffer,
+						DispatchData.CachedZeroFullVertexAnchorFlags.GetData(),
+						DispatchData.FullVertexAnchorFlags.Num() * sizeof(uint32),
+						ERDGInitialDataFlags::None
+					);
+				}
+
+				// PBD 인접 데이터 버퍼 (rest length 포함)
+				FRDGBufferRef PBDAdjacencyBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), AdjacencySource.Num()),
+					*FString::Printf(TEXT("FleshRing_PBDAdjacency_Ring%d"), RingIdx)
+				);
+				GraphBuilder.QueueBufferUpload(
+					PBDAdjacencyBuffer,
+					AdjacencySource.GetData(),
+					AdjacencySource.Num() * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// ===== UV Seam Welding: RepresentativeIndices 버퍼 생성 (PBD용) =====
+				// RepresentativeSource는 이미 bUseSmoothingRegion에 따라 선택됨 (위에서 정의)
+				FRDGBufferRef PBDRepresentativeIndicesBuffer = nullptr;
+				if (RepresentativeSource.Num() > 0 && RepresentativeSource.Num() == static_cast<int32>(NumAffected))
+				{
+					PBDRepresentativeIndicesBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumAffected),
+						*FString::Printf(TEXT("FleshRing_PBDRepIndices_Ring%d"), RingIdx)
+					);
+					GraphBuilder.QueueBufferUpload(
+						PBDRepresentativeIndicesBuffer,
+						RepresentativeSource.GetData(),
+						NumAffected * sizeof(uint32),
+						ERDGInitialDataFlags::None
+					);
+				}
+
+				// PBD 디스패치 파라미터 (Tolerance 기반)
+				FPBDEdgeDispatchParams PBDParams;
+				PBDParams.NumAffectedVertices = NumAffected;
+				PBDParams.NumTotalVertices = ActualNumVertices;
+				PBDParams.Stiffness = DispatchData.PBDStiffness;
+				PBDParams.NumIterations = DispatchData.PBDIterations;
+				PBDParams.Tolerance = DispatchData.PBDTolerance;
+
+				// PBD Edge Constraint 디스패치 (Tolerance 기반, in-place ping-pong)
+				DispatchFleshRingPBDEdgeCS_MultiPass(
+					GraphBuilder,
+					PBDParams,
+					TightenedBindPoseBuffer,
+					PBDIndicesBuffer,
+					PBDRepresentativeIndicesBuffer,  // UV seam welding용 대표 버텍스 인덱스
+					IsAnchorFlagsBuffer,             // per-thread 앵커 플래그
+					FullVertexAnchorFlagsBuffer,           // 전체 메시 앵커 맵 (이웃 조회용)
+					PBDAdjacencyBuffer
+				);
+
+				// [DEBUG] PBDEdgeCS 로그 (필요시 주석 해제)
+				// UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] PBDEdgeCS Ring[%d]: Tolerance=%.2f, %d vertices, Stiffness=%.2f, Iterations=%d"),
+				// 	RingIdx, PBDParams.Tolerance, NumAffected, PBDParams.Stiffness, PBDParams.NumIterations);
+			}
+		}
+
+		// ===== LaplacianCS Dispatch (PBD Edge Constraint 이후, LayerPenetrationCS 이전) =====
 		// 전체적인 메시 스무딩 적용 (경계 영역 부드럽게)
 		if (WorkItem.RingDispatchDataPtr.IsValid())
 		{
@@ -1317,178 +1489,6 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				// 	}
 				// 	LoggedLaplacianRings.Add(RingIdx);
 				// }
-			}
-		}
-
-		// ===== PBD Edge Constraint (LaplacianCS 이후, LayerPenetrationCS 이전) =====
-		// Tolerance 기반 PBD: Affected Vertices(앵커)를 고정하고 주변 버텍스만 보정
-		// 허용 범위(Tolerance) 내 변형은 유지, 범위 밖 극단적 변형만 보정
-		if (WorkItem.RingDispatchDataPtr.IsValid())
-		{
-			for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
-			{
-				const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
-
-				// PBD Edge Constraint가 비활성화되었으면 스킵
-				if (!DispatchData.bEnablePBDEdgeConstraint)
-				{
-					continue;
-				}
-
-				// ===== PBD 영역 선택 (통합된 SmoothingRegion 사용) =====
-				const bool bUseSmoothingRegion =
-					DispatchData.SmoothingRegionIndices.Num() > 0 &&
-					DispatchData.SmoothingRegionIsAnchor.Num() == DispatchData.SmoothingRegionIndices.Num() &&
-					DispatchData.SmoothingRegionPBDAdjacency.Num() > 0;
-
-				// SmoothingRegion 데이터가 없으면 스킵
-				if (!bUseSmoothingRegion)
-				{
-					continue;
-				}
-
-				// 통합된 데이터 소스 사용
-				const TArray<uint32>& IndicesSource = DispatchData.SmoothingRegionIndices;
-				const TArray<uint32>& IsAnchorSource = DispatchData.SmoothingRegionIsAnchor;
-				const TArray<uint32>& AdjacencySource = DispatchData.SmoothingRegionPBDAdjacency;
-				const TArray<uint32>& RepresentativeSource = DispatchData.SmoothingRegionRepresentativeIndices;
-
-				const uint32 NumAffected = IndicesSource.Num();
-				if (NumAffected == 0) continue;
-
-				// 인접 데이터가 없으면 스킵
-				if (AdjacencySource.Num() == 0)
-				{
-					continue;
-				}
-
-				// FullVertexAnchorFlags 검증
-				if (DispatchData.FullVertexAnchorFlags.Num() == 0)
-				{
-					continue;
-				}
-
-				// 영향받는 버텍스 인덱스 버퍼
-				FRDGBufferRef PBDIndicesBuffer = GraphBuilder.CreateBuffer(
-					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumAffected),
-					*FString::Printf(TEXT("FleshRing_PBDIndices_Ring%d"), RingIdx)
-				);
-				GraphBuilder.QueueBufferUpload(
-					PBDIndicesBuffer,
-					IndicesSource.GetData(),
-					NumAffected * sizeof(uint32),
-					ERDGInitialDataFlags::None
-				);
-
-				// IsAnchorFlags 버퍼 (per-thread anchor flags)
-				// bPBDAnchorAffectedVertices=true: 1 = Affected (앵커, 고정), 0 = SmoothingRegion (자유)
-				// bPBDAnchorAffectedVertices=false: 모든 버텍스가 0 (자유, PBD 적용)
-				FRDGBufferRef IsAnchorFlagsBuffer = GraphBuilder.CreateBuffer(
-					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumAffected),
-					*FString::Printf(TEXT("FleshRing_PBDIsAnchor_Ring%d"), RingIdx)
-				);
-
-				// bPBDAnchorAffectedVertices가 false면 모든 앵커를 해제 (모든 버텍스 자유)
-				if (DispatchData.bPBDAnchorAffectedVertices)
-				{
-					// 기존 IsAnchor 데이터 사용 (Affected=1, SmoothingRegion=0)
-					GraphBuilder.QueueBufferUpload(
-						IsAnchorFlagsBuffer,
-						IsAnchorSource.GetData(),
-						NumAffected * sizeof(uint32),
-						ERDGInitialDataFlags::None
-					);
-				}
-				else
-				{
-					// 캐시된 Zero 배열 사용 (매 틱 할당 방지)
-					GraphBuilder.QueueBufferUpload(
-						IsAnchorFlagsBuffer,
-						DispatchData.CachedZeroIsAnchorFlags.GetData(),
-						NumAffected * sizeof(uint32),
-						ERDGInitialDataFlags::None
-					);
-				}
-
-				// FullVertexAnchorFlags 버퍼 (전체 메시 크기, 이웃 앵커 여부 조회용)
-				FRDGBufferRef FullVertexAnchorFlagsBuffer = GraphBuilder.CreateBuffer(
-					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), DispatchData.FullVertexAnchorFlags.Num()),
-					*FString::Printf(TEXT("FleshRing_FullVertexAnchorFlags_Ring%d"), RingIdx)
-				);
-
-				if (DispatchData.bPBDAnchorAffectedVertices)
-				{
-					// 기존 FullVertexAnchorFlags 사용
-					GraphBuilder.QueueBufferUpload(
-						FullVertexAnchorFlagsBuffer,
-						DispatchData.FullVertexAnchorFlags.GetData(),
-						DispatchData.FullVertexAnchorFlags.Num() * sizeof(uint32),
-						ERDGInitialDataFlags::None
-					);
-				}
-				else
-				{
-					// 캐시된 Zero 배열 사용 (매 틱 할당 방지)
-					GraphBuilder.QueueBufferUpload(
-						FullVertexAnchorFlagsBuffer,
-						DispatchData.CachedZeroFullVertexAnchorFlags.GetData(),
-						DispatchData.FullVertexAnchorFlags.Num() * sizeof(uint32),
-						ERDGInitialDataFlags::None
-					);
-				}
-
-				// PBD 인접 데이터 버퍼 (rest length 포함)
-				FRDGBufferRef PBDAdjacencyBuffer = GraphBuilder.CreateBuffer(
-					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), AdjacencySource.Num()),
-					*FString::Printf(TEXT("FleshRing_PBDAdjacency_Ring%d"), RingIdx)
-				);
-				GraphBuilder.QueueBufferUpload(
-					PBDAdjacencyBuffer,
-					AdjacencySource.GetData(),
-					AdjacencySource.Num() * sizeof(uint32),
-					ERDGInitialDataFlags::None
-				);
-
-				// ===== UV Seam Welding: RepresentativeIndices 버퍼 생성 (PBD용) =====
-				// RepresentativeSource는 이미 bUseSmoothingRegion에 따라 선택됨 (위에서 정의)
-				FRDGBufferRef PBDRepresentativeIndicesBuffer = nullptr;
-				if (RepresentativeSource.Num() > 0 && RepresentativeSource.Num() == static_cast<int32>(NumAffected))
-				{
-					PBDRepresentativeIndicesBuffer = GraphBuilder.CreateBuffer(
-						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumAffected),
-						*FString::Printf(TEXT("FleshRing_PBDRepIndices_Ring%d"), RingIdx)
-					);
-					GraphBuilder.QueueBufferUpload(
-						PBDRepresentativeIndicesBuffer,
-						RepresentativeSource.GetData(),
-						NumAffected * sizeof(uint32),
-						ERDGInitialDataFlags::None
-					);
-				}
-
-				// PBD 디스패치 파라미터 (Tolerance 기반)
-				FPBDEdgeDispatchParams PBDParams;
-				PBDParams.NumAffectedVertices = NumAffected;
-				PBDParams.NumTotalVertices = ActualNumVertices;
-				PBDParams.Stiffness = DispatchData.PBDStiffness;
-				PBDParams.NumIterations = DispatchData.PBDIterations;
-				PBDParams.Tolerance = DispatchData.PBDTolerance;
-
-				// PBD Edge Constraint 디스패치 (Tolerance 기반, in-place ping-pong)
-				DispatchFleshRingPBDEdgeCS_MultiPass(
-					GraphBuilder,
-					PBDParams,
-					TightenedBindPoseBuffer,
-					PBDIndicesBuffer,
-					PBDRepresentativeIndicesBuffer,  // UV seam welding용 대표 버텍스 인덱스
-					IsAnchorFlagsBuffer,             // per-thread 앵커 플래그
-					FullVertexAnchorFlagsBuffer,           // 전체 메시 앵커 맵 (이웃 조회용)
-					PBDAdjacencyBuffer
-				);
-
-				// [DEBUG] PBDEdgeCS 로그 (필요시 주석 해제)
-				// UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] PBDEdgeCS Ring[%d]: Tolerance=%.2f, %d vertices, Stiffness=%.2f, Iterations=%d"),
-				// 	RingIdx, PBDParams.Tolerance, NumAffected, PBDParams.Stiffness, PBDParams.NumIterations);
 			}
 		}
 
