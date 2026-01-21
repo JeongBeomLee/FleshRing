@@ -133,25 +133,26 @@ struct FFleshRingWorkItem
 		// true: 원본 Affected Vertices는 앵커로 고정, 확장 영역만 스무딩
 		bool bAnchorDeformedVertices = false;
 
-		// ===== 스무딩 볼륨 모드 파라미터 =====
-		bool bUseHopBasedSmoothing = false;   // true = HopBased, false = BoundsExpand
+		// ===== 통합된 스무딩 영역 데이터 =====
+		// 기존 PostProcessing~ (BoundsExpand)와 Extended~ (HopBased) 변수들을 통합
+		// SmoothingExpandMode에 따라 DeformerInstance에서 적절한 데이터로 채워짐
+		ESmoothingVolumeMode SmoothingExpandMode = ESmoothingVolumeMode::BoundsExpand;
+		TArray<uint32> SmoothingRegionIndices;           // 스무딩 영역 버텍스 인덱스
+		TArray<float> SmoothingRegionInfluences;         // 스무딩 영역 influence (falloff 적용)
+		TArray<uint32> SmoothingRegionIsAnchor;          // 앵커 플래그 (1=Seed/Core, 0=확장)
+		TArray<uint32> SmoothingRegionRepresentativeIndices;  // UV seam 대표 버텍스 인덱스
+		bool bSmoothingRegionHasUVDuplicates = false;    // UV duplicate 존재 여부
+		TArray<uint32> SmoothingRegionLaplacianAdjacency;  // 라플라시안 인접 데이터
+		TArray<uint32> SmoothingRegionPBDAdjacency;      // PBD 인접 데이터
+		TArray<uint32> SmoothingRegionAdjacencyOffsets;  // 노멀 재계산용 인접 오프셋
+		TArray<uint32> SmoothingRegionAdjacencyTriangles;  // 노멀 재계산용 인접 삼각형
+		TArray<int32> SmoothingRegionHopDistances;       // 홉 거리 (HopBased 전용)
+
+		// ===== Legacy (호환성 유지, 점진적 제거 예정) =====
 		TArray<float> HopBasedInfluences;     // (legacy) 홉 거리 기반 influence
 
-		// ===== 확장된 스무딩 영역 (홉 기반) =====
-		// Seeds(Affected) + N-hop 도달 버텍스로 구성
-		// SmoothingVolumeMode == HopBased일 때 LaplacianCS가 이 영역 사용
-		TArray<uint32> ExtendedSmoothingIndices;     // 확장 영역 버텍스 인덱스
-		TArray<float> ExtendedInfluences;            // 확장 영역 influence (홉 falloff)
-		TArray<uint32> ExtendedIsAnchor;             // 확장 영역 앵커 플래그 (1=Seed, 0=확장)
-		TArray<uint32> ExtendedLaplacianAdjacency;   // 확장 영역 인접 데이터
-		TArray<uint32> ExtendedRepresentativeIndices;  // 확장 영역 UV seam 대표 버텍스 인덱스
-		bool bExtendedHasUVDuplicates = false;  // 확장 영역 UV duplicate 존재 여부
-		TArray<uint32> ExtendedAdjacencyOffsets;    // 확장 영역 노멀 재계산용 인접 오프셋
-		TArray<uint32> ExtendedAdjacencyTriangles;  // 확장 영역 노멀 재계산용 인접 삼각형
-		TArray<uint32> ExtendedPBDAdjacencyWithRestLengths;  // 확장 영역 PBD 인접 데이터 (HopBased 모드)
-
 		// ===== Heat Propagation (변형 전파) =====
-		// Seed의 delta를 Extended 영역으로 확산
+		// Seed의 delta를 SmoothingRegion 영역으로 확산
 		// BoneRatioCS 이후, LaplacianCS 이전에 실행
 		bool bEnableHeatPropagation = false;
 		int32 HeatPropagationIterations = 10;
@@ -189,28 +190,14 @@ struct FFleshRingWorkItem
 		// 축소(PostProcessingLayerTypes) → 확대(FullVertexLayerTypes) 변환 불필요
 		TArray<uint32> FullMeshLayerTypes;
 
-		// ===== Z 확장 후처리 버텍스 데이터 =====
-		// [설계]
-		// - Indices/Influences = 원본 SDF AABB → Tightness 변형 대상
-		// - PostProcessing* = 원본 AABB + BoundsZTop/Bottom → 스무딩/침투해결 등
-		// 경계에서 날카로운 크랙 방지를 위해 후처리 패스는 확장된 범위에서 수행
-		// Note: PostProcessingLayerTypes는 FullMeshLayerTypes로 대체됨 (deprecated/removed)
-		TArray<uint32> PostProcessingIndices;
-		TArray<float> PostProcessingInfluences;
-		TArray<uint32> PostProcessingIsAnchor;  // 앵커 플래그 (1=원본Affected, 0=확장영역)
-		TArray<uint32> PostProcessingRepresentativeIndices;  // 후처리 버텍스용 UV seam 대표 인덱스
-		bool bPostProcessingHasUVDuplicates = false;  // 후처리 영역 UV duplicate 존재 여부
-		TArray<uint32> PostProcessingLaplacianAdjacencyData;  // 후처리 버텍스용 라플라시안 인접 데이터
-		TArray<uint32> PostProcessingPBDAdjacencyWithRestLengths;  // 후처리 버텍스용 PBD 인접 데이터
-		TArray<uint32> PostProcessingAdjacencyOffsets;    // 후처리 버텍스용 노멀 인접 오프셋
-		TArray<uint32> PostProcessingAdjacencyTriangles;  // 후처리 버텍스용 노멀 인접 삼각형
+		// Note: PostProcessing~ 변수들은 SmoothingRegion~ 으로 통합됨 (위 참조)
 
 		// ===== Skin SDF 기반 레이어 분리용 데이터 =====
-		// 스킨 버텍스 인덱스 (PostProcessing 범위 내, LayerType=Skin)
+		// 스킨 버텍스 인덱스 (SmoothingRegion 범위 내, LayerType=Skin)
 		TArray<uint32> SkinVertexIndices;
 		// 스킨 버텍스 노멀 (방사 방향으로 계산)
 		TArray<float> SkinVertexNormals;
-		// 스타킹 버텍스 인덱스 (PostProcessing 범위 내, LayerType=Stocking)
+		// 스타킹 버텍스 인덱스 (SmoothingRegion 범위 내, LayerType=Stocking)
 		TArray<uint32> StockingVertexIndices;
 
 		// ===== PBD Edge Constraint용 데이터 (Tolerance 기반 변형 전파) =====

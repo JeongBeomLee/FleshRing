@@ -178,93 +178,99 @@ struct FRingAffectedData
      */
     bool bHasUVDuplicates = false;
 
-    /**
-     * GPU buffer: Representative vertex index for PostProcessing vertices
-     * Same concept as RepresentativeIndices but for Z-extended region
-     * GPU 버퍼: 후처리 버텍스의 대표 버텍스 인덱스
-     * RepresentativeIndices와 동일 개념, Z 확장 영역용
-     */
-    TArray<uint32> PostProcessingRepresentativeIndices;
-
-    /** UV duplicate 존재 여부 (후처리 영역) */
-    bool bPostProcessingHasUVDuplicates = false;
-
-    // =========== Z-Extended Post-Processing Vertices ===========
-    // =========== Z 확장 후처리 버텍스 ===========
+    // =========== Unified Smoothing Region Data ===========
+    // =========== 통합된 스무딩 영역 데이터 ===========
     //
     // [설계]
-    // - Affected Vertices (Vertices/PackedIndices) = 원본 SDF AABB → Tightness 변형 대상
-    // - Post-Processing Vertices = 원본 AABB + BoundsZTop/Bottom → 스무딩/침투해결 등
+    // - 기존 PostProcessing~ (BoundsExpand)와 Extended~ (HopBased) 변수들을 통합
+    // - SmoothingExpandMode에 따라 Build 시점에 적절한 방식으로 채워짐
+    // - ComputeWorker에서 분기 없이 동일한 변수 사용
     //
-    // 경계에서 날카로운 크랙 방지를 위해 후처리 패스는 확장된 범위에서 수행
+    // BoundsExpand: Z축 바운드 확장 (SmoothingBoundsZTop/Bottom)
+    // HopBased: 토폴로지 기반 홉 전파 (Seed에서 N홉까지)
 
     /**
-     * GPU buffer: Post-processing vertex indices (Z-extended range)
-     * Includes all vertices in (original AABB + BoundsZTop/Bottom)
-     * Used for: Laplacian smoothing, Layer penetration, PBD, etc. (NOT Tightness)
-     * GPU 버퍼: 후처리용 버텍스 인덱스 (Z 확장 범위)
-     * 원본 AABB + BoundsZTop/Bottom 범위의 모든 버텍스 포함
-     * 용도: 라플라시안 스무딩, 레이어 침투 해결, PBD 등 (Tightness 제외)
+     * 현재 활성화된 스무딩 확장 모드
+     * Build 시점에 설정되며, ComputeWorker에서 분기 없이 사용
      */
-    TArray<uint32> PostProcessingIndices;
+    ESmoothingVolumeMode SmoothingExpandMode = ESmoothingVolumeMode::BoundsExpand;
 
     /**
-     * GPU buffer: Post-processing vertex influences
-     * 1.0 for vertices in original AABB (core), falloff for Z-extended vertices
-     * GPU 버퍼: 후처리용 버텍스 영향도
-     * 원본 AABB 내 버텍스는 1.0 (코어), Z 확장 버텍스는 falloff 적용
+     * GPU buffer: Smoothing region vertex indices (absolute mesh indices)
+     * BoundsExpand: 원본 AABB + BoundsZTop/Bottom 범위
+     * HopBased: Seeds (Affected Vertices) + N-hop 도달 가능 버텍스
+     * GPU 버퍼: 스무딩 영역 버텍스 인덱스 (전체 메시 기준)
      */
-    TArray<float> PostProcessingInfluences;
+    TArray<uint32> SmoothingRegionIndices;
 
     /**
-     * GPU buffer: Anchor flags for post-processing vertices
-     * 1 = original affected vertex (anchor, skip smoothing)
-     * 0 = extended region vertex (apply smoothing)
-     * GPU 버퍼: 후처리 버텍스의 앵커 플래그
-     * 1 = 원본 영향 버텍스 (앵커, 스무딩 건너뜀)
-     * 0 = 확장 영역 버텍스 (스무딩 적용)
+     * GPU buffer: Smoothing region vertex influences (falloff applied)
+     * BoundsExpand: 원본 AABB 내 1.0, Z 확장 영역은 falloff
+     * HopBased: 홉 거리에서 falloff로 계산
+     * GPU 버퍼: 스무딩 영역 버텍스 영향도
      */
-    TArray<uint32> PostProcessingIsAnchor;
-
-    // Note: PostProcessingLayerTypes는 CachedVertexLayerTypes/FullMeshLayerTypes로 대체됨 (deprecated/removed)
-    // 전체 메시 크기의 lookup 테이블을 직접 사용하여 축소→확대 변환 제거
+    TArray<float> SmoothingRegionInfluences;
 
     /**
-     * GPU buffer: Laplacian adjacency data for post-processing vertices
+     * GPU buffer: Anchor flags for smoothing region vertices
+     * 1 = Seed/Core 버텍스 (앵커, 스무딩 건너뜀)
+     * 0 = Extended 버텍스 (스무딩 적용)
+     * GPU 버퍼: 스무딩 영역 앵커 플래그
+     */
+    TArray<uint32> SmoothingRegionIsAnchor;
+
+    /**
+     * GPU buffer: Representative vertex index for UV seam welding
+     * All UV duplicates at same position share the same representative
+     * GPU 버퍼: UV seam 용접용 대표 버텍스 인덱스
+     */
+    TArray<uint32> SmoothingRegionRepresentativeIndices;
+
+    /** UV duplicate 존재 여부 (스무딩 영역) */
+    bool bSmoothingRegionHasUVDuplicates = false;
+
+    /**
+     * GPU buffer: Laplacian adjacency data for smoothing region
      * Format: [NeighborCount, N0, N1, ..., N11] per vertex (13 uints each)
-     * Neighbor indices are raw vertex indices (not thread indices)
-     * 후처리 버텍스용 라플라시안 인접 데이터
+     * GPU 버퍼: 스무딩 영역용 라플라시안 인접 데이터
      * 포맷: 버텍스당 [이웃수, N0, N1, ..., N11] (각 13 uint)
-     * 이웃 인덱스는 전역 버텍스 인덱스 (thread index가 아님)
      */
-    TArray<uint32> PostProcessingLaplacianAdjacencyData;
+    TArray<uint32> SmoothingRegionLaplacianAdjacency;
 
     /**
-     * PBD adjacency data for PostProcessing vertices
-     * 후처리 버텍스용 PBD 인접 데이터
+     * GPU buffer: PBD adjacency data for smoothing region
      * Format: [Count, N0, RL0, N1, RL1, ...] per vertex (1 + MAX_NEIGHBORS*2 uints)
+     * GPU 버퍼: 스무딩 영역용 PBD 인접 데이터
      */
-    TArray<uint32> PostProcessingPBDAdjacencyWithRestLengths;
+    TArray<uint32> SmoothingRegionPBDAdjacency;
 
     /**
-     * Normal adjacency offsets for PostProcessing vertices
-     * 후처리 버텍스용 노멀 인접 오프셋
-     * Size: NumPostProcessing + 1 (sentinel)
+     * GPU buffer: Normal adjacency offsets for smoothing region
+     * Size: NumSmoothingRegion + 1 (sentinel)
+     * GPU 버퍼: 스무딩 영역용 노멀 인접 오프셋
      */
-    TArray<uint32> PostProcessingAdjacencyOffsets;
+    TArray<uint32> SmoothingRegionAdjacencyOffsets;
 
     /**
-     * Normal adjacency triangles for PostProcessing vertices
-     * 후처리 버텍스용 노멀 인접 삼각형
+     * GPU buffer: Normal adjacency triangles for smoothing region
+     * GPU 버퍼: 스무딩 영역용 노멀 인접 삼각형
      */
-    TArray<uint32> PostProcessingAdjacencyTriangles;
+    TArray<uint32> SmoothingRegionAdjacencyTriangles;
+
+    /**
+     * Hop distance for each vertex in smoothing region (HopBased only)
+     * 0 = Seed (original affected vertex), 1+ = hop distance from nearest seed
+     * BoundsExpand 모드에서는 비어 있음
+     * GPU 버퍼: 스무딩 영역 각 버텍스의 홉 거리 (HopBased 전용)
+     */
+    TArray<int32> SmoothingRegionHopDistances;
 
     // =========== Skin SDF Layer Separation Data ===========
     // =========== 스킨 SDF 레이어 분리용 데이터 ===========
 
     /**
-     * Skin vertex indices (PostProcessing range, LayerType=Skin)
-     * 스킨 버텍스 인덱스 (후처리 범위 내)
+     * Skin vertex indices (Smoothing region, LayerType=Skin)
+     * 스킨 버텍스 인덱스 (스무딩 영역 내)
      */
     TArray<uint32> SkinVertexIndices;
 
@@ -276,8 +282,8 @@ struct FRingAffectedData
     TArray<float> SkinVertexNormals;
 
     /**
-     * Stocking vertex indices (PostProcessing range, LayerType=Stocking)
-     * 스타킹 버텍스 인덱스 (후처리 범위 내)
+     * Stocking vertex indices (Smoothing region, LayerType=Stocking)
+     * 스타킹 버텍스 인덱스 (스무딩 영역 내)
      */
     TArray<uint32> StockingVertexIndices;
 
@@ -421,92 +427,7 @@ struct FRingAffectedData
      */
     TArray<int32> SeedThreadIndices;
 
-    // =========== Extended Smoothing Region (Hop-Based) ===========
-    // =========== 확장된 스무딩 영역 (홉 기반) ===========
-    // Seeds(Affected Vertices)에서 N-hop 거리 내의 모든 버텍스
-    // LaplacianCS가 이 확장된 영역에 대해 스무딩 적용
-
-    /**
-     * Extended smoothing region vertex indices (absolute mesh indices)
-     * Includes: Seeds (Affected Vertices) + N-hop reachable vertices
-     * 확장된 스무딩 영역 버텍스 인덱스 (전체 메시 기준)
-     * 포함: Seeds (Affected Vertices) + N-hop 도달 가능 버텍스
-     */
-    TArray<uint32> ExtendedSmoothingIndices;
-
-    /**
-     * Hop distance for each vertex in ExtendedSmoothingIndices
-     * 0 = Seed (original affected vertex)
-     * 1+ = hop distance from nearest seed
-     * ExtendedSmoothingIndices 각 버텍스의 홉 거리
-     * 0 = Seed (원본 affected vertex)
-     * 1+ = 가장 가까운 Seed로부터의 홉 거리
-     */
-    TArray<int32> ExtendedHopDistances;
-
-    /**
-     * Influence for each vertex in ExtendedSmoothingIndices
-     * Calculated from hop distance with falloff
-     * ExtendedSmoothingIndices 각 버텍스의 influence
-     * 홉 거리에서 falloff로 계산됨
-     */
-    TArray<float> ExtendedInfluences;
-
-    /**
-     * Anchor flags for each vertex in ExtendedSmoothingIndices
-     * 1 = Seed vertex (hop distance 0, original affected) → anchor, skip smoothing
-     * 0 = Extended vertex (hop distance > 0) → apply smoothing
-     * ExtendedSmoothingIndices 각 버텍스의 앵커 플래그
-     * 1 = Seed 버텍스 (홉 거리 0, 원본 affected) → 앵커, 스무딩 건너뜀
-     * 0 = 확장 버텍스 (홉 거리 > 0) → 스무딩 적용
-     */
-    TArray<uint32> ExtendedIsAnchor;
-
-    /**
-     * Laplacian adjacency data for extended smoothing region
-     * Format: [NeighborCount, N0, N1, ..., N11] per vertex (13 uints each)
-     * Neighbor indices are relative to ExtendedSmoothingIndices (thread index)
-     * 확장된 스무딩 영역용 라플라시안 인접 데이터
-     * 포맷: 버텍스당 [이웃수, N0, N1, ..., N11] (각 13 uint)
-     * 이웃 인덱스는 ExtendedSmoothingIndices 기준 (thread index)
-     */
-    TArray<uint32> ExtendedLaplacianAdjacency;
-
-    /**
-     * Representative vertex indices for UV seam welding in extended region
-     * ExtendedRepresentativeIndices[ThreadIndex] = representative vertex index for that vertex
-     * All UV duplicates at same position share the same representative
-     * Used by HeatPropagationCS to ensure UV seam vertices move identically
-     * 확장 영역 UV seam 용접용 대표 버텍스 인덱스
-     * ExtendedRepresentativeIndices[ThreadIndex] = 해당 버텍스의 대표 버텍스 인덱스
-     * 같은 위치의 모든 UV duplicate가 동일한 대표를 공유
-     * HeatPropagationCS에서 UV seam 버텍스가 동일하게 이동하도록 보장
-     */
-    TArray<uint32> ExtendedRepresentativeIndices;
-
-    /** UV duplicate 존재 여부 (확장 영역) */
-    bool bExtendedHasUVDuplicates = false;
-
-    /**
-     * Triangle adjacency data for extended smoothing region (NormalRecomputeCS용)
-     * ExtendedAdjacencyOffsets[i] = start index in ExtendedAdjacencyTriangles for vertex i
-     * ExtendedAdjacencyOffsets has NumExtended+1 elements (prefix sum format)
-     * ExtendedAdjacencyTriangles = flattened list of adjacent triangle indices
-     * 확장 스무딩 영역용 삼각형 인접 데이터 (NormalRecomputeCS용)
-     * ExtendedAdjacencyOffsets[i] = 버텍스 i의 인접 삼각형 시작 인덱스
-     * ExtendedAdjacencyOffsets는 NumExtended+1 개 원소 (누적합 형식)
-     * ExtendedAdjacencyTriangles = 인접 삼각형 인덱스의 평탄화된 리스트
-     */
-    TArray<uint32> ExtendedAdjacencyOffsets;
-    TArray<uint32> ExtendedAdjacencyTriangles;
-
-    /**
-     * PBD adjacency data for Extended smoothing region (HopBased mode)
-     * 확장 스무딩 영역용 PBD 인접 데이터 (HopBased 모드)
-     * Format: [Count, N0, RL0, N1, RL1, ...] per vertex (1 + MAX_NEIGHBORS*2 uints)
-     * Used when SmoothingVolumeMode == HopBased
-     */
-    TArray<uint32> ExtendedPBDAdjacencyWithRestLengths;
+    // Note: Extended~ 변수들은 SmoothingRegion~ 으로 통합됨 (위 참조)
 
     FRingAffectedData()
         : BoneName(NAME_None)
@@ -734,9 +655,9 @@ public:
      *
      * @param Context - Vertex selection context
      * @param AffectedVertices - Already selected affected vertices
-     * @param OutRingData - Output: fills PostProcessingIndices, PostProcessingInfluences
+     * @param OutRingData - Output: fills SmoothingRegionIndices, SmoothingRegionInfluences
      */
-    void SelectPostProcessingVertices(
+    void SelectSmoothingRegionVertices(
         const FVertexSelectionContext& Context,
         const TArray<FAffectedVertex>& AffectedVertices,
         FRingAffectedData& OutRingData);
@@ -780,9 +701,9 @@ public:
      *
      * @param Context - Vertex selection context with SDF cache
      * @param AffectedVertices - Already selected affected vertices (for quick lookup)
-     * @param OutRingData - Output: fills PostProcessingIndices, PostProcessingInfluences
+     * @param OutRingData - Output: fills SmoothingRegionIndices, SmoothingRegionInfluences
      */
-    void SelectPostProcessingVertices(
+    void SelectSmoothingRegionVertices(
         const FVertexSelectionContext& Context,
         const TArray<FAffectedVertex>& AffectedVertices,
         FRingAffectedData& OutRingData);
@@ -819,9 +740,9 @@ public:
      *
      * @param Context - Vertex selection context
      * @param AffectedVertices - Already selected affected vertices
-     * @param OutRingData - Output: fills PostProcessingIndices, PostProcessingInfluences
+     * @param OutRingData - Output: fills SmoothingRegionIndices, SmoothingRegionInfluences
      */
-    void SelectPostProcessingVertices(
+    void SelectSmoothingRegionVertices(
         const FVertexSelectionContext& Context,
         const TArray<FAffectedVertex>& AffectedVertices,
         FRingAffectedData& OutRingData);
@@ -1172,15 +1093,15 @@ private:
      * Build Laplacian adjacency data for post-processing vertices (Z-extended range)
      * 후처리 버텍스(Z 확장 범위)용 라플라시안 인접 데이터 빌드
      *
-     * Similar to BuildLaplacianAdjacencyData but for PostProcessingIndices.
-     * BuildLaplacianAdjacencyData와 유사하지만 PostProcessingIndices 기반.
+     * Similar to BuildLaplacianAdjacencyData but for SmoothingRegionIndices.
+     * BuildLaplacianAdjacencyData와 유사하지만 SmoothingRegionIndices 기반.
      *
-     * @param RingData - Ring data with PostProcessingIndices already populated
+     * @param RingData - Ring data with SmoothingRegionIndices already populated
      * @param MeshIndices - Mesh index buffer (3 indices per triangle)
      * @param AllVertices - All mesh vertex positions (for position-based welding)
      * @param VertexLayerTypes - Per-vertex layer types (for same-layer filtering)
      */
-    void BuildPostProcessingLaplacianAdjacencyData(
+    void BuildSmoothingRegionLaplacianAdjacency(
         FRingAffectedData& RingData,
         const TArray<uint32>& MeshIndices,
         const TArray<FVector3f>& AllVertices,
@@ -1236,21 +1157,21 @@ private:
         int32 TotalVertexCount);
 
     /**
-     * Build PBD adjacency data for PostProcessing vertices
-     * 후처리 버텍스용 PBD 인접 데이터 빌드
+     * Build PBD adjacency data for Smoothing Region vertices
+     * 스무딩 영역 버텍스용 PBD 인접 데이터 빌드
      *
-     * Same as BuildPBDAdjacencyData but for PostProcessingIndices range.
-     * BuildPBDAdjacencyData와 동일하지만 PostProcessingIndices 범위 사용.
+     * Same as BuildPBDAdjacencyData but for SmoothingRegionIndices range.
+     * BuildPBDAdjacencyData와 동일하지만 SmoothingRegionIndices 범위 사용.
      *
      * Output:
-     * - RingData.PostProcessingPBDAdjacencyWithRestLengths: [Count, N0, RL0, N1, RL1, ...] per vertex
+     * - RingData.SmoothingRegionPBDAdjacency: [Count, N0, RL0, N1, RL1, ...] per vertex
      *
-     * @param RingData - Ring data with PostProcessingIndices already populated
+     * @param RingData - Ring data with SmoothingRegionIndices already populated
      * @param MeshIndices - Mesh index buffer (3 indices per triangle)
      * @param AllVertices - All mesh vertices in bind pose component space
      * @param TotalVertexCount - Total number of vertices in mesh
      */
-    void BuildPostProcessingPBDAdjacencyData(
+    void BuildSmoothingRegionPBDAdjacency(
         FRingAffectedData& RingData,
         const TArray<uint32>& MeshIndices,
         const TArray<FVector3f>& AllVertices,
@@ -1260,34 +1181,34 @@ private:
      * Build PBD adjacency data for Extended smoothing region (HopBased mode)
      * 확장 스무딩 영역용 PBD 인접 데이터 빌드 (HopBased 모드)
      *
-     * Similar to BuildPostProcessingPBDAdjacencyData but for ExtendedSmoothingIndices.
-     * BuildPostProcessingPBDAdjacencyData와 유사하지만 ExtendedSmoothingIndices 사용.
+     * Similar to BuildSmoothingRegionPBDAdjacency but for SmoothingRegionIndices.
+     * BuildSmoothingRegionPBDAdjacency와 유사하지만 SmoothingRegionIndices 사용.
      *
      * Output:
-     * - RingData.ExtendedPBDAdjacencyWithRestLengths: [Count, N0, RL0, N1, RL1, ...] per vertex
+     * - RingData.SmoothingRegionPBDAdjacency: [Count, N0, RL0, N1, RL1, ...] per vertex
      *
-     * @param RingData - Ring data with ExtendedSmoothingIndices already populated
+     * @param RingData - Ring data with SmoothingRegionIndices already populated
      * @param AllVertices - All mesh vertices in bind pose component space
      */
-    void BuildExtendedPBDAdjacencyData(
+    void BuildSmoothingRegionPBDAdjacency_HopBased(
         FRingAffectedData& RingData,
         const TArray<FVector3f>& AllVertices);
 
     /**
-     * Build adjacency data for PostProcessing vertices (Normal recomputation)
-     * 후처리 버텍스용 인접 데이터 빌드 (노멀 재계산용)
+     * Build adjacency data for Smoothing Region vertices (Normal recomputation)
+     * 스무딩 영역 버텍스용 인접 데이터 빌드 (노멀 재계산용)
      *
-     * Same as BuildAdjacencyData but for PostProcessingIndices range.
-     * BuildAdjacencyData와 동일하지만 PostProcessingIndices 범위 사용.
+     * Same as BuildAdjacencyData but for SmoothingRegionIndices range.
+     * BuildAdjacencyData와 동일하지만 SmoothingRegionIndices 범위 사용.
      *
      * Output:
-     * - RingData.PostProcessingAdjacencyOffsets: [NumPostProcessing+1] offsets
-     * - RingData.PostProcessingAdjacencyTriangles: flattened triangle indices
+     * - RingData.SmoothingRegionAdjacencyOffsets: [NumSmoothingRegion+1] offsets
+     * - RingData.SmoothingRegionAdjacencyTriangles: flattened triangle indices
      *
-     * @param RingData - Ring data with PostProcessingIndices already populated
+     * @param RingData - Ring data with SmoothingRegionIndices already populated
      * @param MeshIndices - Mesh index buffer (3 indices per triangle)
      */
-    void BuildPostProcessingAdjacencyData(
+    void BuildSmoothingRegionNormalAdjacency(
         FRingAffectedData& RingData,
         const TArray<uint32>& MeshIndices);
 
@@ -1308,10 +1229,10 @@ private:
      * 4. Influence falloff를 적용한 확장된 스무딩 영역 구축
      *
      * Output:
-     * - RingData.ExtendedSmoothingIndices: all vertices in smoothing region
-     * - RingData.ExtendedHopDistances: hop distance (0=seed, 1+=hop)
-     * - RingData.ExtendedInfluences: influence based on hop distance
-     * - RingData.ExtendedLaplacianAdjacency: adjacency for smoothing region
+     * - RingData.SmoothingRegionIndices: all vertices in smoothing region
+     * - RingData.SmoothingRegionHopDistances: hop distance (0=seed, 1+=hop)
+     * - RingData.SmoothingRegionInfluences: influence based on hop distance
+     * - RingData.SmoothingRegionLaplacianAdjacency: adjacency for smoothing region
      *
      * @param RingData - Ring data with Vertices already populated
      * @param MeshIndices - Full mesh index buffer (3 indices per triangle)
@@ -1343,14 +1264,14 @@ private:
      * Build Laplacian adjacency for extended smoothing region
      * 확장된 스무딩 영역용 라플라시안 인접 데이터 구축
      *
-     * [수정] BuildPostProcessingLaplacianAdjacencyData와 동일한 welding 로직 사용
+     * [수정] BuildSmoothingRegionLaplacianAdjacency와 동일한 welding 로직 사용
      * 기존: CachedFullAdjacencyMap 사용 (UV welding 안됨)
      * 수정: CachedWeldedNeighborPositions 사용 (UV welding 적용)
      *
-     * @param RingData - Ring data with ExtendedSmoothingIndices populated
+     * @param RingData - Ring data with SmoothingRegionIndices populated
      * @param VertexLayerTypes - Per-vertex layer types (for same-layer filtering)
      */
-    void BuildExtendedLaplacianAdjacency(
+    void BuildSmoothingRegionLaplacianAdjacency_HopBased(
         FRingAffectedData& RingData,
         const TArray<EFleshRingLayerType>& VertexLayerTypes);
 
@@ -1367,9 +1288,9 @@ private:
      *
      * Output:
      * - RingData.RepresentativeIndices: [NumAffectedVertices] representative for each affected vertex
-     * - RingData.PostProcessingRepresentativeIndices: [NumPostProcessing] representative for each PP vertex
+     * - RingData.SmoothingRegionRepresentativeIndices: [NumSmoothingRegion] representative for each smoothing region vertex
      *
-     * @param RingData - Ring data with Vertices and PostProcessingIndices already populated
+     * @param RingData - Ring data with Vertices and SmoothingRegionIndices already populated
      * @param AllVertices - All mesh vertex positions (for position-based grouping)
      */
     void BuildRepresentativeIndices(

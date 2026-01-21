@@ -542,16 +542,16 @@ float FDistanceBasedVertexSelector::CalculateFalloff(
 }
 
 // ============================================================================
-// SelectPostProcessingVertices - VirtualRing 모드용 후처리 버텍스 선택
+// SelectSmoothingRegionVertices - VirtualRing 모드용 후처리 버텍스 선택
 // ============================================================================
-void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
+void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
     const FVertexSelectionContext& Context,
     const TArray<FAffectedVertex>& AffectedVertices,
     FRingAffectedData& OutRingData)
 {
-    OutRingData.PostProcessingIndices.Reset();
-    OutRingData.PostProcessingInfluences.Reset();
-    OutRingData.PostProcessingIsAnchor.Reset();
+    OutRingData.SmoothingRegionIndices.Reset();
+    OutRingData.SmoothingRegionInfluences.Reset();
+    OutRingData.SmoothingRegionIsAnchor.Reset();
     // Note: PostProcessingLayerTypes는 FullMeshLayerTypes로 대체됨 (deprecated/removed)
 
     // 원본 Affected Vertices를 빠르게 조회하기 위한 Set (앵커 판정용)
@@ -570,20 +570,20 @@ void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
 
     if (!bAnySmoothingEnabled)
     {
-        OutRingData.PostProcessingIndices.Reserve(AffectedVertices.Num());
-        OutRingData.PostProcessingInfluences.Reserve(AffectedVertices.Num());
-        OutRingData.PostProcessingIsAnchor.Reserve(AffectedVertices.Num());
+        OutRingData.SmoothingRegionIndices.Reserve(AffectedVertices.Num());
+        OutRingData.SmoothingRegionInfluences.Reserve(AffectedVertices.Num());
+        OutRingData.SmoothingRegionIsAnchor.Reserve(AffectedVertices.Num());
 
         for (const FAffectedVertex& V : AffectedVertices)
         {
-            OutRingData.PostProcessingIndices.Add(V.VertexIndex);
-            OutRingData.PostProcessingInfluences.Add(1.0f);
-            OutRingData.PostProcessingIsAnchor.Add(1);  // 원본 Affected = 앵커
+            OutRingData.SmoothingRegionIndices.Add(V.VertexIndex);
+            OutRingData.SmoothingRegionInfluences.Add(1.0f);
+            OutRingData.SmoothingRegionIsAnchor.Add(1);  // 원본 Affected = 앵커
         }
 
         UE_LOG(LogFleshRingVertices, Log,
             TEXT("PostProcessing (VirtualRing): Smoothing disabled, using %d affected vertices"),
-            OutRingData.PostProcessingIndices.Num());
+            OutRingData.SmoothingRegionIndices.Num());
         return;
     }
 
@@ -595,20 +595,20 @@ void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
     // Z 확장이 없으면 원본 Affected Vertices를 그대로 사용
     if (BoundsZTop < 0.01f && BoundsZBottom < 0.01f)
     {
-        OutRingData.PostProcessingIndices.Reserve(AffectedVertices.Num());
-        OutRingData.PostProcessingInfluences.Reserve(AffectedVertices.Num());
-        OutRingData.PostProcessingIsAnchor.Reserve(AffectedVertices.Num());
+        OutRingData.SmoothingRegionIndices.Reserve(AffectedVertices.Num());
+        OutRingData.SmoothingRegionInfluences.Reserve(AffectedVertices.Num());
+        OutRingData.SmoothingRegionIsAnchor.Reserve(AffectedVertices.Num());
 
         for (const FAffectedVertex& V : AffectedVertices)
         {
-            OutRingData.PostProcessingIndices.Add(V.VertexIndex);
-            OutRingData.PostProcessingInfluences.Add(1.0f);
-            OutRingData.PostProcessingIsAnchor.Add(1);  // 원본 Affected = 앵커
+            OutRingData.SmoothingRegionIndices.Add(V.VertexIndex);
+            OutRingData.SmoothingRegionInfluences.Add(1.0f);
+            OutRingData.SmoothingRegionIsAnchor.Add(1);  // 원본 Affected = 앵커
         }
 
         UE_LOG(LogFleshRingVertices, Log,
             TEXT("PostProcessing (VirtualRing): No Z extension, using %d affected vertices"),
-            OutRingData.PostProcessingIndices.Num());
+            OutRingData.SmoothingRegionIndices.Num());
         return;
     }
 
@@ -628,9 +628,9 @@ void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
     const float ExtendedZMin = OriginalZMin - BoundsZBottom;
     const float ExtendedZMax = OriginalZMax + BoundsZTop;
 
-    OutRingData.PostProcessingIndices.Reserve(AllVertices.Num() / 4);
-    OutRingData.PostProcessingInfluences.Reserve(AllVertices.Num() / 4);
-    OutRingData.PostProcessingIsAnchor.Reserve(AllVertices.Num() / 4);
+    OutRingData.SmoothingRegionIndices.Reserve(AllVertices.Num() / 4);
+    OutRingData.SmoothingRegionInfluences.Reserve(AllVertices.Num() / 4);
+    OutRingData.SmoothingRegionIsAnchor.Reserve(AllVertices.Num() / 4);
 
     int32 CoreCount = 0;
     int32 ExtendedCount = 0;
@@ -676,15 +676,15 @@ void FDistanceBasedVertexSelector::SelectPostProcessingVertices(
             const bool bIsAnchor = AffectedSet.Contains(static_cast<uint32>(VertexIdx));
             if (bIsAnchor) AnchorCount++;
 
-            OutRingData.PostProcessingIndices.Add(static_cast<uint32>(VertexIdx));
-            OutRingData.PostProcessingInfluences.Add(Influence);
-            OutRingData.PostProcessingIsAnchor.Add(bIsAnchor ? 1 : 0);
+            OutRingData.SmoothingRegionIndices.Add(static_cast<uint32>(VertexIdx));
+            OutRingData.SmoothingRegionInfluences.Add(Influence);
+            OutRingData.SmoothingRegionIsAnchor.Add(bIsAnchor ? 1 : 0);
         }
     }
 
     UE_LOG(LogFleshRingVertices, Log,
         TEXT("PostProcessing (VirtualRing): Selected %d vertices (Core=%d, ZExtended=%d, Anchors=%d) for Ring[%d], ZExtend=[%.1f, %.1f]"),
-        OutRingData.PostProcessingIndices.Num(), CoreCount, ExtendedCount, AnchorCount,
+        OutRingData.SmoothingRegionIndices.Num(), CoreCount, ExtendedCount, AnchorCount,
         Context.RingIndex, BoundsZBottom, BoundsZTop);
 }
 
@@ -866,14 +866,14 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
         Context.RingIndex, *Context.RingSettings.BoneName.ToString());
 }
 
-void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
+void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
     const FVertexSelectionContext& Context,
     const TArray<FAffectedVertex>& AffectedVertices,
     FRingAffectedData& OutRingData)
 {
-    OutRingData.PostProcessingIndices.Reset();
-    OutRingData.PostProcessingInfluences.Reset();
-    OutRingData.PostProcessingIsAnchor.Reset();
+    OutRingData.SmoothingRegionIndices.Reset();
+    OutRingData.SmoothingRegionInfluences.Reset();
+    OutRingData.SmoothingRegionIsAnchor.Reset();
     // Note: PostProcessingLayerTypes는 FullMeshLayerTypes로 대체됨 (deprecated/removed)
 
     if (!Context.SDFCache || !Context.SDFCache->IsValid())
@@ -899,20 +899,20 @@ void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
 
     if (!bAnySmoothingEnabled)
     {
-        OutRingData.PostProcessingIndices.Reserve(AffectedVertices.Num());
-        OutRingData.PostProcessingInfluences.Reserve(AffectedVertices.Num());
-        OutRingData.PostProcessingIsAnchor.Reserve(AffectedVertices.Num());
+        OutRingData.SmoothingRegionIndices.Reserve(AffectedVertices.Num());
+        OutRingData.SmoothingRegionInfluences.Reserve(AffectedVertices.Num());
+        OutRingData.SmoothingRegionIsAnchor.Reserve(AffectedVertices.Num());
 
         for (const FAffectedVertex& V : AffectedVertices)
         {
-            OutRingData.PostProcessingIndices.Add(V.VertexIndex);
-            OutRingData.PostProcessingInfluences.Add(1.0f);
-            OutRingData.PostProcessingIsAnchor.Add(1);  // 원본 Affected = 앵커
+            OutRingData.SmoothingRegionIndices.Add(V.VertexIndex);
+            OutRingData.SmoothingRegionInfluences.Add(1.0f);
+            OutRingData.SmoothingRegionIsAnchor.Add(1);  // 원본 Affected = 앵커
         }
 
         UE_LOG(LogFleshRingVertices, Log,
             TEXT("PostProcessing: Smoothing disabled, using %d affected vertices (no Z extension)"),
-            OutRingData.PostProcessingIndices.Num());
+            OutRingData.SmoothingRegionIndices.Num());
         return;
     }
 
@@ -923,20 +923,20 @@ void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
     if (BoundsZTop < 0.01f && BoundsZBottom < 0.01f)
     {
         // 원본 복사
-        OutRingData.PostProcessingIndices.Reserve(AffectedVertices.Num());
-        OutRingData.PostProcessingInfluences.Reserve(AffectedVertices.Num());
-        OutRingData.PostProcessingIsAnchor.Reserve(AffectedVertices.Num());
+        OutRingData.SmoothingRegionIndices.Reserve(AffectedVertices.Num());
+        OutRingData.SmoothingRegionInfluences.Reserve(AffectedVertices.Num());
+        OutRingData.SmoothingRegionIsAnchor.Reserve(AffectedVertices.Num());
 
         for (const FAffectedVertex& V : AffectedVertices)
         {
-            OutRingData.PostProcessingIndices.Add(V.VertexIndex);
-            OutRingData.PostProcessingInfluences.Add(1.0f);  // 코어 버텍스는 1.0
-            OutRingData.PostProcessingIsAnchor.Add(1);  // 원본 Affected = 앵커
+            OutRingData.SmoothingRegionIndices.Add(V.VertexIndex);
+            OutRingData.SmoothingRegionInfluences.Add(1.0f);  // 코어 버텍스는 1.0
+            OutRingData.SmoothingRegionIsAnchor.Add(1);  // 원본 Affected = 앵커
         }
 
         UE_LOG(LogFleshRingVertices, Log,
             TEXT("PostProcessing: No Z extension, using %d affected vertices"),
-            OutRingData.PostProcessingIndices.Num());
+            OutRingData.SmoothingRegionIndices.Num());
         return;
     }
 
@@ -956,9 +956,9 @@ void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
 
     const float OriginalZSize = OriginalBoundsMax.Z - OriginalBoundsMin.Z;
 
-    OutRingData.PostProcessingIndices.Reserve(AllVertices.Num() / 4);
-    OutRingData.PostProcessingInfluences.Reserve(AllVertices.Num() / 4);
-    OutRingData.PostProcessingIsAnchor.Reserve(AllVertices.Num() / 4);
+    OutRingData.SmoothingRegionIndices.Reserve(AllVertices.Num() / 4);
+    OutRingData.SmoothingRegionInfluences.Reserve(AllVertices.Num() / 4);
+    OutRingData.SmoothingRegionIsAnchor.Reserve(AllVertices.Num() / 4);
     // Note: PostProcessingLayerTypes removed - using FullMeshLayerTypes for GPU direct lookup
 
     int32 CoreCount = 0;
@@ -1003,16 +1003,16 @@ void FSDFBoundsBasedVertexSelector::SelectPostProcessingVertices(
             const bool bIsAnchor = AffectedSet.Contains(static_cast<uint32>(VertexIdx));
             if (bIsAnchor) AnchorCount++;
 
-            OutRingData.PostProcessingIndices.Add(static_cast<uint32>(VertexIdx));
-            OutRingData.PostProcessingInfluences.Add(Influence);
-            OutRingData.PostProcessingIsAnchor.Add(bIsAnchor ? 1 : 0);
+            OutRingData.SmoothingRegionIndices.Add(static_cast<uint32>(VertexIdx));
+            OutRingData.SmoothingRegionInfluences.Add(Influence);
+            OutRingData.SmoothingRegionIsAnchor.Add(bIsAnchor ? 1 : 0);
             // Note: LayerTypes는 FullMeshLayerTypes에서 GPU가 직접 조회
         }
     }
 
     UE_LOG(LogFleshRingVertices, Log,
         TEXT("PostProcessing: Selected %d vertices (Core=%d, ZExtended=%d, Anchors=%d) for Ring[%d], ZExtend=[%.1f, %.1f]"),
-        OutRingData.PostProcessingIndices.Num(), CoreCount, ExtendedCount, AnchorCount,
+        OutRingData.SmoothingRegionIndices.Num(), CoreCount, ExtendedCount, AnchorCount,
         Context.RingIndex, BoundsZBottom, BoundsZTop);
 }
 
@@ -1169,13 +1169,22 @@ void FVirtualBandVertexSelector::SelectVertices(
         Context.RingIndex, *Ring.BoneName.ToString(), OutAffected.Num());
 }
 
-void FVirtualBandVertexSelector::SelectPostProcessingVertices(
+void FVirtualBandVertexSelector::SelectSmoothingRegionVertices(
     const FVertexSelectionContext& Context,
     const TArray<FAffectedVertex>& AffectedVertices,
     FRingAffectedData& OutRingData)
 {
-    OutRingData.PostProcessingIndices.Reset();
-    OutRingData.PostProcessingInfluences.Reset();
+    OutRingData.SmoothingRegionIndices.Reset();
+    OutRingData.SmoothingRegionInfluences.Reset();
+    OutRingData.SmoothingRegionIsAnchor.Reset();
+
+    // 원본 Affected Vertices를 빠르게 조회하기 위한 Set (앵커 판정용)
+    TSet<uint32> AffectedSet;
+    AffectedSet.Reserve(AffectedVertices.Num());
+    for (const FAffectedVertex& V : AffectedVertices)
+    {
+        AffectedSet.Add(V.VertexIndex);
+    }
 
     // Smoothing이 꺼져있으면 원본 Affected Vertices만 복사
     const bool bAnySmoothingEnabled =
@@ -1185,18 +1194,20 @@ void FVirtualBandVertexSelector::SelectPostProcessingVertices(
 
     if (!bAnySmoothingEnabled)
     {
-        OutRingData.PostProcessingIndices.Reserve(AffectedVertices.Num());
-        OutRingData.PostProcessingInfluences.Reserve(AffectedVertices.Num());
+        OutRingData.SmoothingRegionIndices.Reserve(AffectedVertices.Num());
+        OutRingData.SmoothingRegionInfluences.Reserve(AffectedVertices.Num());
+        OutRingData.SmoothingRegionIsAnchor.Reserve(AffectedVertices.Num());
 
         for (const FAffectedVertex& V : AffectedVertices)
         {
-            OutRingData.PostProcessingIndices.Add(V.VertexIndex);
-            OutRingData.PostProcessingInfluences.Add(1.0f);
+            OutRingData.SmoothingRegionIndices.Add(V.VertexIndex);
+            OutRingData.SmoothingRegionInfluences.Add(1.0f);
+            OutRingData.SmoothingRegionIsAnchor.Add(1);  // 원본 Affected = 앵커
         }
 
         UE_LOG(LogFleshRingVertices, Log,
             TEXT("PostProcessing (VirtualBand): Smoothing disabled, using %d affected vertices"),
-            OutRingData.PostProcessingIndices.Num());
+            OutRingData.SmoothingRegionIndices.Num());
         return;
     }
 
@@ -1209,18 +1220,20 @@ void FVirtualBandVertexSelector::SelectPostProcessingVertices(
     // Z 확장이 없으면 원본 Affected Vertices를 그대로 사용
     if (BoundsZTop < 0.01f && BoundsZBottom < 0.01f)
     {
-        OutRingData.PostProcessingIndices.Reserve(AffectedVertices.Num());
-        OutRingData.PostProcessingInfluences.Reserve(AffectedVertices.Num());
+        OutRingData.SmoothingRegionIndices.Reserve(AffectedVertices.Num());
+        OutRingData.SmoothingRegionInfluences.Reserve(AffectedVertices.Num());
+        OutRingData.SmoothingRegionIsAnchor.Reserve(AffectedVertices.Num());
 
         for (const FAffectedVertex& V : AffectedVertices)
         {
-            OutRingData.PostProcessingIndices.Add(V.VertexIndex);
-            OutRingData.PostProcessingInfluences.Add(1.0f);
+            OutRingData.SmoothingRegionIndices.Add(V.VertexIndex);
+            OutRingData.SmoothingRegionInfluences.Add(1.0f);
+            OutRingData.SmoothingRegionIsAnchor.Add(1);  // 원본 Affected = 앵커
         }
 
         UE_LOG(LogFleshRingVertices, Log,
             TEXT("PostProcessing (VirtualBand): No Z extension, using %d affected vertices"),
-            OutRingData.PostProcessingIndices.Num());
+            OutRingData.SmoothingRegionIndices.Num());
         return;
     }
 
@@ -1252,8 +1265,9 @@ void FVirtualBandVertexSelector::SelectPostProcessingVertices(
         FMath::Max(BandSettings.MidLowerRadius, BandSettings.MidUpperRadius)
     ) + Ring.RingThickness;
 
-    OutRingData.PostProcessingIndices.Reserve(AllVertices.Num() / 4);
-    OutRingData.PostProcessingInfluences.Reserve(AllVertices.Num() / 4);
+    OutRingData.SmoothingRegionIndices.Reserve(AllVertices.Num() / 4);
+    OutRingData.SmoothingRegionInfluences.Reserve(AllVertices.Num() / 4);
+    OutRingData.SmoothingRegionIsAnchor.Reserve(AllVertices.Num() / 4);
 
     int32 CoreCount = 0;
     int32 ExtendedCount = 0;
@@ -1287,7 +1301,10 @@ void FVirtualBandVertexSelector::SelectPostProcessingVertices(
             continue;
         }
 
-        OutRingData.PostProcessingIndices.Add(static_cast<uint32>(VertexIdx));
+        OutRingData.SmoothingRegionIndices.Add(static_cast<uint32>(VertexIdx));
+
+        // 앵커 판정: 원본 Affected Vertices에 포함되면 앵커
+        const bool bIsAnchor = AffectedSet.Contains(static_cast<uint32>(VertexIdx));
 
         // Influence 계산: 코어(Band Section 내) = 1.0, Z 확장 영역 = falloff
         float Influence = 1.0f;
@@ -1320,12 +1337,13 @@ void FVirtualBandVertexSelector::SelectPostProcessingVertices(
             CoreCount++;
         }
 
-        OutRingData.PostProcessingInfluences.Add(Influence);
+        OutRingData.SmoothingRegionInfluences.Add(Influence);
+        OutRingData.SmoothingRegionIsAnchor.Add(bIsAnchor ? 1 : 0);
     }
 
     UE_LOG(LogFleshRingVertices, Log,
         TEXT("PostProcessing (VirtualBand): Selected %d vertices (Core=%d, Extended=%d) for Ring[%d]"),
-        OutRingData.PostProcessingIndices.Num(), CoreCount, ExtendedCount, Context.RingIndex);
+        OutRingData.SmoothingRegionIndices.Num(), CoreCount, ExtendedCount, Context.RingIndex);
 }
 
 // ============================================================================
@@ -1681,21 +1699,21 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         {
             // SDF 모드: SDF 바운드 기반 Z 확장
             FSDFBoundsBasedVertexSelector* SDFSelector = static_cast<FSDFBoundsBasedVertexSelector*>(RingSelector.Get());
-            SDFSelector->SelectPostProcessingVertices(Context, RingData.Vertices, RingData);
+            SDFSelector->SelectSmoothingRegionVertices(Context, RingData.Vertices, RingData);
             // Note: LayerTypes는 FullMeshLayerTypes에서 GPU가 직접 조회
         }
         else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
         {
             // VirtualBand 모드 (SDF 무효): VirtualBand 기반 Z 확장
             FVirtualBandVertexSelector* VBSelector = static_cast<FVirtualBandVertexSelector*>(RingSelector.Get());
-            VBSelector->SelectPostProcessingVertices(Context, RingData.Vertices, RingData);
+            VBSelector->SelectSmoothingRegionVertices(Context, RingData.Vertices, RingData);
             // Note: LayerTypes는 FullMeshLayerTypes에서 GPU가 직접 조회
         }
         else
         {
             // VirtualRing 모드: Ring 파라미터 기반 Z 확장
             FDistanceBasedVertexSelector* DistSelector = static_cast<FDistanceBasedVertexSelector*>(RingSelector.Get());
-            DistSelector->SelectPostProcessingVertices(Context, RingData.Vertices, RingData);
+            DistSelector->SelectSmoothingRegionVertices(Context, RingData.Vertices, RingData);
             // Note: LayerTypes는 FullMeshLayerTypes에서 GPU가 직접 조회
         }
 
@@ -1715,9 +1733,9 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             BuildAdjacencyData(RingData, CachedMeshIndices);
 
             // PostProcessing 버텍스용 노멀 인접 데이터도 빌드 (Z 확장 범위)
-            if (RingData.PostProcessingIndices.Num() > 0)
+            if (RingData.SmoothingRegionIndices.Num() > 0)
             {
-                BuildPostProcessingAdjacencyData(RingData, CachedMeshIndices);
+                BuildSmoothingRegionNormalAdjacency(RingData, CachedMeshIndices);
             }
 
             // Build Laplacian adjacency data for smoothing (조건부: 스무딩 활성화 시에만)
@@ -1728,9 +1746,9 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
                 BuildLaplacianAdjacencyData(RingData, CachedMeshIndices, MeshVertices, VertexLayerTypes);
 
                 // PostProcessing 버텍스용 라플라시안 인접 데이터도 빌드 (Z 확장 범위)
-                if (RingData.PostProcessingIndices.Num() > 0)
+                if (RingData.SmoothingRegionIndices.Num() > 0)
                 {
-                    BuildPostProcessingLaplacianAdjacencyData(RingData, CachedMeshIndices, MeshVertices, VertexLayerTypes);
+                    BuildSmoothingRegionLaplacianAdjacency(RingData, CachedMeshIndices, MeshVertices, VertexLayerTypes);
                 }
             }
 
@@ -1741,9 +1759,9 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
                 BuildPBDAdjacencyData(RingData, CachedMeshIndices, MeshVertices, MeshVertices.Num());
 
                 // PostProcessing 버텍스용 PBD 인접 데이터도 빌드 (Z 확장 범위)
-                if (RingData.PostProcessingIndices.Num() > 0)
+                if (RingData.SmoothingRegionIndices.Num() > 0)
                 {
-                    BuildPostProcessingPBDAdjacencyData(RingData, CachedMeshIndices, MeshVertices, MeshVertices.Num());
+                    BuildSmoothingRegionPBDAdjacency(RingData, CachedMeshIndices, MeshVertices, MeshVertices.Num());
                 }
             }
 
@@ -1752,17 +1770,19 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             // GPU 디스패치에서 bEnableRadialSmoothing 체크하므로 여기선 무조건 빌드
             BuildSliceData(RingData, MeshVertices, RingSettings.RadialSliceHeight);
 
-            // Build hop distance data for topology-based smoothing
+            // Build hop distance data for topology-based smoothing (HopBased 모드 전용)
             // 홉 기반 스무딩용 확장 영역 데이터 빌드
-            // ANY smoothing 또는 HeatPropagation이 켜져있으면 hop 데이터 빌드
+            // 중요: HopBased 모드에서만 호출 - BoundsExpand 모드는 SelectSmoothingRegionVertices 데이터 유지
+            const bool bUseHopBased = (RingSettings.SmoothingVolumeMode == ESmoothingVolumeMode::HopBased);
             const bool bAnySmoothingEnabled =
                 RingSettings.bEnableRadialSmoothing ||
                 RingSettings.bEnableLaplacianSmoothing ||
                 RingSettings.bEnablePBDEdgeConstraint ||
                 RingSettings.bEnableHeatPropagation;  // Heat Propagation도 Extended 데이터 필요
 
-            if (bAnySmoothingEnabled)
+            if (bUseHopBased && bAnySmoothingEnabled)
             {
+                // HopBased 모드: BFS로 확장된 영역 빌드 (SmoothingRegion* 덮어씀)
                 BuildHopDistanceData(
                     RingData,
                     CachedMeshIndices,
@@ -1771,12 +1791,13 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
                     RingSettings.HopFalloffType
                 );
             }
+            // BoundsExpand 모드: SelectSmoothingRegionVertices에서 설정한 데이터 유지
         }
 
         UE_LOG(LogFleshRingVertices, Log,
             TEXT("Ring[%d] '%s': %d affected, %d slices, %d extended smoothing"),
             RingIdx, *RingSettings.BoneName.ToString(),
-            RingData.Vertices.Num(), RingData.SlicePackedData.Num() / 33, RingData.ExtendedSmoothingIndices.Num());
+            RingData.Vertices.Num(), RingData.SlicePackedData.Num() / 33, RingData.SmoothingRegionIndices.Num());
 
         // 인덱스 기반 할당 (Add 대신) + dirty flag 클리어
         RingDataArray[RingIdx] = MoveTemp(RingData);
@@ -2612,13 +2633,13 @@ void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
 }
 
 // ============================================================================
-// BuildPostProcessingLaplacianAdjacencyData - 후처리 버텍스용 라플라시안 인접 데이터 빌드
+// BuildSmoothingRegionLaplacianAdjacency - 후처리 버텍스용 라플라시안 인접 데이터 빌드
 // ============================================================================
-// PostProcessingIndices 기반으로 라플라시안 인접 데이터를 구축합니다.
+// SmoothingRegionIndices 기반으로 라플라시안 인접 데이터를 구축합니다.
 // Z 확장 범위의 버텍스들이 스무딩될 수 있도록 인접 정보 제공.
 // 최적화: 토폴로지 캐시 사용 - 매 프레임 O(V*T) 재빌드 제거
 
-void FFleshRingAffectedVerticesManager::BuildPostProcessingLaplacianAdjacencyData(
+void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency(
     FRingAffectedData& RingData,
     const TArray<uint32>& MeshIndices,
     const TArray<FVector3f>& AllVertices,
@@ -2627,10 +2648,10 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingLaplacianAdjacencyDat
     constexpr int32 MAX_NEIGHBORS = 12;
     constexpr int32 PACKED_SIZE = 1 + MAX_NEIGHBORS;  // Count + 12 indices = 13
 
-    const int32 NumPostProcessing = RingData.PostProcessingIndices.Num();
+    const int32 NumPostProcessing = RingData.SmoothingRegionIndices.Num();
     if (NumPostProcessing == 0 || MeshIndices.Num() == 0)
     {
-        RingData.PostProcessingLaplacianAdjacencyData.Reset();
+        RingData.SmoothingRegionLaplacianAdjacency.Reset();
         return;
     }
 
@@ -2643,21 +2664,21 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingLaplacianAdjacencyDat
     PostProcessingVertexSet.Reserve(NumPostProcessing);
     for (int32 i = 0; i < NumPostProcessing; ++i)
     {
-        PostProcessingVertexSet.Add(RingData.PostProcessingIndices[i]);
+        PostProcessingVertexSet.Add(RingData.SmoothingRegionIndices[i]);
     }
 
     // ================================================================
     // Step 2: Build adjacency for each post-processing vertex using cached topology
     // 2단계: 캐시된 토폴로지를 사용하여 후처리 버텍스의 인접 데이터 빌드
     // ================================================================
-    RingData.PostProcessingLaplacianAdjacencyData.Reset(NumPostProcessing * PACKED_SIZE);
-    RingData.PostProcessingLaplacianAdjacencyData.AddZeroed(NumPostProcessing * PACKED_SIZE);
+    RingData.SmoothingRegionLaplacianAdjacency.Reset(NumPostProcessing * PACKED_SIZE);
+    RingData.SmoothingRegionLaplacianAdjacency.AddZeroed(NumPostProcessing * PACKED_SIZE);
 
     int32 CrossLayerSkipped = 0;
 
     for (int32 PPIdx = 0; PPIdx < NumPostProcessing; ++PPIdx)
     {
-        const uint32 VertIdx = RingData.PostProcessingIndices[PPIdx];
+        const uint32 VertIdx = RingData.SmoothingRegionIndices[PPIdx];
         const int32 BaseOffset = PPIdx * PACKED_SIZE;
 
         // Get my layer type (전역 캐시에서 직접 조회 - Extended와 동일)
@@ -2672,7 +2693,7 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingLaplacianAdjacencyDat
         const FIntVector* MyPosKey = CachedVertexToPosition.Find(VertIdx);
         if (!MyPosKey)
         {
-            RingData.PostProcessingLaplacianAdjacencyData[BaseOffset] = 0;
+            RingData.SmoothingRegionLaplacianAdjacency[BaseOffset] = 0;
             continue;
         }
 
@@ -2680,7 +2701,7 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingLaplacianAdjacencyDat
         const TSet<FIntVector>* WeldedNeighborPositions = CachedWeldedNeighborPositions.Find(*MyPosKey);
         if (!WeldedNeighborPositions)
         {
-            RingData.PostProcessingLaplacianAdjacencyData[BaseOffset] = 0;
+            RingData.SmoothingRegionLaplacianAdjacency[BaseOffset] = 0;
             continue;
         }
 
@@ -2762,34 +2783,34 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingLaplacianAdjacencyDat
         }
 
         // Pack: [NeighborCount, N0, N1, ..., N11]
-        RingData.PostProcessingLaplacianAdjacencyData[BaseOffset] = NeighborCount;
+        RingData.SmoothingRegionLaplacianAdjacency[BaseOffset] = NeighborCount;
         for (int32 i = 0; i < MAX_NEIGHBORS; ++i)
         {
-            RingData.PostProcessingLaplacianAdjacencyData[BaseOffset + 1 + i] = NeighborIndices[i];
+            RingData.SmoothingRegionLaplacianAdjacency[BaseOffset + 1 + i] = NeighborIndices[i];
         }
     }
 
     UE_LOG(LogFleshRingVertices, Verbose,
-        TEXT("BuildPostProcessingLaplacianAdjacencyData (Cached): %d vertices, %d packed uints, %d cross-layer skipped"),
-        NumPostProcessing, RingData.PostProcessingLaplacianAdjacencyData.Num(), CrossLayerSkipped);
+        TEXT("BuildSmoothingRegionLaplacianAdjacency (Cached): %d vertices, %d packed uints, %d cross-layer skipped"),
+        NumPostProcessing, RingData.SmoothingRegionLaplacianAdjacency.Num(), CrossLayerSkipped);
 }
 
 // ============================================================================
-// BuildPostProcessingPBDAdjacencyData - 후처리 버텍스용 PBD 인접 데이터 빌드
+// BuildSmoothingRegionPBDAdjacency - 후처리 버텍스용 PBD 인접 데이터 빌드
 // ============================================================================
-// PostProcessingIndices 기반으로 PBD 인접 데이터를 구축합니다.
+// SmoothingRegionIndices 기반으로 PBD 인접 데이터를 구축합니다.
 // BuildPBDAdjacencyData와 동일하지만 확장된 범위 사용.
 
-void FFleshRingAffectedVerticesManager::BuildPostProcessingPBDAdjacencyData(
+void FFleshRingAffectedVerticesManager::BuildSmoothingRegionPBDAdjacency(
     FRingAffectedData& RingData,
     const TArray<uint32>& MeshIndices,
     const TArray<FVector3f>& AllVertices,
     int32 TotalVertexCount)
 {
-    const int32 NumPostProcessing = RingData.PostProcessingIndices.Num();
+    const int32 NumPostProcessing = RingData.SmoothingRegionIndices.Num();
     if (NumPostProcessing == 0 || MeshIndices.Num() < 3)
     {
-        RingData.PostProcessingPBDAdjacencyWithRestLengths.Reset();
+        RingData.SmoothingRegionPBDAdjacency.Reset();
         return;
     }
 
@@ -2797,7 +2818,7 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingPBDAdjacencyData(
     TMap<uint32, int32> VertexToThreadIndex;
     for (int32 ThreadIdx = 0; ThreadIdx < NumPostProcessing; ++ThreadIdx)
     {
-        VertexToThreadIndex.Add(RingData.PostProcessingIndices[ThreadIdx], ThreadIdx);
+        VertexToThreadIndex.Add(RingData.SmoothingRegionIndices[ThreadIdx], ThreadIdx);
     }
 
     // Step 2: Build per-vertex neighbor set with rest lengths
@@ -2810,7 +2831,7 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingPBDAdjacencyData(
         // 캐시 사용 경로: O(PP × avg_neighbors_per_vertex)
         for (int32 ThreadIdx = 0; ThreadIdx < NumPostProcessing; ++ThreadIdx)
         {
-            const uint32 VertexIndex = RingData.PostProcessingIndices[ThreadIdx];
+            const uint32 VertexIndex = RingData.SmoothingRegionIndices[ThreadIdx];
             const TSet<uint32>* NeighborsPtr = CachedVertexNeighbors.Find(VertexIndex);
 
             if (NeighborsPtr)
@@ -2833,7 +2854,7 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingPBDAdjacencyData(
     {
         // 폴백: 전체 삼각형 순회 (기존 방식)
         UE_LOG(LogFleshRingVertices, Warning,
-            TEXT("BuildPostProcessingPBDAdjacencyData: Topology cache not built, falling back to brute force"));
+            TEXT("BuildSmoothingRegionPBDAdjacency: Topology cache not built, falling back to brute force"));
 
         const int32 NumTriangles = MeshIndices.Num() / 3;
         for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
@@ -2869,8 +2890,8 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingPBDAdjacencyData(
 
     // Step 3: Pack adjacency data with rest lengths
     const int32 PackedSizePerVertex = FRingAffectedData::PBD_ADJACENCY_PACKED_SIZE;
-    RingData.PostProcessingPBDAdjacencyWithRestLengths.Reset(NumPostProcessing * PackedSizePerVertex);
-    RingData.PostProcessingPBDAdjacencyWithRestLengths.AddZeroed(NumPostProcessing * PackedSizePerVertex);
+    RingData.SmoothingRegionPBDAdjacency.Reset(NumPostProcessing * PackedSizePerVertex);
+    RingData.SmoothingRegionPBDAdjacency.AddZeroed(NumPostProcessing * PackedSizePerVertex);
 
     for (int32 ThreadIdx = 0; ThreadIdx < NumPostProcessing; ++ThreadIdx)
     {
@@ -2878,7 +2899,7 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingPBDAdjacencyData(
         const int32 NeighborCount = FMath::Min(NeighborsMap.Num(), FRingAffectedData::PBD_MAX_NEIGHBORS);
         const int32 BaseOffset = ThreadIdx * PackedSizePerVertex;
 
-        RingData.PostProcessingPBDAdjacencyWithRestLengths[BaseOffset] = static_cast<uint32>(NeighborCount);
+        RingData.SmoothingRegionPBDAdjacency[BaseOffset] = static_cast<uint32>(NeighborCount);
 
         int32 SlotIdx = 0;
         for (const auto& Pair : NeighborsMap)
@@ -2891,35 +2912,35 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingPBDAdjacencyData(
             const uint32 NeighborIdx = Pair.Key;
             const float RestLength = Pair.Value;
 
-            RingData.PostProcessingPBDAdjacencyWithRestLengths[BaseOffset + 1 + SlotIdx * 2] = NeighborIdx;
+            RingData.SmoothingRegionPBDAdjacency[BaseOffset + 1 + SlotIdx * 2] = NeighborIdx;
 
             uint32 RestLengthAsUint;
             FMemory::Memcpy(&RestLengthAsUint, &RestLength, sizeof(float));
-            RingData.PostProcessingPBDAdjacencyWithRestLengths[BaseOffset + 1 + SlotIdx * 2 + 1] = RestLengthAsUint;
+            RingData.SmoothingRegionPBDAdjacency[BaseOffset + 1 + SlotIdx * 2 + 1] = RestLengthAsUint;
 
             ++SlotIdx;
         }
     }
 
     UE_LOG(LogFleshRingVertices, Verbose,
-        TEXT("BuildPostProcessingPBDAdjacencyData: %d vertices, %d packed uints"),
-        NumPostProcessing, RingData.PostProcessingPBDAdjacencyWithRestLengths.Num());
+        TEXT("BuildSmoothingRegionPBDAdjacency: %d vertices, %d packed uints"),
+        NumPostProcessing, RingData.SmoothingRegionPBDAdjacency.Num());
 }
 
 // ============================================================================
-// BuildExtendedPBDAdjacencyData - 확장 스무딩 영역용 PBD 인접 데이터 빌드
+// BuildSmoothingRegionPBDAdjacency_HopBased - 확장 스무딩 영역용 PBD 인접 데이터 빌드
 // ============================================================================
-// ExtendedSmoothingIndices 기반으로 PBD 인접 데이터를 구축합니다.
+// SmoothingRegionIndices 기반으로 PBD 인접 데이터를 구축합니다.
 // HopBased 모드에서 사용됩니다.
 
-void FFleshRingAffectedVerticesManager::BuildExtendedPBDAdjacencyData(
+void FFleshRingAffectedVerticesManager::BuildSmoothingRegionPBDAdjacency_HopBased(
     FRingAffectedData& RingData,
     const TArray<FVector3f>& AllVertices)
 {
-    const int32 NumExtended = RingData.ExtendedSmoothingIndices.Num();
+    const int32 NumExtended = RingData.SmoothingRegionIndices.Num();
     if (NumExtended == 0)
     {
-        RingData.ExtendedPBDAdjacencyWithRestLengths.Reset();
+        RingData.SmoothingRegionPBDAdjacency.Reset();
         return;
     }
 
@@ -2927,26 +2948,26 @@ void FFleshRingAffectedVerticesManager::BuildExtendedPBDAdjacencyData(
     if (!bTopologyCacheBuilt || CachedVertexNeighbors.Num() == 0)
     {
         UE_LOG(LogFleshRingVertices, Warning,
-            TEXT("BuildExtendedPBDAdjacencyData: Topology cache not built, skipping"));
-        RingData.ExtendedPBDAdjacencyWithRestLengths.Reset();
+            TEXT("BuildSmoothingRegionPBDAdjacency_HopBased: Topology cache not built, skipping"));
+        RingData.SmoothingRegionPBDAdjacency.Reset();
         return;
     }
 
     // Single-pass: CachedVertexNeighbors에서 직접 Pack (중간 TMap 제거)
     const int32 PackedSizePerVertex = FRingAffectedData::PBD_ADJACENCY_PACKED_SIZE;
-    RingData.ExtendedPBDAdjacencyWithRestLengths.Reset(NumExtended * PackedSizePerVertex);
-    RingData.ExtendedPBDAdjacencyWithRestLengths.AddZeroed(NumExtended * PackedSizePerVertex);
+    RingData.SmoothingRegionPBDAdjacency.Reset(NumExtended * PackedSizePerVertex);
+    RingData.SmoothingRegionPBDAdjacency.AddZeroed(NumExtended * PackedSizePerVertex);
 
     for (int32 ThreadIdx = 0; ThreadIdx < NumExtended; ++ThreadIdx)
     {
-        const uint32 VertexIndex = RingData.ExtendedSmoothingIndices[ThreadIdx];
+        const uint32 VertexIndex = RingData.SmoothingRegionIndices[ThreadIdx];
         const int32 BaseOffset = ThreadIdx * PackedSizePerVertex;
 
         const TSet<uint32>* NeighborsPtr = CachedVertexNeighbors.Find(VertexIndex);
         if (!NeighborsPtr)
         {
             // 이웃 없음
-            RingData.ExtendedPBDAdjacencyWithRestLengths[BaseOffset] = 0;
+            RingData.SmoothingRegionPBDAdjacency[BaseOffset] = 0;
             continue;
         }
 
@@ -2965,40 +2986,40 @@ void FFleshRingAffectedVerticesManager::BuildExtendedPBDAdjacencyData(
                 const FVector3f& Pos1 = AllVertices[NeighborIdx];
                 const float RestLength = FVector3f::Distance(Pos0, Pos1);
 
-                RingData.ExtendedPBDAdjacencyWithRestLengths[BaseOffset + 1 + SlotIdx * 2] = NeighborIdx;
+                RingData.SmoothingRegionPBDAdjacency[BaseOffset + 1 + SlotIdx * 2] = NeighborIdx;
 
                 uint32 RestLengthAsUint;
                 FMemory::Memcpy(&RestLengthAsUint, &RestLength, sizeof(float));
-                RingData.ExtendedPBDAdjacencyWithRestLengths[BaseOffset + 1 + SlotIdx * 2 + 1] = RestLengthAsUint;
+                RingData.SmoothingRegionPBDAdjacency[BaseOffset + 1 + SlotIdx * 2 + 1] = RestLengthAsUint;
 
                 ++SlotIdx;
             }
         }
 
         // 실제 기록된 이웃 개수
-        RingData.ExtendedPBDAdjacencyWithRestLengths[BaseOffset] = static_cast<uint32>(SlotIdx);
+        RingData.SmoothingRegionPBDAdjacency[BaseOffset] = static_cast<uint32>(SlotIdx);
     }
 
     UE_LOG(LogFleshRingVertices, Verbose,
-        TEXT("BuildExtendedPBDAdjacencyData: %d vertices, %d packed uints"),
-        NumExtended, RingData.ExtendedPBDAdjacencyWithRestLengths.Num());
+        TEXT("BuildSmoothingRegionPBDAdjacency_HopBased: %d vertices, %d packed uints"),
+        NumExtended, RingData.SmoothingRegionPBDAdjacency.Num());
 }
 
 // ============================================================================
-// BuildPostProcessingAdjacencyData - 후처리 버텍스용 노멀 인접 데이터 빌드
+// BuildSmoothingRegionNormalAdjacency - 후처리 버텍스용 노멀 인접 데이터 빌드
 // ============================================================================
-// PostProcessingIndices 기반으로 노멀 재계산용 인접 데이터를 구축합니다.
+// SmoothingRegionIndices 기반으로 노멀 재계산용 인접 데이터를 구축합니다.
 // BuildAdjacencyData와 동일하지만 확장된 범위 사용.
 
-void FFleshRingAffectedVerticesManager::BuildPostProcessingAdjacencyData(
+void FFleshRingAffectedVerticesManager::BuildSmoothingRegionNormalAdjacency(
     FRingAffectedData& RingData,
     const TArray<uint32>& MeshIndices)
 {
-    const int32 NumPostProcessing = RingData.PostProcessingIndices.Num();
+    const int32 NumPostProcessing = RingData.SmoothingRegionIndices.Num();
     if (NumPostProcessing == 0 || MeshIndices.Num() == 0)
     {
-        RingData.PostProcessingAdjacencyOffsets.Reset();
-        RingData.PostProcessingAdjacencyTriangles.Reset();
+        RingData.SmoothingRegionAdjacencyOffsets.Reset();
+        RingData.SmoothingRegionAdjacencyTriangles.Reset();
         return;
     }
 
@@ -3006,14 +3027,14 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingAdjacencyData(
     if (!bTopologyCacheBuilt || CachedVertexTriangles.Num() == 0)
     {
         UE_LOG(LogFleshRingVertices, Warning,
-            TEXT("BuildPostProcessingAdjacencyData: Topology cache not built, falling back to brute force"));
+            TEXT("BuildSmoothingRegionNormalAdjacency: Topology cache not built, falling back to brute force"));
 
         // 폴백: 전체 삼각형 순회 (기존 방식)
         TMap<uint32, int32> VertexToIndex;
         VertexToIndex.Reserve(NumPostProcessing);
         for (int32 PPIdx = 0; PPIdx < NumPostProcessing; ++PPIdx)
         {
-            VertexToIndex.Add(RingData.PostProcessingIndices[PPIdx], PPIdx);
+            VertexToIndex.Add(RingData.SmoothingRegionIndices[PPIdx], PPIdx);
         }
 
         TArray<int32> AdjCounts;
@@ -3031,21 +3052,21 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingAdjacencyData(
             if (const int32* Idx = VertexToIndex.Find(I2)) { AdjCounts[*Idx]++; }
         }
 
-        RingData.PostProcessingAdjacencyOffsets.SetNum(NumPostProcessing + 1);
-        RingData.PostProcessingAdjacencyOffsets[0] = 0;
+        RingData.SmoothingRegionAdjacencyOffsets.SetNum(NumPostProcessing + 1);
+        RingData.SmoothingRegionAdjacencyOffsets[0] = 0;
         for (int32 i = 0; i < NumPostProcessing; ++i)
         {
-            RingData.PostProcessingAdjacencyOffsets[i + 1] = RingData.PostProcessingAdjacencyOffsets[i] + AdjCounts[i];
+            RingData.SmoothingRegionAdjacencyOffsets[i + 1] = RingData.SmoothingRegionAdjacencyOffsets[i] + AdjCounts[i];
         }
 
-        const uint32 TotalAdjacencies = RingData.PostProcessingAdjacencyOffsets[NumPostProcessing];
-        RingData.PostProcessingAdjacencyTriangles.SetNum(TotalAdjacencies);
+        const uint32 TotalAdjacencies = RingData.SmoothingRegionAdjacencyOffsets[NumPostProcessing];
+        RingData.SmoothingRegionAdjacencyTriangles.SetNum(TotalAdjacencies);
 
         TArray<uint32> WritePos;
         WritePos.SetNum(NumPostProcessing);
         for (int32 i = 0; i < NumPostProcessing; ++i)
         {
-            WritePos[i] = RingData.PostProcessingAdjacencyOffsets[i];
+            WritePos[i] = RingData.SmoothingRegionAdjacencyOffsets[i];
         }
 
         for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
@@ -3054,9 +3075,9 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingAdjacencyData(
             const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
             const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
 
-            if (const int32* Idx = VertexToIndex.Find(I0)) { RingData.PostProcessingAdjacencyTriangles[WritePos[*Idx]++] = TriIdx; }
-            if (const int32* Idx = VertexToIndex.Find(I1)) { RingData.PostProcessingAdjacencyTriangles[WritePos[*Idx]++] = TriIdx; }
-            if (const int32* Idx = VertexToIndex.Find(I2)) { RingData.PostProcessingAdjacencyTriangles[WritePos[*Idx]++] = TriIdx; }
+            if (const int32* Idx = VertexToIndex.Find(I0)) { RingData.SmoothingRegionAdjacencyTriangles[WritePos[*Idx]++] = TriIdx; }
+            if (const int32* Idx = VertexToIndex.Find(I1)) { RingData.SmoothingRegionAdjacencyTriangles[WritePos[*Idx]++] = TriIdx; }
+            if (const int32* Idx = VertexToIndex.Find(I2)) { RingData.SmoothingRegionAdjacencyTriangles[WritePos[*Idx]++] = TriIdx; }
         }
         return;
     }
@@ -3071,7 +3092,7 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingAdjacencyData(
 
     for (int32 PPIdx = 0; PPIdx < NumPostProcessing; ++PPIdx)
     {
-        const uint32 VertexIndex = RingData.PostProcessingIndices[PPIdx];
+        const uint32 VertexIndex = RingData.SmoothingRegionIndices[PPIdx];
         const TArray<uint32>* TrianglesPtr = CachedVertexTriangles.Find(VertexIndex);
         if (TrianglesPtr)
         {
@@ -3080,29 +3101,29 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingAdjacencyData(
     }
 
     // Step 2: 오프셋 배열 빌드 (누적합)
-    RingData.PostProcessingAdjacencyOffsets.SetNum(NumPostProcessing + 1);
-    RingData.PostProcessingAdjacencyOffsets[0] = 0;
+    RingData.SmoothingRegionAdjacencyOffsets.SetNum(NumPostProcessing + 1);
+    RingData.SmoothingRegionAdjacencyOffsets[0] = 0;
 
     for (int32 i = 0; i < NumPostProcessing; ++i)
     {
-        RingData.PostProcessingAdjacencyOffsets[i + 1] = RingData.PostProcessingAdjacencyOffsets[i] + AdjCounts[i];
+        RingData.SmoothingRegionAdjacencyOffsets[i + 1] = RingData.SmoothingRegionAdjacencyOffsets[i] + AdjCounts[i];
     }
 
-    const uint32 TotalAdjacencies = RingData.PostProcessingAdjacencyOffsets[NumPostProcessing];
+    const uint32 TotalAdjacencies = RingData.SmoothingRegionAdjacencyOffsets[NumPostProcessing];
 
     // Step 3: 삼각형 배열 채우기 (캐시에서 직접 복사)
-    RingData.PostProcessingAdjacencyTriangles.SetNum(TotalAdjacencies);
+    RingData.SmoothingRegionAdjacencyTriangles.SetNum(TotalAdjacencies);
 
     for (int32 PPIdx = 0; PPIdx < NumPostProcessing; ++PPIdx)
     {
-        const uint32 VertexIndex = RingData.PostProcessingIndices[PPIdx];
+        const uint32 VertexIndex = RingData.SmoothingRegionIndices[PPIdx];
         const TArray<uint32>* TrianglesPtr = CachedVertexTriangles.Find(VertexIndex);
 
         if (TrianglesPtr && TrianglesPtr->Num() > 0)
         {
-            const uint32 Offset = RingData.PostProcessingAdjacencyOffsets[PPIdx];
+            const uint32 Offset = RingData.SmoothingRegionAdjacencyOffsets[PPIdx];
             FMemory::Memcpy(
-                &RingData.PostProcessingAdjacencyTriangles[Offset],
+                &RingData.SmoothingRegionAdjacencyTriangles[Offset],
                 TrianglesPtr->GetData(),
                 TrianglesPtr->Num() * sizeof(uint32)
             );
@@ -3110,8 +3131,8 @@ void FFleshRingAffectedVerticesManager::BuildPostProcessingAdjacencyData(
     }
 
     UE_LOG(LogFleshRingVertices, Verbose,
-        TEXT("BuildPostProcessingAdjacencyData (Cached): %d vertices, %d offsets, %d triangles"),
-        NumPostProcessing, RingData.PostProcessingAdjacencyOffsets.Num(), TotalAdjacencies);
+        TEXT("BuildSmoothingRegionNormalAdjacency (Cached): %d vertices, %d offsets, %d triangles"),
+        NumPostProcessing, RingData.SmoothingRegionAdjacencyOffsets.Num(), TotalAdjacencies);
 }
 
 // ============================================================================
@@ -3472,26 +3493,26 @@ void FFleshRingAffectedVerticesManager::BuildFullMeshAdjacency(
 }
 
 // ============================================================================
-// BuildExtendedLaplacianAdjacency - 확장된 스무딩 영역용 인접 데이터 구축
+// BuildSmoothingRegionLaplacianAdjacency_HopBased - HopBased 스무딩 영역용 인접 데이터 구축
 // ============================================================================
-// [수정] BuildPostProcessingLaplacianAdjacencyData와 동일한 welding 로직 사용
+// [수정] BuildSmoothingRegionLaplacianAdjacency와 동일한 welding 로직 사용
 // 기존: CachedFullAdjacencyMap 사용 (UV welding 안됨)
 // 수정: CachedWeldedNeighborPositions 사용 (UV welding 적용)
 //
 // 핵심: 같은 위치의 모든 버텍스가 동일한 이웃 위치 집합을 사용
 //       -> 동일한 Laplacian 계산 -> 동일한 이동 -> UV seam crack 방지
 
-void FFleshRingAffectedVerticesManager::BuildExtendedLaplacianAdjacency(
+void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency_HopBased(
     FRingAffectedData& RingData,
     const TArray<EFleshRingLayerType>& VertexLayerTypes)
 {
     constexpr int32 MAX_NEIGHBORS = 12;
     constexpr int32 PACKED_SIZE = 1 + MAX_NEIGHBORS;  // Count + 12 indices = 13
 
-    const int32 NumExtended = RingData.ExtendedSmoothingIndices.Num();
+    const int32 NumExtended = RingData.SmoothingRegionIndices.Num();
     if (NumExtended == 0)
     {
-        RingData.ExtendedLaplacianAdjacency.Reset();
+        RingData.SmoothingRegionLaplacianAdjacency.Reset();
         return;
     }
 
@@ -3503,7 +3524,7 @@ void FFleshRingAffectedVerticesManager::BuildExtendedLaplacianAdjacency(
     ExtendedVertexSet.Reserve(NumExtended);
     for (int32 i = 0; i < NumExtended; ++i)
     {
-        ExtendedVertexSet.Add(RingData.ExtendedSmoothingIndices[i]);
+        ExtendedVertexSet.Add(RingData.SmoothingRegionIndices[i]);
     }
 
     // ================================================================
@@ -3512,14 +3533,14 @@ void FFleshRingAffectedVerticesManager::BuildExtendedLaplacianAdjacency(
     //
     // 핵심: CachedWeldedNeighborPositions 사용 (UV duplicate 이웃 병합)
     // ================================================================
-    RingData.ExtendedLaplacianAdjacency.Reset(NumExtended * PACKED_SIZE);
-    RingData.ExtendedLaplacianAdjacency.AddZeroed(NumExtended * PACKED_SIZE);
+    RingData.SmoothingRegionLaplacianAdjacency.Reset(NumExtended * PACKED_SIZE);
+    RingData.SmoothingRegionLaplacianAdjacency.AddZeroed(NumExtended * PACKED_SIZE);
 
     int32 CrossLayerSkipped = 0;
 
     for (int32 ExtIdx = 0; ExtIdx < NumExtended; ++ExtIdx)
     {
-        const uint32 VertIdx = RingData.ExtendedSmoothingIndices[ExtIdx];
+        const uint32 VertIdx = RingData.SmoothingRegionIndices[ExtIdx];
         const int32 BaseOffset = ExtIdx * PACKED_SIZE;
 
         // Get my layer type (Extended는 별도 LayerTypes 배열이 없으므로 전역 사용)
@@ -3533,7 +3554,7 @@ void FFleshRingAffectedVerticesManager::BuildExtendedLaplacianAdjacency(
         const FIntVector* MyPosKey = CachedVertexToPosition.Find(VertIdx);
         if (!MyPosKey)
         {
-            RingData.ExtendedLaplacianAdjacency[BaseOffset] = 0;
+            RingData.SmoothingRegionLaplacianAdjacency[BaseOffset] = 0;
             continue;
         }
 
@@ -3541,7 +3562,7 @@ void FFleshRingAffectedVerticesManager::BuildExtendedLaplacianAdjacency(
         const TSet<FIntVector>* WeldedNeighborPositions = CachedWeldedNeighborPositions.Find(*MyPosKey);
         if (!WeldedNeighborPositions)
         {
-            RingData.ExtendedLaplacianAdjacency[BaseOffset] = 0;
+            RingData.SmoothingRegionLaplacianAdjacency[BaseOffset] = 0;
             continue;
         }
 
@@ -3627,16 +3648,16 @@ void FFleshRingAffectedVerticesManager::BuildExtendedLaplacianAdjacency(
         }
 
         // Pack: [NeighborCount, N0, N1, ..., N11]
-        RingData.ExtendedLaplacianAdjacency[BaseOffset] = NeighborCount;
+        RingData.SmoothingRegionLaplacianAdjacency[BaseOffset] = NeighborCount;
         for (int32 i = 0; i < MAX_NEIGHBORS; ++i)
         {
-            RingData.ExtendedLaplacianAdjacency[BaseOffset + 1 + i] = NeighborIndices[i];
+            RingData.SmoothingRegionLaplacianAdjacency[BaseOffset + 1 + i] = NeighborIndices[i];
         }
     }
 
     UE_LOG(LogFleshRingVertices, Verbose,
-        TEXT("BuildExtendedLaplacianAdjacency (Welded): %d vertices, %d packed uints, %d cross-layer skipped"),
-        NumExtended, RingData.ExtendedLaplacianAdjacency.Num(), CrossLayerSkipped);
+        TEXT("BuildSmoothingRegionLaplacianAdjacency_HopBased: %d vertices, %d packed uints, %d cross-layer skipped"),
+        NumExtended, RingData.SmoothingRegionLaplacianAdjacency.Num(), CrossLayerSkipped);
 }
 
 // ============================================================================
@@ -3699,16 +3720,16 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
         RingData.bHasUVDuplicates = (NumWelded > 0);
 
         // ===== PostProcessing Vertices용 RepresentativeIndices (캐시 사용) =====
-        const int32 NumPostProcessing = RingData.PostProcessingIndices.Num();
+        const int32 NumPostProcessing = RingData.SmoothingRegionIndices.Num();
         if (NumPostProcessing > 0)
         {
-            RingData.PostProcessingRepresentativeIndices.Reset(NumPostProcessing);
-            RingData.PostProcessingRepresentativeIndices.AddUninitialized(NumPostProcessing);
+            RingData.SmoothingRegionRepresentativeIndices.Reset(NumPostProcessing);
+            RingData.SmoothingRegionRepresentativeIndices.AddUninitialized(NumPostProcessing);
 
             int32 PPNumWelded = 0;
             for (int32 i = 0; i < NumPostProcessing; ++i)
             {
-                const uint32 VertIdx = RingData.PostProcessingIndices[i];
+                const uint32 VertIdx = RingData.SmoothingRegionIndices[i];
 
                 // O(1) 조회 - 동일 패턴
                 const FIntVector* PosKey = CachedVertexToPosition.Find(VertIdx);
@@ -3716,7 +3737,7 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
                 {
                     const uint32* Representative = CachedPositionToRepresentative.Find(*PosKey);
                     const uint32 RepIdx = Representative ? *Representative : VertIdx;
-                    RingData.PostProcessingRepresentativeIndices[i] = RepIdx;
+                    RingData.SmoothingRegionRepresentativeIndices[i] = RepIdx;
 
                     if (RepIdx != VertIdx)
                     {
@@ -3725,12 +3746,12 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
                 }
                 else
                 {
-                    RingData.PostProcessingRepresentativeIndices[i] = VertIdx;
+                    RingData.SmoothingRegionRepresentativeIndices[i] = VertIdx;
                 }
             }
 
             // Set UV duplicate flag for PostProcessing
-            RingData.bPostProcessingHasUVDuplicates = (PPNumWelded > 0);
+            RingData.bSmoothingRegionHasUVDuplicates = (PPNumWelded > 0);
 
             UE_LOG(LogFleshRingVertices, Verbose,
                 TEXT("BuildRepresentativeIndices (cached): Affected=%d (welded=%d), PostProcessing=%d (welded=%d)"),
@@ -3738,7 +3759,7 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
         }
         else
         {
-            RingData.bPostProcessingHasUVDuplicates = false;
+            RingData.bSmoothingRegionHasUVDuplicates = false;
 
             UE_LOG(LogFleshRingVertices, Verbose,
                 TEXT("BuildRepresentativeIndices (cached): Affected=%d (welded=%d), PostProcessing=0"),
@@ -3808,12 +3829,12 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
     RingData.bHasUVDuplicates = (NumWelded > 0);
 
     // Step 3: PostProcessing Vertices용 RepresentativeIndices 빌드
-    const int32 NumPostProcessing = RingData.PostProcessingIndices.Num();
+    const int32 NumPostProcessing = RingData.SmoothingRegionIndices.Num();
     if (NumPostProcessing > 0)
     {
         TMap<FIntVector, uint32> PPPositionToRepresentative;
 
-        for (uint32 VertIdx : RingData.PostProcessingIndices)
+        for (uint32 VertIdx : RingData.SmoothingRegionIndices)
         {
             const FVector3f& Pos = AllVertices[VertIdx];
 
@@ -3834,13 +3855,13 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
             }
         }
 
-        RingData.PostProcessingRepresentativeIndices.Reset(NumPostProcessing);
-        RingData.PostProcessingRepresentativeIndices.AddUninitialized(NumPostProcessing);
+        RingData.SmoothingRegionRepresentativeIndices.Reset(NumPostProcessing);
+        RingData.SmoothingRegionRepresentativeIndices.AddUninitialized(NumPostProcessing);
 
         int32 PPNumWelded = 0;
         for (int32 i = 0; i < NumPostProcessing; ++i)
         {
-            const uint32 VertIdx = RingData.PostProcessingIndices[i];
+            const uint32 VertIdx = RingData.SmoothingRegionIndices[i];
             const FVector3f& Pos = AllVertices[VertIdx];
 
             FIntVector PosKey(
@@ -3850,7 +3871,7 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
             );
 
             const uint32 Representative = PPPositionToRepresentative[PosKey];
-            RingData.PostProcessingRepresentativeIndices[i] = Representative;
+            RingData.SmoothingRegionRepresentativeIndices[i] = Representative;
 
             if (Representative != VertIdx)
             {
@@ -3859,7 +3880,7 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
         }
 
         // Set UV duplicate flag for PostProcessing
-        RingData.bPostProcessingHasUVDuplicates = (PPNumWelded > 0);
+        RingData.bSmoothingRegionHasUVDuplicates = (PPNumWelded > 0);
 
         UE_LOG(LogFleshRingVertices, Log,
             TEXT("BuildRepresentativeIndices (fallback): Affected=%d (welded=%d), PostProcessing=%d (welded=%d)"),
@@ -3867,7 +3888,7 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
     }
     else
     {
-        RingData.bPostProcessingHasUVDuplicates = false;
+        RingData.bSmoothingRegionHasUVDuplicates = false;
 
         UE_LOG(LogFleshRingVertices, Log,
             TEXT("BuildRepresentativeIndices (fallback): Affected=%d (welded=%d), PostProcessing=0"),
@@ -4006,20 +4027,20 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
 
     // ===== Step 3: ExtendedSmoothing* 배열 구축 =====
     const int32 NumExtended = HopDistanceMap.Num();
-    RingData.ExtendedSmoothingIndices.Reset(NumExtended);
-    RingData.ExtendedHopDistances.Reset(NumExtended);
-    RingData.ExtendedInfluences.Reset(NumExtended);
-    RingData.ExtendedIsAnchor.Reset(NumExtended);
+    RingData.SmoothingRegionIndices.Reset(NumExtended);
+    RingData.SmoothingRegionHopDistances.Reset(NumExtended);
+    RingData.SmoothingRegionInfluences.Reset(NumExtended);
+    RingData.SmoothingRegionIsAnchor.Reset(NumExtended);
 
     const float MaxHopsFloat = static_cast<float>(MaxHops);
 
     // Seeds 먼저 추가 (Hop 0)
     for (const FAffectedVertex& AffVert : RingData.Vertices)
     {
-        RingData.ExtendedSmoothingIndices.Add(AffVert.VertexIndex);
-        RingData.ExtendedHopDistances.Add(0);
-        RingData.ExtendedInfluences.Add(1.0f);  // Seeds는 influence 1.0
-        RingData.ExtendedIsAnchor.Add(1);       // Seeds는 앵커 (스무딩 건너뜀)
+        RingData.SmoothingRegionIndices.Add(AffVert.VertexIndex);
+        RingData.SmoothingRegionHopDistances.Add(0);
+        RingData.SmoothingRegionInfluences.Add(1.0f);  // Seeds는 influence 1.0
+        RingData.SmoothingRegionIsAnchor.Add(1);       // Seeds는 앵커 (스무딩 건너뜀)
     }
 
     // Seeds가 아닌 도달 버텍스 추가 (Hop 1+)
@@ -4034,9 +4055,9 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
             continue;
         }
 
-        RingData.ExtendedSmoothingIndices.Add(VertIdx);
-        RingData.ExtendedHopDistances.Add(Hop);
-        RingData.ExtendedIsAnchor.Add(0);  // Extended 버텍스는 스무딩 적용
+        RingData.SmoothingRegionIndices.Add(VertIdx);
+        RingData.SmoothingRegionHopDistances.Add(Hop);
+        RingData.SmoothingRegionIsAnchor.Add(0);  // Extended 버텍스는 스무딩 적용
 
         // t = 정규화된 홉 거리 (0 = seed, 1 = maxHops)
         const float t = static_cast<float>(Hop) / MaxHopsFloat;
@@ -4061,28 +4082,28 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
                 break;
         }
 
-        RingData.ExtendedInfluences.Add(FMath::Clamp(Influence, 0.0f, 1.0f));
+        RingData.SmoothingRegionInfluences.Add(FMath::Clamp(Influence, 0.0f, 1.0f));
     }
 
     // ===== Step 4: 확장된 영역의 Laplacian 인접 데이터 구축 (캐시 사용) =====
     // [수정] CachedFullAdjacencyMap 대신 CachedVertexLayerTypes 전달
-    // BuildExtendedLaplacianAdjacency가 내부적으로 CachedWeldedNeighborPositions 사용
-    BuildExtendedLaplacianAdjacency(RingData, CachedVertexLayerTypes);
+    // BuildSmoothingRegionLaplacianAdjacency가 내부적으로 CachedWeldedNeighborPositions 사용
+    BuildSmoothingRegionLaplacianAdjacency_HopBased(RingData, CachedVertexLayerTypes);
 
     // ===== Step 4.5: 확장된 영역의 PBD 인접 데이터 구축 (Tolerance 기반 PBD용) =====
     // HopBased 모드에서 PBD Edge Constraint 사용 시 필요
-    BuildExtendedPBDAdjacencyData(RingData, AllVertices);
+    BuildSmoothingRegionPBDAdjacency_HopBased(RingData, AllVertices);
 
     // ===== Step 5: 확장된 영역의 RepresentativeIndices 구축 (UV seam welding) =====
     // Heat Propagation에서 UV seam vertex들이 동일한 delta를 받도록 보장
     {
-        RingData.ExtendedRepresentativeIndices.Reset(NumExtended);
-        RingData.ExtendedRepresentativeIndices.AddUninitialized(NumExtended);
+        RingData.SmoothingRegionRepresentativeIndices.Reset(NumExtended);
+        RingData.SmoothingRegionRepresentativeIndices.AddUninitialized(NumExtended);
 
         int32 NumWelded = 0;
         for (int32 i = 0; i < NumExtended; ++i)
         {
-            const uint32 VertIdx = RingData.ExtendedSmoothingIndices[i];
+            const uint32 VertIdx = RingData.SmoothingRegionIndices[i];
 
             // 캐시에서 O(1) 조회
             const FIntVector* PosKey = CachedVertexToPosition.Find(VertIdx);
@@ -4090,7 +4111,7 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
             {
                 const uint32* Representative = CachedPositionToRepresentative.Find(*PosKey);
                 const uint32 RepIdx = Representative ? *Representative : VertIdx;
-                RingData.ExtendedRepresentativeIndices[i] = RepIdx;
+                RingData.SmoothingRegionRepresentativeIndices[i] = RepIdx;
 
                 if (RepIdx != VertIdx)
                 {
@@ -4100,15 +4121,15 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
             else
             {
                 // 캐시 미스 - 자기 자신을 대표로
-                RingData.ExtendedRepresentativeIndices[i] = VertIdx;
+                RingData.SmoothingRegionRepresentativeIndices[i] = VertIdx;
             }
         }
 
         // Set UV duplicate flag for Extended region
-        RingData.bExtendedHasUVDuplicates = (NumWelded > 0);
+        RingData.bSmoothingRegionHasUVDuplicates = (NumWelded > 0);
 
         UE_LOG(LogFleshRingVertices, Verbose,
-            TEXT("BuildHopDistanceData: ExtendedRepresentativeIndices built, %d vertices (welded=%d)"),
+            TEXT("BuildHopDistanceData: SmoothingRegionRepresentativeIndices built, %d vertices (welded=%d)"),
             NumExtended, NumWelded);
     }
 
@@ -4122,11 +4143,11 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
     }
 
     // ===== Step 7: Extended 영역 삼각형 인접 데이터 구축 (NormalRecomputeCS용) =====
-    // ExtendedSmoothingIndices에 대한 삼각형 인접 정보 구축
+    // SmoothingRegionIndices에 대한 삼각형 인접 정보 구축
     // 로드리게스 기반 노말 재계산에서 사용
     {
-        RingData.ExtendedAdjacencyOffsets.Reset();
-        RingData.ExtendedAdjacencyTriangles.Reset();
+        RingData.SmoothingRegionAdjacencyOffsets.Reset();
+        RingData.SmoothingRegionAdjacencyTriangles.Reset();
 
         if (!bTopologyCacheBuilt || CachedVertexTriangles.Num() == 0)
         {
@@ -4141,7 +4162,7 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
 
             for (int32 ExtIdx = 0; ExtIdx < NumExtended; ++ExtIdx)
             {
-                const uint32 VertexIndex = RingData.ExtendedSmoothingIndices[ExtIdx];
+                const uint32 VertexIndex = RingData.SmoothingRegionIndices[ExtIdx];
                 const TArray<uint32>* TrianglesPtr = CachedVertexTriangles.Find(VertexIndex);
                 if (TrianglesPtr)
                 {
@@ -4150,29 +4171,29 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
             }
 
             // Step 7-2: 오프셋 배열 빌드 (누적합)
-            RingData.ExtendedAdjacencyOffsets.SetNum(NumExtended + 1);
-            RingData.ExtendedAdjacencyOffsets[0] = 0;
+            RingData.SmoothingRegionAdjacencyOffsets.SetNum(NumExtended + 1);
+            RingData.SmoothingRegionAdjacencyOffsets[0] = 0;
 
             for (int32 i = 0; i < NumExtended; ++i)
             {
-                RingData.ExtendedAdjacencyOffsets[i + 1] = RingData.ExtendedAdjacencyOffsets[i] + AdjCounts[i];
+                RingData.SmoothingRegionAdjacencyOffsets[i + 1] = RingData.SmoothingRegionAdjacencyOffsets[i] + AdjCounts[i];
             }
 
-            const uint32 TotalAdjacencies = RingData.ExtendedAdjacencyOffsets[NumExtended];
+            const uint32 TotalAdjacencies = RingData.SmoothingRegionAdjacencyOffsets[NumExtended];
 
             // Step 7-3: 삼각형 배열 채우기 (캐시에서 직접 복사)
-            RingData.ExtendedAdjacencyTriangles.SetNum(TotalAdjacencies);
+            RingData.SmoothingRegionAdjacencyTriangles.SetNum(TotalAdjacencies);
 
             for (int32 ExtIdx = 0; ExtIdx < NumExtended; ++ExtIdx)
             {
-                const uint32 VertexIndex = RingData.ExtendedSmoothingIndices[ExtIdx];
+                const uint32 VertexIndex = RingData.SmoothingRegionIndices[ExtIdx];
                 const TArray<uint32>* TrianglesPtr = CachedVertexTriangles.Find(VertexIndex);
 
                 if (TrianglesPtr && TrianglesPtr->Num() > 0)
                 {
-                    const uint32 Offset = RingData.ExtendedAdjacencyOffsets[ExtIdx];
+                    const uint32 Offset = RingData.SmoothingRegionAdjacencyOffsets[ExtIdx];
                     FMemory::Memcpy(
-                        &RingData.ExtendedAdjacencyTriangles[Offset],
+                        &RingData.SmoothingRegionAdjacencyTriangles[Offset],
                         TrianglesPtr->GetData(),
                         TrianglesPtr->Num() * sizeof(uint32)
                     );
@@ -4180,7 +4201,7 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
             }
 
             UE_LOG(LogFleshRingVertices, Verbose,
-                TEXT("BuildHopDistanceData: ExtendedAdjacencyData built, %d vertices, %d triangles (avg %.1f tri/vert)"),
+                TEXT("BuildHopDistanceData: SmoothingRegionAdjacencyData built, %d vertices, %d triangles (avg %.1f tri/vert)"),
                 NumExtended, TotalAdjacencies,
                 NumExtended > 0 ? static_cast<float>(TotalAdjacencies) / NumExtended : 0.0f);
         }

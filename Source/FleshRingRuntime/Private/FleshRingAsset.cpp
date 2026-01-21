@@ -849,8 +849,8 @@ namespace SubdivisionHelpers
 				}
 			}
 
-			// PostProcessing 영역 (Z 확장)
-			for (uint32 Idx : RingData.PostProcessingIndices)
+			// 스무딩 영역 (통합된 SmoothingRegionIndices)
+			for (uint32 Idx : RingData.SmoothingRegionIndices)
 			{
 				if (Idx < DIVertexCount)
 				{
@@ -1102,8 +1102,7 @@ namespace SubdivisionHelpers
 		// DI의 AffectedVertices 인덱스 수집
 		// Ring 설정에 따라 조건부 수집:
 		// - bEnablePostProcess == false → PackedIndices만
-		// - bEnablePostProcess == true && BoundsExpand → PackedIndices + PostProcessingIndices
-		// - bEnablePostProcess == true && HopBased → PackedIndices + ExtendedSmoothingIndices
+		// - bEnablePostProcess == true → PackedIndices + SmoothingRegionIndices (통합)
 		TSet<uint32> DIAffectedIndices;
 		const int32 NumRings = FMath::Min(AllRingData->Num(), Asset->Rings.Num());
 
@@ -1118,24 +1117,12 @@ namespace SubdivisionHelpers
 				if (Idx < DIVertexCount) DIAffectedIndices.Add(Idx);
 			}
 
-			// 2. PostProcess가 켜져있을 때만 확장 영역 수집
+			// 2. PostProcess가 켜져있을 때만 스무딩 영역 수집 (통합된 SmoothingRegionIndices)
 			if (RingSettings.bEnablePostProcess)
 			{
-				if (RingSettings.SmoothingVolumeMode == ESmoothingVolumeMode::BoundsExpand)
+				for (uint32 Idx : RingData.SmoothingRegionIndices)
 				{
-					// BoundsExpand 모드: PostProcessingIndices (Z 확장)
-					for (uint32 Idx : RingData.PostProcessingIndices)
-					{
-						if (Idx < DIVertexCount) DIAffectedIndices.Add(Idx);
-					}
-				}
-				else // HopBased
-				{
-					// HopBased 모드: ExtendedSmoothingIndices (N-hop 확장)
-					for (uint32 Idx : RingData.ExtendedSmoothingIndices)
-					{
-						if (Idx < DIVertexCount) DIAffectedIndices.Add(Idx);
-					}
+					if (Idx < DIVertexCount) DIAffectedIndices.Add(Idx);
 				}
 			}
 		}

@@ -815,7 +815,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 		}
 
 		// ===== HeatPropagationCS Dispatch (BoneRatioCS 이후, LaplacianCS 이전) =====
-		// Delta-based Heat Propagation: Seed의 변형 delta를 Extended 영역으로 전파
+		// Delta-based Heat Propagation: Seed의 변형 delta를 SmoothingRegion 영역으로 전파
 		// Algorithm: Init → Diffuse × N → Apply
 		if (WorkItem.RingDispatchDataPtr.IsValid())
 		{
@@ -823,29 +823,29 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 			{
 				const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
 
-				// Heat Propagation 활성화 조건: bEnableHeatPropagation && HopBased mode && Extended 데이터 존재
-				if (!DispatchData.bEnableHeatPropagation || !DispatchData.bUseHopBasedSmoothing)
+				// Heat Propagation 활성화 조건: bEnableHeatPropagation && HopBased mode && SmoothingRegion 데이터 존재
+				if (!DispatchData.bEnableHeatPropagation || DispatchData.SmoothingExpandMode != ESmoothingVolumeMode::HopBased)
 				{
 					continue;
 				}
 
-				// Extended 데이터 검증
-				if (DispatchData.ExtendedSmoothingIndices.Num() == 0 ||
-					DispatchData.ExtendedIsAnchor.Num() == 0 ||
-					DispatchData.ExtendedLaplacianAdjacency.Num() == 0)
+				// SmoothingRegion 데이터 검증
+				if (DispatchData.SmoothingRegionIndices.Num() == 0 ||
+					DispatchData.SmoothingRegionIsAnchor.Num() == 0 ||
+					DispatchData.SmoothingRegionLaplacianAdjacency.Num() == 0)
 				{
 					continue;
 				}
 
-				const uint32 NumExtendedVertices = DispatchData.ExtendedSmoothingIndices.Num();
+				const uint32 NumSmoothingRegionVertices = DispatchData.SmoothingRegionIndices.Num();
 
 				// ★ 배열 크기 일치 검증 (Smoothing Expand 변경 시 크기 불일치 방지)
-				// ExtendedIsAnchor는 ExtendedSmoothingIndices와 동일한 크기여야 함
-				if (DispatchData.ExtendedIsAnchor.Num() != (int32)NumExtendedVertices)
+				// SmoothingRegionIsAnchor는 SmoothingRegionIndices와 동일한 크기여야 함
+				if (DispatchData.SmoothingRegionIsAnchor.Num() != (int32)NumSmoothingRegionVertices)
 				{
 					UE_LOG(LogFleshRingWorker, Warning,
-						TEXT("FleshRing: ExtendedIsAnchor 크기 불일치 - IsAnchor:%d, Expected:%d (Ring %d). 캐시 재생성 필요."),
-						DispatchData.ExtendedIsAnchor.Num(), NumExtendedVertices, RingIdx);
+						TEXT("FleshRing: SmoothingRegionIsAnchor 크기 불일치 - IsAnchor:%d, Expected:%d (Ring %d). 캐시 재생성 필요."),
+						DispatchData.SmoothingRegionIsAnchor.Num(), NumSmoothingRegionVertices, RingIdx);
 					continue;
 				}
 
@@ -874,16 +874,16 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				AddCopyBufferPass(GraphBuilder, HeatPropOutputBuffer, TightenedBindPoseBuffer);
 
 				// ========================================
-				// 3. Extended Indices 버퍼
+				// 3. SmoothingRegion Indices 버퍼
 				// ========================================
-				FRDGBufferRef ExtendedIndicesBuffer = GraphBuilder.CreateBuffer(
-					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumExtendedVertices),
+				FRDGBufferRef SmoothingRegionIndicesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumSmoothingRegionVertices),
 					*FString::Printf(TEXT("FleshRing_HeatProp_ExtIndices_Ring%d"), RingIdx)
 				);
 				GraphBuilder.QueueBufferUpload(
-					ExtendedIndicesBuffer,
-					DispatchData.ExtendedSmoothingIndices.GetData(),
-					NumExtendedVertices * sizeof(uint32),
+					SmoothingRegionIndicesBuffer,
+					DispatchData.SmoothingRegionIndices.GetData(),
+					NumSmoothingRegionVertices * sizeof(uint32),
 					ERDGInitialDataFlags::None
 				);
 
@@ -894,14 +894,14 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				//   - IsSeedFlags: 1 = Bulge(delta 전파 source), 0 = 그 외
 				//   - IsBarrierFlags: 1 = Tightness(전파 차단), 0 = 그 외
 				//
-				// ExtendedIsAnchor 데이터: 1 = Tightness, 0 = Non-Seed
+				// SmoothingRegionIsAnchor 데이터: 1 = Tightness, 0 = Non-Seed
 				// bIncludeBulgeVerticesAsSeeds가 true면 Bulge도 포함
 				// ========================================
 
 				// 먼저 원본 데이터 로드 (0=Non-Seed, 1=Tightness)
 				TArray<uint32> SeedTypeData;
-				SeedTypeData.SetNumUninitialized(NumExtendedVertices);
-				FMemory::Memcpy(SeedTypeData.GetData(), DispatchData.ExtendedIsAnchor.GetData(), NumExtendedVertices * sizeof(uint32));
+				SeedTypeData.SetNumUninitialized(NumSmoothingRegionVertices);
+				FMemory::Memcpy(SeedTypeData.GetData(), DispatchData.SmoothingRegionIsAnchor.GetData(), NumSmoothingRegionVertices * sizeof(uint32));
 
 				// Bulge 버텍스도 Seed로 포함시키는 경우 (2로 마킹)
 				if (DispatchData.bIncludeBulgeVerticesAsSeeds && DispatchData.BulgeIndices.Num() > 0)
@@ -914,11 +914,11 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 						BulgeIndicesSet.Add(BulgeIdx);
 					}
 
-					// Extended 영역 순회하며 Bulge 버텍스를 2로 마킹
-					for (uint32 ThreadIdx = 0; ThreadIdx < NumExtendedVertices; ++ThreadIdx)
+					// SmoothingRegion 영역 순회하며 Bulge 버텍스를 2로 마킹
+					for (uint32 ThreadIdx = 0; ThreadIdx < NumSmoothingRegionVertices; ++ThreadIdx)
 					{
 						if (SeedTypeData[ThreadIdx] == 0 &&
-							BulgeIndicesSet.Contains(DispatchData.ExtendedSmoothingIndices[ThreadIdx]))
+							BulgeIndicesSet.Contains(DispatchData.SmoothingRegionIndices[ThreadIdx]))
 						{
 							SeedTypeData[ThreadIdx] = 2;  // Bulge = 2
 						}
@@ -931,10 +931,10 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				//   true:  Bulge가 Seed, Tightness는 Barrier (전파 차단)
 				TArray<uint32> IsSeedFlagsData;
 				TArray<uint32> IsBarrierFlagsData;
-				IsSeedFlagsData.SetNumUninitialized(NumExtendedVertices);
-				IsBarrierFlagsData.SetNumUninitialized(NumExtendedVertices);
+				IsSeedFlagsData.SetNumUninitialized(NumSmoothingRegionVertices);
+				IsBarrierFlagsData.SetNumUninitialized(NumSmoothingRegionVertices);
 
-				for (uint32 i = 0; i < NumExtendedVertices; ++i)
+				for (uint32 i = 0; i < NumSmoothingRegionVertices; ++i)
 				{
 					if (DispatchData.bIncludeBulgeVerticesAsSeeds)
 					{
@@ -957,19 +957,19 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				// 경계 Seed만 delta를 설정, 내부 Seed는 delta=0 (전파 안 함)
 				constexpr uint32 MAX_NEIGHBORS_CONST = 12;
 				TArray<uint32> IsBoundarySeedFlagsData;
-				IsBoundarySeedFlagsData.SetNumZeroed(NumExtendedVertices);
+				IsBoundarySeedFlagsData.SetNumZeroed(NumSmoothingRegionVertices);
 
 				// VertexIndex → ThreadIndex 역매핑 생성
 				TMap<uint32, uint32> VertexToThreadIndex;
-				VertexToThreadIndex.Reserve(NumExtendedVertices);
-				for (uint32 i = 0; i < NumExtendedVertices; ++i)
+				VertexToThreadIndex.Reserve(NumSmoothingRegionVertices);
+				for (uint32 i = 0; i < NumSmoothingRegionVertices; ++i)
 				{
-					VertexToThreadIndex.Add(DispatchData.ExtendedSmoothingIndices[i], i);
+					VertexToThreadIndex.Add(DispatchData.SmoothingRegionIndices[i], i);
 				}
 
 				// 각 Seed에 대해 이웃 중 Non-Seed가 있는지 확인
-				const TArray<uint32>& AdjacencyData = DispatchData.ExtendedLaplacianAdjacency;
-				for (uint32 i = 0; i < NumExtendedVertices; ++i)
+				const TArray<uint32>& AdjacencyData = DispatchData.SmoothingRegionLaplacianAdjacency;
+				for (uint32 i = 0; i < NumSmoothingRegionVertices; ++i)
 				{
 					if (IsSeedFlagsData[i] == 0)
 					{
@@ -992,7 +992,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 
 						if (const uint32* NeighborThreadIdx = VertexToThreadIndex.Find(NeighborVertexIdx))
 						{
-							// Extended 영역 내 이웃: IsSeedFlags 확인
+							// SmoothingRegion 영역 내 이웃: IsSeedFlags 확인
 							if (IsSeedFlagsData[*NeighborThreadIdx] == 0)
 							{
 								bHasNonSeedNeighbor = true;
@@ -1001,7 +1001,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 						}
 						else
 						{
-							// Extended 영역 밖 이웃 → Non-Seed로 간주
+							// SmoothingRegion 영역 밖 이웃 → Non-Seed로 간주
 							bHasNonSeedNeighbor = true;
 							break;
 						}
@@ -1012,37 +1012,37 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 
 				// IsSeedFlagsBuffer 생성
 				FRDGBufferRef IsSeedFlagsBuffer = GraphBuilder.CreateBuffer(
-					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumExtendedVertices),
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumSmoothingRegionVertices),
 					*FString::Printf(TEXT("FleshRing_HeatProp_IsSeed_Ring%d"), RingIdx)
 				);
 				GraphBuilder.QueueBufferUpload(
 					IsSeedFlagsBuffer,
 					IsSeedFlagsData.GetData(),
-					NumExtendedVertices * sizeof(uint32),
+					NumSmoothingRegionVertices * sizeof(uint32),
 					ERDGInitialDataFlags::None
 				);
 
 				// IsBoundarySeedFlagsBuffer 생성
 				FRDGBufferRef IsBoundarySeedFlagsBuffer = GraphBuilder.CreateBuffer(
-					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumExtendedVertices),
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumSmoothingRegionVertices),
 					*FString::Printf(TEXT("FleshRing_HeatProp_IsBoundarySeed_Ring%d"), RingIdx)
 				);
 				GraphBuilder.QueueBufferUpload(
 					IsBoundarySeedFlagsBuffer,
 					IsBoundarySeedFlagsData.GetData(),
-					NumExtendedVertices * sizeof(uint32),
+					NumSmoothingRegionVertices * sizeof(uint32),
 					ERDGInitialDataFlags::None
 				);
 
 				// IsBarrierFlagsBuffer 생성
 				FRDGBufferRef IsBarrierFlagsBuffer = GraphBuilder.CreateBuffer(
-					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumExtendedVertices),
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumSmoothingRegionVertices),
 					*FString::Printf(TEXT("FleshRing_HeatProp_IsBarrier_Ring%d"), RingIdx)
 				);
 				GraphBuilder.QueueBufferUpload(
 					IsBarrierFlagsBuffer,
 					IsBarrierFlagsData.GetData(),
-					NumExtendedVertices * sizeof(uint32),
+					NumSmoothingRegionVertices * sizeof(uint32),
 					ERDGInitialDataFlags::None
 				);
 
@@ -1050,13 +1050,13 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				// 5. Adjacency Data 버퍼 (Laplacian adjacency 재사용)
 				// ========================================
 				FRDGBufferRef AdjacencyDataBuffer = GraphBuilder.CreateBuffer(
-					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), DispatchData.ExtendedLaplacianAdjacency.Num()),
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), DispatchData.SmoothingRegionLaplacianAdjacency.Num()),
 					*FString::Printf(TEXT("FleshRing_HeatProp_Adjacency_Ring%d"), RingIdx)
 				);
 				GraphBuilder.QueueBufferUpload(
 					AdjacencyDataBuffer,
-					DispatchData.ExtendedLaplacianAdjacency.GetData(),
-					DispatchData.ExtendedLaplacianAdjacency.Num() * sizeof(uint32),
+					DispatchData.SmoothingRegionLaplacianAdjacency.GetData(),
+					DispatchData.SmoothingRegionLaplacianAdjacency.Num() * sizeof(uint32),
 					ERDGInitialDataFlags::None
 				);
 
@@ -1064,16 +1064,16 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				// 5.5. UV Seam Welding: RepresentativeIndices 버퍼 (HeatPropagation용)
 				// ========================================
 				FRDGBufferRef HeatPropRepresentativeIndicesBuffer = nullptr;
-				if (DispatchData.ExtendedRepresentativeIndices.Num() == NumExtendedVertices)
+				if (DispatchData.SmoothingRegionRepresentativeIndices.Num() == NumSmoothingRegionVertices)
 				{
 					HeatPropRepresentativeIndicesBuffer = GraphBuilder.CreateBuffer(
-						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumExtendedVertices),
+						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumSmoothingRegionVertices),
 						*FString::Printf(TEXT("FleshRing_HeatProp_RepIndices_Ring%d"), RingIdx)
 					);
 					GraphBuilder.QueueBufferUpload(
 						HeatPropRepresentativeIndicesBuffer,
-						DispatchData.ExtendedRepresentativeIndices.GetData(),
-						NumExtendedVertices * sizeof(uint32),
+						DispatchData.SmoothingRegionRepresentativeIndices.GetData(),
+						NumSmoothingRegionVertices * sizeof(uint32),
 						ERDGInitialDataFlags::None
 					);
 				}
@@ -1082,7 +1082,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				// 6. Heat Propagation Dispatch (Delta-based)
 				// ========================================
 				FHeatPropagationDispatchParams HeatPropParams;
-				HeatPropParams.NumExtendedVertices = NumExtendedVertices;
+				HeatPropParams.NumExtendedVertices = NumSmoothingRegionVertices;
 				HeatPropParams.NumTotalVertices = ActualNumVertices;
 				HeatPropParams.HeatLambda = DispatchData.HeatPropagationLambda;
 				HeatPropParams.NumIterations = DispatchData.HeatPropagationIterations;
@@ -1093,7 +1093,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					OriginalPositionsBuffer,       // 원본 바인드 포즈
 					TightenedBindPoseBuffer,       // 현재 변형된 위치 (Seed의 delta 계산용)
 					HeatPropOutputBuffer,          // 출력 위치
-					ExtendedIndicesBuffer,         // Extended 영역 버텍스 인덱스
+					SmoothingRegionIndicesBuffer,         // SmoothingRegion 영역 버텍스 인덱스
 					IsSeedFlagsBuffer,             // Seed 플래그 (1=Bulge, 0=그외)
 					IsBoundarySeedFlagsBuffer,     // Boundary Seed 플래그 (1=Non-Seed 이웃 있음, 0=내부 Seed 또는 Non-Seed)
 					IsBarrierFlagsBuffer,          // Barrier 플래그 (1=Tightness/전파차단, 0=그외)
@@ -1122,30 +1122,20 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					continue;
 				}
 
-				// ===== 스무딩 영역 선택 =====
-				// [설계] SmoothingVolumeMode에 따라 확장 방식 결정:
-				//   - HopBased:     ExtendedSmoothingIndices (토폴로지 확장)
-				//   - BoundsExpand: PostProcessingIndices (Z 기반 BoundsZTop/Bottom 확장)
-				const bool bUseExtendedRegion = DispatchData.bUseHopBasedSmoothing &&
-					DispatchData.ExtendedSmoothingIndices.Num() > 0 &&
-					DispatchData.ExtendedInfluences.Num() == DispatchData.ExtendedSmoothingIndices.Num() &&
-					DispatchData.ExtendedLaplacianAdjacency.Num() > 0;
+				// ===== 스무딩 영역 선택 (통합된 SmoothingRegion 사용) =====
+				// [설계] SmoothingRegion 데이터가 있으면 사용, 없으면 원본 사용
+				const bool bUseSmoothingRegion =
+					DispatchData.SmoothingRegionIndices.Num() > 0 &&
+					DispatchData.SmoothingRegionInfluences.Num() == DispatchData.SmoothingRegionIndices.Num() &&
+					DispatchData.SmoothingRegionLaplacianAdjacency.Num() > 0;
 
-				const bool bUsePostProcessingRegion = !bUseExtendedRegion &&
-					DispatchData.PostProcessingIndices.Num() > 0 &&
-					DispatchData.PostProcessingInfluences.Num() == DispatchData.PostProcessingIndices.Num() &&
-					DispatchData.PostProcessingLaplacianAdjacencyData.Num() > 0;
-
-				// 사용할 데이터 소스 선택 (우선순위: Extended(Hop) > PostProcessing(Z) > Original)
-				const TArray<uint32>& IndicesSource = bUseExtendedRegion
-					? DispatchData.ExtendedSmoothingIndices
-					: (bUsePostProcessingRegion ? DispatchData.PostProcessingIndices : DispatchData.Indices);
-				const TArray<float>& InfluenceSource = bUseExtendedRegion
-					? DispatchData.ExtendedInfluences
-					: (bUsePostProcessingRegion ? DispatchData.PostProcessingInfluences : DispatchData.Influences);
-				const TArray<uint32>& AdjacencySource = bUseExtendedRegion
-					? DispatchData.ExtendedLaplacianAdjacency
-					: (bUsePostProcessingRegion ? DispatchData.PostProcessingLaplacianAdjacencyData : DispatchData.LaplacianAdjacencyData);
+				// 사용할 데이터 소스 선택 (통합: SmoothingRegion > Original)
+				const TArray<uint32>& IndicesSource = bUseSmoothingRegion
+					? DispatchData.SmoothingRegionIndices : DispatchData.Indices;
+				const TArray<float>& InfluenceSource = bUseSmoothingRegion
+					? DispatchData.SmoothingRegionInfluences : DispatchData.Influences;
+				const TArray<uint32>& AdjacencySource = bUseSmoothingRegion
+					? DispatchData.SmoothingRegionLaplacianAdjacency : DispatchData.LaplacianAdjacencyData;
 
 				// 인접 데이터가 없으면 스킵
 				if (AdjacencySource.Num() == 0)
@@ -1160,13 +1150,13 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				// static TSet<int32> LoggedRegionStatus;
 				// if (!LoggedRegionStatus.Contains(RingIdx))
 				// {
-				// 	if (bUsePostProcessingRegion)
+				// 	if (bUseSmoothingRegion)
 				// 	{
 				// 		UE_LOG(LogFleshRingWorker, Log,
 				// 			TEXT("[DEBUG] Ring[%d] LaplacianCS: POSTPROCESSING region (Z-extended, %d vertices, %d original)"),
 				// 			RingIdx, NumSmoothingVertices, DispatchData.Indices.Num());
 				// 	}
-				// 	else if (bUseExtendedRegion)
+				// 	else if (bUseSmoothingRegion)
 				// 	{
 				// 		UE_LOG(LogFleshRingWorker, Log,
 				// 			TEXT("[DEBUG] Ring[%d] LaplacianCS: HOP-EXTENDED region (%d vertices, %d original seeds)"),
@@ -1250,12 +1240,9 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				}
 
 				// ===== UV Seam Welding: RepresentativeIndices 버퍼 생성 (LaplacianCS용) =====
-				// 영역에 따라 적절한 RepresentativeIndices 선택 (우선순위: Extended > PostProcessing > Original)
-				const TArray<uint32>& RepresentativeSource = bUseExtendedRegion
-					? DispatchData.ExtendedRepresentativeIndices
-					: (bUsePostProcessingRegion
-						? DispatchData.PostProcessingRepresentativeIndices
-						: DispatchData.RepresentativeIndices);
+				const TArray<uint32>& RepresentativeSource = bUseSmoothingRegion
+					? DispatchData.SmoothingRegionRepresentativeIndices
+					: DispatchData.RepresentativeIndices;
 
 				FRDGBufferRef LaplacianRepresentativeIndicesBuffer = nullptr;
 				if (RepresentativeSource.Num() > 0 && RepresentativeSource.Num() == static_cast<int32>(NumSmoothingVertices))
@@ -1275,9 +1262,8 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				// ===== IsAnchor 버퍼 생성 (앵커 모드용) =====
 				// 원본 Affected Vertices (Seeds) = 앵커 (스무딩 건너뜀)
 				// 확장 영역 = 스무딩 적용
-				const TArray<uint32>& IsAnchorSource = bUseExtendedRegion
-					? DispatchData.ExtendedIsAnchor
-					: (bUsePostProcessingRegion ? DispatchData.PostProcessingIsAnchor : TArray<uint32>());
+				const TArray<uint32>& IsAnchorSource = bUseSmoothingRegion
+					? DispatchData.SmoothingRegionIsAnchor : TArray<uint32>();
 
 				FRDGBufferRef LaplacianIsAnchorBuffer = nullptr;
 				if (LaplacianParams.bAnchorDeformedVertices && IsAnchorSource.Num() == static_cast<int32>(NumSmoothingVertices))
@@ -1311,7 +1297,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				// static TSet<int32> LoggedLaplacianRings;
 				// if (!LoggedLaplacianRings.Contains(RingIdx))
 				// {
-				// 	const TCHAR* RegionMode = bUseExtendedRegion ? TEXT("EXTENDED") : TEXT("ORIGINAL");
+				// 	const TCHAR* RegionMode = bUseSmoothingRegion ? TEXT("EXTENDED") : TEXT("ORIGINAL");
 				// 	if (LaplacianParams.bUseTaubinSmoothing)
 				// 	{
 				// 		UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] TaubinCS Ring[%d]: %s region, %d verts, Lambda=%.2f, Mu=%.2f, Iter=%d"),
@@ -1342,38 +1328,23 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					continue;
 				}
 
-				// ===== PBD 영역 선택: HopBased vs BoundsExpand 모드 =====
-				// HopBased 모드: ExtendedSmoothingIndices + ExtendedIsAnchor + ExtendedPBDAdjacency
-				// BoundsExpand 모드: PostProcessingIndices + PostProcessingIsAnchor + PostProcessingPBDAdjacency
+				// ===== PBD 영역 선택 (통합된 SmoothingRegion 사용) =====
+				const bool bUseSmoothingRegion =
+					DispatchData.SmoothingRegionIndices.Num() > 0 &&
+					DispatchData.SmoothingRegionIsAnchor.Num() == DispatchData.SmoothingRegionIndices.Num() &&
+					DispatchData.SmoothingRegionPBDAdjacency.Num() > 0;
 
-				const bool bUseExtendedRegion =
-					DispatchData.ExtendedSmoothingIndices.Num() > 0 &&
-					DispatchData.ExtendedIsAnchor.Num() == DispatchData.ExtendedSmoothingIndices.Num() &&
-					DispatchData.ExtendedPBDAdjacencyWithRestLengths.Num() > 0;
-
-				const bool bUsePostProcessingRegion =
-					DispatchData.PostProcessingIndices.Num() > 0 &&
-					DispatchData.PostProcessingIsAnchor.Num() == DispatchData.PostProcessingIndices.Num() &&
-					DispatchData.PostProcessingPBDAdjacencyWithRestLengths.Num() > 0;
-
-				// 둘 다 없으면 스킵
-				if (!bUseExtendedRegion && !bUsePostProcessingRegion)
+				// SmoothingRegion 데이터가 없으면 스킵
+				if (!bUseSmoothingRegion)
 				{
 					continue;
 				}
 
-				// HopBased 모드 우선 (Extended 영역이 있으면 사용)
-				const bool bUsingExtended = bUseExtendedRegion;
-
-				// 사용할 데이터 소스 선택
-				const TArray<uint32>& IndicesSource = bUsingExtended
-					? DispatchData.ExtendedSmoothingIndices : DispatchData.PostProcessingIndices;
-				const TArray<uint32>& IsAnchorSource = bUsingExtended
-					? DispatchData.ExtendedIsAnchor : DispatchData.PostProcessingIsAnchor;
-				const TArray<uint32>& AdjacencySource = bUsingExtended
-					? DispatchData.ExtendedPBDAdjacencyWithRestLengths : DispatchData.PostProcessingPBDAdjacencyWithRestLengths;
-				const TArray<uint32>& RepresentativeSource = bUsingExtended
-					? DispatchData.ExtendedRepresentativeIndices : DispatchData.PostProcessingRepresentativeIndices;
+				// 통합된 데이터 소스 사용
+				const TArray<uint32>& IndicesSource = DispatchData.SmoothingRegionIndices;
+				const TArray<uint32>& IsAnchorSource = DispatchData.SmoothingRegionIsAnchor;
+				const TArray<uint32>& AdjacencySource = DispatchData.SmoothingRegionPBDAdjacency;
+				const TArray<uint32>& RepresentativeSource = DispatchData.SmoothingRegionRepresentativeIndices;
 
 				const uint32 NumAffected = IndicesSource.Num();
 				if (NumAffected == 0) continue;
@@ -1403,7 +1374,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				);
 
 				// IsAnchorFlags 버퍼 (per-thread anchor flags)
-				// bPBDAnchorAffectedVertices=true: 1 = Affected (앵커, 고정), 0 = Extended (자유)
+				// bPBDAnchorAffectedVertices=true: 1 = Affected (앵커, 고정), 0 = SmoothingRegion (자유)
 				// bPBDAnchorAffectedVertices=false: 모든 버텍스가 0 (자유, PBD 적용)
 				FRDGBufferRef IsAnchorFlagsBuffer = GraphBuilder.CreateBuffer(
 					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumAffected),
@@ -1413,7 +1384,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				// bPBDAnchorAffectedVertices가 false면 모든 앵커를 해제 (모든 버텍스 자유)
 				if (DispatchData.bPBDAnchorAffectedVertices)
 				{
-					// 기존 IsAnchor 데이터 사용 (Affected=1, Extended=0)
+					// 기존 IsAnchor 데이터 사용 (Affected=1, SmoothingRegion=0)
 					GraphBuilder.QueueBufferUpload(
 						IsAnchorFlagsBuffer,
 						IsAnchorSource.GetData(),
@@ -1472,7 +1443,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				);
 
 				// ===== UV Seam Welding: RepresentativeIndices 버퍼 생성 (PBD용) =====
-				// RepresentativeSource는 이미 bUsingExtended에 따라 선택됨 (위에서 정의)
+				// RepresentativeSource는 이미 bUseSmoothingRegion에 따라 선택됨 (위에서 정의)
 				FRDGBufferRef PBDRepresentativeIndicesBuffer = nullptr;
 				if (RepresentativeSource.Num() > 0 && RepresentativeSource.Num() == static_cast<int32>(NumAffected))
 				{
@@ -1667,29 +1638,21 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 						LoggedLayerDistribution.Add(RingIdx);
 					}
 
-					// ===== 영역 선택 =====
-					// - ANY Smoothing ON:  PostProcessingIndices (Z 확장) 또는 ExtendedSmoothingIndices (Hop 기반)
+					// ===== 영역 선택 (통합된 SmoothingRegion 사용) =====
+					// - ANY Smoothing ON:  SmoothingRegionIndices 사용
 					// - ALL Smoothing OFF: Indices (기본 SDF 볼륨) - Tightness/Bulge만 동작
-					// Note: ExtendedSmoothingIndices 사용 시 LayerTypes 호환성 체크 필요
 					const bool bAnySmoothingEnabled =
 						DispatchData.bEnableRadialSmoothing ||
 						DispatchData.bEnableLaplacianSmoothing ||
 						DispatchData.bEnablePBDEdgeConstraint;
 
-					const bool bUseExtendedRegion =
+					const bool bUseSmoothingRegion =
 						bAnySmoothingEnabled &&
-						DispatchData.bUseHopBasedSmoothing &&
-						DispatchData.ExtendedSmoothingIndices.Num() > 0 &&
-						DispatchData.LayerTypes.Num() >= DispatchData.ExtendedSmoothingIndices.Num();
-					const bool bUsePostProcessingRegion =
-						bAnySmoothingEnabled &&
-						!bUseExtendedRegion &&
-						DispatchData.PostProcessingIndices.Num() > 0 &&
+						DispatchData.SmoothingRegionIndices.Num() > 0 &&
 						DispatchData.FullMeshLayerTypes.Num() > 0;
 
-					const TArray<uint32>& PPIndices = bUseExtendedRegion
-						? DispatchData.ExtendedSmoothingIndices
-						: (bUsePostProcessingRegion ? DispatchData.PostProcessingIndices : DispatchData.Indices);
+					const TArray<uint32>& PPIndices = bUseSmoothingRegion
+						? DispatchData.SmoothingRegionIndices : DispatchData.Indices;
 
 					const uint32 NumAffected = PPIndices.Num();
 					if (NumAffected == 0) continue;
@@ -1757,8 +1720,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					// static TSet<int32> LoggedLayerPenetrationRings;
 					// if (!LoggedLayerPenetrationRings.Contains(RingIdx))
 					// {
-					// 	const TCHAR* RegionMode = bUseExtendedRegion ? TEXT("EXTENDED(Hop)")
-					// 		: (bUsePostProcessingRegion ? TEXT("PostProcessing(Z)") : TEXT("Affected(SDF)"));
+					// 	const TCHAR* RegionMode = bUseSmoothingRegion ? TEXT("SmoothingRegion") : TEXT("Original");
 					// 	UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] LayerPenetrationCS Dispatch Ring[%d]: %s Verts=%d (original=%d), Triangles=%d"),
 					// 		RingIdx,
 					// 		RegionMode,
@@ -1922,34 +1884,24 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				{
 					const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
 
-					// ===== Normal 영역 선택 (LaplacianCS와 동일한 우선순위) =====
-					// 우선순위: Extended(Hop) > PostProcessing(Z) > Original
-					const bool bUseExtendedRegion = DispatchData.bUseHopBasedSmoothing &&
-						DispatchData.ExtendedSmoothingIndices.Num() > 0 &&
-						DispatchData.ExtendedAdjacencyOffsets.Num() > 0 &&
-						DispatchData.ExtendedAdjacencyTriangles.Num() > 0;
-
+					// ===== Normal Recompute 영역 선택 (통합된 SmoothingRegion 사용) =====
 					const bool bAnySmoothingEnabled =
 						DispatchData.bEnableRadialSmoothing ||
 						DispatchData.bEnableLaplacianSmoothing ||
 						DispatchData.bEnablePBDEdgeConstraint;
 
-					const bool bUsePostProcessingRegion = !bUseExtendedRegion &&
-						bAnySmoothingEnabled &&
-						DispatchData.PostProcessingIndices.Num() > 0 &&
-						DispatchData.PostProcessingAdjacencyOffsets.Num() > 0 &&
-						DispatchData.PostProcessingAdjacencyTriangles.Num() > 0;
+					const bool bUseSmoothingRegion = bAnySmoothingEnabled &&
+						DispatchData.SmoothingRegionIndices.Num() > 0 &&
+						DispatchData.SmoothingRegionAdjacencyOffsets.Num() > 0 &&
+						DispatchData.SmoothingRegionAdjacencyTriangles.Num() > 0;
 
-					// 사용할 데이터 소스 선택 (우선순위: Extended > PostProcessing > Original)
-					const TArray<uint32>& IndicesSource = bUseExtendedRegion
-						? DispatchData.ExtendedSmoothingIndices
-						: (bUsePostProcessingRegion ? DispatchData.PostProcessingIndices : DispatchData.Indices);
-					const TArray<uint32>& AdjacencyOffsetsSource = bUseExtendedRegion
-						? DispatchData.ExtendedAdjacencyOffsets
-						: (bUsePostProcessingRegion ? DispatchData.PostProcessingAdjacencyOffsets : DispatchData.AdjacencyOffsets);
-					const TArray<uint32>& AdjacencyTrianglesSource = bUseExtendedRegion
-						? DispatchData.ExtendedAdjacencyTriangles
-						: (bUsePostProcessingRegion ? DispatchData.PostProcessingAdjacencyTriangles : DispatchData.AdjacencyTriangles);
+					// 사용할 데이터 소스 선택 (통합: SmoothingRegion > Original)
+					const TArray<uint32>& IndicesSource = bUseSmoothingRegion
+						? DispatchData.SmoothingRegionIndices : DispatchData.Indices;
+					const TArray<uint32>& AdjacencyOffsetsSource = bUseSmoothingRegion
+						? DispatchData.SmoothingRegionAdjacencyOffsets : DispatchData.AdjacencyOffsets;
+					const TArray<uint32>& AdjacencyTrianglesSource = bUseSmoothingRegion
+						? DispatchData.SmoothingRegionAdjacencyTriangles : DispatchData.AdjacencyTriangles;
 
 					// 인접 데이터가 없으면 스킵
 					if (AdjacencyOffsetsSource.Num() == 0 || AdjacencyTrianglesSource.Num() == 0)
@@ -2002,18 +1954,14 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					// UV duplicate 버텍스들의 위치를 Representative 기준으로 동기화
 					// 이를 통해 UV seam에서 노멀 계산 시 동일한 위치 사용 보장
 					{
-						// 영역에 따라 적절한 RepresentativeIndices와 HasDuplicates 플래그 선택
-						const TArray<uint32>& RepresentativeSource = bUseExtendedRegion
-							? DispatchData.ExtendedRepresentativeIndices
-							: (bUsePostProcessingRegion
-								? DispatchData.PostProcessingRepresentativeIndices
-								: DispatchData.RepresentativeIndices);
+						// 통합된 SmoothingRegion 데이터 사용
+						const TArray<uint32>& RepresentativeSource = bUseSmoothingRegion
+							? DispatchData.SmoothingRegionRepresentativeIndices
+							: DispatchData.RepresentativeIndices;
 
-						const bool bHasUVDuplicates = bUseExtendedRegion
-							? DispatchData.bExtendedHasUVDuplicates
-							: (bUsePostProcessingRegion
-								? DispatchData.bPostProcessingHasUVDuplicates
-								: DispatchData.bHasUVDuplicates);
+						const bool bHasUVDuplicates = bUseSmoothingRegion
+							? DispatchData.bSmoothingRegionHasUVDuplicates
+							: DispatchData.bHasUVDuplicates;
 
 						// UV duplicate가 없으면 스킵 (최적화)
 						if (bHasUVDuplicates && RepresentativeSource.Num() == NumAffected)
@@ -2060,8 +2008,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					// static TSet<int32> LoggedNormalRings;
 					// if (!LoggedNormalRings.Contains(RingIdx))
 					// {
-					// 	const TCHAR* RegionName = bUseExtendedRegion ? TEXT("EXTENDED")
-					// 		: (bUsePostProcessingRegion ? TEXT("POSTPROCESSING") : TEXT("ORIGINAL"));
+					// 	const TCHAR* RegionName = bUseSmoothingRegion ? TEXT("SmoothingRegion") : TEXT("Original");
 					// 	UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] NormalRecomputeCS Ring[%d]: %s region (%d vertices, %d original), AdjTriangles=%d (SurfaceRotation)"),
 					// 		RingIdx,
 					// 		RegionName,
@@ -2144,33 +2091,24 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				{
 					const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
 
-					// Normal과 동일한 영역 사용 (우선순위: Extended > PostProcessing > Original)
-					const bool bUseExtendedRegion = DispatchData.bUseHopBasedSmoothing &&
-						DispatchData.ExtendedSmoothingIndices.Num() > 0 &&
-						DispatchData.ExtendedAdjacencyOffsets.Num() > 0 &&
-						DispatchData.ExtendedAdjacencyTriangles.Num() > 0;
-
+					// ===== Tangent Recompute 영역 선택 (통합된 SmoothingRegion 사용) =====
 					const bool bAnySmoothingEnabled =
 						DispatchData.bEnableRadialSmoothing ||
 						DispatchData.bEnableLaplacianSmoothing ||
 						DispatchData.bEnablePBDEdgeConstraint;
 
-					const bool bUsePostProcessingRegion = !bUseExtendedRegion &&
-						bAnySmoothingEnabled &&
-						DispatchData.PostProcessingIndices.Num() > 0 &&
-						DispatchData.PostProcessingAdjacencyOffsets.Num() > 0 &&
-						DispatchData.PostProcessingAdjacencyTriangles.Num() > 0;
+					const bool bUseSmoothingRegion = bAnySmoothingEnabled &&
+						DispatchData.SmoothingRegionIndices.Num() > 0 &&
+						DispatchData.SmoothingRegionAdjacencyOffsets.Num() > 0 &&
+						DispatchData.SmoothingRegionAdjacencyTriangles.Num() > 0;
 
-					// 데이터 소스 선택 (우선순위: Extended > PostProcessing > Original)
-					const TArray<uint32>& IndicesSource = bUseExtendedRegion
-						? DispatchData.ExtendedSmoothingIndices
-						: (bUsePostProcessingRegion ? DispatchData.PostProcessingIndices : DispatchData.Indices);
-					const TArray<uint32>& AdjacencyOffsetsSource = bUseExtendedRegion
-						? DispatchData.ExtendedAdjacencyOffsets
-						: (bUsePostProcessingRegion ? DispatchData.PostProcessingAdjacencyOffsets : DispatchData.AdjacencyOffsets);
-					const TArray<uint32>& AdjacencyTrianglesSource = bUseExtendedRegion
-						? DispatchData.ExtendedAdjacencyTriangles
-						: (bUsePostProcessingRegion ? DispatchData.PostProcessingAdjacencyTriangles : DispatchData.AdjacencyTriangles);
+					// 데이터 소스 선택 (통합: SmoothingRegion > Original)
+					const TArray<uint32>& IndicesSource = bUseSmoothingRegion
+						? DispatchData.SmoothingRegionIndices : DispatchData.Indices;
+					const TArray<uint32>& AdjacencyOffsetsSource = bUseSmoothingRegion
+						? DispatchData.SmoothingRegionAdjacencyOffsets : DispatchData.AdjacencyOffsets;
+					const TArray<uint32>& AdjacencyTrianglesSource = bUseSmoothingRegion
+						? DispatchData.SmoothingRegionAdjacencyTriangles : DispatchData.AdjacencyTriangles;
 
 					if (IndicesSource.Num() == 0) continue;
 

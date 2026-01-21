@@ -470,19 +470,19 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		DispatchData.RepresentativeIndices = RingData.RepresentativeIndices;  // UV seam welding용
 		DispatchData.bHasUVDuplicates = RingData.bHasUVDuplicates;  // UV Sync 스킵 최적화용
 
-		// Z 확장 후처리 버텍스 데이터 복사
+		// ===== 스무딩 영역 데이터 복사 (통합된 SmoothingRegion*) =====
 		// 설계: Indices = Tightness용 (원본 SDF AABB)
-		//       PostProcessing* = 스무딩/침투해결용 (원본 + BoundsZTop/Bottom)
-		// Note: PostProcessingLayerTypes는 FullMeshLayerTypes로 대체됨 (deprecated)
-		DispatchData.PostProcessingIndices = RingData.PostProcessingIndices;
-		DispatchData.PostProcessingInfluences = RingData.PostProcessingInfluences;
-		DispatchData.PostProcessingIsAnchor = RingData.PostProcessingIsAnchor;  // 앵커 플래그
-		DispatchData.PostProcessingRepresentativeIndices = RingData.PostProcessingRepresentativeIndices;  // UV seam welding용
-		DispatchData.bPostProcessingHasUVDuplicates = RingData.bPostProcessingHasUVDuplicates;  // UV Sync 스킵 최적화용
-		DispatchData.PostProcessingLaplacianAdjacencyData = RingData.PostProcessingLaplacianAdjacencyData;
-		DispatchData.PostProcessingPBDAdjacencyWithRestLengths = RingData.PostProcessingPBDAdjacencyWithRestLengths;
-		DispatchData.PostProcessingAdjacencyOffsets = RingData.PostProcessingAdjacencyOffsets;
-		DispatchData.PostProcessingAdjacencyTriangles = RingData.PostProcessingAdjacencyTriangles;
+		//       SmoothingRegion* = 스무딩/침투해결용 (BoundsExpand 또는 HopBased 모드)
+		// Note: BoundsExpand/HopBased 모드 상관없이 동일한 변수 사용
+		DispatchData.SmoothingRegionIndices = RingData.SmoothingRegionIndices;
+		DispatchData.SmoothingRegionInfluences = RingData.SmoothingRegionInfluences;
+		DispatchData.SmoothingRegionIsAnchor = RingData.SmoothingRegionIsAnchor;  // 앵커 플래그
+		DispatchData.SmoothingRegionRepresentativeIndices = RingData.SmoothingRegionRepresentativeIndices;  // UV seam welding용
+		DispatchData.bSmoothingRegionHasUVDuplicates = RingData.bSmoothingRegionHasUVDuplicates;  // UV Sync 스킵 최적화용
+		DispatchData.SmoothingRegionLaplacianAdjacency = RingData.SmoothingRegionLaplacianAdjacency;
+		DispatchData.SmoothingRegionPBDAdjacency = RingData.SmoothingRegionPBDAdjacency;
+		DispatchData.SmoothingRegionAdjacencyOffsets = RingData.SmoothingRegionAdjacencyOffsets;
+		DispatchData.SmoothingRegionAdjacencyTriangles = RingData.SmoothingRegionAdjacencyTriangles;
 
 		// SkinSDF 레이어 분리용 데이터 복사
 		DispatchData.SkinVertexIndices = RingData.SkinVertexIndices;
@@ -552,21 +552,13 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			// Anchor Mode: 원본 Affected Vertices를 앵커로 고정
 			DispatchData.bAnchorDeformedVertices = Settings.bAnchorDeformedVertices;
 
-			// 홉 기반 스무딩 설정 및 데이터 복사
+			// 스무딩 확장 모드 설정
 			// NOTE: 데이터는 항상 복사 (런타임 토글 지원)
-			DispatchData.bUseHopBasedSmoothing = (Settings.SmoothingVolumeMode == ESmoothingVolumeMode::HopBased);
+			DispatchData.SmoothingExpandMode = Settings.SmoothingVolumeMode;
 			DispatchData.HopBasedInfluences = RingData.HopBasedInfluences;
 
-			// 확장된 스무딩 영역 데이터 복사 (Seeds + N-hop 도달 버텍스)
-			DispatchData.ExtendedSmoothingIndices = RingData.ExtendedSmoothingIndices;
-			DispatchData.ExtendedInfluences = RingData.ExtendedInfluences;
-			DispatchData.ExtendedIsAnchor = RingData.ExtendedIsAnchor;  // 앵커 플래그 (1=Seed, 0=확장)
-			DispatchData.ExtendedLaplacianAdjacency = RingData.ExtendedLaplacianAdjacency;
-			DispatchData.ExtendedRepresentativeIndices = RingData.ExtendedRepresentativeIndices;  // UV seam welding용
-			DispatchData.bExtendedHasUVDuplicates = RingData.bExtendedHasUVDuplicates;  // UV Sync 스킵 최적화용
-			DispatchData.ExtendedAdjacencyOffsets = RingData.ExtendedAdjacencyOffsets;  // NormalRecomputeCS용
-			DispatchData.ExtendedAdjacencyTriangles = RingData.ExtendedAdjacencyTriangles;  // NormalRecomputeCS용
-			DispatchData.ExtendedPBDAdjacencyWithRestLengths = RingData.ExtendedPBDAdjacencyWithRestLengths;  // PBD용 (HopBased 모드)
+			// Note: SmoothingRegion* 데이터는 위에서 이미 복사됨 (통합된 변수)
+			// HopBased 전용 데이터: HopDistances, SeedThreadIndices는 RingData에서 직접 접근
 
 			// Heat Propagation 설정 복사 (HopBased 모드에서만 유효)
 			DispatchData.bEnableHeatPropagation = Settings.bEnablePostProcess &&
@@ -598,10 +590,8 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		// bPBDAnchorAffectedVertices=false일 때 사용할 Zero 배열 캐시 (매 틱 할당 방지)
 		if (!DispatchData.bPBDAnchorAffectedVertices && DispatchData.bEnablePBDEdgeConstraint)
 		{
-			// PBD 대상 버텍스 수: Extended 또는 PostProcessing 중 큰 쪽
-			const int32 NumPBDVertices = FMath::Max(
-				DispatchData.ExtendedSmoothingIndices.Num(),
-				DispatchData.PostProcessingIndices.Num());
+			// PBD 대상 버텍스 수 (통합된 SmoothingRegion 사용)
+			const int32 NumPBDVertices = DispatchData.SmoothingRegionIndices.Num();
 			const int32 NumTotalVertices = DispatchData.FullVertexAnchorFlags.Num();
 
 			if (NumPBDVertices > 0 && NumTotalVertices > 0)
