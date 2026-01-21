@@ -1051,6 +1051,12 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 	{
 		const FFleshRingSettings& Ring = Rings[i];
 
+		// 숨겨진 Ring 스킵 (Gizmo)
+		if (!Ring.bEditorVisible)
+		{
+			continue;
+		}
+
 		// 본 Transform 가져오기
 		int32 BoneIndex = SkelMeshComp->GetBoneIndex(Ring.BoneName);
 		if (BoneIndex == INDEX_NONE)

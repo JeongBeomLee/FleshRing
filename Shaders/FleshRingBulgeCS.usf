@@ -42,10 +42,13 @@ float RingHeight;
 
 // ===== Debug Point Output =====
 // GPU 디버그 렌더링용 포인트 버퍼 출력
+// Debug point structure: WorldPosition (float3) + Influence (float) + RingIndex (uint) + Padding (uint) = 24 bytes
 struct FDebugPoint
 {
     float3 WorldPosition;
     float Influence;
+    uint RingIndex;         // Ring 인덱스 (가시성 필터링용)
+    uint Padding;           // 정렬 패딩
 };
 RWStructuredBuffer<FDebugPoint> DebugBulgePointBuffer;
 uint bOutputDebugBulgePoints;       // 0 = 비활성화, 1 = 활성화
@@ -218,6 +221,8 @@ void WriteInvalidDebugPoint(uint ThreadIndex)
         FDebugPoint InvalidPoint;
         InvalidPoint.WorldPosition = float3(0, 0, 0);
         InvalidPoint.Influence = -1.0;  // 무효 마커
+        InvalidPoint.RingIndex = RingIndex;
+        InvalidPoint.Padding = 0;
         DebugBulgePointBuffer[DebugBulgePointBaseOffset + ThreadIndex] = InvalidPoint;
     }
 }
@@ -375,6 +380,8 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         // 변형된 위치를 월드 공간으로 변환
         DebugPoint.WorldPosition = mul(float4(Pos + PosDelta, 1.0), BulgeLocalToWorld).xyz;
         DebugPoint.Influence = CPUInfluence;
+        DebugPoint.RingIndex = RingIndex;
+        DebugPoint.Padding = 0;
         DebugBulgePointBuffer[DebugBulgePointBaseOffset + ThreadIndex] = DebugPoint;
     }
 

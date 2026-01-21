@@ -8,10 +8,13 @@
 
 // Debug point structure (matches FFleshRingDebugPoint in C++)
 // 디버그 포인트 구조체 (C++의 FFleshRingDebugPoint와 일치)
+// 24 bytes: WorldPosition (12) + Influence (4) + RingIndex (4) + Padding (4)
 struct FDebugPoint
 {
     float3 WorldPosition;   // 월드 공간 위치
     float Influence;        // Influence 값 (0~1)
+    uint RingIndex;         // Ring 인덱스 (가시성 필터링용)
+    uint Padding;           // 정렬 패딩
 };
 
 // Input: Debug points from TightnessCS
@@ -34,6 +37,7 @@ struct FVSOutput
     float2 UV : TEXCOORD0;
     float Influence : TEXCOORD1;
     nointerpolation uint OutColorMode : TEXCOORD2;  // 색상 모드 (flat interpolation)
+    nointerpolation uint RingIndex : TEXCOORD3;     // Ring 인덱스 (가시성 필터링용)
 };
 
 // Main vertex shader
@@ -77,4 +81,5 @@ void MainVS(
     Output.UV = Offset * 0.5 + 0.5;  // Convert -1~1 to 0~1
     Output.Influence = Point.Influence;
     Output.OutColorMode = ColorMode;
+    Output.RingIndex = Point.RingIndex;
 }

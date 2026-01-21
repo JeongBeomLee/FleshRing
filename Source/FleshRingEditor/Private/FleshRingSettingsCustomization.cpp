@@ -627,6 +627,23 @@ void FFleshRingSettingsCustomization::CustomizeHeader(
 					.Font(IDetailLayoutBuilder::GetDetailFont())
 					.ColorAndOpacity(FSlateColor::UseSubduedForeground())
 				]
+				// 가시성 토글 버튼 (눈 아이콘)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				.Padding(2, 0)
+				[
+					SNew(SButton)
+					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+					.OnClicked(this, &FFleshRingSettingsCustomization::OnVisibilityToggleClicked)
+					.ToolTipText(LOCTEXT("ToggleVisibilityTooltip", "Toggle ring visibility"))
+					.ContentPadding(2)
+					[
+						SNew(SImage)
+						.Image(this, &FFleshRingSettingsCustomization::GetVisibilityIcon)
+						.ColorAndOpacity(FSlateColor::UseForeground())
+					]
+				]
 				// 삽입 버튼
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
@@ -1833,6 +1850,33 @@ FSlateColor FFleshRingSettingsCustomization::GetHeaderBackgroundColor() const
 		return FLinearColor(0.1f, 0.4f, 0.7f, 0.3f);
 	}
 	return FLinearColor::Transparent;
+}
+
+const FSlateBrush* FFleshRingSettingsCustomization::GetVisibilityIcon() const
+{
+	UFleshRingAsset* Asset = GetOuterAsset();
+	if (Asset && Asset->Rings.IsValidIndex(CachedArrayIndex))
+	{
+		bool bVisible = Asset->Rings[CachedArrayIndex].bEditorVisible;
+		return FAppStyle::GetBrush(bVisible ? "Icons.Visible" : "Icons.Hidden");
+	}
+	return FAppStyle::GetBrush("Icons.Visible");
+}
+
+FReply FFleshRingSettingsCustomization::OnVisibilityToggleClicked()
+{
+	UFleshRingAsset* Asset = GetOuterAsset();
+	if (Asset && Asset->Rings.IsValidIndex(CachedArrayIndex))
+	{
+		FScopedTransaction Transaction(LOCTEXT("ToggleRingVisibility", "Toggle Ring Visibility"));
+		Asset->Modify();
+
+		Asset->Rings[CachedArrayIndex].bEditorVisible = !Asset->Rings[CachedArrayIndex].bEditorVisible;
+
+		// Asset 변경 알림 (에디터 뷰포트 갱신용)
+		Asset->OnAssetChanged.Broadcast(Asset);
+	}
+	return FReply::Handled();
 }
 
 void FFleshRingSettingsCustomization::BuildBoneTree()

@@ -239,6 +239,12 @@ private:
 	/** 헤더 배경색 반환 (선택 상태에 따라 하이라이트) */
 	FSlateColor GetHeaderBackgroundColor() const;
 
+	/** 가시성 아이콘 반환 (bEditorVisible 상태에 따라) */
+	const FSlateBrush* GetVisibilityIcon() const;
+
+	/** 가시성 토글 버튼 클릭 핸들러 */
+	FReply OnVisibilityToggleClicked();
+
 	/** 배열 인덱스 캐시 */
 	int32 CachedArrayIndex = INDEX_NONE;
 

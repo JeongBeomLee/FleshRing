@@ -485,6 +485,14 @@ public:
 		return StaticCastSharedPtr<FFleshRingDebugViewExtension, FFleshRingDebugViewExtension, ESPMode::ThreadSafe>(DebugViewExtension);
 	}
 
+	/**
+	 * 가시 Ring 비트마스크 반환 (디버그 포인트 필터링용)
+	 * 비트 N = Ring N의 bEditorVisible 상태
+	 * 0xFFFFFFFFFFFFFFFF = 모두 가시 (기본값)
+	 * 64비트로 최대 64개 Ring 지원
+	 */
+	uint64 GetVisibleRingMask() const;
+
 	/** 디버그 포인트 수 반환 (첫 번째 Ring의 AffectedVertices 수) */
 	uint32 GetDebugPointCount() const
 	{

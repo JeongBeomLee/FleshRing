@@ -92,6 +92,21 @@ public:
     /** Influence에 따른 추가 포인트 크기 (기본값: 4.0) */
     float PointSizeInfluence = 4.0f;
 
+    // ========================================
+    // Ring Visibility Filtering (64-bit)
+    // ========================================
+
+    /**
+     * Set the visible ring mask for debug point filtering
+     * 디버그 포인트 필터링용 가시 Ring 마스크 설정
+     * @param InMask - Bitmask where bit N = Ring N is visible (64-bit, supports up to 64 rings)
+     */
+    void SetVisibleRingMask(uint64 InMask);
+
+    /** Get current visible ring mask */
+    /** 현재 가시 Ring 마스크 반환 (64-bit) */
+    uint64 GetVisibleRingMask() const { return VisibleRingMask; }
+
 private:
     /** The World this extension is bound to */
     /** 이 확장이 바인딩된 World */
@@ -117,4 +132,12 @@ private:
 
     /** Flag to enable/disable Bulge rendering */
     bool bBulgeEnabled = false;
+
+    // ========================================
+    // Ring Visibility Filtering Data (64-bit)
+    // ========================================
+
+    /** Bitmask for ring visibility (bit N = Ring N visible, default: all visible, supports up to 64 rings) */
+    /** Ring 가시성 비트마스크 (비트 N = Ring N 가시, 기본값: 모두 가시, 최대 64개 Ring 지원) */
+    uint64 VisibleRingMask = 0xFFFFFFFFFFFFFFFFull;
 };

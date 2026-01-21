@@ -55,6 +55,12 @@ void FFleshRingDebugViewExtension::ClearDebugBulgePointBuffer()
     bBulgeEnabled = false;
 }
 
+void FFleshRingDebugViewExtension::SetVisibleRingMask(uint64 InMask)
+{
+    FScopeLock Lock(&BufferLock);
+    VisibleRingMask = InMask;
+}
+
 void FFleshRingDebugViewExtension::PostRenderViewFamily_RenderThread(
     FRDGBuilder& GraphBuilder,
     FSceneViewFamily& InViewFamily)
@@ -69,6 +75,7 @@ void FFleshRingDebugViewExtension::PostRenderViewFamily_RenderThread(
     uint32 LocalBulgePointCount = 0;
     float LocalPointSizeBase = PointSizeBase;
     float LocalPointSizeInfluence = PointSizeInfluence;
+    uint64 LocalVisibleRingMask = 0xFFFFFFFFFFFFFFFFull;  // Ring 가시성 마스크 (64-bit)
     bool bRenderTightness = false;
     bool bRenderBulge = false;
 
@@ -104,6 +111,9 @@ void FFleshRingDebugViewExtension::PostRenderViewFamily_RenderThread(
                 bRenderBulge = true;
             }
         }
+
+        // Ring 가시성 마스크 복사
+        LocalVisibleRingMask = VisibleRingMask;
     }
 
     // Nothing to render
@@ -172,9 +182,15 @@ void FFleshRingDebugViewExtension::PostRenderViewFamily_RenderThread(
         FRDGBufferRef TightnessPointsRDG = GraphBuilder.RegisterExternalBuffer(LocalTightnessBuffer, TEXT("FleshRingDebugPoints_Tightness"));
         FRDGBufferSRVRef TightnessSRV = GraphBuilder.CreateSRV(TightnessPointsRDG);
 
+        // 64비트 마스크를 두 개의 32비트 값으로 분리 (HLSL은 uint64 미지원)
+        const uint32 LocalVisibleRingMaskLow = static_cast<uint32>(LocalVisibleRingMask & 0xFFFFFFFF);
+        const uint32 LocalVisibleRingMaskHigh = static_cast<uint32>((LocalVisibleRingMask >> 32) & 0xFFFFFFFF);
+
         FFleshRingDebugPointPS::FParameters* PSParams =
             GraphBuilder.AllocParameters<FFleshRingDebugPointPS::FParameters>();
         PSParams->DebugPointsRDG = TightnessSRV;
+        PSParams->VisibleRingMaskLow = LocalVisibleRingMaskLow;
+        PSParams->VisibleRingMaskHigh = LocalVisibleRingMaskHigh;
         PSParams->RenderTargets[0] = FRenderTargetBinding(RenderTarget, ERenderTargetLoadAction::ELoad);
         PSParams->RenderTargets.DepthStencil = FDepthStencilBinding(DebugDepthBuffer, ERenderTargetLoadAction::EClear, FExclusiveDepthStencil::DepthWrite_StencilNop);
 
@@ -183,7 +199,7 @@ void FFleshRingDebugViewExtension::PostRenderViewFamily_RenderThread(
             PSParams,
             ERDGPassFlags::Raster,
             [VertexShader, PixelShader, LocalTightnessPointCount, ViewRect, TightnessSRV,
-             ViewProjectionMatrix, InvViewportSize, LocalPointSizeBase, LocalPointSizeInfluence](FRHICommandList& RHICmdList)
+             ViewProjectionMatrix, InvViewportSize, LocalPointSizeBase, LocalPointSizeInfluence, LocalVisibleRingMaskLow, LocalVisibleRingMaskHigh](FRHICommandList& RHICmdList)
             {
                 RHICmdList.SetViewport(
                     ViewRect.Min.X, ViewRect.Min.Y, 0.0f,
@@ -213,7 +229,12 @@ void FFleshRingDebugViewExtension::PostRenderViewFamily_RenderThread(
                 VSParams.PointSizeInfluence = LocalPointSizeInfluence;
                 VSParams.ColorMode = 0;  // Tightness: Blue → Green → Red
 
+                FFleshRingDebugPointPS::FParameters PSParamsLocal;
+                PSParamsLocal.VisibleRingMaskLow = LocalVisibleRingMaskLow;
+                PSParamsLocal.VisibleRingMaskHigh = LocalVisibleRingMaskHigh;
+
                 SetShaderParameters(RHICmdList, VertexShader, VertexShader.GetVertexShader(), VSParams);
+                SetShaderParameters(RHICmdList, PixelShader, PixelShader.GetPixelShader(), PSParamsLocal);
                 RHICmdList.DrawPrimitive(0, 2, LocalTightnessPointCount);
             }
         );
@@ -225,12 +246,18 @@ void FFleshRingDebugViewExtension::PostRenderViewFamily_RenderThread(
     // ========================================
     if (bRenderBulge)
     {
+        // 64비트 마스크를 두 개의 32비트 값으로 분리 (HLSL은 uint64 미지원)
+        const uint32 LocalVisibleRingMaskLow = static_cast<uint32>(LocalVisibleRingMask & 0xFFFFFFFF);
+        const uint32 LocalVisibleRingMaskHigh = static_cast<uint32>((LocalVisibleRingMask >> 32) & 0xFFFFFFFF);
+
         FRDGBufferRef BulgePointsRDG = GraphBuilder.RegisterExternalBuffer(LocalBulgeBuffer, TEXT("FleshRingDebugPoints_Bulge"));
         FRDGBufferSRVRef BulgeSRV = GraphBuilder.CreateSRV(BulgePointsRDG);
 
         FFleshRingDebugPointPS::FParameters* PSParams =
             GraphBuilder.AllocParameters<FFleshRingDebugPointPS::FParameters>();
         PSParams->DebugPointsRDG = BulgeSRV;
+        PSParams->VisibleRingMaskLow = LocalVisibleRingMaskLow;
+        PSParams->VisibleRingMaskHigh = LocalVisibleRingMaskHigh;
         PSParams->RenderTargets[0] = FRenderTargetBinding(RenderTarget, ERenderTargetLoadAction::ELoad);
         // 두 번째 패스: 뎁스 버퍼 로드 (기존 Tightness 포인트와 깊이 테스트)
         PSParams->RenderTargets.DepthStencil = FDepthStencilBinding(DebugDepthBuffer,
@@ -242,7 +269,7 @@ void FFleshRingDebugViewExtension::PostRenderViewFamily_RenderThread(
             PSParams,
             ERDGPassFlags::Raster,
             [VertexShader, PixelShader, LocalBulgePointCount, ViewRect, BulgeSRV,
-             ViewProjectionMatrix, InvViewportSize, LocalPointSizeBase, LocalPointSizeInfluence](FRHICommandList& RHICmdList)
+             ViewProjectionMatrix, InvViewportSize, LocalPointSizeBase, LocalPointSizeInfluence, LocalVisibleRingMaskLow, LocalVisibleRingMaskHigh](FRHICommandList& RHICmdList)
             {
                 RHICmdList.SetViewport(
                     ViewRect.Min.X, ViewRect.Min.Y, 0.0f,
@@ -272,7 +299,12 @@ void FFleshRingDebugViewExtension::PostRenderViewFamily_RenderThread(
                 VSParams.PointSizeInfluence = LocalPointSizeInfluence;
                 VSParams.ColorMode = 1;  // Bulge: Cyan → Magenta
 
+                FFleshRingDebugPointPS::FParameters PSParamsLocal;
+                PSParamsLocal.VisibleRingMaskLow = LocalVisibleRingMaskLow;
+                PSParamsLocal.VisibleRingMaskHigh = LocalVisibleRingMaskHigh;
+
                 SetShaderParameters(RHICmdList, VertexShader, VertexShader.GetVertexShader(), VSParams);
+                SetShaderParameters(RHICmdList, PixelShader, PixelShader.GetPixelShader(), PSParamsLocal);
                 RHICmdList.DrawPrimitive(0, 2, LocalBulgePointCount);
             }
         );

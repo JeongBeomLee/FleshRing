@@ -20,11 +20,13 @@ RWBuffer<uint> VolumeAccumBuffer;           // 출력: Bulge 패스용 부피 �
 RWBuffer<float> DebugInfluences;            // 출력: 디버그용 Influence 값 (ThreadIndex당 1 float)
 
 // GPU 디버그 렌더링용 포인트 버퍼
-// Debug point structure: WorldPosition (float3) + Influence (float) = 16 bytes
+// Debug point structure: WorldPosition (float3) + Influence (float) + RingIndex (uint) + Padding (uint) = 24 bytes
 struct FDebugPoint
 {
     float3 WorldPosition;   // 월드 공간 위치
     float Influence;        // Influence 값 (0~1)
+    uint RingIndex;         // Ring 인덱스 (가시성 필터링용)
+    uint Padding;           // 정렬 패딩
 };
 RWStructuredBuffer<FDebugPoint> DebugPointBuffer;  // 출력: GPU 렌더링용 디버그 포인트
 
@@ -920,6 +922,8 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
                 FDebugPoint DebugPoint;
                 DebugPoint.WorldPosition = WorldPos;
                 DebugPoint.Influence = 0.0;
+                DebugPoint.RingIndex = RingIndex;
+                DebugPoint.Padding = 0;
                 DebugPointBuffer[DebugPointBaseOffset + ThreadIndex] = DebugPoint;
             }
             WritePosition(WriteIndex, Pos);
@@ -989,6 +993,8 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         FDebugPoint DebugPoint;
         DebugPoint.WorldPosition = WorldPos;
         DebugPoint.Influence = Influence;
+        DebugPoint.RingIndex = RingIndex;
+        DebugPoint.Padding = 0;
         DebugPointBuffer[DebugPointBaseOffset + ThreadIndex] = DebugPoint;
     }
 }

@@ -14,7 +14,14 @@ struct FPSInput
     float2 UV : TEXCOORD0;
     float Influence : TEXCOORD1;
     nointerpolation uint ColorMode : TEXCOORD2;  // 색상 모드: 0 = Tightness, 1 = Bulge
+    nointerpolation uint RingIndex : TEXCOORD3;  // Ring 인덱스 (가시성 필터링용)
 };
+
+// Visibility mask for ring filtering (64-bit split into Low/High)
+// Ring 가시성 필터링용 비트마스크 (64비트를 Low/High로 분리)
+// Low: Ring 0-31, High: Ring 32-63
+uint VisibleRingMaskLow;
+uint VisibleRingMaskHigh;
 
 // Main pixel shader
 // 메인 픽셀 셰이더
@@ -23,8 +30,36 @@ void MainPS(
     out float4 OutColor : SV_Target0)
 {
     // ========================================
-    // Step 0: Invalid point check
-    // 0단계: 무효 포인트 체크
+    // Step 0: Ring visibility check (64-bit support)
+    // 0단계: Ring 가시성 체크 (64비트 지원)
+    // ========================================
+    // Ring 0-31: VisibleRingMaskLow 사용
+    // Ring 32-63: VisibleRingMaskHigh 사용
+    uint RingIndex = Input.RingIndex;
+    uint RingBit;
+    uint VisibleMask;
+
+    if (RingIndex < 32u)
+    {
+        // Ring 0-31: Low 마스크 사용
+        RingBit = 1u << RingIndex;
+        VisibleMask = VisibleRingMaskLow;
+    }
+    else
+    {
+        // Ring 32-63: High 마스크 사용
+        RingBit = 1u << (RingIndex - 32u);
+        VisibleMask = VisibleRingMaskHigh;
+    }
+
+    if ((VisibleMask & RingBit) == 0)
+    {
+        discard;
+    }
+
+    // ========================================
+    // Step 0.5: Invalid point check
+    // 0.5단계: 무효 포인트 체크
     // ========================================
     // Influence <= 0 means invalid/skip (e.g., early return in BulgeCS)
     // Influence <= 0이면 무효/스킵 (예: BulgeCS에서 early return)

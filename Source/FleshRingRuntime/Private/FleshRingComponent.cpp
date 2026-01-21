@@ -1417,11 +1417,22 @@ void UFleshRingComponent::CleanupRingMeshes()
 
 void UFleshRingComponent::UpdateRingMeshVisibility()
 {
-	for (UStaticMeshComponent* MeshComp : RingMeshComponents)
+	for (int32 i = 0; i < RingMeshComponents.Num(); ++i)
 	{
+		UStaticMeshComponent* MeshComp = RingMeshComponents[i];
 		if (MeshComp)
 		{
-			MeshComp->SetVisibility(bShowRingMesh);
+			bool bShouldShow = bShowRingMesh;
+
+#if WITH_EDITOR
+			// 에디터에서 Ring별 가시성 체크
+			if (FleshRingAsset && FleshRingAsset->Rings.IsValidIndex(i))
+			{
+				bShouldShow &= FleshRingAsset->Rings[i].bEditorVisible;
+			}
+#endif
+
+			MeshComp->SetVisibility(bShouldShow);
 		}
 	}
 }
@@ -1540,6 +1551,13 @@ void UFleshRingComponent::DrawDebugVisualization()
 
 	for (int32 RingIndex = 0; RingIndex < NumRings; ++RingIndex)
 	{
+		// 숨겨진 Ring 스킵 (디버그 시각화)
+		if (FleshRingAsset && FleshRingAsset->Rings.IsValidIndex(RingIndex) &&
+			!FleshRingAsset->Rings[RingIndex].bEditorVisible)
+		{
+			continue;
+		}
+
 		if (bShowSdfVolume)
 		{
 			DrawSdfVolume(RingIndex);
@@ -3692,6 +3710,9 @@ void UFleshRingComponent::UpdateDebugPointBuffer()
 
 	// ViewExtension에 SharedPtr 전달
 	DebugViewExtension->SetDebugPointBufferShared(DebugPointBufferSharedPtr);
+
+	// VisibleRingMask 업데이트 (Ring 가시성 필터링용)
+	DebugViewExtension->SetVisibleRingMask(GetVisibleRingMask());
 }
 
 void UFleshRingComponent::UpdateDebugBulgePointBuffer()
@@ -3737,6 +3758,31 @@ void UFleshRingComponent::UpdateDebugBulgePointBuffer()
 
 	// ViewExtension에 SharedPtr 전달
 	DebugViewExtension->SetDebugBulgePointBufferShared(DebugBulgePointBufferSharedPtr);
+
+	// VisibleRingMask 업데이트 (Ring 가시성 필터링용)
+	DebugViewExtension->SetVisibleRingMask(GetVisibleRingMask());
+}
+
+uint64 UFleshRingComponent::GetVisibleRingMask() const
+{
+	// FleshRingAsset이 없으면 모두 가시 (기본값)
+	if (!FleshRingAsset)
+	{
+		return 0xFFFFFFFFFFFFFFFFull;
+	}
+
+	uint64 Mask = 0;
+	const int32 NumRings = FMath::Min(FleshRingAsset->Rings.Num(), 64);
+
+	for (int32 i = 0; i < NumRings; ++i)
+	{
+		if (FleshRingAsset->Rings[i].bEditorVisible)
+		{
+			Mask |= (1ull << i);
+		}
+	}
+
+	return Mask;
 }
 
 #endif // WITH_EDITOR

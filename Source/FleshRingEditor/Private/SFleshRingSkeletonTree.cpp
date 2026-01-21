@@ -166,6 +166,24 @@ public:
 					[
 						NameWidget
 					]
+					// 눈 아이콘 (가시성 토글) - Ring일 때만 표시
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(4, 0, 0, 0)
+					.VAlign(VAlign_Center)
+					[
+						SNew(SButton)
+						.ButtonStyle(FAppStyle::Get(), "NoBorder")
+						.ContentPadding(FMargin(2))
+						.OnClicked(this, &SFleshRingTreeRow::OnVisibilityToggleClicked)
+						.ToolTipText(LOCTEXT("ToggleVisibility", "Toggle ring visibility"))
+						.Visibility(bIsRing ? EVisibility::Visible : EVisibility::Collapsed)
+						[
+							SNew(SImage)
+							.Image(this, &SFleshRingTreeRow::GetVisibilityIcon)
+							.DesiredSizeOverride(FVector2D(14, 14))
+						]
+					]
 				]
 			]
 		];
@@ -401,6 +419,33 @@ private:
 		}
 
 		bIsNameValid = true;  // 상태 초기화
+	}
+
+	/** 가시성 아이콘 반환 (bEditorVisible 상태에 따라) */
+	const FSlateBrush* GetVisibilityIcon() const
+	{
+		if (Asset && Item.IsValid() && Asset->Rings.IsValidIndex(Item->RingIndex))
+		{
+			bool bVisible = Asset->Rings[Item->RingIndex].bEditorVisible;
+			return FAppStyle::GetBrush(bVisible ? "Icons.Visible" : "Icons.Hidden");
+		}
+		return FAppStyle::GetBrush("Icons.Visible");
+	}
+
+	/** 가시성 토글 버튼 클릭 */
+	FReply OnVisibilityToggleClicked()
+	{
+		if (Asset && Item.IsValid() && Asset->Rings.IsValidIndex(Item->RingIndex))
+		{
+			FScopedTransaction Transaction(LOCTEXT("ToggleRingVisibility", "Toggle Ring Visibility"));
+			Asset->Modify();
+
+			Asset->Rings[Item->RingIndex].bEditorVisible = !Asset->Rings[Item->RingIndex].bEditorVisible;
+
+			// Asset 변경 알림 (에디터 뷰포트 갱신용)
+			Asset->OnAssetChanged.Broadcast(Asset);
+		}
+		return FReply::Handled();
 	}
 
 	TSharedPtr<FFleshRingTreeItem> Item;

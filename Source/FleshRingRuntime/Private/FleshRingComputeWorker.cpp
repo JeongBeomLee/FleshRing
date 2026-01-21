@@ -294,14 +294,22 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 		// ===== VolumeAccumBuffer 생성 (하나 이상의 Ring에서 Bulge 활성화 시) =====
 		// [버그 수정] 각 Ring이 독립된 VolumeAccum 슬롯을 사용하도록 변경
 		// 이전: 크기 1 버퍼를 모든 Ring이 공유 → Ring A의 압축량이 Ring B에 영향
-		// 수정: Ring 개수만큼 버퍼 생성 → 각 Ring이 자신의 슬롯만 사용
+		// 수정: OriginalRingIndex 최대값 + 1 크기로 버퍼 생성 → 스킵된 Ring이 있어도 인덱스 일치
 		FRDGBufferRef VolumeAccumBuffer = nullptr;
 		const int32 NumRings = WorkItem.RingDispatchDataPtr.IsValid() ? WorkItem.RingDispatchDataPtr->Num() : 0;
 
 		if (WorkItem.bAnyRingHasBulge && NumRings > 0)
 		{
+			// OriginalRingIndex의 최대값 계산 (스킵된 Ring이 있어도 정확한 버퍼 크기 확보)
+			int32 MaxOriginalRingIndex = 0;
+			for (const FFleshRingWorkItem::FRingDispatchData& DispatchData : *WorkItem.RingDispatchDataPtr)
+			{
+				MaxOriginalRingIndex = FMath::Max(MaxOriginalRingIndex, DispatchData.OriginalRingIndex);
+			}
+			const int32 VolumeBufferSize = MaxOriginalRingIndex + 1;
+
 			VolumeAccumBuffer = GraphBuilder.CreateBuffer(
-				FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), NumRings),
+				FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), VolumeBufferSize),
 				TEXT("FleshRing_VolumeAccum")
 			);
 			// 0으로 초기화 (Atomic 연산 전)
@@ -511,7 +519,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				{
 					Params.bAccumulateVolume = 1;
 					Params.FixedPointScale = 1000.0f;  // float → uint 변환 스케일
-					Params.RingIndex = RingIdx;       // Ring별 VolumeAccumBuffer 슬롯 지정
+					Params.RingIndex = DispatchData.OriginalRingIndex;  // 실제 Ring 배열 인덱스 (가시성 필터링용)
 				}
 
 				// 디버그 Influence 출력 활성화
@@ -621,7 +629,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				BulgeParams.MaxBulgeDistance = DispatchData.MaxBulgeDistance;
 				BulgeParams.FixedPointScale = 0.001f;  // uint → float 변환 스케일 (1/1000)
 				BulgeParams.BulgeAxisDirection = DispatchData.BulgeAxisDirection;  // 방향 필터링
-				BulgeParams.RingIndex = RingIdx;      // Ring별 VolumeAccumBuffer 슬롯 지정
+				BulgeParams.RingIndex = DispatchData.OriginalRingIndex;  // 실제 Ring 배열 인덱스 (가시성 필터링용)
 				BulgeParams.BulgeRadialRatio = DispatchData.BulgeRadialRatio;  // Radial vs Axial 비율
 				BulgeParams.UpperBulgeStrength = DispatchData.UpperBulgeStrength;  // 상단 강도 배수
 				BulgeParams.LowerBulgeStrength = DispatchData.LowerBulgeStrength;  // 하단 강도 배수

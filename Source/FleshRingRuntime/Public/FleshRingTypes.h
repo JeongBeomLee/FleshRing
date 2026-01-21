@@ -601,6 +601,10 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
 	TSoftObjectPtr<UStaticMesh> RingMesh;
 
+	/** 에디터에서 Ring 가시성 (Mesh, Gizmo, Debug 포함) - 눈 아이콘으로만 제어 */
+	UPROPERTY()
+	bool bEditorVisible = true;
+
 	/** 영향 범위 결정 방식 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
 	EFleshRingInfluenceMode InfluenceMode = EFleshRingInfluenceMode::Auto;
