@@ -89,7 +89,7 @@ struct FSubdivisionResultCache
  * - CPU: FHalfEdgeMesh + FLEBSubdivision으로 토폴로지 결정
  * - GPU: Barycentric 보간으로 Position, Normal, UV, BoneWeight 생성
  */
-UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent), DisplayName="FleshRing Subdivision")
+UCLASS(ClassGroup=(Custom), DisplayName="FleshRing Subdivision")
 class FLESHRINGRUNTIME_API UFleshRingSubdivisionComponent : public UActorComponent
 {
 	GENERATED_BODY()

@@ -22,6 +22,5 @@ private:
 	/** 커스텀 스타일 셋 */
 	TSharedPtr<FSlateStyleSet> StyleSet;
 
-	TSharedPtr<IAssetTypeActions> FleshRingDeformerAssetTypeActions;
 	TSharedPtr<IAssetTypeActions> FleshRingAssetTypeActions;
 };
