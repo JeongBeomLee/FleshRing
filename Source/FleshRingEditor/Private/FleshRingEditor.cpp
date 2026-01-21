@@ -45,6 +45,11 @@ void FFleshRingEditorModule::StartupModule()
 	const FString ClassIconPath = PluginResourcesPath / TEXT("FleshRingAssetIcon.png");
 	StyleSet->Set("ClassIcon.FleshRingAsset", new FSlateImageBrush(ClassIconPath, FVector2D(16.0f, 16.0f)));
 
+	// FleshRingComponent 클래스 아이콘 등록
+	const FString ComponentIconPath = PluginResourcesPath / TEXT("FleshRingAssetComponentIcon.png");
+	StyleSet->Set("ClassIcon.FleshRingComponent", new FSlateImageBrush(ComponentIconPath, FVector2D(16.0f, 16.0f)));
+	StyleSet->Set("ClassThumbnail.FleshRingComponent", new FSlateImageBrush(ComponentIconPath, FVector2D(64.0f, 64.0f)));
+
 	FSlateStyleRegistry::RegisterSlateStyle(*StyleSet);
 
 	// This code will execute after your module is loaded into memory; the exact timing is specified in the .uplugin file per-module
