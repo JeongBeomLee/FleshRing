@@ -10,6 +10,8 @@
 #include "FleshRingTypes.h"
 #include "FleshRingAssetEditor.h"
 #include "FleshRingDeformerInstance.h"
+#include "SFleshRingEditorViewport.h"
+#include "FleshRingPreviewScene.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Images/SImage.h"
@@ -370,19 +372,8 @@ FReply FSubdivisionSettingsCustomization::OnBakeMeshClicked()
 		return FReply::Handled();
 	}
 
-	// ★ 기존 BakedMesh가 다른 에디터에서 열려있으면 먼저 닫기 (크래시 방지)
-	if (Asset->HasBakedMesh())
-	{
-		UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
-		if (AssetEditorSubsystem)
-		{
-			USkeletalMesh* ExistingBakedMesh = Asset->SubdivisionSettings.BakedMesh;
-			if (ExistingBakedMesh)
-			{
-				AssetEditorSubsystem->CloseAllEditorsForAsset(ExistingBakedMesh);
-			}
-		}
-	}
+	// ★ 순서 중요: FleshRingEditor를 먼저 찾은 후 CloseAllEditorsForAsset 호출
+	// (CloseAllEditorsForAsset가 에디터 닫힘 이벤트를 발생시켜 PreviewSubdividedMesh 손상 가능)
 
 	// UAssetEditorSubsystem을 통해 열린 에디터와 PreviewComponent 가져오기
 	FFleshRingAssetEditor* FleshRingEditor = nullptr;
@@ -413,6 +404,34 @@ FReply FSubdivisionSettingsCustomization::OnBakeMeshClicked()
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Cannot bake mesh: PreviewComponent or Editor not found. Please ensure the asset editor is open."));
 		return FReply::Handled();
+	}
+
+	// ★ CloseAllEditorsForAsset 호출 전에 PreviewScene의 PreviewSubdividedMesh 정리
+	// (에디터 닫힘 이벤트가 렌더 리소스를 손상시키는 것을 방지)
+	TSharedPtr<SFleshRingEditorViewport> ViewportWidget = FleshRingEditor->GetViewportWidget();
+	if (ViewportWidget.IsValid())
+	{
+		TSharedPtr<FFleshRingPreviewScene> PreviewScene = ViewportWidget->GetPreviewScene();
+		if (PreviewScene.IsValid() && PreviewScene->HasValidPreviewMesh())
+		{
+			UE_LOG(LogTemp, Log, TEXT("Bake: Clearing PreviewSubdividedMesh before CloseAllEditorsForAsset"));
+			PreviewScene->ClearPreviewMesh();
+			FlushRenderingCommands();
+		}
+	}
+
+	// ★ 기존 BakedMesh가 다른 에디터에서 열려있으면 먼저 닫기 (크래시 방지)
+	if (Asset->HasBakedMesh())
+	{
+		UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
+		if (AssetEditorSubsystem)
+		{
+			USkeletalMesh* ExistingBakedMesh = Asset->SubdivisionSettings.BakedMesh;
+			if (ExistingBakedMesh)
+			{
+				AssetEditorSubsystem->CloseAllEditorsForAsset(ExistingBakedMesh);
+			}
+		}
 	}
 
 	// ★ Deformer가 없으면 강제 초기화 (서브디비전 OFF 상태에서도 베이크 가능하도록)

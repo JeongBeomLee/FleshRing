@@ -69,6 +69,9 @@ public:
 	/** 베이크 오버레이 상태 */
 	bool IsBakeOverlayVisible() const { return bBakeOverlayVisible; }
 
+	/** 뷰포트 위젯 반환 (베이크 시 PreviewScene 접근용) */
+	TSharedPtr<SFleshRingEditorViewport> GetViewportWidget() const { return ViewportWidget; }
+
 private:
 	/** Skeleton Tree 탭 생성 */
 	TSharedRef<SDockTab> SpawnTab_SkeletonTree(const FSpawnTabArgs& Args);
