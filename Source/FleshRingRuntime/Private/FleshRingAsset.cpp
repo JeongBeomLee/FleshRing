@@ -1338,6 +1338,13 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 			bNeedsFullRefresh = true;
 		}
 
+		// ★ Hop 기반 스무딩 파라미터 변경 시 AffectedVertices 재빌드 필요
+		if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MaxSmoothingHops) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingVolumeMode))
+		{
+			bNeedsFullRefresh = true;
+		}
+
 		// ★ Preview subdivision 파라미터 변경 시 전체 갱신 (PreviewScene에서 해시 비교로 캐시 무효화됨)
 		if (PropName == GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, PreviewSubdivisionLevel) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, PreviewBoneHopCount) ||

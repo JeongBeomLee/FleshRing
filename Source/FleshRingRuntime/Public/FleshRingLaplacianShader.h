@@ -199,9 +199,9 @@ struct FLaplacianDispatchParams
         , SmoothingLambda(0.5f)
         , NumIterations(2)
         , bExcludeStockingFromSmoothing(true)  // Default: exclude stocking from smoothing
-        , bAnchorDeformedVertices(false)      // Default: smooth all vertices (original behavior)
-        , bUseTaubinSmoothing(true)   // Default: use Taubin for shrinkage-free smoothing
-        , TaubinMu(-0.53f)            // Typical value for λ=0.5
+        , bAnchorDeformedVertices(false)       // Default: smooth all vertices (original behavior)
+        , bUseTaubinSmoothing(true)            // Default: use Taubin for shrinkage-free smoothing
+        , TaubinMu(-0.53f)                     // Typical value for λ=0.5
     {
     }
 
@@ -268,7 +268,7 @@ void DispatchFleshRingLaplacianCS(
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef AdjacencyDataBuffer,
     FRDGBufferRef VertexLayerTypesBuffer,
-    FRDGBufferRef IsAnchorFlagsBuffer);  // Optional: nullptr disables anchor mode
+    FRDGBufferRef IsAnchorFlagsBuffer);
 
 /**
  * Dispatch multiple iterations of Laplacian smoothing
@@ -293,4 +293,4 @@ void DispatchFleshRingLaplacianCS_MultiPass(
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef AdjacencyDataBuffer,
     FRDGBufferRef VertexLayerTypesBuffer,
-    FRDGBufferRef IsAnchorFlagsBuffer);  // Optional: nullptr disables anchor mode
+    FRDGBufferRef IsAnchorFlagsBuffer);

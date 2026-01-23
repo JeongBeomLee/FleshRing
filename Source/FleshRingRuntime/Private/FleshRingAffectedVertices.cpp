@@ -4031,6 +4031,7 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
     RingData.SmoothingRegionHopDistances.Reset(NumExtended);
     RingData.SmoothingRegionInfluences.Reset(NumExtended);
     RingData.SmoothingRegionIsAnchor.Reset(NumExtended);
+    RingData.MaxSmoothingHops = MaxHops;  // 블렌딩 계수 계산용
 
     const float MaxHopsFloat = static_cast<float>(MaxHops);
 
@@ -4210,6 +4211,6 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
     // 통계 로그
     const int32 NumNewVertices = NumExtended - NumAffected;
     UE_LOG(LogFleshRingVertices, Log,
-        TEXT("BuildHopDistanceData: %d seeds → %d extended (%d new vertices from %d-hop BFS)"),
-        NumAffected, NumExtended, NumNewVertices, MaxHops);
+        TEXT("BuildHopDistanceData: %d seeds → %d smoothing (%d-hop, +%d extended)"),
+        NumAffected, NumExtended, MaxHops, NumNewVertices);
 }

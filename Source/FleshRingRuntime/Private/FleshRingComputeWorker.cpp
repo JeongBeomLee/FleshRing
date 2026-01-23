@@ -1883,18 +1883,20 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				{
 					const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
 
-					// ===== Normal Recompute 영역 선택 (통합된 SmoothingRegion 사용) =====
+					// ===== Normal Recompute 영역 선택 =====
+					// 우선순위: SmoothingRegion > Original
 					const bool bAnySmoothingEnabled =
 						DispatchData.bEnableRadialSmoothing ||
 						DispatchData.bEnableLaplacianSmoothing ||
 						DispatchData.bEnablePBDEdgeConstraint;
 
+					// SmoothingRegion 사용 가능 여부
 					const bool bUseSmoothingRegion = bAnySmoothingEnabled &&
 						DispatchData.SmoothingRegionIndices.Num() > 0 &&
 						DispatchData.SmoothingRegionAdjacencyOffsets.Num() > 0 &&
 						DispatchData.SmoothingRegionAdjacencyTriangles.Num() > 0;
 
-					// 사용할 데이터 소스 선택 (통합: SmoothingRegion > Original)
+					// 사용할 데이터 소스 선택 (SmoothingRegion > Original)
 					const TArray<uint32>& IndicesSource = bUseSmoothingRegion
 						? DispatchData.SmoothingRegionIndices : DispatchData.Indices;
 					const TArray<uint32>& AdjacencyOffsetsSource = bUseSmoothingRegion
@@ -1989,6 +1991,31 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 
 					// NormalRecomputeCS 디스패치
 					FNormalRecomputeDispatchParams NormalParams(NumAffected, ActualNumVertices, WorkItem.NormalRecomputeMode);
+					NormalParams.FalloffType = DispatchData.NormalBlendFalloffType;
+
+					// ===== Hop-based 블렌딩 설정 =====
+					// HopBased 모드에서 경계 버텍스의 노멀을 원본과 블렌딩
+					FRDGBufferRef HopDistancesBuffer = nullptr;
+					const bool bIsHopBasedMode = (DispatchData.SmoothingExpandMode == ESmoothingVolumeMode::HopBased);
+
+					if (bUseSmoothingRegion && bIsHopBasedMode &&
+						DispatchData.SmoothingRegionHopDistances.Num() == NumAffected &&
+						DispatchData.MaxSmoothingHops > 0)
+					{
+						HopDistancesBuffer = GraphBuilder.CreateBuffer(
+							FRDGBufferDesc::CreateStructuredDesc(sizeof(int32), NumAffected),
+							*FString::Printf(TEXT("FleshRing_HopDistances_Ring%d"), RingIdx)
+						);
+						GraphBuilder.QueueBufferUpload(
+							HopDistancesBuffer,
+							DispatchData.SmoothingRegionHopDistances.GetData(),
+							NumAffected * sizeof(int32),
+							ERDGInitialDataFlags::None
+						);
+
+						NormalParams.bEnableHopBlending = WorkItem.bEnableNormalHopBlending;
+						NormalParams.MaxHops = DispatchData.MaxSmoothingHops;
+					}
 
 					DispatchFleshRingNormalRecomputeCS(
 						GraphBuilder,
@@ -2000,7 +2027,8 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 						AdjacencyTrianglesBuffer,      // 인접 삼각형
 						MeshIndexBuffer,               // 메시 인덱스 버퍼
 						SourceTangentsSRV,             // 원본 탄젠트 (원본 스무스 노멀 포함)
-						RecomputedNormalsBuffer        // 출력: 재계산된 노멀
+						RecomputedNormalsBuffer,       // 출력: 재계산된 노멀
+						HopDistancesBuffer             // 홉 거리 (블렌딩용, 선택적)
 					);
 
 					// [DEBUG] NormalRecomputeCS 로그 (필요시 주석 해제)
@@ -2090,18 +2118,20 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				{
 					const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
 
-					// ===== Tangent Recompute 영역 선택 (통합된 SmoothingRegion 사용) =====
+					// ===== Tangent Recompute 영역 선택 =====
+					// 우선순위: SmoothingRegion > Original
 					const bool bAnySmoothingEnabled =
 						DispatchData.bEnableRadialSmoothing ||
 						DispatchData.bEnableLaplacianSmoothing ||
 						DispatchData.bEnablePBDEdgeConstraint;
 
+					// SmoothingRegion 사용 가능 여부
 					const bool bUseSmoothingRegion = bAnySmoothingEnabled &&
 						DispatchData.SmoothingRegionIndices.Num() > 0 &&
 						DispatchData.SmoothingRegionAdjacencyOffsets.Num() > 0 &&
 						DispatchData.SmoothingRegionAdjacencyTriangles.Num() > 0;
 
-					// 데이터 소스 선택 (통합: SmoothingRegion > Original)
+					// 데이터 소스 선택 (SmoothingRegion > Original)
 					const TArray<uint32>& IndicesSource = bUseSmoothingRegion
 						? DispatchData.SmoothingRegionIndices : DispatchData.Indices;
 					const TArray<uint32>& AdjacencyOffsetsSource = bUseSmoothingRegion

@@ -67,6 +67,10 @@ Buffer<float4> OriginalTangents;
 // 출력: 재계산된 노멀 (버텍스당 float3)
 RWBuffer<float> OutputNormals;
 
+// Input: Hop distances for each affected vertex (optional, for blending)
+// 입력: 각 영향받는 버텍스의 홉 거리 (블렌딩용, 선택적)
+StructuredBuffer<int> HopDistances;
+
 // ============================================================================
 // Parameters
 // 파라미터
@@ -78,6 +82,12 @@ uint NumTotalVertices;      // Total mesh vertex count (for bounds check)
                             // 전체 메시 버텍스 수 (범위 체크용)
 uint NormalRecomputeMode;   // 0 = Geometric, 1 = SurfaceRotation, 2 = PolarDecomposition
                             // 0 = 지오메트릭, 1 = 표면 회전, 2 = Polar 분해
+uint bEnableHopBlending;    // 0 = off, 1 = on (blend with original at boundary)
+                            // 홉 기반 블렌딩: 경계에서 원본 노멀과 블렌드
+uint MaxHops;               // Maximum hop distance (for blend factor calculation)
+                            // 최대 홉 거리 (블렌드 계수 계산용)
+uint FalloffType;           // 0 = Linear, 1 = Quadratic, 2 = Hermite
+                            // falloff 타입: 0=선형, 1=2차곡선, 2=Hermite
 
 // Thread Group Size
 #ifndef THREADGROUP_SIZE
@@ -88,6 +98,30 @@ uint NormalRecomputeMode;   // 0 = Geometric, 1 = SurfaceRotation, 2 = PolarDeco
 // Helper Functions
 // 헬퍼 함수
 // ============================================================================
+
+// Apply falloff curve to normalized distance t [0, 1]
+// 정규화된 거리 t [0, 1]에 falloff 곡선 적용
+// FalloffType: 0 = Linear, 1 = Quadratic, 2 = Hermite (smoothstep)
+float ApplyFalloff(float t, uint InFalloffType)
+{
+    // t: 0 at center (HopDist=0), 1 at boundary (HopDist=MaxHops)
+    // t: 중심(HopDist=0)에서 0, 경계(HopDist=MaxHops)에서 1
+    t = saturate(t);
+
+    if (InFalloffType == 0)  // Linear
+    {
+        return t;
+    }
+    else if (InFalloffType == 1)  // Quadratic
+    {
+        return t * t;
+    }
+    else  // Hermite (smoothstep) - default
+    {
+        // smoothstep: 3t^2 - 2t^3
+        return t * t * (3.0 - 2.0 * t);
+    }
+}
 
 // Read deformed vertex position from buffer (3 floats per vertex)
 // 버퍼에서 변형된 버텍스 위치 읽기 (버텍스당 3 float)
@@ -386,6 +420,21 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
         // Normalize and write
         float3 FinalNormal = SafeNormalize(DeformedFaceNormalSum, float3(0, 0, 1));
+
+        // Hop-based blending: blend with original normal at boundary
+        // 홉 기반 블렌딩: 경계에서 원본 노멀과 블렌드
+        // HopDist=0 (중심): 재계산된 노멀 100%, HopDist=MaxHops (경계): 원본 노멀과 블렌드
+        if (bEnableHopBlending != 0 && MaxHops > 0)
+        {
+            int HopDist = HopDistances[ThreadIndex];
+            float3 OriginalNormal = SafeNormalize(ReadOriginalNormal(VertexIndex), float3(0, 0, 1));
+            // BlendFactor: 1.0 at center (HopDist=0), 0.0 at boundary (HopDist=MaxHops)
+            // 블렌드 계수: 중심(HopDist=0)에서 1.0, 경계(HopDist=MaxHops)에서 0.0
+            float t = saturate((float)HopDist / (float)MaxHops);
+            float BlendFactor = 1.0 - ApplyFalloff(t, FalloffType);
+            FinalNormal = normalize(lerp(OriginalNormal, FinalNormal, BlendFactor));
+        }
+
         WriteNormal(VertexIndex, FinalNormal);
     }
     else // MODE_SURFACE_ROTATION 또는 MODE_POLAR_DECOMPOSITION (deprecated, fallback)
@@ -475,6 +524,20 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         );
 
         float3 FinalNormal = SafeNormalize(RotatedNormal, OriginalVertexNormal);
+
+        // Hop-based blending: blend with original normal at boundary
+        // 홉 기반 블렌딩: 경계에서 원본 노멀과 블렌드
+        // HopDist=0 (중심): 재계산된 노멀 100%, HopDist=MaxHops (경계): 원본 노멀과 블렌드
+        if (bEnableHopBlending != 0 && MaxHops > 0)
+        {
+            int HopDist = HopDistances[ThreadIndex];
+            // BlendFactor: 1.0 at center (HopDist=0), 0.0 at boundary (HopDist=MaxHops)
+            // 블렌드 계수: 중심(HopDist=0)에서 1.0, 경계(HopDist=MaxHops)에서 0.0
+            float t = saturate((float)HopDist / (float)MaxHops);
+            float BlendFactor = 1.0 - ApplyFalloff(t, FalloffType);
+            FinalNormal = normalize(lerp(OriginalVertexNormal, FinalNormal, BlendFactor));
+        }
+
         WriteNormal(VertexIndex, FinalNormal);
     }
     // [DEPRECATED] MODE_POLAR_DECOMPOSITION는 MODE_SURFACE_ROTATION으로 fallback

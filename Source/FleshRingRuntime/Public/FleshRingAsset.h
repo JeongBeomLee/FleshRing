@@ -93,6 +93,14 @@ public:
 	ENormalRecomputeMethod NormalRecomputeMethod = ENormalRecomputeMethod::SurfaceRotation;
 
 	/**
+	 * 홉 기반 블렌딩 활성화
+	 * 활성화 시: 경계 버텍스에서 재계산된 노멀과 원본 노멀을 부드럽게 블렌드
+	 * 비활성화 시: 재계산된 노멀만 사용 (경계에서 급격한 변화 가능)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normal/Tangent Recompute", meta = (DisplayName = "Enable Hop Blending", EditCondition = "bEnableNormalRecompute"))
+	bool bEnableNormalHopBlending = true;
+
+	/**
 	 * 탄젠트 재계산 활성화
 	 * 재계산된 노멀에 맞춰 탄젠트를 정규직교화하여 TBN 매트릭스 일관성 유지
 	 * 비활성화하면 원본 탄젠트 사용 (노멀맵 렌더링 부정확할 수 있음)

@@ -73,12 +73,22 @@ public:
 		// 출력: 재계산된 노멀
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float>, OutputNormals)
 
+		// ===== Hop-based Blending (HopBased mode only) =====
+		// ===== 홉 기반 블렌딩 (HopBased 모드 전용) =====
+
+		// Input: Hop distances for each affected vertex (optional, for blending)
+		// 입력: 각 영향받는 버텍스의 홉 거리 (블렌딩용, 선택적)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<int>, HopDistances)
+
 		// ===== Parameters =====
 		// ===== 파라미터 =====
 
 		SHADER_PARAMETER(uint32, NumAffectedVertices)
 		SHADER_PARAMETER(uint32, NumTotalVertices)
 		SHADER_PARAMETER(uint32, NormalRecomputeMode)  // 0 = Geometric, 1 = SurfaceRotation, 2 = PolarDecomposition
+		SHADER_PARAMETER(uint32, bEnableHopBlending)   // 0 = off, 1 = on (blend with original at boundary)
+		SHADER_PARAMETER(uint32, MaxHops)              // Maximum hop distance (for blend factor calculation)
+		SHADER_PARAMETER(uint32, FalloffType)          // 0 = Linear, 1 = Quadratic, 2 = Hermite
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
@@ -112,12 +122,30 @@ struct FNormalRecomputeDispatchParams
 	// 0 = Geometric, 1 = SurfaceRotation, 2 = PolarDecomposition
 	uint32 NormalRecomputeMode = 2;  // Default: PolarDecomposition
 
+	// ===== Hop-based Blending Parameters =====
+	// ===== 홉 기반 블렌딩 파라미터 =====
+
+	// Enable hop-based blending (blend with original normal at boundary)
+	// 홉 기반 블렌딩 활성화 (경계에서 원본 노멀과 블렌드)
+	bool bEnableHopBlending = false;
+
+	// Maximum hop distance (for blend factor calculation)
+	// 최대 홉 거리 (블렌드 계수 계산용)
+	uint32 MaxHops = 0;
+
+	// Falloff type for blending (0=Linear, 1=Quadratic, 2=Hermite)
+	// 블렌딩 falloff 타입 (0=선형, 1=2차곡선, 2=Hermite)
+	uint32 FalloffType = 2;  // Default: Hermite
+
 	FNormalRecomputeDispatchParams() = default;
 
 	FNormalRecomputeDispatchParams(uint32 InNumAffectedVertices, uint32 InNumTotalVertices, uint32 InNormalRecomputeMode = 2)
 		: NumAffectedVertices(InNumAffectedVertices)
 		, NumTotalVertices(InNumTotalVertices)
 		, NormalRecomputeMode(InNormalRecomputeMode)
+		, bEnableHopBlending(false)
+		, MaxHops(0)
+		, FalloffType(2)
 	{
 	}
 };
@@ -147,6 +175,7 @@ struct FNormalRecomputeDispatchParams
  * @param IndexBuffer - Mesh index buffer (triangle indices)
  * @param SourceTangentsSRV - Original tangents buffer SRV (contains normals in TangentZ)
  * @param OutputNormalsBuffer - Output buffer for recomputed normals
+ * @param HopDistancesBuffer - (Optional) Hop distances for blend factor calculation (nullptr if not using hop blending)
  */
 void DispatchFleshRingNormalRecomputeCS(
 	FRDGBuilder& GraphBuilder,
@@ -158,4 +187,5 @@ void DispatchFleshRingNormalRecomputeCS(
 	FRDGBufferRef AdjacencyTrianglesBuffer,
 	FRDGBufferRef IndexBuffer,
 	FRHIShaderResourceView* SourceTangentsSRV,
-	FRDGBufferRef OutputNormalsBuffer);
+	FRDGBufferRef OutputNormalsBuffer,
+	FRDGBufferRef HopDistancesBuffer = nullptr);

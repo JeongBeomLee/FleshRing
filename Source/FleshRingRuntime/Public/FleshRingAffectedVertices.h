@@ -257,13 +257,21 @@ struct FRingAffectedData
      */
     TArray<uint32> SmoothingRegionAdjacencyTriangles;
 
+    // =========== Hop Distance Data (HopBased Mode) ===========
     /**
      * Hop distance for each vertex in smoothing region (HopBased only)
+     * Used for normal blending at boundaries
      * 0 = Seed (original affected vertex), 1+ = hop distance from nearest seed
      * BoundsExpand 모드에서는 비어 있음
      * GPU 버퍼: 스무딩 영역 각 버텍스의 홉 거리 (HopBased 전용)
      */
     TArray<int32> SmoothingRegionHopDistances;
+
+    /**
+     * Maximum hop distance (for blend factor calculation)
+     * 최대 홉 거리 (블렌드 계수 계산용)
+     */
+    int32 MaxSmoothingHops = 0;
 
     // =========== Skin SDF Layer Separation Data ===========
     // =========== 스킨 SDF 레이어 분리용 데이터 ===========

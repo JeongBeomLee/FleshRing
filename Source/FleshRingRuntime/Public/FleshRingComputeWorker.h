@@ -146,6 +146,8 @@ struct FFleshRingWorkItem
 		TArray<uint32> SmoothingRegionAdjacencyOffsets;  // 노멀 재계산용 인접 오프셋
 		TArray<uint32> SmoothingRegionAdjacencyTriangles;  // 노멀 재계산용 인접 삼각형
 		TArray<int32> SmoothingRegionHopDistances;       // 홉 거리 (HopBased 전용)
+		int32 MaxSmoothingHops = 0;                      // 최대 홉 거리 (블렌딩 계수 계산용)
+		uint32 NormalBlendFalloffType = 2;               // 노멀 블렌딩 falloff (0=Linear, 1=Quadratic, 2=Hermite)
 
 		// ===== Legacy (호환성 유지, 점진적 제거 예정) =====
 		TArray<float> HopBasedInfluences;     // (legacy) 홉 거리 기반 influence
@@ -246,6 +248,8 @@ struct FFleshRingWorkItem
 	// 노멀 재계산 모드 (ENormalRecomputeMethod와 일치)
 	// 0 = Geometric, 1 = SurfaceRotation, 2 = PolarDecomposition (DEPRECATED)
 	uint32 NormalRecomputeMode = 1;  // Default: SurfaceRotation
+	// 홉 기반 블렌딩 활성화 여부 (경계에서 원본 노멀과 블렌딩)
+	bool bEnableNormalHopBlending = true;
 	// 탄젠트 재계산 활성화 여부 (FleshRingAsset에서 설정, 노멀 재계산이 켜져있어야 동작)
 	bool bEnableTangentRecompute = true;
 	// 탄젠트 재계산 모드 (ETangentRecomputeMethod와 일치)
