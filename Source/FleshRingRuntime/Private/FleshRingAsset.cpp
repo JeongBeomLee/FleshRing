@@ -33,6 +33,16 @@ UFleshRingAsset::UFleshRingAsset()
 {
 }
 
+bool UFleshRingAsset::HasSubdividedMesh() const
+{
+	return SubdivisionSettings.SubdividedMesh.Get() != nullptr;
+}
+
+bool UFleshRingAsset::HasBakedMesh() const
+{
+	return SubdivisionSettings.BakedMesh.Get() != nullptr;
+}
+
 void UFleshRingAsset::PostLoad()
 {
 	Super::PostLoad();

@@ -7,6 +7,7 @@
 #include "FleshRingTypes.generated.h"
 
 class UStaticMesh;
+class USkeletalMesh;
 
 // =====================================
 // 열거형 정의

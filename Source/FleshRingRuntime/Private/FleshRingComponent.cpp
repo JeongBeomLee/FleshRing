@@ -12,8 +12,11 @@
 #include "FleshRingBulgeTypes.h"
 #include "FleshRingFalloff.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/SkeletalMesh.h"
 #include "Engine/VolumeTexture.h"
+#include "Animation/Skeleton.h"
 #include "GameFramework/Actor.h"
+#include "Engine/World.h"
 #include "RenderGraphBuilder.h"
 #include "RenderingThread.h"
 #include "TextureResource.h"
@@ -1160,7 +1163,7 @@ bool UFleshRingComponent::SwapRingAssetForModular(UFleshRingAsset* NewAsset, boo
 	if (NewAsset)
 	{
 		USkeletalMesh* CurrentMesh = TargetMesh->GetSkeletalMeshAsset();
-		USkeletalMesh* NewBakedMesh = NewAsset->SubdivisionSettings.BakedMesh;
+		USkeletalMesh* NewBakedMesh = NewAsset->SubdivisionSettings.BakedMesh.Get();
 
 		if (CurrentMesh && NewBakedMesh)
 		{
@@ -1236,7 +1239,7 @@ bool UFleshRingComponent::SwapRingAssetForModular(UFleshRingAsset* NewAsset, boo
 	}
 
 	// 8. BakedMesh 적용
-	TargetMesh->SetSkeletalMeshAsset(FleshRingAsset->SubdivisionSettings.BakedMesh);
+	TargetMesh->SetSkeletalMeshAsset(FleshRingAsset->SubdivisionSettings.BakedMesh.Get());
 	bUsingBakedMesh = true;
 
 	// 9. Leader Pose 복원
@@ -1308,7 +1311,7 @@ void UFleshRingComponent::ApplyBakedMesh()
 
 	// 베이크된 메시 적용
 	// SetSkeletalMeshAsset은 애니메이션 상태를 자동으로 보존함
-	USkeletalMesh* BakedMesh = FleshRingAsset->SubdivisionSettings.BakedMesh;
+	USkeletalMesh* BakedMesh = FleshRingAsset->SubdivisionSettings.BakedMesh.Get();
 	TargetMesh->SetSkeletalMeshAsset(BakedMesh);
 
 	// Bounds 확장 (변형이 이미 적용되어 있지만 안전을 위해)

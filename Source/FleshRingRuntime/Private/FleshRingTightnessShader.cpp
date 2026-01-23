@@ -14,6 +14,7 @@
 #include "ShaderParameterUtils.h"
 #include "RenderingThread.h"
 #include "RHIGPUReadback.h"
+#include "RHIStaticStates.h"
 
 // Includes for asset-based testing
 // 에셋 기반 테스트를 위한 include
@@ -21,6 +22,7 @@
 #include "FleshRingAsset.h"
 #include "EngineUtils.h"
 #include "Engine/World.h"
+#include "Engine/SkeletalMesh.h"
 #include "Rendering/SkeletalMeshRenderData.h"
 #include "Rendering/SkeletalMeshLODRenderData.h"
 

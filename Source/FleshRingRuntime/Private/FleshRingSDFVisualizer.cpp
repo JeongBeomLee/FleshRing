@@ -7,9 +7,12 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "Engine/World.h"
+#include "Engine/Engine.h"
 #include "Engine/TextureRenderTarget2D.h"
+#include "TextureResource.h"
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/Material.h"
 
 FSDFVisualizationResult UFleshRingSDFVisualizer::VisualizeSDFSlice(
     UObject* WorldContextObject,
@@ -106,7 +109,7 @@ FSDFVisualizationResult UFleshRingSDFVisualizer::VisualizeSDFSlice(
 
     // 5. 머티리얼 생성 및 적용
     // Widget3DPassThrough 머티리얼 사용 (텍스처 파라미터 지원)
-    UMaterial* BaseMaterial = LoadObject<UMaterial>(nullptr, TEXT("/Engine/EngineMaterials/Widget3DPassThrough.Widget3DPassThrough"));
+    UMaterialInterface* BaseMaterial = LoadObject<UMaterial>(nullptr, TEXT("/Engine/EngineMaterials/Widget3DPassThrough.Widget3DPassThrough"));
     if (!BaseMaterial)
     {
         // 폴백: 기본 머티리얼
@@ -313,7 +316,7 @@ TArray<FSDFVisualizationResult> UFleshRingSDFVisualizer::VisualizeAllSDFSlices(
     float PlaneScaleY = BoundsSizeWithMargin.Y / 100.0f;
 
     UStaticMesh* PlaneMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"));
-    UMaterial* BaseMaterial = LoadObject<UMaterial>(nullptr, TEXT("/Engine/EngineMaterials/Widget3DPassThrough.Widget3DPassThrough"));
+    UMaterialInterface* BaseMaterial = LoadObject<UMaterial>(nullptr, TEXT("/Engine/EngineMaterials/Widget3DPassThrough.Widget3DPassThrough"));
     if (!BaseMaterial)
     {
         BaseMaterial = LoadObject<UMaterial>(nullptr, TEXT("/Engine/EngineMaterials/DefaultMaterial.DefaultMaterial"));

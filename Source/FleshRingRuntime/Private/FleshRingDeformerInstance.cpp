@@ -1444,10 +1444,12 @@ void UFleshRingDeformerInstance::InvalidateTightnessCache(int32 DirtyRingIndex)
     }
 
     // 4. CPU 디버그 캐시도 무효화 (GPU 재계산과 동기화)
+#if WITH_EDITORONLY_DATA
     if (FleshRingComponent.IsValid())
     {
         FleshRingComponent->InvalidateDebugCaches(DirtyRingIndex);
     }
+#endif
 }
 
 void UFleshRingDeformerInstance::InvalidateForMeshChange()

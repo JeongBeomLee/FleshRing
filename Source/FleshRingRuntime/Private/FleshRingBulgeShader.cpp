@@ -5,6 +5,7 @@
 #include "RenderGraphUtils.h"
 #include "ShaderParameterUtils.h"
 #include "RHIGPUReadback.h"
+#include "RHIStaticStates.h"
 
 IMPLEMENT_GLOBAL_SHADER(
 	FFleshRingBulgeCS,

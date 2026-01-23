@@ -8,6 +8,7 @@
 #include "FleshRingAsset.generated.h"
 
 class UFleshRingComponent;
+struct FSkeletalMaterial;
 
 /** 에셋 변경 시 브로드캐스트되는 델리게이트 (구조적 변경 시 전체 리프레시) */
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnFleshRingAssetChanged, UFleshRingAsset*);
@@ -190,11 +191,11 @@ public:
 
 	/** Subdivided 메시가 생성되어 있는지 */
 	UFUNCTION(BlueprintPure, Category = "FleshRing|Subdivision")
-	bool HasSubdividedMesh() const { return SubdivisionSettings.SubdividedMesh != nullptr; }
+	bool HasSubdividedMesh() const;
 
 	/** 베이크된 메시가 생성되어 있는지 */
 	UFUNCTION(BlueprintPure, Category = "FleshRing|Baked")
-	bool HasBakedMesh() const { return SubdivisionSettings.BakedMesh != nullptr; }
+	bool HasBakedMesh() const;
 
 	/** Subdivision 파라미터 변경으로 재생성 필요한지 */
 	UFUNCTION(BlueprintPure, Category = "FleshRing|Subdivision")
