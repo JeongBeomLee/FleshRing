@@ -14,26 +14,26 @@ struct FLESHRINGRUNTIME_API FSDFVisualizationResult
     GENERATED_BODY()
 
     // 스폰된 평면 액터 (시각화 표시용)
-    UPROPERTY(BlueprintReadOnly)
+    UPROPERTY(BlueprintReadOnly, Category = "SDF Visualization")
     AActor* PlaneActor = nullptr;
 
     // 생성된 렌더 타겟 (슬라이스 이미지)
-    UPROPERTY(BlueprintReadOnly)
+    UPROPERTY(BlueprintReadOnly, Category = "SDF Visualization")
     UTextureRenderTarget2D* SliceTexture = nullptr;
 
     // SDF 바운딩 박스
-    UPROPERTY(BlueprintReadOnly)
+    UPROPERTY(BlueprintReadOnly, Category = "SDF Visualization")
     FVector BoundsMin = FVector::ZeroVector;
 
-    UPROPERTY(BlueprintReadOnly)
+    UPROPERTY(BlueprintReadOnly, Category = "SDF Visualization")
     FVector BoundsMax = FVector::ZeroVector;
 
     // 현재 슬라이스 Z 인덱스
-    UPROPERTY(BlueprintReadOnly)
+    UPROPERTY(BlueprintReadOnly, Category = "SDF Visualization")
     int32 CurrentSliceZ = 0;
 
     // SDF 해상도
-    UPROPERTY(BlueprintReadOnly)
+    UPROPERTY(BlueprintReadOnly, Category = "SDF Visualization")
     int32 Resolution = 64;
 
     bool IsValid() const { return PlaneActor != nullptr && SliceTexture != nullptr; }

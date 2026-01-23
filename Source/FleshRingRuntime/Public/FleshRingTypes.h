@@ -386,11 +386,11 @@ struct FLESHRINGRUNTIME_API FVirtualBandSection
 	GENERATED_BODY()
 
 	/** 해당 섹션의 끝단 반경 (MidRadius와의 차이로 경사 결정) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.1"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Virtual Band", meta = (ClampMin = "0.1"))
 	float Radius = 10.0f;
 
 	/** 해당 섹션의 높이 (경사 구간 길이) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Virtual Band", meta = (ClampMin = "0.0"))
 	float Height = 2.0f;
 
 	FVirtualBandSection()
