@@ -5,6 +5,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Kismet/BlueprintFunctionLibrary.h"
 #include "Engine/StaticMesh.h"
 #include "FleshRingMeshExtractor.generated.h"
 
