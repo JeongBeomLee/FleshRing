@@ -9,6 +9,7 @@
 class IDetailChildrenBuilder;
 class UFleshRingAsset;
 class FAssetThumbnailPool;
+class SBox;
 
 /**
  * FMaterialLayerMapping 구조체의 프로퍼티 타입 커스터마이저
@@ -44,9 +45,27 @@ private:
 	/** MaterialSlotIndex로 머티리얼 가져오기 */
 	UMaterialInterface* GetMaterialForSlot(int32 SlotIndex) const;
 
+	/** 썸네일 콘텐츠 업데이트 */
+	void UpdateThumbnailContent();
+
+	/** 에셋 변경 콜백 */
+	void OnAssetChanged(UFleshRingAsset* ChangedAsset);
+
 	/** 메인 프로퍼티 핸들 캐싱 */
 	TSharedPtr<IPropertyHandle> MainPropertyHandle;
 
+	/** 슬롯 인덱스 핸들 캐싱 (썸네일 업데이트용) */
+	TSharedPtr<IPropertyHandle> CachedSlotIndexHandle;
+
 	/** 썸네일 풀 (에디터에서 썸네일 렌더링용) */
 	TSharedPtr<FAssetThumbnailPool> ThumbnailPool;
+
+	/** 썸네일 컨테이너 (동적 업데이트용) */
+	TSharedPtr<SBox> ThumbnailContainer;
+
+	/** 에셋 변경 델리게이트 핸들 */
+	FDelegateHandle AssetChangedDelegateHandle;
+
+	/** 캐싱된 에셋 포인터 (델리게이트 해제용) */
+	TWeakObjectPtr<UFleshRingAsset> CachedAsset;
 };

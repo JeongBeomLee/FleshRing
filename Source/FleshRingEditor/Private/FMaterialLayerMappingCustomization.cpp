@@ -27,6 +27,15 @@ FMaterialLayerMappingCustomization::FMaterialLayerMappingCustomization()
 
 FMaterialLayerMappingCustomization::~FMaterialLayerMappingCustomization()
 {
+	// 에셋 변경 델리게이트 해제
+	if (UFleshRingAsset* Asset = CachedAsset.Get())
+	{
+		if (AssetChangedDelegateHandle.IsValid())
+		{
+			Asset->OnAssetChanged.Remove(AssetChangedDelegateHandle);
+			AssetChangedDelegateHandle.Reset();
+		}
+	}
 }
 
 TSharedRef<IPropertyTypeCustomization> FMaterialLayerMappingCustomization::MakeInstance()
@@ -35,103 +44,94 @@ TSharedRef<IPropertyTypeCustomization> FMaterialLayerMappingCustomization::MakeI
 }
 
 void FMaterialLayerMappingCustomization::CustomizeHeader(
-	TSharedRef<IPropertyHandle> PropertyHandle,				// FMaterialLayerMapping 하나에 대한 핸들
-	FDetailWidgetRow& HeaderRow,							// 이 행의 UI를 여기에 구성
+	TSharedRef<IPropertyHandle> PropertyHandle,
+	FDetailWidgetRow& HeaderRow,
 	IPropertyTypeCustomizationUtils& CustomizationUtils)
 {
-	// 나중에 GetOuterAsset() 에서 사용
+	// 프로퍼티 핸들 캐싱
 	MainPropertyHandle = PropertyHandle;
-
-
-	// 자식 프로퍼티 핸들 가져오기
-	TSharedPtr<IPropertyHandle> SlotIndexHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FMaterialLayerMapping, MaterialSlotIndex));
+	CachedSlotIndexHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FMaterialLayerMapping, MaterialSlotIndex));
 	TSharedPtr<IPropertyHandle> SlotNameHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FMaterialLayerMapping, MaterialSlotName));
 
-	// 값 추출
-	int32 SlotIndex = 0;
-	if (SlotIndexHandle.IsValid())
+	// 에셋 변경 델리게이트 구독 (AddRaw 사용 - 소멸자에서 해제됨)
+	if (UFleshRingAsset* Asset = GetOuterAsset())
 	{
-		SlotIndexHandle->GetValue(SlotIndex);
+		if (!AssetChangedDelegateHandle.IsValid())
+		{
+			CachedAsset = Asset;
+			AssetChangedDelegateHandle = Asset->OnAssetChanged.AddRaw(
+				this, &FMaterialLayerMappingCustomization::OnAssetChanged);
+		}
 	}
 
-	FName SlotName = NAME_None;
-	if (SlotNameHandle.IsValid())
+	// 동적 텍스트 바인딩: 프로퍼티 값이 변경되면 자동으로 업데이트됨
+	TSharedPtr<IPropertyHandle> LocalSlotIndexHandle = CachedSlotIndexHandle;
+	auto GetSlotIndexText = [LocalSlotIndexHandle]() -> FText
 	{
-		SlotNameHandle->GetValue(SlotName);
-	}
+		int32 SlotIndex = 0;
+		if (LocalSlotIndexHandle.IsValid())
+		{
+			LocalSlotIndexHandle->GetValue(SlotIndex);
+		}
+		return FText::Format(LOCTEXT("SlotIndexFormat", "[{0}]"), FText::AsNumber(SlotIndex));
+	};
 
-	// 머티리얼 가져오기
-	UMaterialInterface* Material = GetMaterialForSlot(SlotIndex);
-
-	// 썸네일 위젯 생성
-	// FAssetThumbnail: 에셋의 미리보기 이미지 렌더링하는 UE 클래스
-	TSharedPtr<FAssetThumbnail> Thumbnail;
-	TSharedRef<SWidget> ThumbnailWidget = SNullWidget::NullWidget;
-
-	if (Material && ThumbnailPool.IsValid())
+	auto GetSlotNameText = [SlotNameHandle]() -> FText
 	{
-		Thumbnail = MakeShared<FAssetThumbnail>(Material, ThumbnailSize, ThumbnailSize, ThumbnailPool.ToSharedRef());
+		FName SlotName = NAME_None;
+		if (SlotNameHandle.IsValid())
+		{
+			SlotNameHandle->GetValue(SlotName);
+		}
+		return FText::FromName(SlotName);
+	};
 
-		ThumbnailWidget = SNew(SBox)
-			.WidthOverride(ThumbnailSize)
-			.HeightOverride(ThumbnailSize)
-			.Padding(2.0f)
-			[
-				Thumbnail->MakeThumbnailWidget() // 실제 썸네일 이미지 위젯
-			];
-	}
-	else
-	{
-		// 머티리얼이 없으면 빈 박스 표시
-		ThumbnailWidget = SNew(SBox)
-			.WidthOverride(ThumbnailSize)
-			.HeightOverride(ThumbnailSize)
-			.Padding(2.0f)
-			[
-				SNew(STextBlock)
-				.Text(LOCTEXT("NoMaterial", "?"))
-				.Justification(ETextJustify::Center)
-			];
-	}
+	// 썸네일 컨테이너 생성 (멤버 변수로 저장하여 나중에 업데이트 가능)
+	ThumbnailContainer = SNew(SBox)
+		.WidthOverride(ThumbnailSize)
+		.HeightOverride(ThumbnailSize)
+		.Padding(2.0f);
+
+	// 초기 썸네일 설정
+	UpdateThumbnailContent();
 
 	// 헤더 행 구성: [썸네일] [인덱스] [슬롯 이름]
 	HeaderRow
 		.NameContent()
 		[
-			// 슬롯 1: 썸네일
 			SNew(SHorizontalBox)
+			// 슬롯 1: 썸네일
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
 			.VAlign(VAlign_Center)
 			[
-				ThumbnailWidget
+				ThumbnailContainer.ToSharedRef()
 			]
-			// 슬롯 2: 인덱스
+			// 슬롯 2: 인덱스 (동적 바인딩)
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
 			.VAlign(VAlign_Center)
 			.Padding(4.0f, 0.0f, 0.0f, 0.0f)
 			[
 				SNew(STextBlock)
-				.Text(FText::Format(LOCTEXT("SlotIndexFormat", "[{0}]"), FText::AsNumber(SlotIndex)))
+				.Text_Lambda(GetSlotIndexText)
 				.Font(IDetailLayoutBuilder::GetDetailFont())
 				.ColorAndOpacity(FSlateColor::UseSubduedForeground())
 			]
-			// 슬롯 3: 슬롯 이름
+			// 슬롯 3: 슬롯 이름 (동적 바인딩)
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
 			.VAlign(VAlign_Center)
 			.Padding(4.0f, 0.0f, 0.0f, 0.0f)
 			[
 				SNew(STextBlock)
-				.Text(FText::FromName(SlotName))
+				.Text_Lambda(GetSlotNameText)
 				.Font(IDetailLayoutBuilder::GetDetailFont())
 			]
 		]
 		.ValueContent()
 		.MinDesiredWidth(200.0f)
 		[
-			// 기본 값 위젯 (확장 화살표)
 			PropertyHandle->CreatePropertyValueWidget()
 		];
 }
@@ -148,6 +148,44 @@ void FMaterialLayerMappingCustomization::CustomizeChildren(
 	{
 		ChildBuilder.AddProperty(LayerTypeHandle.ToSharedRef());
 	}
+}
+
+void FMaterialLayerMappingCustomization::UpdateThumbnailContent()
+{
+	if (!ThumbnailContainer.IsValid())
+	{
+		return;
+	}
+
+	int32 SlotIndex = 0;
+	if (CachedSlotIndexHandle.IsValid())
+	{
+		CachedSlotIndexHandle->GetValue(SlotIndex);
+	}
+
+	UMaterialInterface* Material = GetMaterialForSlot(SlotIndex);
+
+	TSharedPtr<SWidget> ContentWidget;
+	if (Material && ThumbnailPool.IsValid())
+	{
+		TSharedPtr<FAssetThumbnail> Thumbnail = MakeShared<FAssetThumbnail>(
+			Material, ThumbnailSize, ThumbnailSize, ThumbnailPool.ToSharedRef());
+		ContentWidget = Thumbnail->MakeThumbnailWidget();
+	}
+	else
+	{
+		ContentWidget = SNew(STextBlock)
+			.Text(LOCTEXT("NoMaterial", "?"))
+			.Justification(ETextJustify::Center);
+	}
+
+	ThumbnailContainer->SetContent(ContentWidget.ToSharedRef());
+}
+
+void FMaterialLayerMappingCustomization::OnAssetChanged(UFleshRingAsset* ChangedAsset)
+{
+	// 에셋이 변경되면 썸네일 업데이트
+	UpdateThumbnailContent();
 }
 
 UFleshRingAsset* FMaterialLayerMappingCustomization::GetOuterAsset() const

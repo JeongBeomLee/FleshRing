@@ -223,26 +223,31 @@ void UFleshRingAsset::SyncMaterialLayerMappings()
 		ExistingLayerTypes.Add(Mapping.MaterialSlotIndex, Mapping.LayerType);
 	}
 
-	// 배열 재구성 (메시 슬롯 수와 동기화)
-	MaterialLayerMappings.SetNum(NumSlots);
+	// 배열 완전히 새로 구성 (SetNum 대신 Empty + Add)
+	// SetNum은 크기가 같으면 기존 요소 재사용 → 에디터 UI가 변경 감지 못함
+	MaterialLayerMappings.Empty();
+	MaterialLayerMappings.Reserve(NumSlots);
 
 	for (int32 SlotIndex = 0; SlotIndex < NumSlots; ++SlotIndex)
 	{
 		const FSkeletalMaterial& SkeletalMaterial = Materials[SlotIndex];
-		FMaterialLayerMapping& Mapping = MaterialLayerMappings[SlotIndex];
-
-		Mapping.MaterialSlotIndex = SlotIndex;
-		Mapping.MaterialSlotName = SkeletalMaterial.MaterialSlotName;
 
 		// 기존 LayerType 보존, 없으면 자동 감지
+		EFleshRingLayerType LayerType;
 		if (const EFleshRingLayerType* ExistingType = ExistingLayerTypes.Find(SlotIndex))
 		{
-			Mapping.LayerType = *ExistingType;
+			LayerType = *ExistingType;
 		}
 		else
 		{
-			Mapping.LayerType = DetectLayerTypeFromMaterialName(SkeletalMaterial);
+			LayerType = DetectLayerTypeFromMaterialName(SkeletalMaterial);
 		}
+
+		MaterialLayerMappings.Add(FMaterialLayerMapping(
+			SlotIndex,
+			SkeletalMaterial.MaterialSlotName,
+			LayerType
+		));
 	}
 
 #if WITH_EDITOR
