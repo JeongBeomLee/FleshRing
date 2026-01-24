@@ -73,7 +73,7 @@ public:
 	bool bEnableLayerPenetrationResolution = true;
 
 	// =====================================
-	// Normal/Tangent Recompute Settings
+	// Normals
 	// =====================================
 
 	/**
@@ -81,24 +81,23 @@ public:
 	 * 변형된 메시의 Face Normal 평균으로 버텍스 노멀 재계산
 	 * 비활성화하면 원본 노멀 사용 (라이팅 부정확할 수 있음)
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normal/Tangent Recompute", meta = (DisplayName = "Enable Normal Recompute"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normals", meta = (DisplayName = "Recalculate Normals"))
 	bool bEnableNormalRecompute = true;
 
 	/**
 	 * 노멀 재계산 방식
-	 * - SurfaceRotation: 원본 Smooth Normal을 면 회전량만큼 회전 (기본값)
+	 * - Surface Rotation: 원본 Smooth Normal을 면 회전량만큼 회전 (기본값, 부드러운 결과)
 	 * - Geometric: Face Normal 평균 (TBN 정확, faceted 결과)
-	 * - PolarDecomposition: [DEPRECATED] SurfaceRotation과 차이 없음
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normal/Tangent Recompute", meta = (DisplayName = "Normal Recompute Method", EditCondition = "bEnableNormalRecompute"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normals", meta = (DisplayName = "Normal Recompute Method", EditCondition = "bEnableNormalRecompute"))
 	ENormalRecomputeMethod NormalRecomputeMethod = ENormalRecomputeMethod::SurfaceRotation;
 
 	/**
-	 * 홉 기반 블렌딩 활성화
-	 * 활성화 시: 경계 버텍스에서 재계산된 노멀과 원본 노멀을 부드럽게 블렌드
-	 * 비활성화 시: 재계산된 노멀만 사용 (경계에서 급격한 변화 가능)
+	 * 깊이 기반 블렌딩 활성화
+	 * 변형 영역 경계에서 재계산된 노멀과 원본 노멀을 토폴로지 깊이에 따라 부드럽게 블렌드
+	 * 비활성화 시: 재계산된 노멀만 사용 (경계에서 급격한 라이팅 변화 발생 가능)
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normal/Tangent Recompute", meta = (DisplayName = "Enable Hop Blending", EditCondition = "bEnableNormalRecompute"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normals", meta = (DisplayName = "Depth-Based Blending", EditCondition = "bEnableNormalRecompute"))
 	bool bEnableNormalHopBlending = true;
 
 	/**
@@ -107,16 +106,16 @@ public:
 	 * - Quadratic: 2차 곡선 (부드러움)
 	 * - Hermite: S-커브 (가장 부드러움, 권장)
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normal/Tangent Recompute", meta = (DisplayName = "Hop Blend Falloff", EditCondition = "bEnableNormalRecompute && bEnableNormalHopBlending"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normals", meta = (DisplayName = "Depth Falloff", EditCondition = "bEnableNormalRecompute && bEnableNormalHopBlending"))
 	EFalloffType NormalBlendFalloffType = EFalloffType::Hermite;
 
 	/**
 	 * 변위 기반 블렌딩 활성화
 	 * 버텍스의 실제 변형 거리에 따라 노멀 블렌딩 강도 조절
 	 * 변형이 작은 버텍스는 원본 노멀에 가깝게, 변형이 큰 버텍스는 재계산된 노멀 사용
-	 * Hop 블렌딩과 함께 사용 시: FinalBlend = HopBlend * DisplacementBlend
+	 * Depth-Based 블렌딩과 함께 사용 시: FinalBlend = DepthBlend * DisplacementBlend
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normal/Tangent Recompute", meta = (DisplayName = "Enable Displacement Blending", EditCondition = "bEnableNormalRecompute"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normals", meta = (DisplayName = "Displacement-Based Blending", EditCondition = "bEnableNormalRecompute"))
 	bool bEnableDisplacementBlending = false;
 
 	/**
@@ -124,7 +123,7 @@ public:
 	 * 이 거리 이상 변형된 버텍스는 100% 재계산된 노멀 사용
 	 * 0 ~ MaxDisplacement 사이에서 선형 보간
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normal/Tangent Recompute", meta = (DisplayName = "Max Displacement (cm)", EditCondition = "bEnableNormalRecompute && bEnableDisplacementBlending", ClampMin = "0.01", UIMin = "0.01", UIMax = "10.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normals", meta = (DisplayName = "Max Displacement (cm)", EditCondition = "bEnableNormalRecompute && bEnableDisplacementBlending", ClampMin = "0.01", UIMin = "0.01", UIMax = "10.0"))
 	float MaxDisplacementForBlend = 1.0f;
 
 	/**
@@ -133,15 +132,14 @@ public:
 	 * 비활성화하면 원본 탄젠트 사용 (노멀맵 렌더링 부정확할 수 있음)
 	 * Note: 노멀 재계산이 꺼져있으면 탄젠트 재계산도 무시됨
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normal/Tangent Recompute", meta = (DisplayName = "Enable Tangent Recompute", EditCondition = "bEnableNormalRecompute"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normals", meta = (DisplayName = "Recalculate Tangents", EditCondition = "bEnableNormalRecompute"))
 	bool bEnableTangentRecompute = true;
 
 	/**
 	 * 탄젠트 재계산 방식
-	 * - GramSchmidt: 재계산된 노멀에 대해 직교화 수행 (기본값)
-	 * - PolarDecomposition: [DEPRECATED] GramSchmidt와 차이 없음
+	 * Gram-Schmidt 직교화로 재계산된 노멀에 맞춰 탄젠트 조정
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normal/Tangent Recompute", meta = (DisplayName = "Tangent Recompute Method", EditCondition = "bEnableNormalRecompute && bEnableTangentRecompute"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normals", meta = (DisplayName = "Tangent Recompute Method", EditCondition = "bEnableNormalRecompute && bEnableTangentRecompute"))
 	ETangentRecomputeMethod TangentRecomputeMethod = ETangentRecomputeMethod::GramSchmidt;
 
 	// =====================================

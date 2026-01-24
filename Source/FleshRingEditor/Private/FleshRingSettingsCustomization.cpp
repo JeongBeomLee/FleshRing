@@ -1653,8 +1653,8 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		SmoothingGroup.AddPropertyRow(bEnableSmoothingHandle.ToSharedRef());
 	}
 
-	// ===== Heat Propagation 서브그룹 (Radial 전에 실행) =====
-	IDetailGroup& HeatPropagationGroup = SmoothingGroup.AddGroup(TEXT("HeatPropagation"), LOCTEXT("HeatPropagationGroup", "Heat Propagation"));
+	// ===== Deformation Spread 서브그룹 (Radial 전에 실행) =====
+	IDetailGroup& HeatPropagationGroup = SmoothingGroup.AddGroup(TEXT("DeformationSpread"), LOCTEXT("DeformationSpreadGroup", "Deformation Spread"));
 	if (bEnableHeatPropagationHandle.IsValid())
 	{
 		HeatPropagationGroup.AddPropertyRow(bEnableHeatPropagationHandle.ToSharedRef());
@@ -1687,8 +1687,8 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		RadialGroup.AddPropertyRow(RadialSliceHeightHandle.ToSharedRef());
 	}
 
-	// ===== Laplacian 서브그룹 =====
-	IDetailGroup& LaplacianGroup = SmoothingGroup.AddGroup(TEXT("Laplacian"), LOCTEXT("LaplacianGroup", "Laplacian"));
+	// ===== Surface Smoothing 서브그룹 =====
+	IDetailGroup& LaplacianGroup = SmoothingGroup.AddGroup(TEXT("SurfaceSmoothing"), LOCTEXT("SurfaceSmoothingGroup", "Surface Smoothing"));
 	if (bEnableLaplacianSmoothingHandle.IsValid())
 	{
 		LaplacianGroup.AddPropertyRow(bEnableLaplacianSmoothingHandle.ToSharedRef());
@@ -1718,8 +1718,8 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		LaplacianGroup.AddPropertyRow(bAnchorDeformedVerticesHandle.ToSharedRef());
 	}
 
-	// ===== PBD Edge Constraint 서브그룹 =====
-	IDetailGroup& PBDGroup = PostProcessGroup.AddGroup(TEXT("PBDEdgeConstraint"), LOCTEXT("PBDGroup", "PBD Edge Constraint"));
+	// ===== Edge Length Preservation 서브그룹 =====
+	IDetailGroup& PBDGroup = PostProcessGroup.AddGroup(TEXT("EdgeLengthPreservation"), LOCTEXT("EdgeLengthPreservationGroup", "Edge Length Preservation"));
 
 	if (bEnablePBDEdgeConstraintHandle.IsValid())
 	{

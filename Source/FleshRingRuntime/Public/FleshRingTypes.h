@@ -71,7 +71,7 @@ enum class ESmoothingVolumeMode : uint8
 	BoundsExpand	UMETA(DisplayName = "Bounds Expand (Z)"),
 
 	/** 토폴로지 기반 홉 전파 (Seed에서 N홉까지) */
-	HopBased		UMETA(DisplayName = "Hop-Based (Topology)")
+	HopBased		UMETA(DisplayName = "Depth-Based (Topology)")
 };
 
 /** Laplacian 스무딩 알고리즘 타입 */
@@ -79,10 +79,10 @@ UENUM(BlueprintType)
 enum class ELaplacianSmoothingType : uint8
 {
 	/** 일반 Laplacian (반복 시 수축 발생) */
-	Laplacian	UMETA(DisplayName = "Laplacian"),
+	Laplacian	UMETA(DisplayName = "Standard"),
 
 	/** Taubin λ-μ 스무딩 (수축 방지) */
-	Taubin		UMETA(DisplayName = "Taubin (No Shrink)")
+	Taubin		UMETA(DisplayName = "Volume Preserving")
 };
 
 /** Bulge 방향 모드 */
@@ -177,31 +177,17 @@ enum class ENormalRecomputeMethod : uint8
 {
 	/**
 	 * Geometric Normal (Face Normal 평균)
-	 * - 실제 변형된 지오메트리에서 노멀 계산
-	 * - TBN이 표면과 정확히 일치 → Normal Map 변환 정확
+	 * 실제 변형된 지오메트리에서 노멀 계산
+	 * TBN이 표면과 정확히 일치 → Normal Map 변환 정확
 	 */
 	Geometric	UMETA(DisplayName = "Geometric (TBN Accurate)"),
 
 	/**
-	 * Surface Rotation (기존 방식)
-	 * - 원본 Smooth Normal을 면 회전량만큼 회전
-	 * - Smooth Normal의 "캐릭터" 보존
-	 * - 변형이 noisy하면 결과도 noisy
+	 * Surface Rotation (기본값)
+	 * 원본 Smooth Normal을 면 회전량만큼 회전
+	 * Smooth Normal의 특성 보존, 부드러운 결과
 	 */
-	SurfaceRotation	UMETA(DisplayName = "Surface Rotation"),
-
-	/**
-	 * [DEPRECATED] Polar Decomposition
-	 * - FleshRing의 작은 symmetric 변형에서는 SurfaceRotation과 차이 없음 (< 0.5도)
-	 * - 코드 복잡도 대비 실질적 이득 없어 deprecated 처리
-	 * - 향후 버전에서 제거 예정
-	 *
-	 * (원본 설명)
-	 * - Deformation Gradient에서 순수 회전(R) 성분만 추출
-	 * - 원본 Smooth Normal에 R 적용
-	 * - Scale/Shear 영향 없이 정확한 회전
-	 */
-	PolarDecomposition	UMETA(DisplayName = "Polar Decomposition (DEPRECATED)", Hidden)
+	SurfaceRotation	UMETA(DisplayName = "Surface Rotation")
 };
 
 /**
@@ -212,24 +198,10 @@ enum class ETangentRecomputeMethod : uint8
 {
 	/**
 	 * Gram-Schmidt Orthonormalization
-	 * - 재계산된 노멀에 원본 탄젠트를 직교화
-	 * - T' = T - (T·N)N, normalize(T')
-	 * - FleshRing의 symmetric 변형에서 충분히 정확
+	 * 재계산된 노멀에 원본 탄젠트를 직교화
+	 * T' = T - (T·N)N, normalize(T')
 	 */
-	GramSchmidt	UMETA(DisplayName = "Gram-Schmidt"),
-
-	/**
-	 * [DEPRECATED] Polar Decomposition
-	 * - FleshRing은 symmetric 변형이라 twist가 없음
-	 * - GramSchmidt와 차이 없음 (< 0.1도)
-	 * - 코드 복잡도 대비 실질적 이득 없어 deprecated 처리
-	 * - 향후 버전에서 제거 예정
-	 *
-	 * (원본 설명)
-	 * - Deformation Gradient에서 순수 회전(R) 추출
-	 * - 원본 탄젠트에 R 적용 후 Gram-Schmidt로 마무리
-	 */
-	PolarDecomposition	UMETA(DisplayName = "Polar Decomposition (DEPRECATED)", Hidden)
+	GramSchmidt	UMETA(DisplayName = "Gram-Schmidt")
 };
 
 // =====================================
@@ -736,7 +708,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 
 	// ===== Post Process (후처리 전체 제어) =====
 
-	/** 후처리 활성화 (Smoothing, PBD 등 모든 후처리 제어) */
+	/** 후처리 활성화 (Smoothing, Edge Length Preservation 등 모든 후처리 제어) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process")
 	bool bEnablePostProcess = true;
 
@@ -744,21 +716,25 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 
 	/**
 	 * 스무딩 영역 선택 모드
-	 * - BoundsExpand: Z축 바운드 확장 (SmoothingBoundsZTop/Bottom)
-	 * - HopBased: 토폴로지 기반 홉 전파 (Seed에서 N홉까지)
+	 * - BoundsExpand: Z축 바운드 확장 방식
+	 * - Depth-Based: 토폴로지 기반 깊이 전파 (Seed에서 N깊이까지)
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess"))
 	ESmoothingVolumeMode SmoothingVolumeMode = ESmoothingVolumeMode::BoundsExpand;
 
 	/**
-	 * 최대 전파 홉 수
-	 * - Seed(변형된 버텍스)에서 몇 홉까지 스무딩을 적용할지
-	 * - 권장: 저해상도 메시 5~10, 고해상도 메시 3~5
+	 * 최대 스무딩 깊이
+	 * Seed(변형된 버텍스)에서 몇 깊이까지 스무딩을 적용할지
+	 * 권장: 저해상도 메시 5~10, 고해상도 메시 3~5
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides, ClampMin = "1", ClampMax = "100"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (DisplayName = "Max Smoothing Depth", EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides, ClampMin = "1", ClampMax = "100"))
 	int32 MaxSmoothingHops = 5;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides))
+	/**
+	 * 깊이에 따른 스무딩 강도 감쇠 곡선
+	 * Seed에서 멀어질수록 스무딩 영향이 감소하는 방식
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (DisplayName = "Depth Falloff", EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides))
 	EFalloffType HopFalloffType = EFalloffType::Hermite;
 
 	/** 스무딩 영역 상단 확장 거리 (cm) */
@@ -769,42 +745,42 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::BoundsExpand", EditConditionHides, ClampMin = "0.0", ClampMax = "50.0", DisplayName = "Bounds Expand Bottom (cm)"))
 	float SmoothingBoundsZBottom = 0.0f;
 
-	// ===== Heat Propagation (변형 전파) =====
+	// ===== Deformation Spread (변형 전파) =====
 
 	/**
-	 * Heat Propagation 활성화
-	 * - Seed(직접 변형된 버텍스)의 delta를 Extended 영역으로 확산
-	 * - Tightness 직후, Radial/Laplacian 전에 실행
+	 * 변형 전파 활성화
+	 * Seed(직접 변형된 버텍스)의 변형량을 주변 영역으로 점진적으로 확산
+	 * Tightness 직후, Surface Smoothing 전에 실행
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heat Propagation", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Deformation Spread", meta = (DisplayName = "Enable Deformation Spread", EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides))
 	bool bEnableHeatPropagation = true;
 
 	/**
-	 * Heat Propagation 반복 횟수
-	 * - 높을수록 더 넓게 확산 (권장: 5~20)
+	 * 변형 전파 반복 횟수
+	 * 높을수록 더 넓게 확산 (권장: 5~20)
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heat Propagation", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && bEnableHeatPropagation", EditConditionHides, ClampMin = "1", ClampMax = "50"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Deformation Spread", meta = (DisplayName = "Spread Iterations", EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && bEnableHeatPropagation", EditConditionHides, ClampMin = "1", ClampMax = "50"))
 	int32 HeatPropagationIterations = 10;
 
 	/**
-	 * Heat Propagation Lambda (확산 계수)
-	 * - 각 반복에서 이웃 평균과 블렌딩하는 비율
-	 * - 0.5 권장, 높을수록 빠른 확산
+	 * 변형 전파 강도
+	 * 각 반복에서 이웃 평균과 블렌딩하는 비율
+	 * 0.5 권장, 높을수록 빠른 확산
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heat Propagation", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && bEnableHeatPropagation", EditConditionHides, ClampMin = "0.1", ClampMax = "0.9"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Deformation Spread", meta = (DisplayName = "Spread Strength", EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && bEnableHeatPropagation", EditConditionHides, ClampMin = "0.1", ClampMax = "0.9"))
 	float HeatPropagationLambda = 0.5f;
 
 	/**
-	 * Bulge 버텍스도 Heat Propagation Seed로 포함
-	 * - true: Tightness + Bulge 변형 모두 전파
-	 * - false: Tightness 변형만 전파
+	 * Bulge 버텍스도 전파 Seed로 포함
+	 * true: Tightness + Bulge 변형 모두 전파
+	 * false: Tightness 변형만 전파
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heat Propagation", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && bEnableHeatPropagation", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Deformation Spread", meta = (DisplayName = "Spread From Bulge", EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && bEnableHeatPropagation", EditConditionHides))
 	bool bIncludeBulgeVerticesAsSeeds = true;
 
 	// ===== Smoothing (스무딩 전체 제어) =====
 
-	/** 스무딩 활성화 (Radial, Laplacian/Taubin 모든 스무딩 제어) */
+	/** 스무딩 활성화 (Radial, Surface Smoothing 모든 스무딩 제어) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess"))
 	bool bEnableSmoothing = true;
 
@@ -830,81 +806,83 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableRadialSmoothing", EditConditionHides, ClampMin = "0.1", ClampMax = "10.0"))
 	float RadialSliceHeight = 1.0f;
 
-	// ===== Laplacian/Taubin Smoothing 설정 =====
+	// ===== Surface Smoothing 설정 =====
 
-	/** Laplacian 스무딩 활성화 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing", EditConditionHides))
+	/** Surface Smoothing 활성화 (메시 표면을 부드럽게 처리) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (DisplayName = "Enable Surface Smoothing", EditCondition = "bEnablePostProcess && bEnableSmoothing", EditConditionHides))
 	bool bEnableLaplacianSmoothing = true;
 
 	/**
-	 * Laplacian 스무딩 알고리즘 선택
-	 * - Laplacian: 일반 Laplacian (반복 시 수축 발생)
-	 * - Taubin: λ-μ 스무딩 (수축 없이 부드럽게, 권장)
+	 * Surface Smoothing 알고리즘 선택
+	 * - Standard: 일반 스무딩 (반복 시 수축 발생)
+	 * - Volume Preserving: 부피 보존 스무딩 (수축 없이 부드럽게, 권장)
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (DisplayName = "Smoothing Type", EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides))
 	ELaplacianSmoothingType LaplacianSmoothingType = ELaplacianSmoothingType::Taubin;
 
 	/**
-	 * 스무딩 강도 λ (Taubin: 수축 단계 강도)
+	 * 스무딩 강도
 	 * 권장: 0.3~0.7, 기본값 0.5
 	 * 경고: 0.8 초과 시 수치 불안정 (비늘 현상)
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides, ClampMin = "0.1", ClampMax = "0.8", UIMin = "0.1", UIMax = "0.8"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (DisplayName = "Smoothing Strength", EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides, ClampMin = "0.1", ClampMax = "0.8", UIMin = "0.1", UIMax = "0.8"))
 	float SmoothingLambda = 0.5f;
 
 	/**
-	 * Taubin 팽창 강도 μ (음수값)
+	 * Volume Preserving 모드의 팽창 강도 (음수값)
 	 * 조건: |μ| > λ, 0이면 자동 계산
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing && LaplacianSmoothingType == ELaplacianSmoothingType::Taubin", EditConditionHides, ClampMin = "-1.0", ClampMax = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing && LaplacianSmoothingType == ELaplacianSmoothingType::Taubin", EditConditionHides, AdvancedDisplay, ClampMin = "-1.0", ClampMax = "0.0"))
 	float TaubinMu = -0.53f;
 
-	/** 스무딩 반복 횟수 (Taubin: 각 반복 = λ+μ 2패스) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides, ClampMin = "1", ClampMax = "20"))
+	/** 스무딩 반복 횟수 (Volume Preserving: 각 반복 = 수축+팽창 2패스) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (DisplayName = "Smoothing Iterations", EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides, ClampMin = "1", ClampMax = "20"))
 	int32 SmoothingIterations = 2;
 
 	/**
-	 * 변형된 버텍스 앵커 모드
-	 * - true: Tightness로 직접 변형된 버텍스(원본 Affected)는 고정, 확장 영역만 스무딩
-	 * - false: 모든 버텍스에 Influence 비례 스무딩 (기존 동작)
+	 * 변형된 영역 고정
+	 * true: Tightness로 직접 변형된 버텍스는 고정, 확장 영역만 스무딩
+	 * false: 모든 버텍스에 Influence 비례 스무딩
 	 *
 	 * 앵커 판정 기준: 원본 Affected Vertices 멤버십
-	 * - Hop-based: Seed 버텍스 (Hop=0) → 앵커
-	 * - Z-based: 원본 SDF AABB 내 버텍스 → 앵커
+	 * - Depth-Based: Seed 버텍스 (Depth=0) → 앵커
+	 * - Bounds-Based: 원본 SDF AABB 내 버텍스 → 앵커
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing|Laplacian", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (DisplayName = "Lock Deformed Areas", EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides))
 	bool bAnchorDeformedVertices = false;
 
-	// ===== PBD Edge Constraint 설정 =====
+	// ===== Edge Length Preservation 설정 =====
 
 	/**
-	 * PBD Edge Constraint 활성화 (변형 전파)
-	 * - 조이기로 인한 변형이 스무딩 볼륨 전체로 퍼지도록 함
-	 * - "역 PBD": 변형량이 큰 버텍스는 고정, 작은 버텍스는 자유롭게 이동
+	 * 엣지 길이 보존 활성화
+	 * 변형으로 인해 늘어나거나 줄어든 엣지를 원래 길이에 가깝게 복원
+	 * 메시의 과도한 늘어남/찌그러짐 방지
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePostProcess"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Edge Length Preservation", meta = (DisplayName = "Enable Edge Length Preservation", EditCondition = "bEnablePostProcess"))
 	bool bEnablePBDEdgeConstraint = false;
 
-	/** PBD 제약 강도 (0.0 ~ 1.0), 권장: 0.5 ~ 0.9 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", EditConditionHides, ClampMin = "0.0", ClampMax = "1.0"))
+	/** 제약 강도 (0.0 ~ 1.0), 권장: 0.5 ~ 0.9 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Edge Length Preservation", meta = (DisplayName = "Constraint Strength", EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", EditConditionHides, ClampMin = "0.0", ClampMax = "1.0"))
 	float PBDStiffness = 0.8f;
 
-	/** PBD 반복 횟수, 권장: 3 ~ 10 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", EditConditionHides, ClampMin = "1", ClampMax = "100"))
+	/** 제약 반복 횟수, 권장: 3 ~ 10 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Edge Length Preservation", meta = (DisplayName = "Constraint Iterations", EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", EditConditionHides, ClampMin = "1", ClampMax = "100"))
 	int32 PBDIterations = 5;
 
-	/** PBD 허용 오차 비율 (0.0 ~ 0.5)
-	 *  이 범위 내의 변형은 유지됨 (데드존)
-	 *  예: 0.2 → 원래 길이의 80%~120% 범위는 보정하지 않음
+	/**
+	 * 허용 오차 비율 (0.0 ~ 0.5)
+	 * 이 범위 내의 변형은 유지됨 (데드존)
+	 * 예: 0.2 → 원래 길이의 80%~120% 범위는 보정하지 않음
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", EditConditionHides, ClampMin = "0.0", ClampMax = "0.5"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Edge Length Preservation", meta = (DisplayName = "Stretch Tolerance", EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", EditConditionHides, ClampMin = "0.0", ClampMax = "0.5"))
 	float PBDTolerance = 0.2f;
 
-	/** Affected Vertices(Tightness 영역)를 앵커로 고정할지 여부
-	 *  ON: Affected Vertices는 PBD에서 고정점으로 동작 (기본값)
-	 *  OFF: Affected Vertices도 PBD 보정 대상으로 포함 (모든 버텍스가 자유롭게 움직임)
+	/**
+	 * 변형된 버텍스 고정
+	 * ON: Tightness 영역 버텍스는 고정점으로 동작 (기본값)
+	 * OFF: 모든 버텍스가 자유롭게 이동
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PBD Edge Constraint", meta = (EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Edge Length Preservation", meta = (DisplayName = "Lock Deformed Vertices", EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", EditConditionHides))
 	bool bPBDAnchorAffectedVertices = true;
 
 	FFleshRingSettings()

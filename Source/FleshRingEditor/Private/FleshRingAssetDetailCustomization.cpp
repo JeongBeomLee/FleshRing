@@ -35,21 +35,41 @@ void FFleshRingAssetDetailCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 	}
 
 	// =====================================
-	// 카테고리 순서 정의 (Important 우선순위, 호출 순서대로 배치)
+	// 카테고리 순서 정의 (호출 순서대로 배치)
 	// =====================================
 
-	// 1. Target - 맨 위 (타겟 메시 설정)
+	// 1. Target
 	DetailBuilder.EditCategory(
 		TEXT("Target"),
 		LOCTEXT("TargetCategory", "Target"),
 		ECategoryPriority::Important
 	);
 
-	// 2. Subdivision Settings - FSubdivisionSettings 구조체로 대체됨
-	// FSubdivisionSettingsCustomization에서 서브그룹 처리
+	// 2. Skeletal Mesh Detail Settings
 	DetailBuilder.EditCategory(
-		TEXT("Subdivision Settings"),
-		LOCTEXT("SubdivisionSettingsCategory", "Subdivision Settings"),
+		TEXT("Skeletal Mesh Detail Settings"),
+		LOCTEXT("SkeletalMeshDetailSettingsCategory", "Skeletal Mesh Detail Settings"),
+		ECategoryPriority::Important
+	);
+
+	// 3. Ring Settings
+	DetailBuilder.EditCategory(
+		TEXT("Ring Settings"),
+		LOCTEXT("RingSettingsCategory", "Ring Settings"),
+		ECategoryPriority::Important
+	);
+
+	// 4. Material Layer Settings
+	DetailBuilder.EditCategory(
+		TEXT("Material Layer Settings"),
+		LOCTEXT("MaterialLayerSettingsCategory", "Material Layer Settings"),
+		ECategoryPriority::Important
+	);
+
+	// 5. Normals - UE 로컬라이제이션 방지를 위해 명시적 영문 이름 지정
+	DetailBuilder.EditCategory(
+		TEXT("Normals"),
+		LOCTEXT("NormalsCategory", "Normals"),
 		ECategoryPriority::Important
 	);
 }

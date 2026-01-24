@@ -411,6 +411,23 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         // ========================================
         // Original 데이터 읽기/계산 완전 생략 → 메모리 대역폭 절약
 
+        // ========================================
+        // Zero-displacement early-out: 변형이 없으면 원본 노멀 반환
+        // 변형이 없는데 Face Normal 평균을 사용하면 원본 스무스 노멀과 달라짐
+        // ========================================
+        {
+            float3 OrigPos = ReadOriginalPosition(VertexIndex);
+            float3 DefPos = ReadDeformedPosition(VertexIndex);
+            float DisplacementSq = dot(DefPos - OrigPos, DefPos - OrigPos);
+            if (DisplacementSq < 1e-10f)
+            {
+                // 변형 없음 - 원본 스무스 노멀 그대로 반환
+                float3 OriginalNormal = SafeNormalize(ReadOriginalNormal(OriginalNormalReadIndex), float3(0, 0, 1));
+                WriteNormal(VertexIndex, OriginalNormal);
+                return;
+            }
+        }
+
         // No adjacent triangles - use default normal
         // 인접 삼각형 없음 - 기본 노멀 사용
         if (AdjStart >= AdjEnd)
@@ -523,6 +540,22 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
             return;
         }
         OriginalVertexNormal = normalize(OriginalVertexNormal);
+
+        // ========================================
+        // Zero-displacement early-out: 변형이 없으면 원본 노멀 반환
+        // 수치 오차로 인한 미세한 회전 방지
+        // ========================================
+        {
+            float3 OrigPos = ReadOriginalPosition(VertexIndex);
+            float3 DefPos = ReadDeformedPosition(VertexIndex);
+            float DisplacementSq = dot(DefPos - OrigPos, DefPos - OrigPos);
+            if (DisplacementSq < 1e-10f)
+            {
+                // 변형 없음 - 원본 스무스 노멀 그대로 반환
+                WriteNormal(VertexIndex, OriginalVertexNormal);
+                return;
+            }
+        }
 
         // No adjacent triangles - use original normal
         if (AdjStart >= AdjEnd)
