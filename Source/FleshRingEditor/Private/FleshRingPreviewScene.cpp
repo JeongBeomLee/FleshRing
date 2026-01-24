@@ -1217,6 +1217,16 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 	USkeletalMesh::FCommitMeshDescriptionParams CommitParams;
 	CommitParams.bMarkPackageDirty = false;
 	PreviewSubdividedMesh->CommitMeshDescription(0, CommitParams);
+
+	// ★ 핵심: Build() 전에 Normal/Tangent 재계산 비활성화
+	// DuplicateObject가 원본 메시의 BuildSettings를 복사하는데,
+	// 원본에 bRecomputeNormals=true가 설정되어 있으면 우리가 설정한 Normal이 무시됨
+	if (FSkeletalMeshLODInfo* LODInfo = PreviewSubdividedMesh->GetLODInfo(0))
+	{
+		LODInfo->BuildSettings.bRecomputeNormals = false;
+		LODInfo->BuildSettings.bRecomputeTangents = false;
+	}
+
 	PreviewSubdividedMesh->Build();
 	PreviewSubdividedMesh->InitResources();
 
