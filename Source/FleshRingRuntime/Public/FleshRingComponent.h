@@ -169,9 +169,15 @@ public:
 	 * @see UFleshRingModularLibrary::SwapModularPartWithRingCleanup
 	 */
 	void DetachRingAsset(bool bPreserveLeaderPose = true);
+
+	/**
+	 * Marks this component as created for Skeletal Merging system.
+	 * Called by UFleshRingModularLibrary::RebuildMergedMesh().
+	 */
+	void SetCreatedForMergedMesh(bool bValue) { bCreatedForMergedMesh = bValue; }
 	// ========================== Modular ==========================
 
-	/** 베이크 모드로 동작 중인지 여부 (Deformer 없이 BakedMesh 사용) */
+	/** True when using BakedMesh at runtime (Deformer disabled) */
 	UFUNCTION(BlueprintPure, Category = "FleshRing")
 	bool IsUsingBakedMesh() const { return bUsingBakedMesh; }
 
@@ -359,8 +365,16 @@ private:
 	/** 에디터 프리뷰 초기화 완료 여부 */
 	bool bEditorPreviewInitialized = false;
 
-	/** 베이크 모드로 동작 중인지 여부 (런타임에서 BakedMesh 사용 시 true) */
+	/** True when using BakedMesh at runtime (Deformer disabled) */
 	bool bUsingBakedMesh = false;
+
+	/**
+	 * True when using FleshRing with Skeletal Merging system.
+	 * In this mode, BakedMesh is already merged into the character mesh,
+	 * so only ring visuals are applied without mesh replacement.
+	 * Automatically set by UFleshRingModularLibrary::RebuildMergedMesh().
+	 */
+	bool bCreatedForMergedMesh = false;
 
 	/** 자동/수동 검색된 실제 대상 */
 	UPROPERTY(Transient)

@@ -104,22 +104,24 @@ void UFleshRingComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
-	if (bEnableFleshRing && FleshRingAsset)
+	if (bEnableFleshRing && FleshRingAsset && FleshRingAsset->HasBakedMesh())
 	{
-		// ★ 런타임 로직: 베이크된 메시가 있으면 적용, 없으면 아무것도 안 함
-		// - Deformer(실시간 GPU 변형)는 에디터 프리뷰용으로만 사용
-		// - 런타임에서는 베이크된 결과만 사용
-		if (FleshRingAsset->HasBakedMesh())
+		if (!ResolvedTargetMesh.IsValid())
 		{
-			if (!ResolvedTargetMesh.IsValid())
-			{
-				FindTargetMeshOnly();
-			}
-			ApplyBakedMesh();
+			FindTargetMeshOnly();
 		}
-		// 베이크된 메시 없음: 원본 메시 그대로 사용
-		// - 스켈레탈 메시는 원본 그대로 애니메이션됨
-		// - Ring 메시는 OnRegister()에서 이미 본에 부착됨
+
+		// Explicit merged mesh mode detection (set by RebuildMergedMesh)
+		if (bCreatedForMergedMesh)
+		{
+			// Merged mesh mode: ring visuals only (SetupRingMeshes already done in OnRegister)
+			ApplyBakedRingTransforms();
+			bUsingBakedMesh = true;
+			return;
+		}
+
+		// Normal mode: apply baked mesh
+		ApplyBakedMesh();
 	}
 }
 
