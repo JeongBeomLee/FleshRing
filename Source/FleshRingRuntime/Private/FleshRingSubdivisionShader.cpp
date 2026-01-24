@@ -1,4 +1,6 @@
-﻿// FleshRingSubdivisionShader.cpp
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// FleshRingSubdivisionShader.cpp
 // GPU Barycentric Interpolation Shader Implementation
 
 #include "FleshRingSubdivisionShader.h"

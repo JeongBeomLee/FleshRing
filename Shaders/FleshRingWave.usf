@@ -1,4 +1,5 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
 // FleshRing Wave Deformer - GPU Skinning + Jelly Effect
 
 #include "/Engine/Public/Platform.ush"
@@ -149,7 +150,6 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     float SpeedBlend = saturate(NormalizedSpeed * 2.0f);
     Pos = lerp(Pos, StretchedPos, SpeedBlend);
     Pos += InertiaOffset;
-
 
     // Multi-frequency Wobble
     float t = Time;

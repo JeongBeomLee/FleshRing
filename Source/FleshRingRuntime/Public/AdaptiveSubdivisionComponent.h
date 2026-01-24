@@ -1,4 +1,6 @@
-﻿// AdaptiveSubdivisionComponent.h
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// AdaptiveSubdivisionComponent.h
 // Runtime adaptive mesh subdivision with ring deformation
 
 #pragma once

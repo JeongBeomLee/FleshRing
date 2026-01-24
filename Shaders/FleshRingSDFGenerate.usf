@@ -1,3 +1,5 @@
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
 // FleshRingSDFGenerate.usf
 // 메시 삼각형들로부터 SDF(Signed Distance Field)를 생성하는 Compute Shader
 // 부호 결정: Multiple Ray Casting (12방향 다수결로 내부/외부 판별)

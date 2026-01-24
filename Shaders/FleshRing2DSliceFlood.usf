@@ -1,3 +1,5 @@
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
 // FleshRing2DSliceFlood.usf
 // 2D Slice Flood Fill - 각 Z 슬라이스에서 XY 경계부터 flood하여 도넛홀 감지
 // 도달 못한 "외부" 영역 = 도넛홀 = 내부로 변환

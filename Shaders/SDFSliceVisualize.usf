@@ -1,3 +1,5 @@
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
 // SDFSliceVisualize.usf
 // 3D SDF 텍스처에서 Z 슬라이스를 추출하고 색상 매핑하여 2D 텍스처로 출력
 

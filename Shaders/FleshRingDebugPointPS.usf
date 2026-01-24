@@ -1,4 +1,6 @@
-﻿// FleshRing Debug Point Pixel Shader
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// FleshRing Debug Point Pixel Shader
 // GPU 원형 디버그 포인트 렌더링
 //
 // Purpose: Render circular points with influence-based color gradient

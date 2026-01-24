@@ -1,3 +1,5 @@
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
 // FleshRingDebugPointOutputCS.usf
 // Purpose: Output debug points at final transformed positions (after all deformation passes)
 // This shader runs after all transformation passes (Tightness, Bulge, Smoothing, etc.)

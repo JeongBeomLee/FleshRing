@@ -1,4 +1,6 @@
-﻿// FleshRingSDF.cpp
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// FleshRingSDF.cpp
 #include "FleshRingSDF.h"
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"

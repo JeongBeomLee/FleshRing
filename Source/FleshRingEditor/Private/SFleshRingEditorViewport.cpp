@@ -1,4 +1,4 @@
-﻿// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright 2026 LgThx. All Rights Reserved.
 
 #include "SFleshRingEditorViewport.h"
 #include "SFleshRingEditorViewportToolbar.h"

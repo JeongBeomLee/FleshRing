@@ -1,4 +1,6 @@
-﻿// FleshRingSDF.h
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// FleshRingSDF.h
 #pragma once
 
 #include "CoreMinimal.h"

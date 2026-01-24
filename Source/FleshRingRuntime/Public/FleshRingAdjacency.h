@@ -1,4 +1,6 @@
-﻿// ============================================================================
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// ============================================================================
 // FleshRing Mesh Adjacency Builder
 // ============================================================================
 // Purpose: Build vertex adjacency data from mesh topology for Laplacian smoothing

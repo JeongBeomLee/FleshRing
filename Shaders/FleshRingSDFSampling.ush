@@ -1,3 +1,5 @@
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
 // FleshRingSDFSampling.ush
 // 사용법: #include 후 자신의 텍스처/샘플러를 인자로 전달
 

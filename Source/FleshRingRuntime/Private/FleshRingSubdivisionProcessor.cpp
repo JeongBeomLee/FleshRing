@@ -1,4 +1,6 @@
-﻿// FleshRingSubdivisionProcessor.cpp
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// FleshRingSubdivisionProcessor.cpp
 // CPU-side subdivision topology processor implementation
 
 #include "FleshRingSubdivisionProcessor.h"

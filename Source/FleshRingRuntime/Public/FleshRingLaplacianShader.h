@@ -1,4 +1,6 @@
-﻿// ============================================================================
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// ============================================================================
 // FleshRing Laplacian Smoothing Shader
 // ============================================================================
 // Purpose: Smooth jagged boundaries from tightness deformation

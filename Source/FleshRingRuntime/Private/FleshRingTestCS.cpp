@@ -1,4 +1,6 @@
-﻿// FleshRing Test Compute Shader - C++ Implementation
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// FleshRing Test Compute Shader - C++ Implementation
 // Purpose: Verify GPU Compute Shader pipeline operation
 
 // Unreal Coding Standard: Include own header first

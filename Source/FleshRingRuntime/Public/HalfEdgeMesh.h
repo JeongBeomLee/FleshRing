@@ -1,4 +1,6 @@
-﻿// HalfEdgeMesh.h
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// HalfEdgeMesh.h
 // Half-Edge data structure for topology-aware mesh operations
 // Supports Red-Green Refinement for crack-free adaptive subdivision
 

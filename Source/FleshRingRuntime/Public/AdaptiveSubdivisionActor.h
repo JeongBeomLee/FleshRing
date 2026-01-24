@@ -1,4 +1,6 @@
-﻿// AdaptiveSubdivisionActor.h
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// AdaptiveSubdivisionActor.h
 // Easy-to-use test actor for adaptive subdivision
 
 #pragma once

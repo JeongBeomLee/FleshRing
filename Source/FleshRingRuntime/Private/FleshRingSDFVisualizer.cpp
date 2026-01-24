@@ -1,4 +1,6 @@
-﻿// FleshRingSDFVisualizer.cpp
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// FleshRingSDFVisualizer.cpp
 #include "FleshRingSDFVisualizer.h"
 #include "FleshRingSDF.h"
 #include "FleshRingMeshExtractor.h"

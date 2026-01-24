@@ -1,4 +1,6 @@
-﻿// Purpose: Track and manage vertices affected by each Ring for optimized processing
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// Purpose: Track and manage vertices affected by each Ring for optimized processing
 // [FLEXIBLE] This module uses Strategy Pattern for vertex selection
 // The selection algorithm can be swapped by implementing IVertexSelector
 

@@ -3,27 +3,30 @@
 	"Version": 1,
 	"VersionName": "1.0",
 	"FriendlyName": "FleshRing",
-	"Description": "Flesh Ring",
-	"Category": "Other",
+	"Description": "GPU-accelerated mesh deformation plugin for realistic flesh compression effects",
+	"Category": "Animation",
 	"CreatedBy": "LgThx",
 	"CreatedByURL": "",
 	"DocsURL": "",
 	"MarketplaceURL": "",
 	"SupportURL": "",
+	"FabURL": "com.epicgames.launcher://ue/Fab/product/13e2257eb94541c5b2f9211f08a26e4b,61a98a3ca3c0414990924f60ae54229c",
 	"CanContainContent": true,
-	"IsBetaVersion": true,
+	"IsBetaVersion": false,
 	"IsExperimentalVersion": false,
 	"Installed": false,
 	"Modules": [
 		{
 			"Name": "FleshRingRuntime",
 			"Type": "Runtime",
-			"LoadingPhase": "PostConfigInit"
+			"LoadingPhase": "PostConfigInit",
+			"PlatformAllowList": [ "Win64" ]
 		},
 		{
 			"Name": "FleshRingEditor",
 			"Type": "Editor",
-			"LoadingPhase": "Default"
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [ "Win64" ]
 		}
 	],
 	"Plugins": [

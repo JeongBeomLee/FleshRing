@@ -1,3 +1,5 @@
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
 // FleshRingDebugPointOutputShader.cpp
 // Purpose: Output debug points at final transformed positions (after all deformation passes)
 

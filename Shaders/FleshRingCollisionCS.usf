@@ -1,4 +1,6 @@
-﻿// ============================================================================
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// ============================================================================
 // FleshRingCollisionCS.usf - Self-Collision Detection & Resolution
 // ============================================================================
 // Detects and resolves triangle-triangle intersections within SDF region

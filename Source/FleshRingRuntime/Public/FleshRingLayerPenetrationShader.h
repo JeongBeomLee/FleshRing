@@ -1,4 +1,6 @@
-﻿// ============================================================================
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// ============================================================================
 // FleshRing Layer Penetration Resolution Shader
 // ============================================================================
 // Purpose: Ensure outer layers (stocking) never penetrate inner layers (skin)

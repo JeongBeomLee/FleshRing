@@ -1,4 +1,6 @@
-﻿// ============================================================================
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// ============================================================================
 // FleshRingPBDEdgeCS.usf - PBD Edge Constraint Compute Shader
 // ============================================================================
 // Purpose: Maintain edge lengths after deformation (prevent extreme stretching/compression)

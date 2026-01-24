@@ -1,4 +1,6 @@
-﻿// ============================================================================
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// ============================================================================
 // FleshRing Tangent Space Relaxation Shader
 // ============================================================================
 // Purpose: Redistribute vertices along tangent directions while preserving

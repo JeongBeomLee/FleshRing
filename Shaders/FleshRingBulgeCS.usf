@@ -1,4 +1,5 @@
-﻿// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
 // FleshRingBulgeCS.usf - Bulge Pass Compute Shader
 // Wendland C2 Kernel 기반 부피 보존 변형 (CPU에서 Falloff 계산)
 
@@ -100,7 +101,6 @@ FRingGeometry ComputeRingGeometry()
 
     return Ring;
 }
-
 
 // 순수 방사 방향 (Ring 축에 수직, 바깥으로)
 float3 ComputePureRadialDirection(float3 LocalPos, FRingGeometry Ring)

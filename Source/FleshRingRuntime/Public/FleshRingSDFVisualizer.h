@@ -1,4 +1,6 @@
-﻿// FleshRingSDFVisualizer.h
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// FleshRingSDFVisualizer.h
 // SDF 시각화 유틸리티 - 에디터/런타임에서 범용으로 사용
 #pragma once
 

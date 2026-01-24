@@ -1,4 +1,6 @@
-﻿// AdaptiveSubdivisionActor.cpp
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// AdaptiveSubdivisionActor.cpp
 
 #include "AdaptiveSubdivisionActor.h"
 

@@ -1,4 +1,5 @@
-﻿// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
 // FleshRing Subdivision - Barycentric Interpolation Compute Shader
 //
 // CPU가 Red-Green Refinement / LEB로 토폴로지를 결정하고,

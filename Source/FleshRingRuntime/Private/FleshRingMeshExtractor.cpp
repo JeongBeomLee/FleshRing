@@ -1,4 +1,6 @@
-﻿// FleshRingMeshExtractor.cpp
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// FleshRingMeshExtractor.cpp
 #include "FleshRingMeshExtractor.h"
 #include "StaticMeshResources.h"
 #include "Rendering/PositionVertexBuffer.h"

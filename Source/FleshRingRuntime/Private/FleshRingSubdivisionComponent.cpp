@@ -1,4 +1,6 @@
-﻿// FleshRingSubdivisionComponent.cpp
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// FleshRingSubdivisionComponent.cpp
 // FleshRing Subdivision Component Implementation
 
 #include "FleshRingSubdivisionComponent.h"

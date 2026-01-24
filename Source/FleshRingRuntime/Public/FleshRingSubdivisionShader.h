@@ -1,4 +1,6 @@
-﻿// FleshRingSubdivisionShader.h
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// FleshRingSubdivisionShader.h
 // GPU Barycentric Interpolation Shader for Subdivision
 //
 // CPU가 Red-Green Refinement / LEB로 토폴로지를 결정하고,

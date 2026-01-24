@@ -1,4 +1,6 @@
-﻿// ============================================================================
+﻿// Copyright 2026 LgThx. All Rights Reserved.
+
+// ============================================================================
 // FleshRing VirtualBand Mathematical SDF Generator
 // ============================================================================
 // Purpose: Generate SDF using mathematical formulas for VirtualBand shapes
