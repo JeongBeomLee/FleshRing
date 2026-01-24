@@ -274,99 +274,99 @@ void UFleshRingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 #endif
 }
 
+void UFleshRingComponent::SetTargetMesh(USkeletalMeshComponent* InTargetMesh)
+{
+	ResolvedTargetMesh = InTargetMesh;
+	bManualTargetSet = (InTargetMesh != nullptr);
+	if (InTargetMesh)
+	{
+		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: SetTargetMesh called with '%s'"),
+			*InTargetMesh->GetName());
+	}
+}
+
 void UFleshRingComponent::FindTargetMeshOnly()
 {
-	// 수동 지정 모드
-	if (bUseCustomTarget)
+	// 수동 지정 모드: SetTargetMesh()로 이미 설정됨, 자동 탐색 스킵
+	if (bManualTargetSet)
 	{
-		if (CustomTargetMesh)
+		return;
+	}
+
+	// 자동 탐색 모드: Owner에서 SkeletalMeshComponent 찾기
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: No owner actor found"));
+		return;
+	}
+
+	// Owner의 모든 컴포넌트에서 SkeletalMeshComponent 탐색
+	TArray<USkeletalMeshComponent*> SkeletalMeshComponents;
+	Owner->GetComponents<USkeletalMeshComponent>(SkeletalMeshComponents);
+
+	if (SkeletalMeshComponents.Num() == 0)
+	{
+		UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: No SkeletalMeshComponent found on owner '%s'"),
+			*Owner->GetName());
+		return;
+	}
+
+	// 자동 매칭: FleshRingAsset->TargetSkeletalMesh와 일치하는 컴포넌트 찾기
+	USkeletalMeshComponent* MatchedComponent = nullptr;
+	if (FleshRingAsset && !FleshRingAsset->TargetSkeletalMesh.IsNull())
+	{
+		USkeletalMesh* TargetMesh = FleshRingAsset->TargetSkeletalMesh.LoadSynchronous();
+		UE_LOG(LogFleshRingComponent, Log,
+			TEXT("[%s] Auto-matching: Looking for TargetSkeletalMesh '%s' among %d components"),
+			*GetName(), TargetMesh ? *TargetMesh->GetName() : TEXT("null"), SkeletalMeshComponents.Num());
+
+		if (TargetMesh)
 		{
-			ResolvedTargetMesh = CustomTargetMesh;
-			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Using custom target mesh '%s'"),
-				*CustomTargetMesh->GetName());
-		}
-		else
-		{
-			UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: bUseCustomTarget is true but CustomTargetMesh is null"));
+			for (USkeletalMeshComponent* Comp : SkeletalMeshComponents)
+			{
+				USkeletalMesh* CompMesh = Comp ? Comp->GetSkeletalMeshAsset() : nullptr;
+				UE_LOG(LogFleshRingComponent, Log,
+					TEXT("[%s]   Checking '%s' -> Mesh='%s' (Match=%d)"),
+					*GetName(), Comp ? *Comp->GetName() : TEXT("null"),
+					CompMesh ? *CompMesh->GetName() : TEXT("null"),
+					CompMesh == TargetMesh);
+
+				if (Comp && CompMesh == TargetMesh)
+				{
+					MatchedComponent = Comp;
+					UE_LOG(LogFleshRingComponent, Log,
+						TEXT("[%s] ★ Auto-matched! Component='%s', TargetMesh='%s'"),
+						*GetName(), *Comp->GetName(), *TargetMesh->GetName());
+					break;
+				}
+			}
 		}
 	}
 	else
 	{
-		// 자동 탐색 모드: Owner에서 SkeletalMeshComponent 찾기
-		AActor* Owner = GetOwner();
-		if (!Owner)
-		{
-			UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: No owner actor found"));
-			return;
-		}
+		UE_LOG(LogFleshRingComponent, Warning,
+			TEXT("[%s] Auto-matching skipped: FleshRingAsset=%p, TargetSkeletalMesh.IsNull=%d"),
+			*GetName(), FleshRingAsset.Get(),
+			FleshRingAsset ? FleshRingAsset->TargetSkeletalMesh.IsNull() : -1);
+	}
 
-		// Owner의 모든 컴포넌트에서 SkeletalMeshComponent 탐색
-		TArray<USkeletalMeshComponent*> SkeletalMeshComponents;
-		Owner->GetComponents<USkeletalMeshComponent>(SkeletalMeshComponents);
+	if (MatchedComponent)
+	{
+		ResolvedTargetMesh = MatchedComponent;
+	}
+	else
+	{
+		// 매칭 실패 시 첫 번째 SkeletalMeshComponent 사용 (기존 동작)
+		ResolvedTargetMesh = SkeletalMeshComponents[0];
+		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: No matching mesh found, using first one '%s' on owner '%s'"),
+			*SkeletalMeshComponents[0]->GetName(), *Owner->GetName());
 
-		if (SkeletalMeshComponents.Num() == 0)
-		{
-			UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: No SkeletalMeshComponent found on owner '%s'"),
-				*Owner->GetName());
-			return;
-		}
-
-		// 자동 매칭: FleshRingAsset->TargetSkeletalMesh와 일치하는 컴포넌트 찾기
-		USkeletalMeshComponent* MatchedComponent = nullptr;
-		if (FleshRingAsset && !FleshRingAsset->TargetSkeletalMesh.IsNull())
-		{
-			USkeletalMesh* TargetMesh = FleshRingAsset->TargetSkeletalMesh.LoadSynchronous();
-			UE_LOG(LogFleshRingComponent, Log,
-				TEXT("[%s] Auto-matching: Looking for TargetSkeletalMesh '%s' among %d components"),
-				*GetName(), TargetMesh ? *TargetMesh->GetName() : TEXT("null"), SkeletalMeshComponents.Num());
-
-			if (TargetMesh)
-			{
-				for (USkeletalMeshComponent* Comp : SkeletalMeshComponents)
-				{
-					USkeletalMesh* CompMesh = Comp ? Comp->GetSkeletalMeshAsset() : nullptr;
-					UE_LOG(LogFleshRingComponent, Log,
-						TEXT("[%s]   Checking '%s' -> Mesh='%s' (Match=%d)"),
-						*GetName(), Comp ? *Comp->GetName() : TEXT("null"),
-						CompMesh ? *CompMesh->GetName() : TEXT("null"),
-						CompMesh == TargetMesh);
-
-					if (Comp && CompMesh == TargetMesh)
-					{
-						MatchedComponent = Comp;
-						UE_LOG(LogFleshRingComponent, Log,
-							TEXT("[%s] ★ Auto-matched! Component='%s', TargetMesh='%s'"),
-							*GetName(), *Comp->GetName(), *TargetMesh->GetName());
-						break;
-					}
-				}
-			}
-		}
-		else
+		if (SkeletalMeshComponents.Num() > 1)
 		{
 			UE_LOG(LogFleshRingComponent, Warning,
-				TEXT("[%s] Auto-matching skipped: FleshRingAsset=%p, TargetSkeletalMesh.IsNull=%d"),
-				*GetName(), FleshRingAsset.Get(),
-				FleshRingAsset ? FleshRingAsset->TargetSkeletalMesh.IsNull() : -1);
-		}
-
-		if (MatchedComponent)
-		{
-			ResolvedTargetMesh = MatchedComponent;
-		}
-		else
-		{
-			// 매칭 실패 시 첫 번째 SkeletalMeshComponent 사용 (기존 동작)
-			ResolvedTargetMesh = SkeletalMeshComponents[0];
-			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: No matching mesh found, using first one '%s' on owner '%s'"),
-				*SkeletalMeshComponents[0]->GetName(), *Owner->GetName());
-
-			if (SkeletalMeshComponents.Num() > 1)
-			{
-				UE_LOG(LogFleshRingComponent, Warning,
-					TEXT("FleshRingComponent: Found %d SkeletalMeshComponents but none matched TargetSkeletalMesh. Using first one."),
-					SkeletalMeshComponents.Num());
-			}
+				TEXT("FleshRingComponent: Found %d SkeletalMeshComponents but none matched TargetSkeletalMesh. Using first one."),
+				SkeletalMeshComponents.Num());
 		}
 	}
 }
@@ -375,6 +375,14 @@ void UFleshRingComponent::ResolveTargetMesh()
 {
 	// 대상 메시 찾기
 	FindTargetMeshOnly();
+
+	// SetTargetMesh()로 수동 설정된 경우 메시 변경 스킵
+	// (프리뷰, 머지 메시 등 이미 적절한 메시가 설정된 케이스)
+	if (bManualTargetSet)
+	{
+		UE_LOG(LogFleshRingComponent, Log, TEXT("ResolveTargetMesh: Skipping mesh change (bManualTargetSet=true)"));
+		return;
+	}
 
 	// SubdividedMesh 또는 원본 메시 적용
 	UE_LOG(LogFleshRingComponent, Log, TEXT("ResolveTargetMesh: Checking SubdividedMesh... ResolvedTargetMesh.IsValid()=%d, FleshRingAsset=%p"),

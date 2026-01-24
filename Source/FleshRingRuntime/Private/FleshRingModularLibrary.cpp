@@ -164,9 +164,7 @@ bool UFleshRingModularLibrary::SwapModularPartMesh(
 			continue;
 		}
 
-		const bool bIsTarget =
-			(RingComp->bUseCustomTarget && RingComp->CustomTargetMesh == InSkeletalMeshComponent) ||
-			(!RingComp->bUseCustomTarget && RingComp->GetResolvedTargetMesh() == InSkeletalMeshComponent);
+		const bool bIsTarget = (RingComp->GetResolvedTargetMesh() == InSkeletalMeshComponent);
 
 		if (bIsTarget)
 		{
@@ -220,8 +218,7 @@ TArray<UFleshRingComponent*> UFleshRingModularLibrary::AttachRingVisuals(
 		RingComp->FleshRingAsset = Asset;
 
 		// Set target mesh (merged SKM as target)
-		RingComp->bUseCustomTarget = true;
-		RingComp->CustomTargetMesh = InMergedMeshComponent;
+		RingComp->SetTargetMesh(InMergedMeshComponent);
 		RingComp->Internal_SetCreatedForMergedMesh(true);  // Explicit flag for merged mesh mode
 
 		// Register component (OnRegister -> FindTargetMeshOnly + SetupRingMeshes)
@@ -260,7 +257,7 @@ int32 UFleshRingModularLibrary::DetachAllRingVisuals(
 	// Remove only components targeting this merged mesh
 	for (UFleshRingComponent* RingComp : RingComponents)
 	{
-		if (RingComp && RingComp->bUseCustomTarget && RingComp->CustomTargetMesh == InMergedMeshComponent)
+		if (RingComp && RingComp->GetResolvedTargetMesh() == InMergedMeshComponent)
 		{
 			RingComp->DestroyComponent();
 			RemovedCount++;

@@ -177,16 +177,15 @@ public:
 	bool IsUsingBakedMesh() const { return bUsingBakedMesh; }
 
 	// =====================================
-	// Target Settings (런타임 오버라이드)
+	// Target Settings
 	// =====================================
 
-	/** 수동으로 대상 SkeletalMeshComponent 지정 (false면 Owner에서 자동 검색) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Settings", AdvancedDisplay)
-	bool bUseCustomTarget = false;
-
-	/** 수동 지정 대상 (bUseCustomTarget이 true일 때만 사용) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Settings", AdvancedDisplay, meta = (EditCondition = "bUseCustomTarget", UseComponentPicker))
-	TObjectPtr<USkeletalMeshComponent> CustomTargetMesh;
+	/**
+	 * 타겟 메시 수동 설정 (프리뷰, 머지 메시 등 특수 케이스용)
+	 * 설정하지 않으면 Owner에서 FleshRingAsset->TargetSkeletalMesh와 일치하는 컴포넌트를 자동 탐색
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FleshRing")
+	void SetTargetMesh(USkeletalMeshComponent* InTargetMesh);
 
 	// =====================================
 	// General (런타임 설정)
@@ -370,6 +369,13 @@ private:
 	 * Automatically set by UFleshRingModularLibrary::RebuildMergedMesh().
 	 */
 	bool bCreatedForMergedMesh = false;
+
+	/**
+	 * SetTargetMesh()로 수동 설정되었는지 여부
+	 * true면 FindTargetMeshOnly()에서 자동 탐색 스킵 (ResolvedTargetMesh 유지)
+	 * true면 ResolveTargetMesh()에서 메시 변경 스킵
+	 */
+	bool bManualTargetSet = false;
 
 	/** 자동/수동 검색된 실제 대상 */
 	UPROPERTY(Transient)

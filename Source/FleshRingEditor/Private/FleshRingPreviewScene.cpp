@@ -110,8 +110,7 @@ void FFleshRingPreviewScene::CreatePreviewActor()
 
 	// FleshRing 컴포넌트 생성 (에디터에서도 Deformer 활성화)
 	FleshRingComponent = NewObject<UFleshRingComponent>(PreviewActor, TEXT("FleshRingComponent"));
-	FleshRingComponent->bUseCustomTarget = true;
-	FleshRingComponent->CustomTargetMesh = SkeletalMeshComponent;
+	FleshRingComponent->SetTargetMesh(SkeletalMeshComponent);
 	FleshRingComponent->bEnableFleshRing = true;  // 에디터 프리뷰에서도 Deformer 활성화
 	FleshRingComponent->RegisterComponent();
 	PreviewActor->AddInstanceComponent(FleshRingComponent);
