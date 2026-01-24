@@ -1133,13 +1133,13 @@ void UFleshRingComponent::SwapFleshRingAsset(UFleshRingAsset* NewAsset)
 	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Swapped to baked asset '%s'"), *NewAsset->GetName());
 }
 
-bool UFleshRingComponent::SwapRingAssetForModular(UFleshRingAsset* NewAsset, bool bPreserveLeaderPose)
+bool UFleshRingComponent::Internal_SwapModularRingAsset(UFleshRingAsset* NewAsset, bool bPreserveLeaderPose)
 {
 	// 1. BakedMesh 체크 (상태 변경 전에 먼저 검증)
 	if (NewAsset && !NewAsset->HasBakedMesh())
 	{
 		UE_LOG(LogFleshRingComponent, Warning,
-			TEXT("[%s] SwapRingAssetForModular: NewAsset '%s' has no BakedMesh, cannot apply at runtime"),
+			TEXT("[%s] Internal_SwapModularRingAsset: NewAsset '%s' has no BakedMesh, cannot apply at runtime"),
 			*GetName(), *NewAsset->GetName());
 		return false;
 	}
@@ -1157,7 +1157,7 @@ bool UFleshRingComponent::SwapRingAssetForModular(UFleshRingAsset* NewAsset, boo
 	if (!TargetMesh)
 	{
 		UE_LOG(LogFleshRingComponent, Warning,
-			TEXT("[%s] SwapRingAssetForModular: No target mesh resolved"), *GetName());
+			TEXT("[%s] Internal_SwapModularRingAsset: No target mesh resolved"), *GetName());
 		return false;
 	}
 
@@ -1175,7 +1175,7 @@ bool UFleshRingComponent::SwapRingAssetForModular(UFleshRingAsset* NewAsset, boo
 			if (CurrentSkeleton != NewSkeleton)
 			{
 				UE_LOG(LogFleshRingComponent, Warning,
-					TEXT("[%s] SwapRingAssetForModular: Skeleton mismatch - Current: '%s', NewAsset BakedMesh: '%s'"),
+					TEXT("[%s] Internal_SwapModularRingAsset: Skeleton mismatch - Current: '%s', NewAsset BakedMesh: '%s'"),
 					*GetName(),
 					CurrentSkeleton ? *CurrentSkeleton->GetName() : TEXT("null"),
 					NewSkeleton ? *NewSkeleton->GetName() : TEXT("null"));
@@ -1257,7 +1257,7 @@ bool UFleshRingComponent::SwapRingAssetForModular(UFleshRingAsset* NewAsset, boo
 	return true;
 }
 
-void UFleshRingComponent::DetachRingAsset(bool bPreserveLeaderPose)
+void UFleshRingComponent::Internal_DetachModularRingAsset(bool bPreserveLeaderPose)
 {
 	USkeletalMeshComponent* TargetMesh = ResolvedTargetMesh.Get();
 	if (!TargetMesh)
@@ -1286,7 +1286,7 @@ void UFleshRingComponent::DetachRingAsset(bool bPreserveLeaderPose)
 	}
 
 	UE_LOG(LogFleshRingComponent, Log,
-		TEXT("[%s] DetachRingAsset: Ring asset detached, SkeletalMesh unchanged"),
+		TEXT("[%s] Internal_DetachModularRingAsset: Ring asset detached, SkeletalMesh unchanged"),
 		*GetName());
 }
 

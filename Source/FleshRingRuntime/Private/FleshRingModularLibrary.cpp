@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "FleshRingModularLibrary.h"
 #include "FleshRingComponent.h"
@@ -125,7 +125,20 @@ FFleshRingMergeOutput UFleshRingModularLibrary::RebuildMergedMesh(
 // Leader Pose / Copy Pose API
 //==========================================================================
 
-bool UFleshRingModularLibrary::SwapModularPartWithRingCleanup(
+bool UFleshRingModularLibrary::SwapModularRingAsset(
+	UFleshRingComponent* InFleshRingComponent,
+	UFleshRingAsset* InNewAsset,
+	bool bPreserveLeaderPose)
+{
+	if (!InFleshRingComponent)
+	{
+		return false;
+	}
+
+	return InFleshRingComponent->Internal_SwapModularRingAsset(InNewAsset, bPreserveLeaderPose);
+}
+
+bool UFleshRingModularLibrary::SwapModularPartMesh(
 	USkeletalMeshComponent* InSkeletalMeshComponent,
 	USkeletalMesh* InNewMesh)
 {
@@ -158,7 +171,7 @@ bool UFleshRingModularLibrary::SwapModularPartWithRingCleanup(
 		if (bIsTarget)
 		{
 			// 2. Detach ring asset (SkeletalMesh unchanged)
-			RingComp->DetachRingAsset(/*bPreserveLeaderPose=*/true);
+			RingComp->Internal_DetachModularRingAsset(/*bPreserveLeaderPose=*/true);
 		}
 	}
 
@@ -209,7 +222,7 @@ TArray<UFleshRingComponent*> UFleshRingModularLibrary::AttachRingVisuals(
 		// Set target mesh (merged SKM as target)
 		RingComp->bUseCustomTarget = true;
 		RingComp->CustomTargetMesh = InMergedMeshComponent;
-		RingComp->SetCreatedForMergedMesh(true);  // Explicit flag for merged mesh mode
+		RingComp->Internal_SetCreatedForMergedMesh(true);  // Explicit flag for merged mesh mode
 
 		// Register component (OnRegister -> FindTargetMeshOnly + SetupRingMeshes)
 		// BeginPlay auto-detects merged mesh mode

@@ -149,33 +149,28 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "FleshRing")
 	void SwapFleshRingAsset(UFleshRingAsset* NewAsset);
 
-	// ========================== Modular ==========================
-	/**
-	 * 모듈러 캐릭터용 런타임 링 에셋 교체
-	 * Leader Pose 설정 보존 옵션 제공
-	 *
-	 * @param NewAsset - 새로 적용할 FleshRingAsset (nullptr이면 링 효과 제거 + 원본 메시 복원)
-	 * @param bPreserveLeaderPose - LeaderPoseComponent 설정 보존 여부
-	 * @return 성공 여부
-	 */
-	UFUNCTION(BlueprintCallable, Category = "FleshRing|Modular")
-	bool SwapRingAssetForModular(UFleshRingAsset* NewAsset, bool bPreserveLeaderPose = true);
+	// ========================== Modular Internal ==========================
+	// Use UFleshRingModularLibrary public API instead of calling directly.
 
 	/**
-	 * Detach ring asset and remove ring meshes
-	 * SkeletalMesh remains unchanged
-	 *
-	 * @param bPreserveLeaderPose - Whether to preserve LeaderPoseComponent setting
-	 * @see UFleshRingModularLibrary::SwapModularPartWithRingCleanup
+	 * Internal: Swaps ring asset at runtime for modular characters.
+	 * @see UFleshRingModularLibrary::SwapModularRingAsset
 	 */
-	void DetachRingAsset(bool bPreserveLeaderPose = true);
+	bool Internal_SwapModularRingAsset(UFleshRingAsset* NewAsset, bool bPreserveLeaderPose = true);
 
 	/**
-	 * Marks this component as created for Skeletal Merging system.
-	 * Called by UFleshRingModularLibrary::RebuildMergedMesh().
+	 * Internal: Detaches ring asset and removes ring meshes.
+	 * @see UFleshRingModularLibrary::SwapModularPartMesh
 	 */
-	void SetCreatedForMergedMesh(bool bValue) { bCreatedForMergedMesh = bValue; }
-	// ========================== Modular ==========================
+	void Internal_DetachModularRingAsset(bool bPreserveLeaderPose = true);
+
+	/**
+	 * Internal: Marks this component as created for Skeletal Merging system.
+	 * @see UFleshRingModularLibrary::RebuildMergedMesh
+	 */
+	void Internal_SetCreatedForMergedMesh(bool bValue) { bCreatedForMergedMesh = bValue; }
+
+	// ======================================================================
 
 	/** True when using BakedMesh at runtime (Deformer disabled) */
 	UFUNCTION(BlueprintPure, Category = "FleshRing")

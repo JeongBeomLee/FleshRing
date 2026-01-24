@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -17,11 +17,8 @@ class USkeleton;
  * Unified FleshRing library for modular characters
  *
  * Supported systems:
- * - Leader Pose / Copy Pose: SwapModularPartWithRingCleanup()
  * - Skeletal Merging: RebuildMergedMesh()
- *
- * Future extensions:
- * - UFleshRingMergedCharacterComponent (Stateful approach)
+ * - Leader Pose / Copy Pose: SwapModularRingAsset(), SwapModularPartMesh()
  */
 UCLASS()
 class FLESHRINGRUNTIME_API UFleshRingModularLibrary : public UBlueprintFunctionLibrary
@@ -42,7 +39,7 @@ public:
 	 * @param Skeleton Shared skeleton for all parts
 	 * @return Merge result (contains MergedMesh on success)
 	 */
-	UFUNCTION(BlueprintCallable, Category = "FleshRing|Modular")
+	UFUNCTION(BlueprintCallable, Category = "FleshRing|Modular|Skeletal Merging")
 	static FFleshRingMergeOutput RebuildMergedMesh(
 		USkeletalMeshComponent* TargetComponent,
 		const TArray<FFleshRingModularPart>& Parts,
@@ -53,15 +50,31 @@ public:
 	//==========================================================================
 
 	/**
-	 * Swaps modular part with ring cleanup, preserving Leader Pose setup.
-	 * Detaches ring assets before applying new mesh.
+	 * Swaps ring asset on a modular part at runtime.
+	 * Preserves Leader Pose setup automatically.
+	 *
+	 * @param InFleshRingComponent Target FleshRingComponent
+	 * @param InNewAsset New FleshRingAsset (nullptr = remove ring effect + restore original mesh)
+	 * @param bPreserveLeaderPose Whether to preserve LeaderPoseComponent setting
+	 * @return true on success
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FleshRing|Modular|Leader Pose")
+	static bool SwapModularRingAsset(
+		UFleshRingComponent* InFleshRingComponent,
+		UFleshRingAsset* InNewAsset,
+		bool bPreserveLeaderPose = true);
+
+	/**
+	 * Swaps skeletal mesh on a modular part with ring cleanup.
+	 * Detaches any attached ring assets before applying new mesh.
+	 * Preserves Leader Pose setup automatically.
 	 *
 	 * @param InSkeletalMeshComponent SkeletalMeshComponent to swap mesh on
 	 * @param InNewMesh New modular part mesh (without ring effect)
 	 * @return true on success
 	 */
-	UFUNCTION(BlueprintCallable, Category = "FleshRing|Modular")
-	static bool SwapModularPartWithRingCleanup(
+	UFUNCTION(BlueprintCallable, Category = "FleshRing|Modular|Leader Pose")
+	static bool SwapModularPartMesh(
 		USkeletalMeshComponent* InSkeletalMeshComponent,
 		USkeletalMesh* InNewMesh);
 
