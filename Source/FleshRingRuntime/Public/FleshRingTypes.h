@@ -761,15 +761,6 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides))
 	EFalloffType HopFalloffType = EFalloffType::Hermite;
 
-	/**
-	 * 노멀 블렌딩 감쇠 곡선 타입
-	 * - Linear: 선형 감쇠
-	 * - Quadratic: 2차 곡선 (부드러움)
-	 * - Hermite: S-커브 (가장 부드러움, 권장)
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normal/Tangent Recompute", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides, DisplayName = "Normal Blend Falloff"))
-	EFalloffType NormalBlendFalloffType = EFalloffType::Hermite;
-
 	/** 스무딩 영역 상단 확장 거리 (cm) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::BoundsExpand", EditConditionHides, ClampMin = "0.0", ClampMax = "50.0", DisplayName = "Bounds Expand Top (cm)"))
 	float SmoothingBoundsZTop = 5.0f;
@@ -937,7 +928,6 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		, SmoothingVolumeMode(ESmoothingVolumeMode::BoundsExpand)
 		, MaxSmoothingHops(5)
 		, HopFalloffType(EFalloffType::Hermite)
-		, NormalBlendFalloffType(EFalloffType::Hermite)
 		, SmoothingBoundsZTop(5.0f)
 		, SmoothingBoundsZBottom(0.0f)
 		, bEnableHeatPropagation(true)

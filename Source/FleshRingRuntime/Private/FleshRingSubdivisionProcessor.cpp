@@ -609,7 +609,26 @@ bool FFleshRingSubdivisionProcessor::ExtractTopologyResult(FSubdivisionTopologyR
 				return A.Value > B.Value;
 			});
 
-			// 상위 3개 사용
+			// 상위 3개 사용 (4개 이상 기여 시 경고)
+			if (SortedContribs.Num() > 3)
+			{
+				// 버려지는 기여도 합계 계산
+				float DroppedWeight = 0.0f;
+				for (int32 j = 3; j < SortedContribs.Num(); ++j)
+				{
+					DroppedWeight += SortedContribs[j].Value;
+				}
+
+				static int32 TruncationWarningCount = 0;
+				if (TruncationWarningCount < 10)
+				{
+					UE_LOG(LogFleshRingSubdivisionProcessor, Warning,
+						TEXT("Vertex %d has %d contributors (truncating to 3). Dropped weight: %.4f"),
+						i, SortedContribs.Num(), DroppedWeight);
+					TruncationWarningCount++;
+				}
+			}
+
 			uint32 P0 = 0, P1 = 0, P2 = 0;
 			float W0 = 0, W1 = 0, W2 = 0;
 

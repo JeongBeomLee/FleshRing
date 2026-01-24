@@ -486,10 +486,10 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		DispatchData.SmoothingRegionHopDistances = RingData.SmoothingRegionHopDistances;
 		DispatchData.MaxSmoothingHops = RingData.MaxSmoothingHops;
 
-		// Normal blend falloff type 복사
-		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIndex))
+		// Normal blend falloff type 복사 (글로벌 설정)
+		if (FleshRingComponent.IsValid() && FleshRingComponent->FleshRingAsset)
 		{
-			DispatchData.NormalBlendFalloffType = static_cast<uint32>((*RingSettingsPtr)[RingIndex].NormalBlendFalloffType);
+			DispatchData.NormalBlendFalloffType = static_cast<uint32>(FleshRingComponent->FleshRingAsset->NormalBlendFalloffType);
 		}
 
 		// SkinSDF 레이어 분리용 데이터 복사
@@ -1118,6 +1118,10 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			static_cast<uint32>(FleshRingComponent->FleshRingAsset->NormalRecomputeMethod);
 		WorkItem.bEnableNormalHopBlending =
 			FleshRingComponent->FleshRingAsset->bEnableNormalHopBlending;
+		WorkItem.bEnableDisplacementBlending =
+			FleshRingComponent->FleshRingAsset->bEnableDisplacementBlending;
+		WorkItem.MaxDisplacementForBlend =
+			FleshRingComponent->FleshRingAsset->MaxDisplacementForBlend;
 		WorkItem.bEnableTangentRecompute =
 			FleshRingComponent->FleshRingAsset->bEnableTangentRecompute;
 		WorkItem.TangentRecomputeMode =

@@ -57,6 +57,10 @@ struct FFleshRingWorkItem
 		TArray<uint32> RepresentativeIndices;
 		bool bHasUVDuplicates = false;  // UV duplicate 존재 여부 (없으면 UVSync 스킵 가능)
 
+		// ===== Cached GPU Buffers (정적 데이터, 첫 프레임에만 생성 후 재사용) =====
+		// 토폴로지가 변경되지 않는 한 매 프레임 업로드 불필요
+		mutable TRefCountPtr<FRDGPooledBuffer> CachedRepresentativeIndicesBuffer;
+
 		// SDF 캐시 데이터 (렌더 스레드로 안전하게 전달)
 		TRefCountPtr<IPooledRenderTarget> SDFPooledTexture;
 		FVector3f SDFBoundsMin = FVector3f::ZeroVector;
@@ -141,6 +145,7 @@ struct FFleshRingWorkItem
 		TArray<uint32> SmoothingRegionIsAnchor;          // 앵커 플래그 (1=Seed/Core, 0=확장)
 		TArray<uint32> SmoothingRegionRepresentativeIndices;  // UV seam 대표 버텍스 인덱스
 		bool bSmoothingRegionHasUVDuplicates = false;    // UV duplicate 존재 여부
+		mutable TRefCountPtr<FRDGPooledBuffer> CachedSmoothingRegionRepresentativeIndicesBuffer;  // 캐싱된 GPU 버퍼
 		TArray<uint32> SmoothingRegionLaplacianAdjacency;  // 라플라시안 인접 데이터
 		TArray<uint32> SmoothingRegionPBDAdjacency;      // PBD 인접 데이터
 		TArray<uint32> SmoothingRegionAdjacencyOffsets;  // 노멀 재계산용 인접 오프셋
@@ -250,6 +255,10 @@ struct FFleshRingWorkItem
 	uint32 NormalRecomputeMode = 1;  // Default: SurfaceRotation
 	// 홉 기반 블렌딩 활성화 여부 (경계에서 원본 노멀과 블렌딩)
 	bool bEnableNormalHopBlending = true;
+	// 변위 기반 블렌딩 활성화 여부 (버텍스 이동량에 따라 블렌딩)
+	bool bEnableDisplacementBlending = false;
+	// 변위 블렌딩 최대 거리 (cm) - 이 거리 이상 이동 시 100% 재계산된 노멀 사용
+	float MaxDisplacementForBlend = 1.0f;
 	// 탄젠트 재계산 활성화 여부 (FleshRingAsset에서 설정, 노멀 재계산이 켜져있어야 동작)
 	bool bEnableTangentRecompute = true;
 	// 탄젠트 재계산 모드 (ETangentRecomputeMethod와 일치)

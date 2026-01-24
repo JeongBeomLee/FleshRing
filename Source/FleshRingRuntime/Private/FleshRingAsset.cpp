@@ -1355,11 +1355,36 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 			bNeedsFullRefresh = true;
 		}
 
+		// ★ 스무딩 활성화 플래그 변경 시 SmoothingRegion 재빌드 필요
+		// BuildHopDistanceData()가 bAnySmoothingEnabled 조건으로 호출되므로
+		// 이 플래그들이 변경되면 캐시 무효화 필요
+		if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnablePostProcess) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableLaplacianSmoothing) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnablePBDEdgeConstraint) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableHeatPropagation))
+		{
+			bNeedsFullRefresh = true;
+		}
+
 		// ★ Preview subdivision 파라미터 변경 시 전체 갱신 (PreviewScene에서 해시 비교로 캐시 무효화됨)
 		if (PropName == GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, PreviewSubdivisionLevel) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, PreviewBoneHopCount) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, PreviewBoneWeightThreshold) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, MinEdgeLength))
+		{
+			bNeedsFullRefresh = true;
+		}
+
+		// ★ Normal/Tangent Recompute 파라미터 변경 시 캐시 무효화 필요
+		// 이 프로퍼티들이 변경되면 GPU 노멀/탄젠트 캐시를 무효화해야 함
+		if (PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, bEnableNormalRecompute) ||
+			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, NormalRecomputeMethod) ||
+			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, bEnableNormalHopBlending) ||
+			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, NormalBlendFalloffType) ||
+			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, bEnableDisplacementBlending) ||
+			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, MaxDisplacementForBlend) ||
+			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, bEnableTangentRecompute) ||
+			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, TangentRecomputeMethod))
 		{
 			bNeedsFullRefresh = true;
 		}

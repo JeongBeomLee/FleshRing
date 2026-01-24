@@ -868,7 +868,6 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	TSharedPtr<IPropertyHandle> SmoothingVolumeModeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingVolumeMode));
 	TSharedPtr<IPropertyHandle> MaxSmoothingHopsHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MaxSmoothingHops));
 	TSharedPtr<IPropertyHandle> HopFalloffTypeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HopFalloffType));
-	TSharedPtr<IPropertyHandle> NormalBlendFalloffTypeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, NormalBlendFalloffType));
 	TSharedPtr<IPropertyHandle> SmoothingBoundsZTopHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingBoundsZTop));
 	TSharedPtr<IPropertyHandle> SmoothingBoundsZBottomHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingBoundsZBottom));
 	// Heat Propagation 핸들
@@ -893,7 +892,6 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingVolumeMode));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MaxSmoothingHops));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HopFalloffType));
-	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, NormalBlendFalloffType));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingBoundsZTop));
 	// Heat Propagation 프로퍼티
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableHeatPropagation));
@@ -1635,11 +1633,6 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	if (HopFalloffTypeHandle.IsValid())
 	{
 		SmoothingVolumeGroup.AddPropertyRow(HopFalloffTypeHandle.ToSharedRef());
-	}
-	// Normal Blend Falloff (HopBased 전용)
-	if (NormalBlendFalloffTypeHandle.IsValid())
-	{
-		SmoothingVolumeGroup.AddPropertyRow(NormalBlendFalloffTypeHandle.ToSharedRef());
 	}
 	// BoundsExpand 설정 (SmoothingVolumeMode == BoundsExpand일 때만 보임)
 	if (SmoothingBoundsZTopHandle.IsValid())

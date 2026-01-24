@@ -1059,6 +1059,7 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 		const uint32 P2 = FMath::Min(VD.ParentV2, (uint32)(SourceVertexCount - 1));
 
 		NewPositions[i] = SourcePositions[P0] * U + SourcePositions[P1] * V + SourcePositions[P2] * W;
+		// Normal 보간
 		FVector InterpolatedNormal = SourceNormals[P0] * U + SourceNormals[P1] * V + SourceNormals[P2] * W;
 		NewNormals[i] = InterpolatedNormal.GetSafeNormal();
 		FVector4 InterpTangent = SourceTangents[P0] * U + SourceTangents[P1] * V + SourceTangents[P2] * W;

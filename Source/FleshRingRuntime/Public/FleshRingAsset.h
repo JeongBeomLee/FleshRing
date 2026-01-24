@@ -102,6 +102,32 @@ public:
 	bool bEnableNormalHopBlending = true;
 
 	/**
+	 * 노멀 블렌딩 감쇠 곡선 타입
+	 * - Linear: 선형 감쇠
+	 * - Quadratic: 2차 곡선 (부드러움)
+	 * - Hermite: S-커브 (가장 부드러움, 권장)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normal/Tangent Recompute", meta = (DisplayName = "Hop Blend Falloff", EditCondition = "bEnableNormalRecompute && bEnableNormalHopBlending"))
+	EFalloffType NormalBlendFalloffType = EFalloffType::Hermite;
+
+	/**
+	 * 변위 기반 블렌딩 활성화
+	 * 버텍스의 실제 변형 거리에 따라 노멀 블렌딩 강도 조절
+	 * 변형이 작은 버텍스는 원본 노멀에 가깝게, 변형이 큰 버텍스는 재계산된 노멀 사용
+	 * Hop 블렌딩과 함께 사용 시: FinalBlend = HopBlend * DisplacementBlend
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normal/Tangent Recompute", meta = (DisplayName = "Enable Displacement Blending", EditCondition = "bEnableNormalRecompute"))
+	bool bEnableDisplacementBlending = false;
+
+	/**
+	 * 변위 블렌딩 최대 거리 (cm)
+	 * 이 거리 이상 변형된 버텍스는 100% 재계산된 노멀 사용
+	 * 0 ~ MaxDisplacement 사이에서 선형 보간
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normal/Tangent Recompute", meta = (DisplayName = "Max Displacement (cm)", EditCondition = "bEnableNormalRecompute && bEnableDisplacementBlending", ClampMin = "0.01", UIMin = "0.01", UIMax = "10.0"))
+	float MaxDisplacementForBlend = 1.0f;
+
+	/**
 	 * 탄젠트 재계산 활성화
 	 * 재계산된 노멀에 맞춰 탄젠트를 정규직교화하여 TBN 매트릭스 일관성 유지
 	 * 비활성화하면 원본 탄젠트 사용 (노멀맵 렌더링 부정확할 수 있음)

@@ -80,6 +80,13 @@ public:
 		// 입력: 각 영향받는 버텍스의 홉 거리 (블렌딩용, 선택적)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<int>, HopDistances)
 
+		// ===== UV Seam Welding (optional) =====
+		// ===== UV Seam Welding (선택적) =====
+
+		// Input: Representative vertex indices for UV seam welding
+		// 입력: UV seam welding용 대표 버텍스 인덱스
+		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, RepresentativeIndices)
+
 		// ===== Parameters =====
 		// ===== 파라미터 =====
 
@@ -89,6 +96,9 @@ public:
 		SHADER_PARAMETER(uint32, bEnableHopBlending)   // 0 = off, 1 = on (blend with original at boundary)
 		SHADER_PARAMETER(uint32, MaxHops)              // Maximum hop distance (for blend factor calculation)
 		SHADER_PARAMETER(uint32, FalloffType)          // 0 = Linear, 1 = Quadratic, 2 = Hermite
+		SHADER_PARAMETER(uint32, bEnableUVSeamWelding) // 0 = off, 1 = on (use RepresentativeIndices for UV seam)
+		SHADER_PARAMETER(uint32, bEnableDisplacementBlending) // 0 = off, 1 = on (blend based on vertex displacement)
+		SHADER_PARAMETER(float, MaxDisplacement)       // Maximum displacement for blend (cm) - displacement >= this uses 100% recomputed normal
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
@@ -137,6 +147,24 @@ struct FNormalRecomputeDispatchParams
 	// 블렌딩 falloff 타입 (0=선형, 1=2차곡선, 2=Hermite)
 	uint32 FalloffType = 2;  // Default: Hermite
 
+	// ===== UV Seam Welding Parameters =====
+	// ===== UV Seam Welding 파라미터 =====
+
+	// Enable UV seam welding (use RepresentativeIndices for UV seam)
+	// UV seam welding 활성화 (대표 버텍스의 노멀을 사용)
+	bool bEnableUVSeamWelding = false;
+
+	// ===== Displacement-based Blending Parameters =====
+	// ===== 변위 기반 블렌딩 파라미터 =====
+
+	// Enable displacement-based blending (blend based on actual vertex movement)
+	// 변위 기반 블렌딩 활성화 (실제 버텍스 이동량에 따라 블렌드)
+	bool bEnableDisplacementBlending = false;
+
+	// Maximum displacement for blend (cm)
+	// 블렌드 최대 변위 (cm) - 이 거리 이상 이동한 버텍스는 100% 재계산된 노멀 사용
+	float MaxDisplacement = 1.0f;
+
 	FNormalRecomputeDispatchParams() = default;
 
 	FNormalRecomputeDispatchParams(uint32 InNumAffectedVertices, uint32 InNumTotalVertices, uint32 InNormalRecomputeMode = 2)
@@ -146,6 +174,9 @@ struct FNormalRecomputeDispatchParams
 		, bEnableHopBlending(false)
 		, MaxHops(0)
 		, FalloffType(2)
+		, bEnableUVSeamWelding(false)
+		, bEnableDisplacementBlending(false)
+		, MaxDisplacement(1.0f)
 	{
 	}
 };
@@ -176,6 +207,7 @@ struct FNormalRecomputeDispatchParams
  * @param SourceTangentsSRV - Original tangents buffer SRV (contains normals in TangentZ)
  * @param OutputNormalsBuffer - Output buffer for recomputed normals
  * @param HopDistancesBuffer - (Optional) Hop distances for blend factor calculation (nullptr if not using hop blending)
+ * @param RepresentativeIndicesBuffer - (Optional) Representative indices for UV seam welding (nullptr if not using)
  */
 void DispatchFleshRingNormalRecomputeCS(
 	FRDGBuilder& GraphBuilder,
@@ -188,4 +220,5 @@ void DispatchFleshRingNormalRecomputeCS(
 	FRDGBufferRef IndexBuffer,
 	FRHIShaderResourceView* SourceTangentsSRV,
 	FRDGBufferRef OutputNormalsBuffer,
-	FRDGBufferRef HopDistancesBuffer = nullptr);
+	FRDGBufferRef HopDistancesBuffer = nullptr,
+	FRDGBufferRef RepresentativeIndicesBuffer = nullptr);

@@ -71,6 +71,12 @@ RWBuffer<float> OutputNormals;
 // 입력: 각 영향받는 버텍스의 홉 거리 (블렌딩용, 선택적)
 StructuredBuffer<int> HopDistances;
 
+// Input: Representative vertex indices for UV seam welding (optional)
+// 입력: UV seam welding용 대표 버텍스 인덱스 (선택적)
+// Maps each affected vertex to its representative (same position, different UV)
+// 각 affected 버텍스를 대표 버텍스에 매핑 (같은 위치, 다른 UV)
+StructuredBuffer<uint> RepresentativeIndices;
+
 // ============================================================================
 // Parameters
 // 파라미터
@@ -88,6 +94,12 @@ uint MaxHops;               // Maximum hop distance (for blend factor calculatio
                             // 최대 홉 거리 (블렌드 계수 계산용)
 uint FalloffType;           // 0 = Linear, 1 = Quadratic, 2 = Hermite
                             // falloff 타입: 0=선형, 1=2차곡선, 2=Hermite
+uint bEnableUVSeamWelding;  // 0 = off, 1 = on (use RepresentativeIndices for UV seam)
+                            // UV seam welding: 대표 버텍스의 노멀을 복사
+uint bEnableDisplacementBlending;  // 0 = off, 1 = on (blend based on vertex displacement)
+                                   // 변위 기반 블렌딩: 버텍스 이동량에 따라 블렌드
+float MaxDisplacement;      // Maximum displacement for blend (cm)
+                            // 최대 변위 거리 (cm) - 이 거리 이상 이동 시 100% 재계산된 노멀 사용
 
 // Thread Group Size
 #ifndef THREADGROUP_SIZE
@@ -197,6 +209,18 @@ float3 SafeNormalize(float3 V, float3 Default)
 {
     float LenSq = dot(V, V);
     return LenSq > 1e-8f ? V * rsqrt(LenSq) : Default;
+}
+
+// Calculate displacement-based blend factor
+// 변위 기반 블렌드 계수 계산
+// Returns: 0.0 at zero displacement, 1.0 at MaxDisplacement or beyond
+// 반환: 변위 0에서 0.0, MaxDisplacement 이상에서 1.0
+float CalculateDisplacementBlendFactor(float3 OrigPos, float3 DefPos)
+{
+    float Displacement = length(DefPos - OrigPos);
+    // Linear interpolation from 0 to MaxDisplacement
+    // 0에서 MaxDisplacement까지 선형 보간
+    return saturate(Displacement / max(MaxDisplacement, 0.01f));
 }
 
 // ============================================================================
@@ -363,8 +387,14 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
     // Get adjacent triangle range
     // 인접 삼각형 범위 가져오기
+    // 주의: AdjacencyOffsets는 항상 ThreadIndex로 인덱싱 (VertexIndex가 아님!)
+    // RepresentativeIndices는 VertexIndex를 반환하므로 adjacency 접근에 사용하면 안됨
     uint AdjStart = AdjacencyOffsets[ThreadIndex];
     uint AdjEnd = AdjacencyOffsets[ThreadIndex + 1];
+
+    // UV seam welding: 대표 버텍스의 원본 노멀을 사용하여 모든 중복 버텍스가 같은 기준점에서 시작
+    // (adjacency는 각자의 것을 사용 - deformed positions가 이미 welding되어 있으므로 결과는 동일)
+    uint OriginalNormalReadIndex = (bEnableUVSeamWelding != 0) ? RepresentativeIndices[ThreadIndex] : VertexIndex;
 
     // ========================================
     // Branch by mode for optimal performance
@@ -421,17 +451,51 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         // Normalize and write
         float3 FinalNormal = SafeNormalize(DeformedFaceNormalSum, float3(0, 0, 1));
 
-        // Hop-based blending: blend with original normal at boundary
-        // 홉 기반 블렌딩: 경계에서 원본 노멀과 블렌드
-        // HopDist=0 (중심): 재계산된 노멀 100%, HopDist=MaxHops (경계): 원본 노멀과 블렌드
-        if (bEnableHopBlending != 0 && MaxHops > 0)
+        // ========================================
+        // Blending: Hop-based + Displacement-based
+        // 블렌딩: 홉 기반 + 변위 기반
+        // ========================================
+        // Both blending methods can be combined:
+        // - Hop blending: fade out at boundary (HopDist near MaxHops)
+        // - Displacement blending: fade in with vertex movement
+        // Combined: FinalBlendFactor = HopBlendFactor * DisplacementBlendFactor
+        // 두 블렌딩 방식 병행 가능:
+        // - 홉 블렌딩: 경계(HopDist가 MaxHops에 가까울수록)에서 페이드 아웃
+        // - 변위 블렌딩: 버텍스 이동량에 따라 페이드 인
+        // 결합: FinalBlendFactor = HopBlendFactor * DisplacementBlendFactor
+
+        bool bNeedsBlending = (bEnableHopBlending != 0 && MaxHops > 0) || (bEnableDisplacementBlending != 0);
+
+        if (bNeedsBlending)
         {
-            int HopDist = HopDistances[ThreadIndex];
-            float3 OriginalNormal = SafeNormalize(ReadOriginalNormal(VertexIndex), float3(0, 0, 1));
-            // BlendFactor: 1.0 at center (HopDist=0), 0.0 at boundary (HopDist=MaxHops)
-            // 블렌드 계수: 중심(HopDist=0)에서 1.0, 경계(HopDist=MaxHops)에서 0.0
-            float t = saturate((float)HopDist / (float)MaxHops);
-            float BlendFactor = 1.0 - ApplyFalloff(t, FalloffType);
+            // UV seam welding: 대표 버텍스의 원본 노멀 사용
+            float3 OriginalNormal = SafeNormalize(ReadOriginalNormal(OriginalNormalReadIndex), float3(0, 0, 1));
+            float BlendFactor = 1.0;  // Default: 100% recomputed normal
+
+            // Hop-based blending
+            // 홉 기반 블렌딩
+            if (bEnableHopBlending != 0 && MaxHops > 0)
+            {
+                // HopDistances는 항상 ThreadIndex로 인덱싱
+                int HopDist = HopDistances[ThreadIndex];
+                // BlendFactor: 1.0 at center (HopDist=0), 0.0 at boundary (HopDist=MaxHops)
+                // 블렌드 계수: 중심(HopDist=0)에서 1.0, 경계(HopDist=MaxHops)에서 0.0
+                float t = saturate((float)HopDist / (float)MaxHops);
+                float HopBlendFactor = 1.0 - ApplyFalloff(t, FalloffType);
+                BlendFactor *= HopBlendFactor;
+            }
+
+            // Displacement-based blending
+            // 변위 기반 블렌딩
+            if (bEnableDisplacementBlending != 0)
+            {
+                // 현재 버텍스의 원본/변형 위치로 변위 계산
+                float3 OrigPos = ReadOriginalPosition(VertexIndex);
+                float3 DefPos = ReadDeformedPosition(VertexIndex);
+                float DisplacementBlendFactor = CalculateDisplacementBlendFactor(OrigPos, DefPos);
+                BlendFactor *= DisplacementBlendFactor;
+            }
+
             FinalNormal = normalize(lerp(OriginalNormal, FinalNormal, BlendFactor));
         }
 
@@ -446,7 +510,8 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         // Note: MODE_POLAR_DECOMPOSITION도 이 분기에서 처리됨 (deprecated fallback)
 
         // Get original smooth vertex normal (회전시킬 대상)
-        float3 OriginalVertexNormal = ReadOriginalNormal(VertexIndex);
+        // UV seam welding: 대표 버텍스의 원본 노멀 사용
+        float3 OriginalVertexNormal = ReadOriginalNormal(OriginalNormalReadIndex);
 
         // If original normal is invalid, fallback
         float OriginalNormalLenSq = dot(OriginalVertexNormal, OriginalVertexNormal);
@@ -525,16 +590,49 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
         float3 FinalNormal = SafeNormalize(RotatedNormal, OriginalVertexNormal);
 
-        // Hop-based blending: blend with original normal at boundary
-        // 홉 기반 블렌딩: 경계에서 원본 노멀과 블렌드
-        // HopDist=0 (중심): 재계산된 노멀 100%, HopDist=MaxHops (경계): 원본 노멀과 블렌드
-        if (bEnableHopBlending != 0 && MaxHops > 0)
+        // ========================================
+        // Blending: Hop-based + Displacement-based
+        // 블렌딩: 홉 기반 + 변위 기반
+        // ========================================
+        // Both blending methods can be combined:
+        // - Hop blending: fade out at boundary (HopDist near MaxHops)
+        // - Displacement blending: fade in with vertex movement
+        // Combined: FinalBlendFactor = HopBlendFactor * DisplacementBlendFactor
+        // 두 블렌딩 방식 병행 가능:
+        // - 홉 블렌딩: 경계(HopDist가 MaxHops에 가까울수록)에서 페이드 아웃
+        // - 변위 블렌딩: 버텍스 이동량에 따라 페이드 인
+        // 결합: FinalBlendFactor = HopBlendFactor * DisplacementBlendFactor
+
+        bool bNeedsBlending = (bEnableHopBlending != 0 && MaxHops > 0) || (bEnableDisplacementBlending != 0);
+
+        if (bNeedsBlending)
         {
-            int HopDist = HopDistances[ThreadIndex];
-            // BlendFactor: 1.0 at center (HopDist=0), 0.0 at boundary (HopDist=MaxHops)
-            // 블렌드 계수: 중심(HopDist=0)에서 1.0, 경계(HopDist=MaxHops)에서 0.0
-            float t = saturate((float)HopDist / (float)MaxHops);
-            float BlendFactor = 1.0 - ApplyFalloff(t, FalloffType);
+            float BlendFactor = 1.0;  // Default: 100% recomputed normal
+
+            // Hop-based blending
+            // 홉 기반 블렌딩
+            if (bEnableHopBlending != 0 && MaxHops > 0)
+            {
+                // HopDistances는 항상 ThreadIndex로 인덱싱
+                int HopDist = HopDistances[ThreadIndex];
+                // BlendFactor: 1.0 at center (HopDist=0), 0.0 at boundary (HopDist=MaxHops)
+                // 블렌드 계수: 중심(HopDist=0)에서 1.0, 경계(HopDist=MaxHops)에서 0.0
+                float t = saturate((float)HopDist / (float)MaxHops);
+                float HopBlendFactor = 1.0 - ApplyFalloff(t, FalloffType);
+                BlendFactor *= HopBlendFactor;
+            }
+
+            // Displacement-based blending
+            // 변위 기반 블렌딩
+            if (bEnableDisplacementBlending != 0)
+            {
+                // 현재 버텍스의 원본/변형 위치로 변위 계산
+                float3 OrigPos = ReadOriginalPosition(VertexIndex);
+                float3 DefPos = ReadDeformedPosition(VertexIndex);
+                float DisplacementBlendFactor = CalculateDisplacementBlendFactor(OrigPos, DefPos);
+                BlendFactor *= DisplacementBlendFactor;
+            }
+
             FinalNormal = normalize(lerp(OriginalVertexNormal, FinalNormal, BlendFactor));
         }
 

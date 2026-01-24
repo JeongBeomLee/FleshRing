@@ -22,6 +22,67 @@ IMPLEMENT_GLOBAL_SHADER(
 );
 
 // ============================================================================
+// Cached Dummy Buffers (created once, reused every frame)
+// 캐싱된 더미 버퍼 (한 번 생성 후 매 프레임 재사용)
+// ============================================================================
+static TRefCountPtr<FRDGPooledBuffer> GDummyHopDistancesBuffer;
+static TRefCountPtr<FRDGPooledBuffer> GDummyRepresentativeIndicesBuffer;
+
+// Helper: Get or create dummy HopDistances buffer
+// 헬퍼: 더미 HopDistances 버퍼 가져오기 또는 생성
+static FRDGBufferRef GetOrCreateDummyHopDistancesBuffer(FRDGBuilder& GraphBuilder)
+{
+	if (!GDummyHopDistancesBuffer.IsValid())
+	{
+		// First frame: create and upload
+		// 첫 프레임: 생성 및 업로드
+		FRDGBufferRef TempBuffer = GraphBuilder.CreateBuffer(
+			FRDGBufferDesc::CreateStructuredDesc(sizeof(int32), 1),
+			TEXT("FleshRing_DummyHopDistances")
+		);
+		static const int32 DummyData = 0;
+		GraphBuilder.QueueBufferUpload(TempBuffer, &DummyData, sizeof(int32), ERDGInitialDataFlags::None);
+
+		// Extract to pooled buffer for reuse
+		// 재사용을 위해 풀링 버퍼로 추출
+		GDummyHopDistancesBuffer = GraphBuilder.ConvertToExternalBuffer(TempBuffer);
+
+		return TempBuffer;
+	}
+
+	// Subsequent frames: reuse existing buffer
+	// 이후 프레임: 기존 버퍼 재사용
+	return GraphBuilder.RegisterExternalBuffer(GDummyHopDistancesBuffer, TEXT("FleshRing_DummyHopDistances"));
+}
+
+// Helper: Get or create dummy RepresentativeIndices buffer
+// 헬퍼: 더미 RepresentativeIndices 버퍼 가져오기 또는 생성
+static FRDGBufferRef GetOrCreateDummyRepresentativeIndicesBuffer(FRDGBuilder& GraphBuilder)
+{
+	if (!GDummyRepresentativeIndicesBuffer.IsValid())
+	{
+		// First frame: create and upload
+		// 첫 프레임: 생성 및 업로드
+		FRDGBufferRef TempBuffer = GraphBuilder.CreateBuffer(
+			FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), 1),
+			TEXT("FleshRing_DummyRepresentativeIndices")
+		);
+		static const uint32 DummyData = 0;
+		GraphBuilder.QueueBufferUpload(TempBuffer, &DummyData, sizeof(uint32), ERDGInitialDataFlags::None);
+
+		// Extract to pooled buffer for reuse
+		// 재사용을 위해 풀링 버퍼로 추출
+		GDummyRepresentativeIndicesBuffer = GraphBuilder.ConvertToExternalBuffer(TempBuffer);
+
+		return TempBuffer;
+	}
+
+	// Subsequent frames: reuse existing buffer
+	// 이후 프레임: 기존 버퍼 재사용
+	return GraphBuilder.RegisterExternalBuffer(GDummyRepresentativeIndicesBuffer, TEXT("FleshRing_DummyRepresentativeIndices"));
+}
+
+// ============================================================================
 // Dispatch Function Implementation
 // Dispatch 함수 구현
 // ============================================================================
@@ -37,7 +98,8 @@ void DispatchFleshRingNormalRecomputeCS(
 	FRDGBufferRef IndexBuffer,
 	FRHIShaderResourceView* SourceTangentsSRV,
 	FRDGBufferRef OutputNormalsBuffer,
-	FRDGBufferRef HopDistancesBuffer)
+	FRDGBufferRef HopDistancesBuffer,
+	FRDGBufferRef RepresentativeIndicesBuffer)
 {
 	// Early out if no vertices to process or missing SRV
 	// 처리할 버텍스가 없거나 SRV가 없으면 조기 반환
@@ -67,22 +129,30 @@ void DispatchFleshRingNormalRecomputeCS(
 
 	// ===== Hop-based Blending =====
 	// ===== 홉 기반 블렌딩 =====
-	// 셰이더 파라미터는 항상 바인딩되어야 함 - 사용하지 않을 때는 더미 버퍼 사용
+	// 셰이더 파라미터는 항상 바인딩되어야 함 - 사용하지 않을 때는 캐싱된 더미 버퍼 사용
 	if (HopDistancesBuffer && Params.bEnableHopBlending)
 	{
 		PassParameters->HopDistances = GraphBuilder.CreateSRV(HopDistancesBuffer);
 	}
 	else
 	{
-		// 더미 버퍼 생성 및 데이터 업로드 (1 element, 셰이더에서 사용되지 않음)
-		// RDG는 읽기 전에 버퍼가 써져야 함
-		static const int32 DummyData = 0;
-		FRDGBufferRef DummyHopBuffer = GraphBuilder.CreateBuffer(
-			FRDGBufferDesc::CreateStructuredDesc(sizeof(int32), 1),
-			TEXT("FleshRing_DummyHopDistances")
-		);
-		GraphBuilder.QueueBufferUpload(DummyHopBuffer, &DummyData, sizeof(int32), ERDGInitialDataFlags::None);
+		// 캐싱된 더미 버퍼 사용 (첫 프레임에만 생성, 이후 재사용)
+		FRDGBufferRef DummyHopBuffer = GetOrCreateDummyHopDistancesBuffer(GraphBuilder);
 		PassParameters->HopDistances = GraphBuilder.CreateSRV(DummyHopBuffer);
+	}
+
+	// ===== UV Seam Welding =====
+	// ===== UV Seam Welding =====
+	// 셰이더 파라미터는 항상 바인딩되어야 함 - 사용하지 않을 때는 캐싱된 더미 버퍼 사용
+	if (RepresentativeIndicesBuffer && Params.bEnableUVSeamWelding)
+	{
+		PassParameters->RepresentativeIndices = GraphBuilder.CreateSRV(RepresentativeIndicesBuffer);
+	}
+	else
+	{
+		// 캐싱된 더미 버퍼 사용 (첫 프레임에만 생성, 이후 재사용)
+		FRDGBufferRef DummyRepBuffer = GetOrCreateDummyRepresentativeIndicesBuffer(GraphBuilder);
+		PassParameters->RepresentativeIndices = GraphBuilder.CreateSRV(DummyRepBuffer);
 	}
 
 	// ===== Parameters =====
@@ -93,6 +163,9 @@ void DispatchFleshRingNormalRecomputeCS(
 	PassParameters->bEnableHopBlending = Params.bEnableHopBlending ? 1 : 0;
 	PassParameters->MaxHops = Params.MaxHops;
 	PassParameters->FalloffType = Params.FalloffType;
+	PassParameters->bEnableUVSeamWelding = Params.bEnableUVSeamWelding ? 1 : 0;
+	PassParameters->bEnableDisplacementBlending = Params.bEnableDisplacementBlending ? 1 : 0;
+	PassParameters->MaxDisplacement = Params.MaxDisplacement;
 
 	// Get shader reference
 	// 셰이더 참조 가져오기

@@ -2017,6 +2017,57 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 						NormalParams.MaxHops = DispatchData.MaxSmoothingHops;
 					}
 
+					// ===== Displacement-based 블렌딩 설정 =====
+					// 버텍스 이동량에 따라 재계산된 노멀과 원본 노멀 블렌딩
+					NormalParams.bEnableDisplacementBlending = WorkItem.bEnableDisplacementBlending;
+					NormalParams.MaxDisplacement = WorkItem.MaxDisplacementForBlend;
+
+					// ===== UV Seam Welding: RepresentativeIndices 버퍼 (캐싱 적용) =====
+					// UV seam에서 split 버텍스들이 동일한 노멀을 가지도록 대표 버텍스의 인접 데이터 사용
+					// 정적 데이터이므로 첫 프레임에만 생성 후 재사용
+					const TArray<uint32>& NormalRepSource = bUseSmoothingRegion
+						? DispatchData.SmoothingRegionRepresentativeIndices
+						: DispatchData.RepresentativeIndices;
+
+					const bool bNormalHasUVDuplicates = bUseSmoothingRegion
+						? DispatchData.bSmoothingRegionHasUVDuplicates
+						: DispatchData.bHasUVDuplicates;
+
+					// 캐시 버퍼 참조 선택 (SmoothingRegion vs Original)
+					TRefCountPtr<FRDGPooledBuffer>& CachedBuffer = bUseSmoothingRegion
+						? DispatchData.CachedSmoothingRegionRepresentativeIndicesBuffer
+						: DispatchData.CachedRepresentativeIndicesBuffer;
+
+					FRDGBufferRef NormalRepresentativeIndicesBuffer = nullptr;
+					if (bNormalHasUVDuplicates && NormalRepSource.Num() == static_cast<int32>(NumAffected))
+					{
+						if (!CachedBuffer.IsValid())
+						{
+							// 첫 프레임: 버퍼 생성 및 업로드
+							NormalRepresentativeIndicesBuffer = GraphBuilder.CreateBuffer(
+								FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumAffected),
+								*FString::Printf(TEXT("FleshRing_NormalRepIndices_Ring%d"), RingIdx)
+							);
+							GraphBuilder.QueueBufferUpload(
+								NormalRepresentativeIndicesBuffer,
+								NormalRepSource.GetData(),
+								NumAffected * sizeof(uint32),
+								ERDGInitialDataFlags::None
+							);
+							// 풀링 버퍼로 캐싱 (다음 프레임에서 재사용)
+							CachedBuffer = GraphBuilder.ConvertToExternalBuffer(NormalRepresentativeIndicesBuffer);
+						}
+						else
+						{
+							// 이후 프레임: 캐싱된 버퍼 재사용
+							NormalRepresentativeIndicesBuffer = GraphBuilder.RegisterExternalBuffer(
+								CachedBuffer,
+								*FString::Printf(TEXT("FleshRing_NormalRepIndices_Ring%d"), RingIdx)
+							);
+						}
+						NormalParams.bEnableUVSeamWelding = true;
+					}
+
 					DispatchFleshRingNormalRecomputeCS(
 						GraphBuilder,
 						NormalParams,
@@ -2028,7 +2079,8 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 						MeshIndexBuffer,               // 메시 인덱스 버퍼
 						SourceTangentsSRV,             // 원본 탄젠트 (원본 스무스 노멀 포함)
 						RecomputedNormalsBuffer,       // 출력: 재계산된 노멀
-						HopDistancesBuffer             // 홉 거리 (블렌딩용, 선택적)
+						HopDistancesBuffer,            // 홉 거리 (블렌딩용, 선택적)
+						NormalRepresentativeIndicesBuffer  // UV seam welding용 대표 버텍스 인덱스
 					);
 
 					// [DEBUG] NormalRecomputeCS 로그 (필요시 주석 해제)
@@ -2341,16 +2393,32 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 			*WorkItem.CachedBufferSharedPtr = GraphBuilder.ConvertToExternalBuffer(TightenedBindPoseBuffer);
 		}
 
-		// 재계산된 노멀 버퍼도 캐싱 (SkinningCS에서 사용)
-		if (WorkItem.CachedNormalsBufferSharedPtr.IsValid() && RecomputedNormalsBuffer)
+		// 재계산된 노멀 버퍼 캐싱 (SkinningCS에서 사용)
+		if (WorkItem.CachedNormalsBufferSharedPtr.IsValid())
 		{
-			*WorkItem.CachedNormalsBufferSharedPtr = GraphBuilder.ConvertToExternalBuffer(RecomputedNormalsBuffer);
+			if (RecomputedNormalsBuffer)
+			{
+				*WorkItem.CachedNormalsBufferSharedPtr = GraphBuilder.ConvertToExternalBuffer(RecomputedNormalsBuffer);
+			}
+			else if (WorkItem.CachedNormalsBufferSharedPtr->IsValid())
+			{
+				// bEnableNormalRecompute가 false면 기존 캐시 클리어
+				WorkItem.CachedNormalsBufferSharedPtr->SafeRelease();
+			}
 		}
 
-		// 재계산된 탄젠트 버퍼도 캐싱 (Gram-Schmidt 정규직교화 결과)
-		if (WorkItem.CachedTangentsBufferSharedPtr.IsValid() && RecomputedTangentsBuffer)
+		// 재계산된 탄젠트 버퍼 캐싱 (Gram-Schmidt 정규직교화 결과)
+		if (WorkItem.CachedTangentsBufferSharedPtr.IsValid())
 		{
-			*WorkItem.CachedTangentsBufferSharedPtr = GraphBuilder.ConvertToExternalBuffer(RecomputedTangentsBuffer);
+			if (RecomputedTangentsBuffer)
+			{
+				*WorkItem.CachedTangentsBufferSharedPtr = GraphBuilder.ConvertToExternalBuffer(RecomputedTangentsBuffer);
+			}
+			else if (WorkItem.CachedTangentsBufferSharedPtr->IsValid())
+			{
+				// bEnableTangentRecompute가 false면 기존 캐시 클리어
+				WorkItem.CachedTangentsBufferSharedPtr->SafeRelease();
+			}
 		}
 
 		// 디버그 Influence 버퍼 캐싱 (DrawDebugPoint에서 GPU 값 시각화용)
@@ -2444,14 +2512,16 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 			return;
 		}
 
-		// 캐싱된 노멀 버퍼 복구
-		if (WorkItem.CachedNormalsBufferSharedPtr.IsValid() && WorkItem.CachedNormalsBufferSharedPtr->IsValid())
+		// 캐싱된 노멀 버퍼 복구 (bEnableNormalRecompute가 켜져있을 때만)
+		if (WorkItem.bEnableNormalRecompute &&
+			WorkItem.CachedNormalsBufferSharedPtr.IsValid() && WorkItem.CachedNormalsBufferSharedPtr->IsValid())
 		{
 			RecomputedNormalsBuffer = GraphBuilder.RegisterExternalBuffer(*WorkItem.CachedNormalsBufferSharedPtr);
 		}
 
-		// 캐싱된 탄젠트 버퍼 복구
-		if (WorkItem.CachedTangentsBufferSharedPtr.IsValid() && WorkItem.CachedTangentsBufferSharedPtr->IsValid())
+		// 캐싱된 탄젠트 버퍼 복구 (bEnableTangentRecompute가 켜져있을 때만)
+		if (WorkItem.bEnableTangentRecompute &&
+			WorkItem.CachedTangentsBufferSharedPtr.IsValid() && WorkItem.CachedTangentsBufferSharedPtr->IsValid())
 		{
 			RecomputedTangentsBuffer = GraphBuilder.RegisterExternalBuffer(*WorkItem.CachedTangentsBufferSharedPtr);
 		}
