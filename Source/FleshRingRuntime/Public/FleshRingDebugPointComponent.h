@@ -46,11 +46,11 @@ public:
 	/**
 	 * Tightness 디버그 포인트 버퍼 설정 (게임 스레드에서 호출)
 	 * @param InBuffer - 풀링된 RDG 버퍼 참조
-	 * @param InVisibleRingMask - 가시 Ring 비트마스크 (64-bit)
+	 * @param InVisibilityMaskArray - 가시 Ring 비트마스크 배열 (무제한 Ring 지원)
 	 */
 	void SetTightnessBuffer(
 		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBuffer,
-		uint64 InVisibleRingMask);
+		const TArray<uint32>& InVisibilityMaskArray);
 
 	/** Tightness 버퍼 클리어 */
 	void ClearTightnessBuffer();
@@ -62,11 +62,11 @@ public:
 	/**
 	 * Bulge 디버그 포인트 버퍼 설정 (게임 스레드에서 호출)
 	 * @param InBuffer - 풀링된 RDG 버퍼 참조
-	 * @param InVisibleRingMask - 가시 Ring 비트마스크 (64-bit)
+	 * @param InVisibilityMaskArray - 가시 Ring 비트마스크 배열 (무제한 Ring 지원)
 	 */
 	void SetBulgeBuffer(
 		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBuffer,
-		uint64 InVisibleRingMask);
+		const TArray<uint32>& InVisibilityMaskArray);
 
 	/** Bulge 버퍼 클리어 */
 	void ClearBulgeBuffer();
@@ -96,8 +96,8 @@ private:
 	/** Bulge 버퍼 (게임 스레드에서 설정, 렌더 스레드로 전달) */
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> PendingBulgeBuffer;
 
-	/** 대기 중인 가시성 마스크 */
-	uint64 PendingVisibleRingMask = 0xFFFFFFFFFFFFFFFFull;
+	/** 대기 중인 가시성 마스크 배열 (무제한 Ring 지원) */
+	TArray<uint32> PendingVisibilityMaskArray;
 
 	/** 버퍼 변경 플래그 */
 	bool bBufferDirty = false;

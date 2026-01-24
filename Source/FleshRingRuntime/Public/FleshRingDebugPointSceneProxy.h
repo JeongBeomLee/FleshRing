@@ -59,20 +59,20 @@ public:
 	/**
 	 * Tightness 버퍼 업데이트 (렌더 스레드에서 호출)
 	 * @param InBuffer - 풀링된 RDG 버퍼 참조
-	 * @param InVisibleRingMask - 가시 Ring 비트마스크 (64-bit)
+	 * @param InVisibilityMaskArray - 가시 Ring 비트마스크 배열 (무제한 Ring 지원)
 	 */
 	void UpdateTightnessBuffer_RenderThread(
 		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBuffer,
-		uint64 InVisibleRingMask);
+		const TArray<uint32>& InVisibilityMaskArray);
 
 	/**
 	 * Bulge 버퍼 업데이트 (렌더 스레드에서 호출)
 	 * @param InBuffer - 풀링된 RDG 버퍼 참조
-	 * @param InVisibleRingMask - 가시 Ring 비트마스크 (64-bit)
+	 * @param InVisibilityMaskArray - 가시 Ring 비트마스크 배열 (무제한 Ring 지원)
 	 */
 	void UpdateBulgeBuffer_RenderThread(
 		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBuffer,
-		uint64 InVisibleRingMask);
+		const TArray<uint32>& InVisibilityMaskArray);
 
 	/** Tightness 버퍼 클리어 */
 	void ClearTightnessBuffer_RenderThread();
@@ -100,8 +100,8 @@ private:
 	/** Bulge GPU 디버그 포인트 버퍼 */
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> BulgeBufferShared;
 
-	/** 가시 Ring 비트마스크 (64-bit) */
-	uint64 VisibleRingMask = 0xFFFFFFFFFFFFFFFFull;
+	/** 가시 Ring 비트마스크 배열 (무제한 Ring 지원) */
+	TArray<uint32> VisibilityMaskArray;
 
 	/** 버퍼 접근 동기화 */
 	mutable FCriticalSection BufferLock;

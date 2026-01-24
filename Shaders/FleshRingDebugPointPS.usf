@@ -19,11 +19,12 @@ struct FPSInput
     nointerpolation uint RingIndex : TEXCOORD3;  // Ring 인덱스 (가시성 필터링용)
 };
 
-// Visibility mask for ring filtering (64-bit split into Low/High)
-// Ring 가시성 필터링용 비트마스크 (64비트를 Low/High로 분리)
-// Low: Ring 0-31, High: Ring 32-63
-uint VisibleRingMaskLow;
-uint VisibleRingMaskHigh;
+// Visibility mask for ring filtering (unlimited ring support)
+// Ring 가시성 필터링용 비트마스크 배열 (무제한 링 지원)
+// 각 uint32 요소는 32개 Ring의 가시성 비트마스크
+// 요소[0] = Ring 0-31, 요소[1] = Ring 32-63, ...
+StructuredBuffer<uint> RingVisibilityMask;
+uint NumVisibilityMaskElements;
 
 // Main pixel shader
 // 메인 픽셀 셰이더
@@ -32,30 +33,29 @@ void MainPS(
     out float4 OutColor : SV_Target0)
 {
     // ========================================
-    // Step 0: Ring visibility check (64-bit support)
-    // 0단계: Ring 가시성 체크 (64비트 지원)
+    // Step 0: Ring visibility check (unlimited ring support)
+    // 0단계: Ring 가시성 체크 (무제한 링 지원)
     // ========================================
-    // Ring 0-31: VisibleRingMaskLow 사용
-    // Ring 32-63: VisibleRingMaskHigh 사용
+    // 각 uint32 요소는 32개 Ring의 가시성 비트마스크
+    // MaskIndex = RingIndex / 32, BitIndex = RingIndex % 32
     uint RingIndex = Input.RingIndex;
-    uint RingBit;
-    uint VisibleMask;
+    uint MaskIndex = RingIndex / 32u;
+    uint BitIndex = RingIndex % 32u;
 
-    if (RingIndex < 32u)
+    // 마스크 배열 범위 체크 및 가시성 필터링
+    if (MaskIndex < NumVisibilityMaskElements)
     {
-        // Ring 0-31: Low 마스크 사용
-        RingBit = 1u << RingIndex;
-        VisibleMask = VisibleRingMaskLow;
+        uint VisibleMask = RingVisibilityMask[MaskIndex];
+        uint RingBit = 1u << BitIndex;
+
+        if ((VisibleMask & RingBit) == 0u)
+        {
+            discard;
+        }
     }
     else
     {
-        // Ring 32-63: High 마스크 사용
-        RingBit = 1u << (RingIndex - 32u);
-        VisibleMask = VisibleRingMaskHigh;
-    }
-
-    if ((VisibleMask & RingBit) == 0)
-    {
+        // 마스크 배열 범위 밖이면 비가시 처리
         discard;
     }
 

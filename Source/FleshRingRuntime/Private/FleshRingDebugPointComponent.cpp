@@ -42,18 +42,18 @@ FPrimitiveSceneProxy* UFleshRingDebugPointComponent::CreateSceneProxy()
 		if (PendingTightnessBuffer.IsValid())
 		{
 			ENQUEUE_RENDER_COMMAND(InitTightnessBuffer)(
-				[Proxy, Buffer = PendingTightnessBuffer, Mask = PendingVisibleRingMask](FRHICommandListImmediate& RHICmdList)
+				[Proxy, Buffer = PendingTightnessBuffer, MaskArray = PendingVisibilityMaskArray](FRHICommandListImmediate& RHICmdList)
 				{
-					Proxy->UpdateTightnessBuffer_RenderThread(Buffer, Mask);
+					Proxy->UpdateTightnessBuffer_RenderThread(Buffer, MaskArray);
 				}
 			);
 		}
 		if (PendingBulgeBuffer.IsValid())
 		{
 			ENQUEUE_RENDER_COMMAND(InitBulgeBuffer)(
-				[Proxy, Buffer = PendingBulgeBuffer, Mask = PendingVisibleRingMask](FRHICommandListImmediate& RHICmdList)
+				[Proxy, Buffer = PendingBulgeBuffer, MaskArray = PendingVisibilityMaskArray](FRHICommandListImmediate& RHICmdList)
 				{
-					Proxy->UpdateBulgeBuffer_RenderThread(Buffer, Mask);
+					Proxy->UpdateBulgeBuffer_RenderThread(Buffer, MaskArray);
 				}
 			);
 		}
@@ -71,12 +71,12 @@ FBoxSphereBounds UFleshRingDebugPointComponent::CalcBounds(const FTransform& Loc
 
 void UFleshRingDebugPointComponent::SetTightnessBuffer(
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBuffer,
-	uint64 InVisibleRingMask)
+	const TArray<uint32>& InVisibilityMaskArray)
 {
 	FScopeLock Lock(&BufferLock);
 
 	PendingTightnessBuffer = InBuffer;
-	PendingVisibleRingMask = InVisibleRingMask;
+	PendingVisibilityMaskArray = InVisibilityMaskArray;
 	bBufferDirty = true;
 
 	// 프록시가 없으면 생성
@@ -111,12 +111,12 @@ void UFleshRingDebugPointComponent::ClearTightnessBuffer()
 
 void UFleshRingDebugPointComponent::SetBulgeBuffer(
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBuffer,
-	uint64 InVisibleRingMask)
+	const TArray<uint32>& InVisibilityMaskArray)
 {
 	FScopeLock Lock(&BufferLock);
 
 	PendingBulgeBuffer = InBuffer;
-	PendingVisibleRingMask = InVisibleRingMask;
+	PendingVisibilityMaskArray = InVisibilityMaskArray;
 	bBufferDirty = true;
 
 	// 프록시가 없으면 생성
@@ -174,14 +174,14 @@ void UFleshRingDebugPointComponent::SendRenderDynamicData_Concurrent()
 		FFleshRingDebugPointSceneProxy* Proxy = static_cast<FFleshRingDebugPointSceneProxy*>(SceneProxy);
 		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> TightnessToSend = PendingTightnessBuffer;
 		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> BulgeToSend = PendingBulgeBuffer;
-		uint64 MaskToSend = PendingVisibleRingMask;
+		TArray<uint32> MaskArrayToSend = PendingVisibilityMaskArray;
 
 		ENQUEUE_RENDER_COMMAND(UpdateDebugPointBuffers)(
-			[Proxy, TightnessToSend, BulgeToSend, MaskToSend](FRHICommandListImmediate& RHICmdList)
+			[Proxy, TightnessToSend, BulgeToSend, MaskArrayToSend](FRHICommandListImmediate& RHICmdList)
 			{
 				if (TightnessToSend.IsValid())
 				{
-					Proxy->UpdateTightnessBuffer_RenderThread(TightnessToSend, MaskToSend);
+					Proxy->UpdateTightnessBuffer_RenderThread(TightnessToSend, MaskArrayToSend);
 				}
 				else
 				{
@@ -190,7 +190,7 @@ void UFleshRingDebugPointComponent::SendRenderDynamicData_Concurrent()
 
 				if (BulgeToSend.IsValid())
 				{
-					Proxy->UpdateBulgeBuffer_RenderThread(BulgeToSend, MaskToSend);
+					Proxy->UpdateBulgeBuffer_RenderThread(BulgeToSend, MaskArrayToSend);
 				}
 				else
 				{

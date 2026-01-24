@@ -75,11 +75,12 @@ public:
         // RDG 리소스 트래킹용 버퍼 (RDG가 리소스 상태 전환을 올바르게 수행하도록)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<FFleshRingDebugPoint>, DebugPointsRDG)
 
-        // Visibility mask for ring filtering (64-bit split into Low/High)
-        // Ring 가시성 필터링용 비트마스크 (64비트를 Low/High로 분리)
-        // Low: Ring 0-31, High: Ring 32-63
-        SHADER_PARAMETER(uint32, VisibleRingMaskLow)
-        SHADER_PARAMETER(uint32, VisibleRingMaskHigh)
+        // Ring 가시성 필터링용 비트마스크 배열 (무제한 Ring 지원)
+        // 각 uint32 요소는 32개 Ring의 가시성 비트마스크
+        // 요소[0] = Ring 0-31, 요소[1] = Ring 32-63, ...
+        // RHI SRV 직접 사용 (lambda 내 바인딩용)
+        SHADER_PARAMETER_SRV(StructuredBuffer<uint>, RingVisibilityMask)
+        SHADER_PARAMETER(uint32, NumVisibilityMaskElements)
 
         // Render target binding for output
         // 출력용 렌더 타겟 바인딩

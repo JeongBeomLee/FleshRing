@@ -66,22 +66,22 @@ void FFleshRingDebugPointSceneProxy::DestroyRenderThreadResources()
 
 void FFleshRingDebugPointSceneProxy::UpdateTightnessBuffer_RenderThread(
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBuffer,
-	uint64 InVisibleRingMask)
+	const TArray<uint32>& InVisibilityMaskArray)
 {
 	check(IsInRenderingThread());
 	FScopeLock Lock(&BufferLock);
 	TightnessBufferShared = InBuffer;
-	VisibleRingMask = InVisibleRingMask;
+	VisibilityMaskArray = InVisibilityMaskArray;
 }
 
 void FFleshRingDebugPointSceneProxy::UpdateBulgeBuffer_RenderThread(
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBuffer,
-	uint64 InVisibleRingMask)
+	const TArray<uint32>& InVisibilityMaskArray)
 {
 	check(IsInRenderingThread());
 	FScopeLock Lock(&BufferLock);
 	BulgeBufferShared = InBuffer;
-	VisibleRingMask = InVisibleRingMask;
+	VisibilityMaskArray = InVisibilityMaskArray;
 }
 
 void FFleshRingDebugPointSceneProxy::ClearTightnessBuffer_RenderThread()
@@ -132,7 +132,7 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 	TRefCountPtr<FRDGPooledBuffer> LocalBulgeBuffer;
 	uint32 LocalTightnessPointCount = 0;
 	uint32 LocalBulgePointCount = 0;
-	uint64 LocalVisibleRingMask = 0xFFFFFFFFFFFFFFFFull;
+	TArray<uint32> LocalVisibilityMaskArray;
 	bool bRenderTightness = false;
 	bool bRenderBulge = false;
 
@@ -165,7 +165,7 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 			}
 		}
 
-		LocalVisibleRingMask = VisibleRingMask;
+		LocalVisibilityMaskArray = VisibilityMaskArray;
 	}
 
 	// 렌더링할 것이 없으면 리턴
@@ -215,9 +215,25 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 	FIntRect ViewRect = View->UnscaledViewRect;
 	FVector2f InvViewportSize(1.0f / FMath::Max(1, ViewRect.Width()), 1.0f / FMath::Max(1, ViewRect.Height()));
 
-	// 64비트 마스크를 두 개의 32비트 값으로 분리
-	const uint32 LocalVisibleRingMaskLow = static_cast<uint32>(LocalVisibleRingMask & 0xFFFFFFFF);
-	const uint32 LocalVisibleRingMaskHigh = static_cast<uint32>((LocalVisibleRingMask >> 32) & 0xFFFFFFFF);
+	// 가시성 마스크 배열이 비어있으면 모든 링 가시로 설정 (기본값)
+	if (LocalVisibilityMaskArray.Num() == 0)
+	{
+		LocalVisibilityMaskArray.Add(0xFFFFFFFFu);
+	}
+
+	// 가시성 마스크용 StructuredBuffer 생성 (무제한 링 지원)
+	const uint32 NumMaskElements = static_cast<uint32>(LocalVisibilityMaskArray.Num());
+	FRDGBufferRef VisibilityMaskBuffer = GraphBuilder.CreateBuffer(
+		FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumMaskElements),
+		TEXT("FleshRingVisibilityMask"));
+
+	// 마스크 데이터 업로드
+	GraphBuilder.QueueBufferUpload(
+		VisibilityMaskBuffer,
+		LocalVisibilityMaskArray.GetData(),
+		LocalVisibilityMaskArray.Num() * sizeof(uint32));
+
+	FRDGBufferSRVRef VisibilityMaskSRV = GraphBuilder.CreateSRV(VisibilityMaskBuffer);
 
 	// 공유 뎁스 버퍼 생성 (Tightness + Bulge 모두 사용)
 	FRDGTextureDesc DepthDesc = FRDGTextureDesc::Create2D(
@@ -244,8 +260,7 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 		FFleshRingDebugPointPS::FParameters* PSParams =
 			GraphBuilder.AllocParameters<FFleshRingDebugPointPS::FParameters>();
 		PSParams->DebugPointsRDG = TightnessSRV;
-		PSParams->VisibleRingMaskLow = LocalVisibleRingMaskLow;
-		PSParams->VisibleRingMaskHigh = LocalVisibleRingMaskHigh;
+		// RingVisibilityMask는 RHI SRV로 lambda 내에서 바인딩
 		PSParams->RenderTargets[0] = FRenderTargetBinding(ColorTarget, ERenderTargetLoadAction::ELoad);
 		// 첫 번째 패스: depth buffer Clear
 		PSParams->RenderTargets.DepthStencil = FDepthStencilBinding(
@@ -259,7 +274,7 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 			ERDGPassFlags::Raster,
 			[VertexShader, PixelShader, LocalTightnessPointCount, ViewRect, TightnessSRV,
 			 ViewProjectionMatrix, InvViewportSize, LocalPointSizeBase, LocalPointSizeInfluence,
-			 LocalVisibleRingMaskLow, LocalVisibleRingMaskHigh](FRHICommandList& RHICmdList)
+			 VisibilityMaskSRV, NumMaskElements](FRHICommandList& RHICmdList)
 			{
 				RHICmdList.SetViewport(
 					ViewRect.Min.X, ViewRect.Min.Y, 0.0f,
@@ -290,8 +305,8 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 				VSParams.ColorMode = 0;  // Tightness: Blue → Green → Red
 
 				FFleshRingDebugPointPS::FParameters PSParamsLocal;
-				PSParamsLocal.VisibleRingMaskLow = LocalVisibleRingMaskLow;
-				PSParamsLocal.VisibleRingMaskHigh = LocalVisibleRingMaskHigh;
+				PSParamsLocal.RingVisibilityMask = VisibilityMaskSRV ? VisibilityMaskSRV->GetRHI() : nullptr;
+				PSParamsLocal.NumVisibilityMaskElements = NumMaskElements;
 
 				SetShaderParameters(RHICmdList, VertexShader, VertexShader.GetVertexShader(), VSParams);
 				SetShaderParameters(RHICmdList, PixelShader, PixelShader.GetPixelShader(), PSParamsLocal);
@@ -312,8 +327,7 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 		FFleshRingDebugPointPS::FParameters* PSParams =
 			GraphBuilder.AllocParameters<FFleshRingDebugPointPS::FParameters>();
 		PSParams->DebugPointsRDG = BulgeSRV;
-		PSParams->VisibleRingMaskLow = LocalVisibleRingMaskLow;
-		PSParams->VisibleRingMaskHigh = LocalVisibleRingMaskHigh;
+		// RingVisibilityMask는 RHI SRV로 lambda 내에서 바인딩
 		PSParams->RenderTargets[0] = FRenderTargetBinding(ColorTarget, ERenderTargetLoadAction::ELoad);
 		// 두 번째 패스: Tightness가 렌더링된 경우 Load, 아니면 Clear
 		PSParams->RenderTargets.DepthStencil = FDepthStencilBinding(
@@ -327,7 +341,7 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 			ERDGPassFlags::Raster,
 			[VertexShader, PixelShader, LocalBulgePointCount, ViewRect, BulgeSRV,
 			 ViewProjectionMatrix, InvViewportSize, LocalPointSizeBase, LocalPointSizeInfluence,
-			 LocalVisibleRingMaskLow, LocalVisibleRingMaskHigh](FRHICommandList& RHICmdList)
+			 VisibilityMaskSRV, NumMaskElements](FRHICommandList& RHICmdList)
 			{
 				RHICmdList.SetViewport(
 					ViewRect.Min.X, ViewRect.Min.Y, 0.0f,
@@ -358,8 +372,8 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 				VSParams.ColorMode = 1;  // Bulge: Cyan → Magenta
 
 				FFleshRingDebugPointPS::FParameters PSParamsLocal;
-				PSParamsLocal.VisibleRingMaskLow = LocalVisibleRingMaskLow;
-				PSParamsLocal.VisibleRingMaskHigh = LocalVisibleRingMaskHigh;
+				PSParamsLocal.RingVisibilityMask = VisibilityMaskSRV ? VisibilityMaskSRV->GetRHI() : nullptr;
+				PSParamsLocal.NumVisibilityMaskElements = NumMaskElements;
 
 				SetShaderParameters(RHICmdList, VertexShader, VertexShader.GetVertexShader(), VSParams);
 				SetShaderParameters(RHICmdList, PixelShader, PixelShader.GetPixelShader(), PSParamsLocal);

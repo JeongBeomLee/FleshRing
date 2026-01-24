@@ -501,12 +501,12 @@ public:
 	bool IsGPUDebugRenderingEnabled() const { return bUseGPUDebugRendering; }
 
 	/**
-	 * 가시 Ring 비트마스크 반환 (디버그 포인트 필터링용)
-	 * 비트 N = Ring N의 bEditorVisible 상태
-	 * 0xFFFFFFFFFFFFFFFF = 모두 가시 (기본값)
-	 * 64비트로 최대 64개 Ring 지원
+	 * 가시 Ring 비트마스크 배열 반환 (무제한 Ring 지원)
+	 * 각 uint32 요소는 32개 Ring의 가시성 비트마스크
+	 * 요소[0] = Ring 0-31, 요소[1] = Ring 32-63, ...
+	 * N개 Ring → ceil(N/32)개 요소
 	 */
-	uint64 GetVisibleRingMask() const;
+	TArray<uint32> GetVisibilityMaskArray() const;
 
 	/** 디버그 포인트 수 반환 (첫 번째 Ring의 AffectedVertices 수) */
 	uint32 GetDebugPointCount() const

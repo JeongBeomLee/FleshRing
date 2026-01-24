@@ -3716,26 +3716,38 @@ void UFleshRingComponent::DrawBulgeRange(int32 RingIndex)
 // GPU 디버그 렌더링 함수
 // ============================================================================
 
-uint64 UFleshRingComponent::GetVisibleRingMask() const
+TArray<uint32> UFleshRingComponent::GetVisibilityMaskArray() const
 {
-	// FleshRingAsset이 없으면 모두 가시 (기본값)
+	TArray<uint32> MaskArray;
+
+	// FleshRingAsset이 없으면 빈 배열 반환 (모두 가시로 처리됨)
 	if (!FleshRingAsset)
 	{
-		return 0xFFFFFFFFFFFFFFFFull;
+		return MaskArray;
 	}
 
-	uint64 Mask = 0;
-	const int32 NumRings = FMath::Min(FleshRingAsset->Rings.Num(), 64);
+	const int32 NumRings = FleshRingAsset->Rings.Num();
+	if (NumRings == 0)
+	{
+		return MaskArray;
+	}
 
+	// 필요한 uint32 요소 수 계산: ceil(NumRings / 32)
+	const int32 NumElements = (NumRings + 31) / 32;
+	MaskArray.SetNumZeroed(NumElements);
+
+	// 각 Ring의 가시성을 비트마스크로 설정
 	for (int32 i = 0; i < NumRings; ++i)
 	{
 		if (FleshRingAsset->Rings[i].bEditorVisible)
 		{
-			Mask |= (1ull << i);
+			const int32 ElementIndex = i / 32;
+			const int32 BitIndex = i % 32;
+			MaskArray[ElementIndex] |= (1u << BitIndex);
 		}
 	}
 
-	return Mask;
+	return MaskArray;
 }
 
 void UFleshRingComponent::InitializeDebugPointComponents()
@@ -3808,8 +3820,8 @@ void UFleshRingComponent::UpdateTightnessDebugPointComponent()
 		return;
 	}
 
-	// DebugPointComponent에 Tightness 버퍼 전달
-	DebugPointComponent->SetTightnessBuffer(DebugPointBufferSharedPtr, GetVisibleRingMask());
+	// DebugPointComponent에 Tightness 버퍼 전달 (무제한 링 지원)
+	DebugPointComponent->SetTightnessBuffer(DebugPointBufferSharedPtr, GetVisibilityMaskArray());
 }
 
 void UFleshRingComponent::UpdateBulgeDebugPointComponent()
@@ -3854,8 +3866,8 @@ void UFleshRingComponent::UpdateBulgeDebugPointComponent()
 		return;
 	}
 
-	// DebugPointComponent에 Bulge 버퍼 전달
-	DebugPointComponent->SetBulgeBuffer(DebugBulgePointBufferSharedPtr, GetVisibleRingMask());
+	// DebugPointComponent에 Bulge 버퍼 전달 (무제한 링 지원)
+	DebugPointComponent->SetBulgeBuffer(DebugBulgePointBufferSharedPtr, GetVisibilityMaskArray());
 }
 
 #endif // WITH_EDITOR
