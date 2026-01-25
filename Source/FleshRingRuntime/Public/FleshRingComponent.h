@@ -372,10 +372,16 @@ private:
 
 	/**
 	 * SetTargetMesh()로 수동 설정되었는지 여부
-	 * true면 FindTargetMeshOnly()에서 자동 탐색 스킵 (ResolvedTargetMesh 유지)
+	 * true면 FindTargetMeshOnly()에서 자동 탐색 스킵 (ManualTargetMesh에서 복원)
 	 * true면 ResolveTargetMesh()에서 메시 변경 스킵
 	 */
 	bool bManualTargetSet = false;
+
+	/**
+	 * SetTargetMesh()로 설정된 대상 메시 (캐싱용)
+	 * CleanupDeformer()에서 ResolvedTargetMesh가 리셋되어도 복원 가능
+	 */
+	TWeakObjectPtr<USkeletalMeshComponent> ManualTargetMesh;
 
 	/** 자동/수동 검색된 실제 대상 */
 	UPROPERTY(Transient)

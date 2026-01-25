@@ -276,6 +276,7 @@ void UFleshRingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 
 void UFleshRingComponent::SetTargetMesh(USkeletalMeshComponent* InTargetMesh)
 {
+	ManualTargetMesh = InTargetMesh;  // 캐싱 (CleanupDeformer 후 복원용)
 	ResolvedTargetMesh = InTargetMesh;
 	bManualTargetSet = (InTargetMesh != nullptr);
 	if (InTargetMesh)
@@ -287,9 +288,11 @@ void UFleshRingComponent::SetTargetMesh(USkeletalMeshComponent* InTargetMesh)
 
 void UFleshRingComponent::FindTargetMeshOnly()
 {
-	// 수동 지정 모드: SetTargetMesh()로 이미 설정됨, 자동 탐색 스킵
+	// 수동 지정 모드: SetTargetMesh()로 설정된 값에서 복원
+	// CleanupDeformer()에서 ResolvedTargetMesh가 리셋되어도 ManualTargetMesh에서 복원
 	if (bManualTargetSet)
 	{
+		ResolvedTargetMesh = ManualTargetMesh;
 		return;
 	}
 
