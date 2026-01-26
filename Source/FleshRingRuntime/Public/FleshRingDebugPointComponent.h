@@ -23,7 +23,7 @@ class FFleshRingDebugPointSceneProxy;
  * 2. SetTightnessBuffer() / SetBulgeBuffer()로 GPU 버퍼 설정
  * 3. Scene Proxy가 자동으로 렌더링 수행
  */
-UCLASS(ClassGroup=(FleshRing), meta=(BlueprintSpawnableComponent))
+UCLASS(ClassGroup=(FleshRing))
 class FLESHRINGRUNTIME_API UFleshRingDebugPointComponent : public UPrimitiveComponent
 {
 	GENERATED_BODY()
