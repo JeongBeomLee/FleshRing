@@ -55,31 +55,6 @@ public:
 		// 입력: 처리할 영향받는 버텍스 인덱스
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, AffectedVertexIndices)
 
-		// ===== [DEPRECATED] Polar Decomposition용 추가 버퍼 (SRV) =====
-		// Polar 모드가 deprecated되어 이 버퍼들은 더 이상 사용되지 않음
-		// 쉐이더 파라미터 바인딩 호환성을 위해 유지
-		// 향후 버전에서 제거 예정
-
-		// Input: Deformed vertex positions (3 floats per vertex) [DEPRECATED]
-		// 입력: 변형된 버텍스 위치 (버텍스당 3 float)
-		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float>, DeformedPositions)
-
-		// Input: Original vertex positions (3 floats per vertex) [DEPRECATED]
-		// 입력: 원본 버텍스 위치 (버텍스당 3 float)
-		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float>, OriginalPositions)
-
-		// Input: Mesh index buffer (3 indices per triangle) [DEPRECATED]
-		// 입력: 메시 인덱스 버퍼 (삼각형당 3 인덱스)
-		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<uint>, IndexBuffer)
-
-		// Input: Adjacency offsets for each affected vertex [DEPRECATED]
-		// 입력: 영향받는 버텍스별 인접 오프셋
-		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, AdjacencyOffsets)
-
-		// Input: Flattened list of adjacent triangle indices [DEPRECATED]
-		// 입력: 인접 삼각형 인덱스의 평탄화된 리스트
-		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, AdjacencyTriangles)
-
 		// ===== Output Buffer (UAV - Read/Write) =====
 		// ===== 출력 버퍼 (UAV - 읽기/쓰기) =====
 
@@ -92,9 +67,6 @@ public:
 
 		SHADER_PARAMETER(uint32, NumAffectedVertices)
 		SHADER_PARAMETER(uint32, NumTotalVertices)
-		// 탄젠트 재계산 모드 (ETangentRecomputeMethod와 일치)
-		// 0 = GramSchmidt, 1 = PolarDecomposition
-		SHADER_PARAMETER(uint32, TangentRecomputeMode)
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
@@ -123,16 +95,11 @@ struct FTangentRecomputeDispatchParams
 	// 전체 메시 버텍스 수 (범위 체크용)
 	uint32 NumTotalVertices = 0;
 
-	// Tangent recompute mode (ETangentRecomputeMethod 일치)
-	// 0 = GramSchmidt, 1 = PolarDecomposition (DEPRECATED)
-	uint32 TangentRecomputeMode = 0;  // Default: GramSchmidt
-
 	FTangentRecomputeDispatchParams() = default;
 
-	FTangentRecomputeDispatchParams(uint32 InNumAffectedVertices, uint32 InNumTotalVertices, uint32 InMode = 0)
+	FTangentRecomputeDispatchParams(uint32 InNumAffectedVertices, uint32 InNumTotalVertices)
 		: NumAffectedVertices(InNumAffectedVertices)
 		, NumTotalVertices(InNumTotalVertices)
-		, TangentRecomputeMode(InMode)
 	{
 	}
 };
@@ -144,18 +111,13 @@ struct FTangentRecomputeDispatchParams
 
 /**
  * Dispatch TangentRecomputeCS to orthonormalize tangents for affected vertices
- * TangentRecomputeCS를 디스패치하여 영향받는 버텍스의 탄젠트 재계산
+ * TangentRecomputeCS를 디스패치하여 영향받는 버텍스의 탄젠트 재계산 (Gram-Schmidt)
  *
  * @param GraphBuilder - RDG builder for resource management
- * @param Params - Dispatch parameters (includes TangentRecomputeMode)
+ * @param Params - Dispatch parameters
  * @param RecomputedNormalsBuffer - Recomputed normals from NormalRecomputeCS (RDG)
  * @param OriginalTangentsSRV - Original tangent buffer SRV (RHI, from StaticMeshVertexBuffer)
  * @param AffectedVertexIndicesBuffer - Indices of affected vertices (RDG)
- * @param DeformedPositionsBuffer - Deformed vertex positions (Polar 모드에서 사용, optional)
- * @param OriginalPositionsBuffer - Original vertex positions (Polar 모드에서 사용, optional)
- * @param AdjacencyOffsetsBuffer - Adjacency offsets (Polar 모드에서 사용, optional)
- * @param AdjacencyTrianglesBuffer - Adjacent triangle indices (Polar 모드에서 사용, optional)
- * @param IndexBuffer - Mesh index buffer (Polar 모드에서 사용, optional)
  * @param OutputTangentsBuffer - Output buffer for recomputed tangents (RDG)
  */
 void DispatchFleshRingTangentRecomputeCS(
@@ -164,9 +126,4 @@ void DispatchFleshRingTangentRecomputeCS(
 	FRDGBufferRef RecomputedNormalsBuffer,
 	FRHIShaderResourceView* OriginalTangentsSRV,
 	FRDGBufferRef AffectedVertexIndicesBuffer,
-	FRDGBufferRef DeformedPositionsBuffer,
-	FRDGBufferRef OriginalPositionsBuffer,
-	FRDGBufferRef AdjacencyOffsetsBuffer,
-	FRDGBufferRef AdjacencyTrianglesBuffer,
-	FRDGBufferRef IndexBuffer,
 	FRDGBufferRef OutputTangentsBuffer);

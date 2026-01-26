@@ -4,30 +4,21 @@
 // FleshRing Tangent Recompute Compute Shader
 // FleshRing 탄젠트 재계산 컴퓨트 셰이더
 // ============================================================================
-// Purpose: Recompute tangents using Gram-Schmidt or Polar Decomposition
-// 목적: Gram-Schmidt 또는 Polar Decomposition을 사용하여 탄젠트 재계산
+// Purpose: Recompute tangents using Gram-Schmidt orthonormalization
+// 목적: Gram-Schmidt 정규직교화를 사용하여 탄젠트 재계산
 //
 // This shader runs AFTER NormalRecomputeCS, using recomputed normals
 // to orthonormalize tangents for TBN matrix consistency.
 // NormalRecomputeCS 이후에 실행되며, 재계산된 노멀을 사용하여
 // TBN 매트릭스 일관성을 위해 탄젠트를 재계산합니다.
 //
-// Modes:
-// - GramSchmidt (Mode 0): T' = normalize(T - (T·N)N)
-//   Original tangent projected onto surface
-// - Polar Decomposition (Mode 1): T' = R * T_original, then Gram-Schmidt
-//   Extract rotation from deformation and apply to original tangent
-//   Tracks surface twist, not just normal direction change
+// Algorithm (Gram-Schmidt):
+// T' = T - (T·N)N  (make T orthogonal to N)
+// T' = normalize(T')
 // ============================================================================
 
 #include "/Engine/Public/Platform.ush"
 #include "/Engine/Private/GpuSkinCommon.ush"
-
-// ============================================================================
-// Mode Constants (ETangentRecomputeMethod와 일치)
-// ============================================================================
-#define MODE_GRAM_SCHMIDT       0
-#define MODE_POLAR_DECOMPOSITION 1  // [DEPRECATED] GramSchmidt로 fallback됨
 
 // ============================================================================
 // Buffer Declarations
@@ -47,31 +38,6 @@ Buffer<float4> OriginalTangents;
 // 입력: 처리할 영향받는 버텍스 인덱스
 StructuredBuffer<uint> AffectedVertexIndices;
 
-// ===== [DEPRECATED] Polar Decomposition용 추가 버퍼 =====
-// Polar 모드가 deprecated되어 이 버퍼들은 더 이상 사용되지 않음
-// 쉐이더 파라미터 바인딩 호환성을 위해 선언은 유지
-// 향후 버전에서 제거 예정
-
-// Input: Deformed vertex positions (3 floats per vertex) [DEPRECATED]
-// 입력: 변형된 버텍스 위치
-Buffer<float> DeformedPositions;
-
-// Input: Original vertex positions (3 floats per vertex) [DEPRECATED]
-// 입력: 원본 버텍스 위치
-Buffer<float> OriginalPositions;
-
-// Input: Mesh index buffer (3 indices per triangle) [DEPRECATED]
-// 입력: 메시 인덱스 버퍼
-Buffer<uint> IndexBuffer;
-
-// Input: Adjacency offsets for each affected vertex [DEPRECATED]
-// 입력: 영향받는 버텍스별 인접 오프셋
-StructuredBuffer<uint> AdjacencyOffsets;
-
-// Input: Flattened list of adjacent triangle indices [DEPRECATED]
-// 입력: 인접 삼각형 인덱스의 평탄화된 리스트
-StructuredBuffer<uint> AdjacencyTriangles;
-
 // Output: Recomputed tangents (8 floats per vertex: TangentX.xyzw, TangentZ.xyzw)
 // 출력: 재계산된 탄젠트 (버텍스당 8 float: TangentX.xyzw, TangentZ.xyzw)
 RWBuffer<float> OutputTangents;
@@ -85,8 +51,6 @@ uint NumAffectedVertices;   // Number of affected vertices to process
                             // 처리할 영향받는 버텍스 수
 uint NumTotalVertices;      // Total mesh vertex count (for bounds check)
                             // 전체 메시 버텍스 수 (범위 체크용)
-uint TangentRecomputeMode;  // 0 = GramSchmidt, 1 = PolarDecomposition
-                            // 탄젠트 재계산 모드
 
 // Thread Group Size
 #ifndef THREADGROUP_SIZE
@@ -112,9 +76,9 @@ float3 ReadRecomputedNormal(uint VertexIndex)
 
 // Read original tangent data from buffer
 // 버퍼에서 원본 탄젠트 데이터 읽기
-// NOTE: Despite misleading variable names in this codebase, UE5's StaticMeshVertexBuffer
-// stores Index0=Tangent(TangentX), Index1=Normal+sign(TangentZ)
-// 참고: 이 코드베이스의 변수명은 혼란스럽지만, UE5 StaticMeshVertexBuffer는
+// NOTE: UE5's StaticMeshVertexBuffer stores:
+// Index0=Tangent(TangentX), Index1=Normal+sign(TangentZ)
+// 참고: UE5 StaticMeshVertexBuffer는
 // Index0=탄젠트(TangentX), Index1=노멀+sign(TangentZ)를 저장
 void ReadOriginalTangents(uint VertexIndex, out float3 OutOriginalNormal, out float4 OutOriginalTangent)
 {
@@ -123,45 +87,17 @@ void ReadOriginalTangents(uint VertexIndex, out float3 OutOriginalNormal, out fl
     float4 TangentX = TangentBias_SkinCache(OriginalTangents[BaseIndex + 0]); // UE5: Tangent
     float4 TangentZ = TangentBias_SkinCache(OriginalTangents[BaseIndex + 1]); // UE5: Normal + binormal sign
 
-    // FIX: Return correct values for Gram-Schmidt (actual Normal and actual Tangent)
     // Gram-Schmidt needs: Normal (to project against) and Tangent (to orthonormalize)
-    // 수정: Gram-Schmidt를 위한 올바른 값 반환 (실제 Normal과 실제 Tangent)
     OutOriginalNormal = TangentZ.xyz;  // Actual Normal is in TangentZ (Index 1)
     OutOriginalTangent = float4(TangentX.xyz, TangentZ.w);  // Actual Tangent is in TangentX (Index 0), binormal sign from TangentZ.w
 }
 
-// Read position from buffer (3 floats per vertex)
-// 버퍼에서 위치 읽기 (버텍스당 3 float)
-float3 ReadDeformedPosition(uint VertexIndex)
-{
-    uint BaseIndex = VertexIndex * 3;
-    return float3(
-        DeformedPositions[BaseIndex + 0],
-        DeformedPositions[BaseIndex + 1],
-        DeformedPositions[BaseIndex + 2]
-    );
-}
-
-float3 ReadOriginalPosition(uint VertexIndex)
-{
-    uint BaseIndex = VertexIndex * 3;
-    return float3(
-        OriginalPositions[BaseIndex + 0],
-        OriginalPositions[BaseIndex + 1],
-        OriginalPositions[BaseIndex + 2]
-    );
-}
-
 // Write recomputed tangents to buffer (8 floats per vertex)
 // 버퍼에 재계산된 탄젠트 쓰기 (버텍스당 8 float)
-// NOTE: SkinningCS's naming is misleading - it reads Index0-3 as "Normal" but actually uses it as Tangent
-// To maintain consistency with SourceTangents path, we must output:
-// - Index 0-3 = actual Tangent (so SkinningCS reads "Normal" = actual Tangent)
-// - Index 4-7 = actual Normal (so SkinningCS reads "Tangent" = actual Normal)
-// 참고: SkinningCS의 네이밍이 혼란스러움 - Index0-3을 "Normal"로 읽지만 실제로는 Tangent로 사용
-// SourceTangents 경로와 일관성을 위해 출력해야 함:
-// - Index 0-3 = 실제 Tangent
-// - Index 4-7 = 실제 Normal
+// NOTE: SkinningCS reads Index0-3 as "Normal" but uses it as Tangent
+// To maintain consistency with SourceTangents path:
+// - Index 0-3 = actual Tangent
+// - Index 4-7 = actual Normal
 void WriteTangents(uint VertexIndex, float4 TangentX, float4 TangentZ)
 {
     // TangentX parameter = FinalNormal (from MainCS)
@@ -219,165 +155,6 @@ float3 GramSchmidtOrthonormalize(float3 N, float3 T)
     // 결과 정규화
     return SafeNormalize(T_ortho, float3(1, 0, 0));
 }
-
-// ============================================================================
-// [DEPRECATED] Polar Decomposition for Tangent
-// 탄젠트를 위한 Polar Decomposition - DEPRECATED
-// ============================================================================
-// FleshRing은 symmetric 변형이라 twist가 없음
-// GramSchmidt와 차이 없음 (< 0.1도)
-// MODE_POLAR_DECOMPOSITION 선택 시 GramSchmidt로 fallback됨
-//
-// 아래 함수들은 향후 버전에서 제거 예정
-// ----------------------------------------------------------------------------
-/*
-// Build orthonormal local frame from two edges
-// 두 엣지로부터 정규직교 로컬 프레임 구성
-// Returns matrix where:
-//   Row 0 = Tangent (normalized Edge1)
-//   Row 1 = Bitangent (N × Tangent)
-//   Row 2 = Normal (normalized Edge2 × Edge1)
-float3x3 BuildLocalFrame(float3 Edge1, float3 Edge2)
-{
-    float3 Normal = cross(Edge2, Edge1);
-    Normal = SafeNormalize(Normal, float3(0, 0, 1));
-
-    float3 Tangent = SafeNormalize(Edge1, float3(1, 0, 0));
-    float3 Bitangent = cross(Normal, Tangent);
-
-    return float3x3(Tangent, Bitangent, Normal);
-}
-
-// Compute rotation matrix from original frame to deformed frame
-// 원본 프레임에서 변형된 프레임으로의 회전 행렬 계산
-// R = DefFrame * transpose(OrigFrame)
-float3x3 ComputeFrameRotation(float3x3 OrigFrame, float3x3 DefFrame)
-{
-    // R * OrigFrame = DefFrame
-    // R = DefFrame * OrigFrame^T
-    return mul(DefFrame, transpose(OrigFrame));
-}
-
-// Compute 2D deformation gradient from triangle edges
-// 삼각형 엣지에서 2D 변형 기울기 계산
-// F_2D = [DefEdge1, DefEdge2] * [OrigEdge1, OrigEdge2]^(-1)
-// Returns 2x2 matrix in tangent space
-float2x2 Compute2DDeformationGradient(float3 OrigEdge1, float3 OrigEdge2, float3 DefEdge1, float3 DefEdge2)
-{
-    // Build 2D coordinates in original tangent space
-    float2 o1 = float2(length(OrigEdge1), 0);  // First edge along x-axis
-    float2 o2 = float2(dot(OrigEdge2, SafeNormalize(OrigEdge1, float3(1,0,0))),
-                        length(cross(OrigEdge2, SafeNormalize(OrigEdge1, float3(1,0,0)))));
-
-    // Build deformed frame
-    float3 OrigTangent = SafeNormalize(OrigEdge1, float3(1,0,0));
-    float3 OrigNormal = SafeNormalize(cross(OrigEdge2, OrigEdge1), float3(0,0,1));
-    float3 OrigBitangent = cross(OrigNormal, OrigTangent);
-
-    // Project deformed edges onto original tangent space
-    float2 d1 = float2(dot(DefEdge1, OrigTangent), dot(DefEdge1, OrigBitangent));
-    float2 d2 = float2(dot(DefEdge2, OrigTangent), dot(DefEdge2, OrigBitangent));
-
-    // Compute F_2D = D * O^(-1)
-    // [d1.x d2.x]   [o1.x o2.x]^-1
-    // [d1.y d2.y] * [o1.y o2.y]
-    float det = o1.x * o2.y - o2.x * o1.y;
-    if (abs(det) < 1e-8f)
-    {
-        return float2x2(1, 0, 0, 1);  // Identity
-    }
-
-    float invDet = 1.0f / det;
-    float2x2 OrigInv = float2x2(
-        o2.y * invDet, -o2.x * invDet,
-        -o1.y * invDet, o1.x * invDet
-    );
-
-    float2x2 DefMat = float2x2(d1.x, d2.x, d1.y, d2.y);
-    return mul(DefMat, OrigInv);
-}
-
-// Extract rotation from 2x2 matrix using Newton iteration for polar decomposition
-// Newton 반복을 사용하여 2x2 행렬에서 회전 추출 (Polar Decomposition)
-// R_n+1 = 0.5 * (R_n + R_n^(-T))
-float2x2 ExtractRotation2D(float2x2 F)
-{
-    // Start with F as initial guess
-    float2x2 R = F;
-
-    // Newton iterations
-    const int MAX_ITER = 5;
-    for (int i = 0; i < MAX_ITER; ++i)
-    {
-        // Compute R^(-T)
-        float det = R[0][0] * R[1][1] - R[0][1] * R[1][0];
-        if (abs(det) < 1e-8f)
-        {
-            R = float2x2(1, 0, 0, 1);
-            break;
-        }
-
-        float invDet = 1.0f / det;
-        // R^(-T) = (1/det) * [[d,-c],[-b,a]] where R = [[a,b],[c,d]]
-        // R^(-T) = (1/det) * [[R[1][1], -R[1][0]], [-R[0][1], R[0][0]]]
-        float2x2 RInvT = float2x2(
-            R[1][1] * invDet, -R[1][0] * invDet,
-            -R[0][1] * invDet, R[0][0] * invDet
-        );
-
-        // R = 0.5 * (R + R^(-T))
-        R = 0.5f * (R + RInvT);
-    }
-
-    return R;
-}
-
-// Compute surface rotation matrix from adjacent triangles
-// 인접 삼각형에서 표면 회전 행렬 계산
-// This computes the pure 3D rotation that transforms original surface to deformed surface
-// 원본 표면을 변형된 표면으로 변환하는 순수 3D 회전 계산
-float3x3 ComputeSurfaceRotation(uint ThreadIndex)
-{
-    // Get adjacency info
-    uint Start = AdjacencyOffsets[ThreadIndex];
-    uint End = AdjacencyOffsets[ThreadIndex + 1];
-
-    if (Start >= End)
-    {
-        return float3x3(1, 0, 0, 0, 1, 0, 0, 0, 1);  // Identity
-    }
-
-    // Use first adjacent triangle for consistent results
-    // 일관된 결과를 위해 첫 번째 인접 삼각형 사용
-    uint TriIndex = AdjacencyTriangles[Start];
-    uint I0 = IndexBuffer[TriIndex * 3 + 0];
-    uint I1 = IndexBuffer[TriIndex * 3 + 1];
-    uint I2 = IndexBuffer[TriIndex * 3 + 2];
-
-    // Get positions
-    float3 OrigP0 = ReadOriginalPosition(I0);
-    float3 OrigP1 = ReadOriginalPosition(I1);
-    float3 OrigP2 = ReadOriginalPosition(I2);
-
-    float3 DefP0 = ReadDeformedPosition(I0);
-    float3 DefP1 = ReadDeformedPosition(I1);
-    float3 DefP2 = ReadDeformedPosition(I2);
-
-    // Compute edges
-    float3 OrigEdge1 = OrigP1 - OrigP0;
-    float3 OrigEdge2 = OrigP2 - OrigP0;
-    float3 DefEdge1 = DefP1 - DefP0;
-    float3 DefEdge2 = DefP2 - DefP0;
-
-    // Build orthonormal frames from edges
-    float3x3 OrigFrame = BuildLocalFrame(OrigEdge1, OrigEdge2);
-    float3x3 DefFrame = BuildLocalFrame(DefEdge1, DefEdge2);
-
-    // Compute rotation: R * OrigFrame = DefFrame => R = DefFrame * OrigFrame^T
-    // 회전 계산: R * OrigFrame = DefFrame => R = DefFrame * OrigFrame^T
-    return ComputeFrameRotation(OrigFrame, DefFrame);
-}
-*/
 
 // ============================================================================
 // Main Compute Shader
@@ -442,29 +219,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     // Step 3: Compute tangent using Gram-Schmidt
     // 3단계: Gram-Schmidt로 탄젠트 계산
     // ========================================
-    // Note: MODE_POLAR_DECOMPOSITION은 deprecated되어 GramSchmidt로 fallback됨
     float3 FinalTangent = GramSchmidtOrthonormalize(FinalNormal, OriginalT);
-
-    // [DEPRECATED] Polar 분기 (주석처리됨)
-    // FleshRing은 symmetric 변형이라 twist가 없음
-    // GramSchmidt와 차이 없음 (< 0.1도)
-    /*
-    if (TangentRecomputeMode == MODE_POLAR_DECOMPOSITION)
-    {
-        // ===== Surface Rotation Mode =====
-        // 표면의 3D 회전을 계산하여 원본 탄젠트에 적용
-
-        float3x3 R = ComputeSurfaceRotation(ThreadIndex);
-        float3 RotatedT = mul(R, OriginalT);
-        FinalTangent = GramSchmidtOrthonormalize(FinalNormal, RotatedT);
-    }
-    else
-    {
-        // ===== Gram-Schmidt Mode (Default) =====
-        // 기존 방식: 원본 탄젠트를 재계산된 노멀에 직교화
-        FinalTangent = GramSchmidtOrthonormalize(FinalNormal, OriginalT);
-    }
-    */
 
     // ========================================
     // Step 4: Write output

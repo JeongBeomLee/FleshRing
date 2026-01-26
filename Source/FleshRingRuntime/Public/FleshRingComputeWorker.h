@@ -15,7 +15,6 @@
 #include "FleshRingTangentRecomputeShader.h"
 #include "FleshRingLaplacianShader.h"
 #include "FleshRingBoneRatioShader.h"
-#include "FleshRingCollisionShader.h"
 #include "FleshRingLayerPenetrationShader.h"
 #include "FleshRingPBDEdgeShader.h"
 #include "FleshRingSkinSDFShader.h"
@@ -180,11 +179,6 @@ struct FFleshRingWorkItem
 		// 패킹 포맷: 영향받는 버텍스당 [슬라이스버텍스수, V0, V1, ..., V31] (각 33 uint)
 		TArray<uint32> SlicePackedData;
 
-		// ===== Self-Collision Detection용 삼각형 데이터 =====
-		// SDF 영역 내의 삼각형 인덱스 (3 uints per triangle)
-		// 스타킹-살 관통 방지용
-		TArray<uint32> CollisionTriangleIndices;
-
 		// ===== Layer Penetration Resolution용 레이어 타입 =====
 		// Per-affected-vertex layer types (0=Skin, 1=Stocking, etc.)
 		// 머티리얼 이름에서 자동 감지됨
@@ -261,9 +255,6 @@ struct FFleshRingWorkItem
 	float MaxDisplacementForBlend = 1.0f;
 	// 탄젠트 재계산 활성화 여부 (FleshRingAsset에서 설정, 노멀 재계산이 켜져있어야 동작)
 	bool bEnableTangentRecompute = true;
-	// 탄젠트 재계산 모드 (ETangentRecomputeMethod와 일치)
-	// 0 = GramSchmidt, 1 = PolarDecomposition (DEPRECATED)
-	uint32 TangentRecomputeMode = 0;  // Default: GramSchmidt
 
 	// ===== Normal Recomputation용 메시 인덱스 버퍼 =====
 	// 모든 Ring이 공유하는 메시 인덱스 버퍼 (3 indices per triangle)

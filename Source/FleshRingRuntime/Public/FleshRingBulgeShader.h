@@ -111,14 +111,3 @@ void DispatchFleshRingBulgeCS(
 	FRDGBufferRef VolumeAccumBuffer,
 	FRDGBufferRef OutputPositionsBuffer,
 	FRDGTextureRef SDFTexture);
-
-void DispatchFleshRingBulgeCS_WithReadback(
-	FRDGBuilder& GraphBuilder,
-	const FBulgeDispatchParams& Params,
-	FRDGBufferRef InputPositionsBuffer,
-	FRDGBufferRef BulgeVertexIndicesBuffer,
-	FRDGBufferRef BulgeInfluencesBuffer,
-	FRDGBufferRef VolumeAccumBuffer,
-	FRDGBufferRef OutputPositionsBuffer,
-	FRDGTextureRef SDFTexture,
-	FRHIGPUBufferReadback* Readback);

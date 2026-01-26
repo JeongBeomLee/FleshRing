@@ -109,28 +109,3 @@ void DispatchFleshRingBulgeCS(
 		FIntVector(static_cast<int32>(NumGroups), 1, 1)
 	);
 }
-
-void DispatchFleshRingBulgeCS_WithReadback(
-	FRDGBuilder& GraphBuilder,
-	const FBulgeDispatchParams& Params,
-	FRDGBufferRef InputPositionsBuffer,
-	FRDGBufferRef BulgeVertexIndicesBuffer,
-	FRDGBufferRef BulgeInfluencesBuffer,
-	FRDGBufferRef VolumeAccumBuffer,
-	FRDGBufferRef OutputPositionsBuffer,
-	FRDGTextureRef SDFTexture,
-	FRHIGPUBufferReadback* Readback)
-{
-	DispatchFleshRingBulgeCS(
-		GraphBuilder,
-		Params,
-		InputPositionsBuffer,
-		BulgeVertexIndicesBuffer,
-		BulgeInfluencesBuffer,
-		VolumeAccumBuffer,
-		OutputPositionsBuffer,
-		SDFTexture
-	);
-
-	AddEnqueueCopyPass(GraphBuilder, Readback, OutputPositionsBuffer, 0);
-}

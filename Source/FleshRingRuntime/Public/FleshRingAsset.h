@@ -135,13 +135,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normals", meta = (DisplayName = "Recalculate Tangents", EditCondition = "bEnableNormalRecompute"))
 	bool bEnableTangentRecompute = true;
 
-	/**
-	 * 탄젠트 재계산 방식
-	 * Gram-Schmidt 직교화로 재계산된 노멀에 맞춰 탄젠트 조정
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normals", meta = (DisplayName = "Tangent Recompute Method", EditCondition = "bEnableNormalRecompute && bEnableTangentRecompute"))
-	ETangentRecomputeMethod TangentRecomputeMethod = ETangentRecomputeMethod::GramSchmidt;
-
 	// =====================================
 	// Editor Selection State (Undo 가능, 디스크 저장 시 초기화)
 	// =====================================

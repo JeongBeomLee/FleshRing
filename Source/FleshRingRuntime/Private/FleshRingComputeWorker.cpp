@@ -1484,66 +1484,6 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 			}
 		}
 
-		// ===== Self-Collision Detection & Resolution (비활성화됨) =====
-		// NOTE: O(n²) 복잡도로 인해 비활성화
-		// 대신 Layer Penetration Resolution (LayerPenetrationCS)이
-		// 레이어 기반으로 더 효율적으로 스타킹-스킨 분리를 처리함
-		//
-		// 필요시 FleshRingAsset에 bEnableSelfCollision 플래그 추가하여 제어 가능
-#if 0  // Self-Collision Detection 비활성화
-		if (WorkItem.RingDispatchDataPtr.IsValid())
-		{
-			for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
-			{
-				const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
-
-				// CollisionTriangleIndices가 없거나 너무 적으면 스킵
-				const uint32 NumCollisionTriangles = DispatchData.CollisionTriangleIndices.Num() / 3;
-				if (NumCollisionTriangles < 2)
-				{
-					continue;
-				}
-
-				// 삼각형 인덱스 버퍼 생성
-				FRDGBufferRef CollisionTriIndicesBuffer = GraphBuilder.CreateBuffer(
-					FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), DispatchData.CollisionTriangleIndices.Num()),
-					*FString::Printf(TEXT("FleshRing_CollisionTriIndices_Ring%d"), RingIdx)
-				);
-				GraphBuilder.QueueBufferUpload(
-					CollisionTriIndicesBuffer,
-					DispatchData.CollisionTriangleIndices.GetData(),
-					DispatchData.CollisionTriangleIndices.Num() * sizeof(uint32),
-					ERDGInitialDataFlags::None
-				);
-
-				// Collision dispatch 파라미터
-				FCollisionDispatchParams CollisionParams;
-				CollisionParams.NumTriangles = NumCollisionTriangles;
-				CollisionParams.NumTotalVertices = ActualNumVertices;
-				CollisionParams.MaxCollisionPairs = FMath::Min(NumCollisionTriangles * 10, 1024u);  // 예상 충돌 수 제한
-				CollisionParams.ResolutionStrength = 1.0f;
-				CollisionParams.NumIterations = 1;
-
-				// Collision dispatch
-				DispatchFleshRingCollisionCS(
-					GraphBuilder,
-					CollisionParams,
-					TightenedBindPoseBuffer,
-					CollisionTriIndicesBuffer
-				);
-
-				// [DEBUG] CollisionCS 로그 (필요시 주석 해제)
-				// static TSet<int32> LoggedCollisionRings;
-				// if (!LoggedCollisionRings.Contains(RingIdx))
-				// {
-				// 	UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] CollisionCS Dispatch Ring[%d]: %d triangles, MaxPairs=%d"),
-				// 		RingIdx, NumCollisionTriangles, CollisionParams.MaxCollisionPairs);
-				// 	LoggedCollisionRings.Add(RingIdx);
-				// }
-			}
-		}
-#endif
-
 		// ===== Layer Penetration Resolution =====
 		// 스타킹 레이어가 항상 스킨 레이어 바깥에 위치하도록 보장
 		// 단순 ON/OFF 토글: OFF면 전체 디스패치 스킵
@@ -2100,7 +2040,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 		}
 
 		// ===== TangentRecomputeCS Dispatch (NormalRecomputeCS 이후) =====
-		// 탄젠트 재계산: GramSchmidt 또는 Polar Decomposition
+		// 탄젠트 재계산: Gram-Schmidt 정규직교화
 		// Note: bEnableNormalRecompute가 false면 RecomputedNormalsBuffer가 null이므로 자동 스킵
 		if (WorkItem.bEnableTangentRecompute && RecomputedNormalsBuffer && WorkItem.RingDispatchDataPtr.IsValid())
 		{
@@ -2120,50 +2060,6 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				);
 				// 0으로 초기화 - 영향받지 않는 버텍스는 SkinningCS에서 원본 사용
 				AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(RecomputedTangentsBuffer, PF_R32_FLOAT), 0);
-
-				// ===== [DEPRECATED] Polar 모드에서 사용할 공유 버퍼 =====
-				// Polar 모드가 deprecated되어 이 버퍼들은 더 이상 생성/사용되지 않음
-				// 쉐이더에서 GramSchmidt로 fallback됨
-				// 향후 버전에서 이 섹션 완전 제거 예정
-				const bool bIsPolarMode = (WorkItem.TangentRecomputeMode == 1);
-				FRDGBufferRef TangentOriginalPositionsBuffer = nullptr;
-				FRDGBufferRef TangentMeshIndexBuffer = nullptr;
-
-				// [DEPRECATED] Polar 모드 버퍼 생성 - 주석처리됨
-				// Polar 모드가 선택되어도 쉐이더에서 GramSchmidt로 fallback되므로
-				// 이 버퍼들은 실제로 사용되지 않음
-				/*
-				if (bIsPolarMode && WorkItem.MeshIndicesPtr.IsValid())
-				{
-					// 원본 위치 버퍼 생성
-					TangentOriginalPositionsBuffer = GraphBuilder.CreateBuffer(
-						FRDGBufferDesc::CreateBufferDesc(sizeof(float), ActualBufferSize),
-						TEXT("FleshRing_TangentOriginalPositions")
-					);
-					GraphBuilder.QueueBufferUpload(
-						TangentOriginalPositionsBuffer,
-						WorkItem.SourceDataPtr->GetData(),
-						ActualBufferSize * sizeof(float),
-						ERDGInitialDataFlags::None
-					);
-
-					// 메시 인덱스 버퍼 생성
-					const TArray<uint32>& MeshIndices = *WorkItem.MeshIndicesPtr;
-					if (MeshIndices.Num() > 0)
-					{
-						TangentMeshIndexBuffer = GraphBuilder.CreateBuffer(
-							FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), MeshIndices.Num()),
-							TEXT("FleshRing_TangentMeshIndices")
-						);
-						GraphBuilder.QueueBufferUpload(
-							TangentMeshIndexBuffer,
-							MeshIndices.GetData(),
-							MeshIndices.Num() * sizeof(uint32),
-							ERDGInitialDataFlags::None
-						);
-					}
-				}
-				*/
 
 				// 각 Ring별로 TangentRecomputeCS 디스패치
 				for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
@@ -2207,39 +2103,8 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 						ERDGInitialDataFlags::None
 					);
 
-					// ===== Polar 모드용 인접 버퍼 (per-Ring) =====
-					FRDGBufferRef TangentAdjacencyOffsetsBuffer = nullptr;
-					FRDGBufferRef TangentAdjacencyTrianglesBuffer = nullptr;
-
-					if (bIsPolarMode && AdjacencyOffsetsSource.Num() > 0 && AdjacencyTrianglesSource.Num() > 0)
-					{
-						// 인접 오프셋 버퍼
-						TangentAdjacencyOffsetsBuffer = GraphBuilder.CreateBuffer(
-							FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), AdjacencyOffsetsSource.Num()),
-							*FString::Printf(TEXT("FleshRing_TangentAdjOffsets_Ring%d"), RingIdx)
-						);
-						GraphBuilder.QueueBufferUpload(
-							TangentAdjacencyOffsetsBuffer,
-							AdjacencyOffsetsSource.GetData(),
-							AdjacencyOffsetsSource.Num() * sizeof(uint32),
-							ERDGInitialDataFlags::None
-						);
-
-						// 인접 삼각형 버퍼
-						TangentAdjacencyTrianglesBuffer = GraphBuilder.CreateBuffer(
-							FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), AdjacencyTrianglesSource.Num()),
-							*FString::Printf(TEXT("FleshRing_TangentAdjTris_Ring%d"), RingIdx)
-						);
-						GraphBuilder.QueueBufferUpload(
-							TangentAdjacencyTrianglesBuffer,
-							AdjacencyTrianglesSource.GetData(),
-							AdjacencyTrianglesSource.Num() * sizeof(uint32),
-							ERDGInitialDataFlags::None
-						);
-					}
-
-					// TangentRecomputeCS 디스패치
-					FTangentRecomputeDispatchParams TangentParams(NumAffected, ActualNumVertices, WorkItem.TangentRecomputeMode);
+					// TangentRecomputeCS 디스패치 (Gram-Schmidt)
+					FTangentRecomputeDispatchParams TangentParams(NumAffected, ActualNumVertices);
 
 					DispatchFleshRingTangentRecomputeCS(
 						GraphBuilder,
@@ -2247,25 +2112,8 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 						RecomputedNormalsBuffer,
 						SourceTangentsSRV,
 						TangentAffectedIndicesBuffer,
-						TightenedBindPoseBuffer,           // 변형된 위치 (Polar용)
-						TangentOriginalPositionsBuffer,    // 원본 위치 (Polar용)
-						TangentAdjacencyOffsetsBuffer,     // 인접 오프셋 (Polar용)
-						TangentAdjacencyTrianglesBuffer,   // 인접 삼각형 (Polar용)
-						TangentMeshIndexBuffer,            // 메시 인덱스 (Polar용)
 						RecomputedTangentsBuffer
 					);
-
-					// [DEBUG] TangentRecomputeCS 로그 (모드 변경 시에도 출력)
-					static TMap<int32, uint32> LoggedTangentModes;
-					uint32* PrevMode = LoggedTangentModes.Find(RingIdx);
-					if (!PrevMode || *PrevMode != WorkItem.TangentRecomputeMode)
-					{
-						// Note: Polar 모드가 선택되어도 쉐이더에서 GramSchmidt로 fallback됨
-						UE_LOG(LogFleshRingWorker, Warning, TEXT("[DEBUG] TangentRecomputeCS Ring[%d]: %d vertices, mode=%d (%s)"),
-							RingIdx, NumAffected, WorkItem.TangentRecomputeMode,
-							WorkItem.TangentRecomputeMode == 1 ? TEXT("POLAR->GRAMSCHMIDT (DEPRECATED)") : TEXT("GRAMSCHMIDT"));
-						LoggedTangentModes.Add(RingIdx, WorkItem.TangentRecomputeMode);
-					}
 				}
 			}
 			else

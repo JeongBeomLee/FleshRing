@@ -1388,8 +1388,7 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, NormalBlendFalloffType) ||
 			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, bEnableDisplacementBlending) ||
 			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, MaxDisplacementForBlend) ||
-			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, bEnableTangentRecompute) ||
-			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, TangentRecomputeMethod))
+			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, bEnableTangentRecompute))
 		{
 			bNeedsFullRefresh = true;
 		}

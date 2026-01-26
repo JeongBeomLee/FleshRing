@@ -91,21 +91,6 @@ struct FLESHRINGRUNTIME_API FFleshRingFalloff
 	}
 
 	/**
-	 * 레거시 EFalloffType을 새 타입으로 변환
-	 * 기존 코드 마이그레이션용
-	 */
-	static EFleshRingFalloffType FromLegacyIndex(uint8 LegacyIndex)
-	{
-		switch (LegacyIndex)
-		{
-		case 0: return EFleshRingFalloffType::Linear;
-		case 1: return EFleshRingFalloffType::Quadratic;
-		case 2: return EFleshRingFalloffType::Hermite;
-		default: return EFleshRingFalloffType::Linear;
-		}
-	}
-
-	/**
 	 * Falloff 타입 이름 반환 (디버그/로깅용)
 	 */
 	static const TCHAR* GetTypeName(EFleshRingFalloffType Type)

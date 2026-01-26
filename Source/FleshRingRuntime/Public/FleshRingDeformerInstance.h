@@ -221,11 +221,6 @@ private:
 	// Track last LOD index for invalidating previous position on LOD change
 	int32 LastLodIndex = INDEX_NONE;
 
-	// Velocity tracking for inertia effect (legacy - for WaveCS)
-	FVector PreviousWorldLocation = FVector::ZeroVector;
-	FVector CurrentVelocity = FVector::ZeroVector;
-	bool bHasPreviousLocation = false;
-
 	// ===== LOD별 Tightness Deformation 데이터 =====
 	// Per-LOD Tightness Deformation Data
 	struct FLODDeformationData

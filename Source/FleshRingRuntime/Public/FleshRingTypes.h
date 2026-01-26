@@ -190,20 +190,6 @@ enum class ENormalRecomputeMethod : uint8
 	SurfaceRotation	UMETA(DisplayName = "Surface Rotation")
 };
 
-/**
- * 탄젠트 재계산 방식
- */
-UENUM(BlueprintType)
-enum class ETangentRecomputeMethod : uint8
-{
-	/**
-	 * Gram-Schmidt Orthonormalization
-	 * 재계산된 노멀에 원본 탄젠트를 직교화
-	 * T' = T - (T·N)N, normalize(T')
-	 */
-	GramSchmidt	UMETA(DisplayName = "Gram-Schmidt")
-};
-
 // =====================================
 // 구조체 정의
 // =====================================

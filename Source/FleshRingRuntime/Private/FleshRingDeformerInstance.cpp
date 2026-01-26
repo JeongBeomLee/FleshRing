@@ -609,22 +609,6 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			}
 		}
 
-		// ===== Self-Collision Detection용 삼각형 추출 =====
-		// 스타킹-살 충돌 검사를 위해 메시의 모든 삼각형 포함
-		// (SDF 영향권 내 삼각형만으로는 스타킹만 포함되고 살은 포함 안 됨)
-		{
-			const TArray<uint32>& MeshIndices = CurrentLODData.AffectedVerticesManager.GetCachedMeshIndices();
-			const int32 NumTriangles = MeshIndices.Num() / 3;
-
-			if (NumTriangles > 0 && DispatchData.Indices.Num() > 0)
-			{
-				// 모든 메시 삼각형을 충돌 검사 대상으로 포함
-				// 성능 제한은 CollisionShader에서 MaxPairsToProcess로 처리
-				DispatchData.CollisionTriangleIndices = MeshIndices;
-
-				}
-		}
-
 		// Ring별 InfluenceMode 확인
 		EFleshRingInfluenceMode RingInfluenceMode = EFleshRingInfluenceMode::Auto;
 		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIndex))
@@ -1124,8 +1108,6 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			FleshRingComponent->FleshRingAsset->MaxDisplacementForBlend;
 		WorkItem.bEnableTangentRecompute =
 			FleshRingComponent->FleshRingAsset->bEnableTangentRecompute;
-		WorkItem.TangentRecomputeMode =
-			static_cast<uint32>(FleshRingComponent->FleshRingAsset->TangentRecomputeMethod);
 	}
 
 	// 렌더 스레드에서 Worker에 작업 큐잉

@@ -555,7 +555,6 @@ void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
     OutRingData.SmoothingRegionIndices.Reset();
     OutRingData.SmoothingRegionInfluences.Reset();
     OutRingData.SmoothingRegionIsAnchor.Reset();
-    // Note: PostProcessingLayerTypes는 FullMeshLayerTypes로 대체됨 (deprecated/removed)
 
     // 원본 Affected Vertices를 빠르게 조회하기 위한 Set (앵커 판정용)
     TSet<uint32> AffectedSet;
@@ -877,7 +876,6 @@ void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
     OutRingData.SmoothingRegionIndices.Reset();
     OutRingData.SmoothingRegionInfluences.Reset();
     OutRingData.SmoothingRegionIsAnchor.Reset();
-    // Note: PostProcessingLayerTypes는 FullMeshLayerTypes로 대체됨 (deprecated/removed)
 
     if (!Context.SDFCache || !Context.SDFCache->IsValid())
     {
