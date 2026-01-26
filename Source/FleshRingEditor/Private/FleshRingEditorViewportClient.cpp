@@ -2715,23 +2715,20 @@ void FFleshRingEditorViewportClient::ShowBoneContextMenu(FName BoneName, const F
 		}
 	}
 
-	// Ring 추가 가능 조건:
-	// 1. 가중치 있는 자식 본이 있거나 (방향 자동 계산)
-	// 2. 말단 본이지만 자기 자신이 가중치가 있는 경우 (기본값 사용)
-	bool bHasWeightedChild = (FindWeightedChildBone(BoneIndex) != INDEX_NONE);
-	bool bIsSelfWeighted = IsBoneWeighted(BoneIndex);
-	bool bCanAddRing = (BoneIndex != INDEX_NONE) && (bHasWeightedChild || bIsSelfWeighted);
+	// Ring 추가 가능 조건: 자신 또는 자손 중 가중치가 있는 본이 있으면 추가 가능
+	// (스켈레톤 트리의 bIsMeshBone = HasWeightedDescendant() 로직과 동일)
+	bool bCanAddRing = (BoneIndex != INDEX_NONE) && HasWeightedDescendant(BoneIndex);
 
 	FMenuBuilder MenuBuilder(true, nullptr);
 
 	MenuBuilder.BeginSection("BoneActions", NSLOCTEXT("FleshRingEditor", "BoneActionsSection", "Bone"));
 	{
-		// Add Ring 메뉴 - 가중치가 있는 자식이 있을 때만 활성화
+		// Add Ring 메뉴 - 메시 본 (자신 또는 자손에 가중치 있음)에만 활성화
 		MenuBuilder.AddMenuEntry(
 			NSLOCTEXT("FleshRingEditor", "AddRingAtPosition", "Add Ring Here..."),
 			bCanAddRing
 				? NSLOCTEXT("FleshRingEditor", "AddRingAtPositionTooltip", "Select a mesh and add a ring at clicked position")
-				: NSLOCTEXT("FleshRingEditor", "AddRingAtPositionDisabledTooltip", "Cannot add ring: This bone has no weighted child bones"),
+				: NSLOCTEXT("FleshRingEditor", "AddRingAtPositionDisabledTooltip", "Cannot add ring: This bone has no weighted vertices"),
 			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Plus"),
 			FUIAction(
 				FExecuteAction::CreateRaw(this, &FFleshRingEditorViewportClient::OnContextMenu_AddRing),
@@ -3161,6 +3158,49 @@ int32 FFleshRingEditorViewportClient::FindWeightedChildBone(int32 ParentBoneInde
 	}
 
 	return INDEX_NONE;
+}
+
+bool FFleshRingEditorViewportClient::HasWeightedDescendant(int32 BoneIndex) const
+{
+	// 자신이 가중치가 있으면 true
+	if (IsBoneWeighted(BoneIndex))
+	{
+		return true;
+	}
+
+	if (!PreviewScene)
+	{
+		return false;
+	}
+
+	UDebugSkelMeshComponent* SkeletalMeshComponent = PreviewScene->GetSkeletalMeshComponent();
+	if (!SkeletalMeshComponent)
+	{
+		return false;
+	}
+
+	USkeletalMesh* SkelMesh = SkeletalMeshComponent->GetSkeletalMeshAsset();
+	if (!SkelMesh)
+	{
+		return false;
+	}
+
+	const FReferenceSkeleton& RefSkeleton = SkelMesh->GetRefSkeleton();
+	const int32 NumBones = RefSkeleton.GetNum();
+
+	// 자손 본 재귀 체크
+	for (int32 ChildIndex = 0; ChildIndex < NumBones; ++ChildIndex)
+	{
+		if (RefSkeleton.GetParentIndex(ChildIndex) == BoneIndex)
+		{
+			if (HasWeightedDescendant(ChildIndex))
+			{
+				return true;
+			}
+		}
+	}
+
+	return false;
 }
 
 int32 FFleshRingEditorViewportClient::CountWeightedChildBones(int32 ParentBoneIndex) const

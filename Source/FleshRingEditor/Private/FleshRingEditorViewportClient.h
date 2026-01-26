@@ -300,6 +300,9 @@ private:
 	/** 가중치가 있는 자식 본 찾기 (없으면 INDEX_NONE 반환) */
 	int32 FindWeightedChildBone(int32 ParentBoneIndex) const;
 
+	/** 자손 중 가중치가 있는 본이 있는지 재귀적으로 체크 (스켈레톤 트리와 동일) */
+	bool HasWeightedDescendant(int32 BoneIndex) const;
+
 	/** 가중치가 있는 직속 자식 본 개수 반환 */
 	int32 CountWeightedChildBones(int32 ParentBoneIndex) const;
 
