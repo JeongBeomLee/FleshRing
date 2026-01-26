@@ -555,6 +555,58 @@ inline FTightnessDispatchParams CreateTightnessParams(
     return Params;
 }
 
+/**
+ * [DEPRECATED] Create FTightnessDispatchParams with skinning enabled (animated mode)
+ * [DEPRECATED] 스키닝 활성화된 FTightnessDispatchParams 생성 (애니메이션 모드)
+ *
+ * NOTE: 스키닝이 FleshRingSkinningCS로 분리되어 더 이상 사용되지 않음
+ *       TightnessCS는 바인드 포즈에서만 동작하고, 스키닝은 별도 패스로 처리
+ *
+ * @param AffectedData - 영향받는 버텍스 데이터 (Ring 파라미터 포함, 바인드 포즈 기준)
+ * @param TotalVertexCount - 메시 전체 버텍스 수
+ * @param AnimatedRingCenter - 현재 프레임 본 트랜스폼에서 가져온 Ring 중심
+ * @param AnimatedRingAxis - 현재 프레임 본 트랜스폼에서 가져온 Ring 축
+ * @param InInputWeightStride - 웨이트 스트림 스트라이드
+ * @param InInputWeightIndexSize - 인덱스/웨이트 바이트 크기
+ * @param InNumBoneInfluences - 버텍스당 본 영향 수
+ * @return GPU Dispatch용 파라미터 구조체 (스키닝 활성화)
+ */
+UE_DEPRECATED(5.7, "Use CreateTightnessParams + FleshRingSkinningCS instead")
+inline FTightnessDispatchParams CreateTightnessParamsWithSkinning_Deprecated(
+    const FRingAffectedData& AffectedData,
+    uint32 TotalVertexCount,
+    const FVector3f& AnimatedRingCenter,
+    const FVector3f& AnimatedRingAxis,
+    uint32 InInputWeightStride,
+    uint32 InInputWeightIndexSize,
+    uint32 InNumBoneInfluences)
+{
+    FTightnessDispatchParams Params;
+
+    // Ring 트랜스폼 정보 (애니메이션된 현재 프레임)
+    Params.RingCenter = AnimatedRingCenter;
+    Params.RingAxis = AnimatedRingAxis;
+
+    // Ring 지오메트리 정보
+    Params.RingRadius = AffectedData.RingRadius;
+    Params.RingHeight = AffectedData.RingHeight;
+
+    // 변형 강도
+    Params.TightnessStrength = AffectedData.TightnessStrength;
+
+    // 버텍스 카운트
+    Params.NumAffectedVertices = static_cast<uint32>(AffectedData.Vertices.Num());
+    Params.NumTotalVertices = TotalVertexCount;
+
+    // 스키닝 활성화
+    Params.bEnableSkinning = 1;
+    Params.InputWeightStride = InInputWeightStride;
+    Params.InputWeightIndexSize = InInputWeightIndexSize;
+    Params.NumBoneInfluences = InNumBoneInfluences;
+
+    return Params;
+}
+
 // ============================================================================
 // Dispatch Function Declarations
 // Dispatch 함수 선언
@@ -600,6 +652,44 @@ void DispatchFleshRingTightnessCS(
     FRDGTextureRef SDFTexture = nullptr,
     FRDGBufferRef VolumeAccumBuffer = nullptr,
     FRDGBufferRef DebugInfluencesBuffer = nullptr);
+
+/**
+ * [DEPRECATED] Dispatch TightnessCS with GPU skinning (animated mode)
+ * [DEPRECATED] GPU 스키닝이 포함된 TightnessCS 디스패치 (애니메이션 모드)
+ *
+ * NOTE: 스키닝이 FleshRingSkinningCS로 분리되어 더 이상 사용되지 않음
+ *       DispatchFleshRingTightnessCS + DispatchFleshRingSkinningCS로 대체
+ *
+ * @param GraphBuilder - RDG builder for resource management
+ *                       RDG 빌더 (리소스 관리용)
+ * @param Params - Dispatch parameters (must have bEnableSkinning=1)
+ *                 디스패치 파라미터 (bEnableSkinning=1 필수)
+ * @param SourcePositionsBuffer - Bind pose vertex positions
+ *                                바인드 포즈 버텍스 위치 버퍼
+ * @param AffectedIndicesBuffer - Vertex indices to process
+ *                                처리할 버텍스 인덱스 버퍼
+ * @param InfluencesBuffer - Per-vertex influence weights
+ *                           버텍스별 영향도 버퍼
+ * @param OutputPositionsBuffer - Output deformed positions (UAV)
+ *                                변형된 위치 출력 버퍼 (UAV)
+ * @param BoneMatricesBuffer - Bone matrices (3 float4 per bone)
+ *                             RefToLocal 행렬 버퍼 (본당 3개 float4)
+ * @param InputWeightStreamBuffer - Packed bone indices + weights
+ *                                  패킹된 본 인덱스 + 웨이트 버퍼
+ * @param SDFTexture - (Optional) SDF 3D texture for Auto influence mode
+ *                     (옵션) SDF 자동 영향 모드용 3D 텍스처
+ */
+UE_DEPRECATED(5.7, "Use DispatchFleshRingTightnessCS + DispatchFleshRingSkinningCS instead")
+void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
+    FRDGBuilder& GraphBuilder,
+    const FTightnessDispatchParams& Params,
+    FRDGBufferRef SourcePositionsBuffer,
+    FRDGBufferRef AffectedIndicesBuffer,
+    // NOTE: InfluencesBuffer 제거됨 - GPU에서 직접 Influence 계산
+    FRDGBufferRef OutputPositionsBuffer,
+    FRDGBufferRef BoneMatricesBuffer,
+    FRDGBufferRef InputWeightStreamBuffer,
+    FRDGTextureRef SDFTexture = nullptr);
 
 /**
  * Dispatch TightnessCS with readback for validation/testing (bind pose mode)

@@ -273,6 +273,180 @@ void DispatchFleshRingTightnessCS(
 }
 
 // ============================================================================
+// [DEPRECATED] Dispatch with GPU Skinning (animated mode)
+// [DEPRECATED] GPU 스키닝 포함 디스패치 (애니메이션 모드)
+// NOTE: 스키닝이 FleshRingSkinningCS로 분리되어 더 이상 사용되지 않음
+// ============================================================================
+
+void DispatchFleshRingTightnessCS_WithSkinning_Deprecated(
+    FRDGBuilder& GraphBuilder,
+    const FTightnessDispatchParams& Params,
+    FRDGBufferRef SourcePositionsBuffer,
+    FRDGBufferRef AffectedIndicesBuffer,
+    // NOTE: InfluencesBuffer 제거됨 - GPU에서 직접 Influence 계산
+    FRDGBufferRef OutputPositionsBuffer,
+    FRDGBufferRef BoneMatricesBuffer,
+    FRDGBufferRef InputWeightStreamBuffer,
+    FRDGTextureRef SDFTexture)
+{
+    // Early out if no vertices to process
+    // 처리할 버텍스가 없으면 조기 반환
+    if (Params.NumAffectedVertices == 0)
+    {
+        return;
+    }
+
+    // Allocate shader parameters
+    // 셰이더 파라미터 할당
+    FFleshRingTightnessCS::FParameters* PassParameters =
+        GraphBuilder.AllocParameters<FFleshRingTightnessCS::FParameters>();
+
+    // ===== Bind input buffers (SRV) =====
+    // ===== 입력 버퍼 바인딩 (SRV) =====
+    PassParameters->SourcePositions = GraphBuilder.CreateSRV(SourcePositionsBuffer, PF_R32_FLOAT);
+    PassParameters->AffectedIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
+    // NOTE: Influences 버퍼 제거됨 - GPU에서 직접 Influence 계산
+
+    // RepresentativeIndices fallback: AffectedIndices 사용 (각 버텍스가 자기 자신이 대표)
+    PassParameters->RepresentativeIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
+
+    // ===== Bind output buffer (UAV) =====
+    // ===== 출력 버퍼 바인딩 (UAV) =====
+    PassParameters->OutputPositions = GraphBuilder.CreateUAV(OutputPositionsBuffer, PF_R32_FLOAT);
+
+    // ===== Bind skinning buffers (SRV) =====
+    // ===== 스키닝 버퍼 바인딩 (SRV) =====
+    // BoneMatrices: RefToLocal 행렬 (본당 3개 float4)
+    // [Bind Pose Component Space] → [Animated Component Space]
+    PassParameters->BoneMatrices = GraphBuilder.CreateSRV(BoneMatricesBuffer, PF_A32B32G32R32F);
+    PassParameters->InputWeightStream = GraphBuilder.CreateSRV(InputWeightStreamBuffer, PF_R32_UINT);
+
+    // ===== Skinning parameters =====
+    // ===== 스키닝 파라미터 =====
+    PassParameters->InputWeightStride = Params.InputWeightStride;
+    PassParameters->InputWeightIndexSize = Params.InputWeightIndexSize;
+    PassParameters->NumBoneInfluences = Params.NumBoneInfluences;
+    PassParameters->bEnableSkinning = Params.bEnableSkinning;
+
+    // ===== Ring parameters (animated component space) =====
+    // ===== 링 파라미터 (애니메이션된 컴포넌트 스페이스) =====
+    PassParameters->RingCenter = Params.RingCenter;
+    PassParameters->RingAxis = Params.RingAxis;
+    PassParameters->TightnessStrength = Params.TightnessStrength;
+    PassParameters->RingRadius = Params.RingRadius;
+    PassParameters->RingHeight = Params.RingHeight;
+    PassParameters->RingThickness = Params.RingThickness;
+    PassParameters->FalloffType = Params.FalloffType;
+    PassParameters->InfluenceMode = Params.InfluenceMode;
+
+    // ===== VirtualBand (Virtual Band) Parameters =====
+    // ===== 가상 밴드 파라미터 =====
+    PassParameters->LowerRadius = Params.LowerRadius;
+    PassParameters->MidLowerRadius = Params.MidLowerRadius;
+    PassParameters->MidUpperRadius = Params.MidUpperRadius;
+    PassParameters->UpperRadius = Params.UpperRadius;
+    PassParameters->LowerHeight = Params.LowerHeight;
+    PassParameters->BandSectionHeight = Params.BandSectionHeight;
+    PassParameters->UpperHeight = Params.UpperHeight;
+
+    // ===== Counts =====
+    // ===== 버텍스 수 =====
+    PassParameters->NumAffectedVertices = Params.NumAffectedVertices;
+    PassParameters->NumTotalVertices = Params.NumTotalVertices;
+
+    // ===== SDF Parameters =====
+    // ===== SDF 파라미터 =====
+    // SDFTexture가 유효하면 SDF Auto 모드, nullptr이면 VirtualRing 모드
+    if (SDFTexture)
+    {
+        PassParameters->SDFTexture = GraphBuilder.CreateSRV(SDFTexture);
+        PassParameters->SDFSampler = TStaticSamplerState<SF_Trilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+        PassParameters->SDFBoundsMin = Params.SDFBoundsMin;
+        PassParameters->SDFBoundsMax = Params.SDFBoundsMax;
+        PassParameters->bUseSDFInfluence = 1;
+        PassParameters->ComponentToSDFLocal = Params.ComponentToSDFLocal;
+        PassParameters->SDFLocalToComponent = Params.SDFLocalToComponent;
+        PassParameters->SDFInfluenceFalloffDistance = Params.SDFInfluenceFalloffDistance;
+        // Ring Center/Axis (SDF Local Space) - 바운드 확장 시에도 정확한 위치 전달
+        PassParameters->SDFLocalRingCenter = Params.SDFLocalRingCenter;
+        PassParameters->SDFLocalRingAxis = Params.SDFLocalRingAxis;
+    }
+    else
+    {
+        // VirtualRing 모드: Dummy SDF 텍스처 바인딩 (RDG 요구사항)
+        FRDGTextureDesc DummySDFDesc = FRDGTextureDesc::Create3D(
+            FIntVector(1, 1, 1),
+            PF_R32_FLOAT,
+            FClearValueBinding::Black,
+            TexCreate_ShaderResource | TexCreate_UAV);  // UAV 추가 (Clear용)
+        FRDGTextureRef DummySDFTexture = GraphBuilder.CreateTexture(DummySDFDesc, TEXT("FleshRingTightness_DummySDF_Skinned"));
+
+        // RDG 검증 통과: 텍스처에 쓰기 패스 추가 (Producer 필요)
+        AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DummySDFTexture), 0.0f);
+
+        PassParameters->SDFTexture = GraphBuilder.CreateSRV(DummySDFTexture);
+        PassParameters->SDFSampler = TStaticSamplerState<SF_Trilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+        PassParameters->SDFBoundsMin = FVector3f::ZeroVector;
+        PassParameters->SDFBoundsMax = FVector3f::OneVector;
+        PassParameters->bUseSDFInfluence = 0;
+        PassParameters->ComponentToSDFLocal = FMatrix44f::Identity;
+        PassParameters->SDFLocalToComponent = FMatrix44f::Identity;
+        PassParameters->SDFInfluenceFalloffDistance = 5.0f;
+        // VirtualRing 모드: 기본값 바인딩 (사용 안함)
+        PassParameters->SDFLocalRingCenter = FVector3f::ZeroVector;
+        PassParameters->SDFLocalRingAxis = FVector3f(0.0f, 0.0f, 1.0f);
+    }
+
+    // ===== Smoothing Bounds Z Extension Parameters =====
+    // ===== 스무딩 영역 Z 확장 파라미터 =====
+    PassParameters->BoundsZTop = Params.BoundsZTop;
+    PassParameters->BoundsZBottom = Params.BoundsZBottom;
+
+    // ===== Volume Accumulation (Dummy for deprecated function) =====
+    // ===== 부피 누적 (Deprecated 함수용 Dummy) =====
+    FRDGBufferRef DummyVolumeBuffer = GraphBuilder.CreateBuffer(
+        FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), 1),
+        TEXT("FleshRingTightness_DummyVolumeAccum_Deprecated")
+    );
+    AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DummyVolumeBuffer, PF_R32_UINT), 0u);
+    PassParameters->VolumeAccumBuffer = GraphBuilder.CreateUAV(DummyVolumeBuffer, PF_R32_UINT);
+    PassParameters->bAccumulateVolume = 0;
+    PassParameters->FixedPointScale = 1000.0f;
+    PassParameters->RingIndex = 0;
+
+    // ===== Debug Influence Output (Dummy for deprecated function) =====
+    // ===== 디버그 Influence 출력 (Deprecated 함수용 Dummy) =====
+    FRDGBufferRef DummyDebugInfluencesBuffer = GraphBuilder.CreateBuffer(
+        FRDGBufferDesc::CreateBufferDesc(sizeof(float), 1),
+        TEXT("FleshRingTightness_DummyDebugInfluences_Deprecated")
+    );
+    AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DummyDebugInfluencesBuffer, PF_R32_FLOAT), 0.0f);
+    PassParameters->DebugInfluences = GraphBuilder.CreateUAV(DummyDebugInfluencesBuffer, PF_R32_FLOAT);
+    PassParameters->bOutputDebugInfluences = 0;
+
+    // NOTE: Debug Point Buffer 제거됨 - DebugPointOutputCS에서 처리
+
+    // Get shader reference
+    // 셰이더 참조 가져오기
+    TShaderMapRef<FFleshRingTightnessCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+
+    // Calculate dispatch groups
+    // 디스패치 그룹 수 계산
+    const uint32 ThreadGroupSize = 64;
+    const uint32 NumGroups = FMath::DivideAndRoundUp(Params.NumAffectedVertices, ThreadGroupSize);
+
+    // Add compute pass to RDG
+    // RDG에 컴퓨트 패스 추가
+    FComputeShaderUtils::AddPass(
+        GraphBuilder,
+        RDG_EVENT_NAME("FleshRingTightnessCS_Skinned_Deprecated"),
+        ComputeShader,
+        PassParameters,
+        FIntVector(static_cast<int32>(NumGroups), 1, 1)
+    );
+}
+
+// ============================================================================
 // Dispatch with Readback (for testing/validation)
 // 리드백 포함 디스패치 (테스트/검증용)
 // ============================================================================
