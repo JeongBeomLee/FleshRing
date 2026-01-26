@@ -1344,22 +1344,10 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 
 		// ----- 공통 프로퍼티 (전체 적용) -----
 		TSharedPtr<IPropertyHandle> BandThicknessHandle = VirtualBandHandle->GetChildHandle(TEXT("BandThickness"));
-		TSharedPtr<IPropertyHandle> RadialSegmentsHandle = VirtualBandHandle->GetChildHandle(TEXT("RadialSegments"));
-		TSharedPtr<IPropertyHandle> HeightSegmentsHandle = VirtualBandHandle->GetChildHandle(TEXT("HeightSegments"));
 
 		if (BandThicknessHandle.IsValid())
 		{
 			VirtualBandSubGroup.AddPropertyRow(BandThicknessHandle.ToSharedRef())
-				.IsEnabled(IsVirtualBandModeAttr);
-		}
-		if (RadialSegmentsHandle.IsValid())
-		{
-			VirtualBandSubGroup.AddPropertyRow(RadialSegmentsHandle.ToSharedRef())
-				.IsEnabled(IsVirtualBandModeAttr);
-		}
-		if (HeightSegmentsHandle.IsValid())
-		{
-			VirtualBandSubGroup.AddPropertyRow(HeightSegmentsHandle.ToSharedRef())
 				.IsEnabled(IsVirtualBandModeAttr);
 		}
 

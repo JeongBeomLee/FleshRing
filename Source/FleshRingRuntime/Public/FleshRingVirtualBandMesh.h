@@ -6,39 +6,13 @@
 #include "FleshRingTypes.h"
 
 /**
- * 가상 밴드 메시 생성 유틸리티
+ * 가상 밴드 시각화 유틸리티
  *
- * 스타킹/타이즈용 비대칭 원기둥 형태의 메시를 생성합니다.
- * 생성된 메시는 SDF 생성용으로만 사용되며, 실제 렌더링되지 않습니다.
- *
- * 형태 (4개의 반경):
- *      ╱────╲      ← Upper Section (Upper.Radius → MidUpperRadius)
- *     │      │     ← Band Body (MidUpperRadius ↔ MidLowerRadius)
- *     │      │
- *      ╲────╱      ← Lower Section (MidLowerRadius → Lower.Radius)
+ * 스타킹/타이즈용 비대칭 원기둥의 와이어프레임을 생성합니다.
+ * 에디터 프리뷰 시각화용으로 사용됩니다.
  */
 namespace FleshRingVirtualBandMesh
 {
-	/**
-	 * 가상 밴드 메시 데이터 생성
-	 *
-	 * @param Settings 밴드 설정 (반경, 높이, 각도 등)
-	 * @param OutVertices 출력 버텍스 배열 (로컬 스페이스)
-	 * @param OutIndices 출력 인덱스 배열 (삼각형 리스트)
-	 */
-	void GenerateBandMesh(
-		const FVirtualBandSettings& Settings,
-		TArray<FVector3f>& OutVertices,
-		TArray<uint32>& OutIndices);
-
-	/**
-	 * 밴드 메시의 바운딩 박스 계산
-	 *
-	 * @param Settings 밴드 설정
-	 * @return 로컬 스페이스 바운딩 박스
-	 */
-	FBox3f CalculateBandBounds(const FVirtualBandSettings& Settings);
-
 	/**
 	 * 디버그 시각화용 와이어프레임 데이터 생성
 	 *

@@ -1405,7 +1405,6 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 			PropName == GET_MEMBER_NAME_CHECKED(FVirtualBandSettings, BandThickness) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FVirtualBandSettings, Upper) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FVirtualBandSettings, Lower) ||
-			PropName == GET_MEMBER_NAME_CHECKED(FVirtualBandSettings, RadialSegments) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FVirtualBandSection, Radius) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FVirtualBandSection, Height))
 		{

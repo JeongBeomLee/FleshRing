@@ -53,13 +53,13 @@ enum class EFleshRingInfluenceMode : uint8
 UENUM(BlueprintType)
 enum class EFalloffType : uint8
 {
-	/** 선형 감쇠 */
+	/** 선형 감쇠 (날카로운 경계) */
 	Linear		UMETA(DisplayName = "Linear"),
 
-	/** 2차 곡선 감쇠 (부드러움) */
+	/** 2차 곡선 (부드러움) */
 	Quadratic	UMETA(DisplayName = "Quadratic"),
 
-	/** Hermite S-커브 감쇠 (가장 부드러움) */
+	/** S-커브 (가장 부드러움, 권장) */
 	Hermite		UMETA(DisplayName = "Hermite (S-Curve)")
 };
 
@@ -177,15 +177,15 @@ enum class ENormalRecomputeMethod : uint8
 {
 	/**
 	 * Geometric Normal (Face Normal 평균)
-	 * 실제 변형된 지오메트리에서 노멀 계산
-	 * TBN이 표면과 정확히 일치 → Normal Map 변환 정확
+	 * - 실제 변형된 지오메트리에서 노멀 계산
+	 * - TBN이 표면과 정확히 일치 → Normal Map 변환 정확
 	 */
 	Geometric	UMETA(DisplayName = "Geometric (TBN Accurate)"),
 
 	/**
 	 * Surface Rotation (기본값)
-	 * 원본 Smooth Normal을 면 회전량만큼 회전
-	 * Smooth Normal의 특성 보존, 부드러운 결과
+	 * - 원본 Smooth Normal을 면 회전량만큼 회전
+	 * - Smooth Normal의 특성 보존, 부드러운 결과
 	 */
 	SurfaceRotation	UMETA(DisplayName = "Surface Rotation")
 };
@@ -205,8 +205,11 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 
 	// ===== 공통 설정 =====
 
-	/** Subdivision 활성화 (Low-Poly 메시용) */
-	// Undo/Redo 지원 (메시 작업은 GUndo=nullptr로 보호되어 GC 문제 없음)
+	/**
+	 * Subdivision 활성화
+	 * - ON: 메시를 세분화하여 변형 품질 향상
+	 * - OFF: 원본 메시 사용
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skeletal Mesh Detail Settings")
 	bool bEnableSubdivision = false;
 
@@ -222,8 +225,8 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 
 	/**
 	 * 이웃 본 탐색 깊이 (0 = 타겟 본만, 1 = 부모+자식, 2 = 조부모+손자 포함)
-	 * 0이면 BoneWeightThreshold만으로 영역 판단
-	 * 높을수록 subdivision 영역이 넓어지지만 성능 비용 증가
+	 * - 0이면 BoneWeightThreshold만으로 영역 판단
+	 * - 높을수록 subdivision 영역이 넓어지지만 성능 비용 증가
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skeletal Mesh Detail Settings", meta = (ClampMin = "0", ClampMax = "3", DisplayName = "Bone Search Depth"))
 	int32 PreviewBoneHopCount = 1;
@@ -245,9 +248,9 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 	// ===== 생성된 메시 (런타임) =====
 
 	/**
-	 * Subdivision된 SkeletalMesh (에셋 안에 내장됨)
-	 * GenerateSubdividedMesh()로 생성됨 - 런타임용 (Ring 영역만 subdivision)
-	 * NonTransactional: Undo 시스템에서 제외하여 GC 문제 방지
+	 * Subdivision된 메시 (런타임용)
+	 * - Ring 영역만 subdivision (프리뷰보다 좁은 범위)
+	 * - Generate Subdivided Mesh 버튼으로 생성
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Skeletal Mesh Detail Settings", meta = (EditCondition = "bEnableSubdivision"), NonTransactional)
 	TObjectPtr<USkeletalMesh> SubdividedMesh;
@@ -259,10 +262,10 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 	// ===== 베이크된 메시 (런타임용, 변형 적용 완료) =====
 
 	/**
-	 * 변형이 적용된 베이크 메시 (런타임용)
-	 * Tightness + Bulge + Smoothing이 모두 적용된 최종 상태
-	 * GenerateBakedMesh()로 생성됨
-	 * NonTransactional: Undo 시스템에서 제외하여 GC 문제 방지
+	 * 베이크된 메시 (런타임용)
+	 * - Tightness + Bulge + Smoothing이 적용된 최종 상태
+	 * - 프리뷰와 달리 Ring 영역만 변형/스무딩 적용
+	 * - Generate Baked Mesh 버튼으로 생성
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Baked Mesh", NonTransactional)
 	TObjectPtr<USkeletalMesh> BakedMesh;
@@ -298,24 +301,37 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 };
 
 /**
- * 머티리얼-레이어 매핑 (침투 해결용)
- * 각 머티리얼이 어느 레이어에 속하는지 정의
- * 스타킹이 항상 살 위에 렌더링되도록 보장
+ * 머티리얼-레이어 매핑
+ * - 각 머티리얼이 어느 레이어에 속하는지 정의
+ * - 스타킹이 항상 살 위에 렌더링되도록 침투 해결
  */
 USTRUCT(BlueprintType)
 struct FLESHRINGRUNTIME_API FMaterialLayerMapping
 {
 	GENERATED_BODY()
 
-	/** 대상 머티리얼 슬롯 인덱스 (자동 설정됨, 수정 불가) */
+	/**
+	 * 머티리얼 슬롯 인덱스
+	 * - 자동 설정됨, 수정 불가
+	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Layer")
 	int32 MaterialSlotIndex = 0;
 
-	/** 머티리얼 슬롯 이름 (표시용, 자동 설정됨) */
+	/**
+	 * 머티리얼 슬롯 이름
+	 * - 표시용, 자동 설정됨
+	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Layer")
 	FName MaterialSlotName;
 
-	/** 레이어 타입 */
+	/**
+	 * 레이어 타입
+	 * - Skin: 피부/살 (가장 안쪽)
+	 * - Stocking: 스타킹/타이즈
+	 * - Underwear/Outerwear: 속옷/겉옷
+	 * - Other: 미분류
+	 * - Exclude: Tightness 제외
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Layer")
 	EFleshRingLayerType LayerType = EFleshRingLayerType::Other;
 
@@ -344,11 +360,19 @@ struct FLESHRINGRUNTIME_API FVirtualBandSection
 {
 	GENERATED_BODY()
 
-	/** 해당 섹션의 끝단 반경 (MidRadius와의 차이로 경사 결정) */
+	/**
+	 * 섹션 끝단 반경 (cm)
+	 * - MidRadius보다 크면 바깥으로 벌어짐 (Bulge 영역)
+	 * - MidRadius와 같으면 직선 (조임 유지)
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Virtual Band", meta = (ClampMin = "0.1"))
 	float Radius = 10.0f;
 
-	/** 해당 섹션의 높이 (경사 구간 길이) */
+	/**
+	 * 섹션 높이 (cm)
+	 * - 0: 섹션 없음 (밴드 끝에서 바로 끊김)
+	 * - 클수록 완만한 경사
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Virtual Band", meta = (ClampMin = "0.0"))
 	float Height = 2.0f;
 
@@ -398,56 +422,68 @@ struct FLESHRINGRUNTIME_API FVirtualBandSettings
 
 	// ===== 밴드 본체 (조임 지점) =====
 
-	/** 밴드 상단 반경 (Upper Section과 만나는 지점) */
+	/**
+	 * 밴드 상단 반경 (cm)
+	 * - Upper Section과 만나는 조임 지점
+	 * - Upper.Radius보다 작아야 위쪽 Bulge 발생
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Band", meta = (ClampMin = "0.1", DisplayName = "Band Top Radius"))
 	float MidUpperRadius = 8.0f;
 
-	/** 밴드 하단 반경 (Lower Section과 만나는 지점) */
+	/**
+	 * 밴드 하단 반경 (cm)
+	 * - Lower Section과 만나는 조임 지점
+	 * - Lower.Radius보다 작아야 아래쪽 Bulge 발생
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Band", meta = (ClampMin = "0.1", DisplayName = "Band Bottom Radius"))
 	float MidLowerRadius = 8.0f;
 
-	/** 밴드 본체 높이 (조이는 영역) */
+	/**
+	 * 밴드 본체 높이 (cm)
+	 * - 조이는 영역의 수직 길이
+	 * - 짧을수록 날카로운 조임 ↔ 길수록 넓은 조임
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Band", meta = (ClampMin = "0.1"))
 	float BandHeight = 2.0f;
 
-	/** 밴드 두께 (벽 두께, SDF 생성용) */
+	/**
+	 * 밴드 두께 (cm)
+	 * - 영향 범위의 반경 방향 폭
+	 * - 얇을수록 경계가 날카로움 ↔ 두꺼울수록 부드럽게 페이드
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Band", meta = (ClampMin = "0.1"))
 	float BandThickness = 1.0f;
 
 	// ===== 상단 섹션 (살이 불룩해지는 영역) =====
 
-	/** Upper.Radius > MidUpperRadius → 위로 벌어지며 살이 불룩해짐 */
+	/**
+	 * 상단 Bulge 영역 설정
+	 * - Radius > MidUpperRadius일 때 위쪽으로 살이 불룩해짐
+	 * - Height로 경사 완만도 조절
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Upper Bulge Zone", meta = (DisplayName = "Upper Bulge Zone"))
 	FVirtualBandSection Upper;
 
 	// ===== 하단 섹션 (스타킹이 덮는 영역) =====
 
-	/** Lower.Radius ≥ MidLowerRadius → 아래로 벌어지며 스타킹이 덮음 */
+	/**
+	 * 하단 Bulge 영역 설정
+	 * - Radius >= MidLowerRadius일 때 아래쪽으로 스타킹이 덮음
+	 * - Height로 경사 완만도 조절
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lower Bulge Zone", meta = (DisplayName = "Lower Bulge Zone"))
 	FVirtualBandSection Lower;
-
-	// ===== 메시 생성 품질 =====
-
-	/** 원형 단면 세그먼트 수 (높을수록 부드러움) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quality", meta = (ClampMin = "8", ClampMax = "64"))
-	int32 RadialSegments = 32;
-
-	/** 높이당 세그먼트 수 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Quality", meta = (ClampMin = "1", ClampMax = "16"))
-	int32 HeightSegments = 4;
 
 	FVirtualBandSettings()
 		: BandOffset(FVector::ZeroVector)
 		, BandEulerRotation(FRotator(-90.0f, 0.0f, 0.0f))
 		, BandRotation(FQuat(FRotator(-90.0f, 0.0f, 0.0f)))
-		, MidUpperRadius(8.0f)        // 밴드 상단 반경
-		, MidLowerRadius(8.0f)        // 밴드 하단 반경
+		, MidUpperRadius(8.0f)
+		, MidLowerRadius(8.0f)
 		, BandHeight(2.0f)
 		, BandThickness(1.0f)
-		, Upper(11.0f, 2.0f)          // 상단: 불룩한 살 (가장 큰 반경)
-		, Lower(9.0f, 1.0f)           // 하단: 스타킹 영역
-		, RadialSegments(32)
-		, HeightSegments(4)
+		, Upper(11.0f, 2.0f)
+		, Lower(9.0f, 1.0f)
 	{
 	}
 
@@ -562,7 +598,12 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
 	TSoftObjectPtr<UStaticMesh> RingMesh;
 
-	/** 영향 범위 결정 방식 */
+	/**
+	 * 영향 범위 결정 방식
+	 * - Mesh Based: Ring 메시 SDF로 자동 계산 (가장 정확)
+	 * - Virtual Ring: 수동 반경 지정 (단순 원통형)
+	 * - Virtual Band: 스타킹/타이즈용 가변 원통
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (DisplayName = "Effect Range Mode"))
 	EFleshRingInfluenceMode InfluenceMode = EFleshRingInfluenceMode::MeshBased;
 
@@ -570,15 +611,27 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY()
 	bool bEditorVisible = true;
 
-	/** Ring 반지름 (VirtualRing 모드에서만 사용) */
+	/**
+	 * Ring 반지름 (cm)
+	 * - 조임의 내부 반경
+	 * - 작을수록 강하게 조임 ↔ 클수록 느슨하게 조임
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::VirtualRing", ClampMin = "0.1", ClampMax = "100.0"))
 	float RingRadius = 5.0f;
 
-	/** 링 두께 - 반경 방향 벽 두께 (안쪽→바깥쪽) */
+	/**
+	 * Ring 두께 (cm)
+	 * - 영향 범위의 반경 방향 폭
+	 * - 얇을수록 경계가 날카로움 ↔ 두꺼울수록 부드럽게 페이드
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::VirtualRing", ClampMin = "0.1", ClampMax = "20.0"))
 	float RingThickness = 1.0f;
 
-	/** 링 높이 - 축 방향 전체 높이 (위아래 각각 RingHeight/2) */
+	/**
+	 * Ring 높이 (cm)
+	 * - 축 방향 영향 범위
+	 * - 중심에서 위아래로 각각 Height/2만큼 영향
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::VirtualRing", ClampMin = "0.1", ClampMax = "50.0"))
 	float RingHeight = 2.0f;
 
@@ -594,35 +647,67 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::VirtualRing", DisplayName = "Ring Rotation"))
 	FRotator RingEulerRotation = FRotator(-90.0f, 0.0f, 0.0f);
 
-	/** Bulge 효과 활성화 (부피 보존) */
+	/**
+	 * Bulge 효과 활성화
+	 * - ON: Tightness로 눌린 부피만큼 주변이 불룩해짐 (부피 보존)
+	 * - OFF: 순수 Tightness만 적용 (부피 손실)
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring")
 	bool bEnableBulge = true;
 
-	/** Bulge 방향 모드 (Auto: SDF 경계 감지, Positive: +Z, Negative: -Z) */
+	/**
+	 * Bulge 방향 모드
+	 * - Auto: SDF 경계 감지 (폐쇄 메시는 양방향)
+	 * - Bidirectional: 위아래 양방향 (도넛형 Ring)
+	 * - Positive/Negative: 한쪽 방향만 (+Z/-Z)
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge"))
 	EBulgeDirectionMode BulgeDirection = EBulgeDirectionMode::Auto;
 
-	/** Bulge Falloff 커브 타입 (거리에 따른 영향도 감쇠 방식) */
+	/**
+	 * Bulge 감쇠 커브
+	 * - 거리에 따라 Bulge 영향이 줄어드는 방식
+	 * - 권장: WendlandC2 (가장 자연스러움)
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge"))
 	EFleshRingFalloffType BulgeFalloff = EFleshRingFalloffType::WendlandC2;
 
-	/** 볼록 효과 강도 */
+	/**
+	 * Bulge 강도 배율
+	 * - 0: Bulge 없음 ↔ 1: 기본 ↔ 2+: 과장된 효과
+	 * - 권장: 0.8~1.2
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "0.0"))
 	float BulgeIntensity = 1.0f;
 
-	/** Bulge 수직 확산 범위 (Ring 높이 대비 배수, 위아래로 얼마나 퍼지는지) */
+	/**
+	 * Bulge 수직 확산 범위 (Ring 높이 대비 배수)
+	 * - 1: Ring 높이만큼만 ↔ 8: Ring 높이의 8배까지 퍼짐
+	 * - 권장: 3~5
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "1.0", ClampMax = "8.0", DisplayName = "Bulge Vertical Spread"))
 	float BulgeAxialRange = 5.0f;
 
-	/** Bulge 수평 확산 범위 (Ring 반지름 대비 배수, 옆으로 얼마나 퍼지는지) */
+	/**
+	 * Bulge 수평 확산 범위 (Ring 반지름 대비 배수)
+	 * - 1: Ring 반지름만큼 ↔ 3: Ring 반지름의 3배까지 퍼짐
+	 * - 권장: 1~1.5
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "1.0", ClampMax = "3.0", DisplayName = "Bulge Horizontal Spread"))
 	float BulgeRadialRange = 1.0f;
 
-	/** 상단 Bulge 강도 배수 (1.0 = 기본, 0.0 = 비활성) */
+	/**
+	 * 상단 Bulge 강도 (Ring 위쪽)
+	 * - 0: 상단 Bulge 비활성 ↔ 1: 기본 ↔ 2: 2배 강도
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "0.0", ClampMax = "2.0"))
 	float UpperBulgeStrength = 1.0f;
 
-	/** 하단 Bulge 강도 배수 (1.0 = 기본, 0.0 = 비활성, 스타킹 효과용) */
+	/**
+	 * 하단 Bulge 강도 (Ring 아래쪽)
+	 * - 0: 하단 Bulge 비활성 ↔ 1: 기본 ↔ 2: 2배 강도
+	 * - 스타킹 효과: 하단을 0으로 설정
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "0.0", ClampMax = "2.0"))
 	float LowerBulgeStrength = 1.0f;
 
@@ -635,34 +720,46 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "0.0", ClampMax = "1.0", DisplayName = "Bulge Direction Bias"))
 	float BulgeRadialRatio = 0.7f;
 
-	/** 조이기 강도 */
+	/**
+	 * Tightness 강도 (조이기)
+	 * - 0: 효과 없음 ↔ 1: 기본 ↔ 3: 강하게 압축
+	 * - 권장: 0.5~1.5
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "3.0"))
 	float TightnessStrength = 1.0f;
 
 	/**
-	 * 효과 바운드 X 방향 확장 cm (Mesh Based 모드 전용)
-	 * SDF 텍스처 생성 및 버텍스 필터링 바운드를 X 방향으로 확장
-	 * 작은 Ring이 더 큰 영역을 커버해야 할 때 사용
+	 * 효과 바운드 X 방향 확장 (cm)
+	 * - SDF 및 버텍스 필터링 바운드를 X 방향으로 확장
+	 * - 작은 Ring이 더 넓은 영역을 커버해야 할 때 사용
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "10.0", DisplayName = "Effect Bounds Expand X"))
 	float SDFBoundsExpandX = 0.0f;
 
 	/**
-	 * 효과 바운드 Y 방향 확장 cm (Mesh Based 모드 전용)
-	 * SDF 텍스처 생성 및 버텍스 필터링 바운드를 Y 방향으로 확장
-	 * 작은 Ring이 더 큰 영역를 커버해야 할 때 사용
+	 * 효과 바운드 Y 방향 확장 (cm)
+	 * - SDF 및 버텍스 필터링 바운드를 Y 방향으로 확장
+	 * - 작은 Ring이 더 넓은 영역을 커버해야 할 때 사용
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "10.0", DisplayName = "Effect Bounds Expand Y"))
 	float SDFBoundsExpandY = 0.0f;
 
-	/** 감쇠 곡선 타입 */
+	/**
+	 * Tightness 감쇠 커브
+	 * - Linear: 선형 감쇠 (날카로운 경계)
+	 * - Quadratic: 2차 곡선 (부드러움)
+	 * - Hermite: S-커브 (가장 부드러움, 권장)
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (DisplayName = "Tightness Falloff"))
 	EFalloffType FalloffType = EFalloffType::Linear;
 
 	/**
-	 * Tightness 효과가 적용될 메시 레이어
-	 * 선택되지 않은 레이어의 버텍스는 영향 범위에 있어도 수집되지 않음
-	 * 기본값: Skin | Other (미분류 포함하여 "일단 동작하게")
+	 * Tightness 적용 대상 레이어 (비트마스크)
+	 * - 체크된 레이어만 Ring 영향을 받음
+	 * - Skin: 피부/살
+	 * - Stocking: 스타킹/타이즈
+	 * - Underwear/Outerwear: 속옷/겉옷
+	 * - Other: 미분류 머티리얼
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring",
 		meta = (DisplayName = "Target Material Layers", Bitmask, BitmaskEnum = "/Script/FleshRingRuntime.EFleshRingLayerMask"))
@@ -694,7 +791,11 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 
 	// ===== Post Process (후처리 전체 제어) =====
 
-	/** 후처리 활성화 (Smoothing, Edge Length Preservation 등 모든 후처리 제어) */
+	/**
+	 * 후처리 활성화
+	 * - ON: Smoothing, Edge Length Preservation 등 후처리 적용
+	 * - OFF: 모든 후처리 비활성
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process")
 	bool bEnablePostProcess = true;
 
@@ -702,32 +803,43 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 
 	/**
 	 * 스무딩 영역 선택 모드
-	 * - BoundsExpand: Z축 바운드 확장 방식
-	 * - Depth-Based: 토폴로지 기반 깊이 전파 (Seed에서 N깊이까지)
+	 * - Bounds Expand: Z축 바운드 확장 (단순)
+	 * - Depth-Based: 토폴로지 기반 깊이 전파 (정밀)
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess"))
 	ESmoothingVolumeMode SmoothingVolumeMode = ESmoothingVolumeMode::BoundsExpand;
 
 	/**
 	 * 최대 스무딩 깊이
-	 * Seed(변형된 버텍스)에서 몇 깊이까지 스무딩을 적용할지
-	 * 권장: 저해상도 메시 5~10, 고해상도 메시 3~5
+	 * - Seed(변형된 버텍스)에서 몇 깊이까지 스무딩 적용
+	 * - 1: 최소 ↔ 100: 최대
+	 * - 권장: 저해상도 5~10, 고해상도 3~5
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (DisplayName = "Max Smoothing Depth", EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides, ClampMin = "1", ClampMax = "100"))
 	int32 MaxSmoothingHops = 5;
 
 	/**
 	 * 깊이에 따른 스무딩 강도 감쇠 곡선
-	 * Seed에서 멀어질수록 스무딩 영향이 감소하는 방식
+	 * - Linear: 선형 감쇠 (날카로운 경계)
+	 * - Quadratic: 2차 곡선 (부드러움)
+	 * - Hermite: S-커브 (가장 부드러움, 권장)
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (DisplayName = "Depth Falloff", EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides))
 	EFalloffType HopFalloffType = EFalloffType::Hermite;
 
-	/** 스무딩 영역 상단 확장 거리 (cm) */
+	/**
+	 * 스무딩 영역 상단 확장 거리 (cm)
+	 * - Ring 바운드 위쪽으로 추가 스무딩 범위
+	 * - 0: 확장 없음 ↔ 50: 최대 확장
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::BoundsExpand", EditConditionHides, ClampMin = "0.0", ClampMax = "50.0", DisplayName = "Bounds Expand Top (cm)"))
 	float SmoothingBoundsZTop = 5.0f;
 
-	/** 스무딩 영역 하단 확장 거리 (cm) */
+	/**
+	 * 스무딩 영역 하단 확장 거리 (cm)
+	 * - Ring 바운드 아래쪽으로 추가 스무딩 범위
+	 * - 0: 확장 없음 ↔ 50: 최대 확장
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::BoundsExpand", EditConditionHides, ClampMin = "0.0", ClampMax = "50.0", DisplayName = "Bounds Expand Bottom (cm)"))
 	float SmoothingBoundsZBottom = 0.0f;
 
@@ -735,51 +847,61 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 
 	/**
 	 * 변형 전파 활성화
-	 * Seed(직접 변형된 버텍스)의 변형량을 주변 영역으로 점진적으로 확산
-	 * Tightness 직후, Surface Smoothing 전에 실행
+	 * - ON: Seed의 변형량을 주변으로 점진적 확산
+	 * - OFF: Seed만 변형, 주변은 원본 유지
+	 * - 실행 순서: Radial Smoothing 이후, Surface Smoothing 이전
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Deformation Spread", meta = (DisplayName = "Enable Deformation Spread", EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides))
 	bool bEnableHeatPropagation = true;
 
 	/**
 	 * 변형 전파 반복 횟수
-	 * 높을수록 더 넓게 확산 (권장: 5~20)
+	 * - 1: 최소 확산 ↔ 50: 최대 확산
+	 * - 권장: 5~20
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Deformation Spread", meta = (DisplayName = "Spread Iterations", EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && bEnableHeatPropagation", EditConditionHides, ClampMin = "1", ClampMax = "50"))
 	int32 HeatPropagationIterations = 10;
 
 	/**
 	 * 변형 전파 강도
-	 * 각 반복에서 이웃 평균과 블렌딩하는 비율
-	 * 0.5 권장, 높을수록 빠른 확산
+	 * - 0.1: 느린 확산 ↔ 0.9: 빠른 확산
+	 * - 권장: 0.5
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Deformation Spread", meta = (DisplayName = "Spread Strength", EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && bEnableHeatPropagation", EditConditionHides, ClampMin = "0.1", ClampMax = "0.9"))
 	float HeatPropagationLambda = 0.5f;
 
 	/**
 	 * Bulge 버텍스도 전파 Seed로 포함
-	 * true: Tightness + Bulge 변형 모두 전파
-	 * false: Tightness 변형만 전파
+	 * - ON: Tightness + Bulge 변형 모두 전파
+	 * - OFF: Tightness 변형만 전파
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Deformation Spread", meta = (DisplayName = "Spread From Bulge", EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased && bEnableHeatPropagation", EditConditionHides))
 	bool bIncludeBulgeVerticesAsSeeds = true;
 
 	// ===== Smoothing (스무딩 전체 제어) =====
 
-	/** 스무딩 활성화 (Radial, Surface Smoothing 모든 스무딩 제어) */
+	/**
+	 * 스무딩 활성화
+	 * - ON: Radial + Surface 스무딩 적용
+	 * - OFF: 모든 스무딩 비활성
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess"))
 	bool bEnableSmoothing = true;
 
 	// ===== Radial Smoothing (반경 균일화) =====
 
-	/** 반경 균일화 스무딩 활성화 (같은 높이의 버텍스들이 동일한 반경을 갖도록) */
+	/**
+	 * 반경 균일화 스무딩 활성화
+	 * - ON: 같은 높이의 버텍스들이 동일한 반경을 갖도록 균일화
+	 * - OFF: 개별 버텍스 반경 유지
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing", EditConditionHides))
 	bool bEnableRadialSmoothing = true;
 
 	/**
 	 * 반경 균일화 강도
-	 * - 0.0: 효과 없음 (원본 유지)
-	 * - 1.0: 완전 균일화 (같은 높이의 버텍스들이 동일한 반경)
+	 * - 0: 효과 없음 (원본 유지) ↔ 1: 완전 균일화
+	 * - 권장: 0.8~1.0
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableRadialSmoothing", EditConditionHides, ClampMin = "0.0", ClampMax = "1.0"))
 	float RadialBlendStrength = 1.0f;
@@ -787,86 +909,101 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	/**
 	 * 반경 균일화 슬라이스 높이 (cm)
 	 * - 같은 슬라이스 내 버텍스들이 동일 반경으로 처리됨
-	 * - 고밀도 메시: 작은 값 (0.5cm), 저밀도 메시: 큰 값 (2cm)
+	 * - 0.1: 정밀 (고밀도 메시) ↔ 10: 거칠게 (저밀도 메시)
+	 * - 권장: 고밀도 0.5, 저밀도 2.0
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableRadialSmoothing", EditConditionHides, ClampMin = "0.1", ClampMax = "10.0"))
 	float RadialSliceHeight = 1.0f;
 
 	// ===== Surface Smoothing 설정 =====
 
-	/** Surface Smoothing 활성화 (메시 표면을 부드럽게 처리) */
+	/**
+	 * Surface Smoothing 활성화
+	 * - ON: 메시 표면을 Laplacian 알고리즘으로 부드럽게 처리
+	 * - OFF: 표면 스무딩 없음
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (DisplayName = "Enable Surface Smoothing", EditCondition = "bEnablePostProcess && bEnableSmoothing", EditConditionHides))
 	bool bEnableLaplacianSmoothing = true;
 
 	/**
-	 * Surface Smoothing 알고리즘 선택
+	 * Surface Smoothing 알고리즘
 	 * - Standard: 일반 스무딩 (반복 시 수축 발생)
-	 * - Volume Preserving: 부피 보존 스무딩 (수축 없이 부드럽게, 권장)
+	 * - Volume Preserving: 부피 보존 스무딩 (수축 방지, 권장)
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (DisplayName = "Smoothing Type", EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides))
 	ELaplacianSmoothingType LaplacianSmoothingType = ELaplacianSmoothingType::Taubin;
 
 	/**
 	 * 스무딩 강도
-	 * 권장: 0.3~0.7, 기본값 0.5
-	 * 경고: 0.8 초과 시 수치 불안정 (비늘 현상)
+	 * - 0.1: 약하게 ↔ 0.8: 강하게 (0.8 초과 시 불안정)
+	 * - 권장: 0.3~0.7
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (DisplayName = "Smoothing Strength", EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides, ClampMin = "0.1", ClampMax = "0.8", UIMin = "0.1", UIMax = "0.8"))
 	float SmoothingLambda = 0.5f;
 
 	/**
 	 * Volume Preserving 모드의 팽창 강도 (음수값)
-	 * 조건: |μ| > λ, 0이면 자동 계산
+	 * - -1.0: 강한 팽창 ↔ 0: 자동 계산
+	 * - 조건: |μ| > λ 이어야 수축 방지
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing && LaplacianSmoothingType == ELaplacianSmoothingType::Taubin", EditConditionHides, AdvancedDisplay, ClampMin = "-1.0", ClampMax = "0.0"))
 	float TaubinMu = -0.53f;
 
-	/** 스무딩 반복 횟수 (Volume Preserving: 각 반복 = 수축+팽창 2패스) */
+	/**
+	 * 스무딩 반복 횟수
+	 * - 1: 최소 ↔ 20: 최대 (Volume Preserving: 각 반복 = 2패스)
+	 * - 권장: 2~5
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (DisplayName = "Smoothing Iterations", EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides, ClampMin = "1", ClampMax = "20"))
 	int32 SmoothingIterations = 2;
 
 	/**
-	 * 변형된 영역 고정
-	 * true: Tightness로 직접 변형된 버텍스는 고정, 확장 영역만 스무딩
-	 * false: 모든 버텍스에 Influence 비례 스무딩
-	 *
-	 * 앵커 판정 기준: 원본 Affected Vertices 멤버십
-	 * - Depth-Based: Seed 버텍스 (Depth=0) → 앵커
-	 * - Bounds-Based: 원본 SDF AABB 내 버텍스 → 앵커
+	 * 변형된 버텍스 고정
+	 * - ON: Tightness 영역 버텍스는 고정, 확장 영역만 스무딩
+	 * - OFF: 모든 버텍스가 자유롭게 스무딩
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (DisplayName = "Lock Deformed Areas", EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (DisplayName = "Lock Deformed Vertices", EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides))
 	bool bAnchorDeformedVertices = false;
 
 	// ===== Edge Length Preservation 설정 =====
 
 	/**
 	 * 엣지 길이 보존 활성화
-	 * 변형으로 인해 늘어나거나 줄어든 엣지를 원래 길이에 가깝게 복원
-	 * 메시의 과도한 늘어남/찌그러짐 방지
+	 * - ON: 변형으로 늘어난/줄어든 엣지를 원래 길이로 복원
+	 * - OFF: 엣지 길이 제약 없음
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Edge Length Preservation", meta = (DisplayName = "Enable Edge Length Preservation", EditCondition = "bEnablePostProcess"))
 	bool bEnablePBDEdgeConstraint = false;
 
-	/** 제약 강도 (0.0 ~ 1.0), 권장: 0.5 ~ 0.9 */
+	/**
+	 * 제약 강도
+	 * - 0: 약함 ↔ 1: 강함
+	 * - 권장: 0.5~0.9
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Edge Length Preservation", meta = (DisplayName = "Constraint Strength", EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", EditConditionHides, ClampMin = "0.0", ClampMax = "1.0"))
 	float PBDStiffness = 0.8f;
 
-	/** 제약 반복 횟수, 권장: 3 ~ 10 */
+	/**
+	 * 제약 반복 횟수
+	 * - 1: 최소 ↔ 100: 최대
+	 * - 권장: 3~10
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Edge Length Preservation", meta = (DisplayName = "Constraint Iterations", EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", EditConditionHides, ClampMin = "1", ClampMax = "100"))
 	int32 PBDIterations = 5;
 
 	/**
-	 * 허용 오차 비율 (0.0 ~ 0.5)
-	 * 이 범위 내의 변형은 유지됨 (데드존)
-	 * 예: 0.2 → 원래 길이의 80%~120% 범위는 보정하지 않음
+	 * 허용 오차 비율 (데드존)
+	 * - 이 범위 내의 변형은 유지됨
+	 * - 0: 모든 변형 보정 ↔ 0.5: 50% 변형까지 허용
+	 * - 예: 0.2 = 80%~120% 범위는 보정 안 함
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Edge Length Preservation", meta = (DisplayName = "Stretch Tolerance", EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", EditConditionHides, ClampMin = "0.0", ClampMax = "0.5"))
 	float PBDTolerance = 0.2f;
 
 	/**
 	 * 변형된 버텍스 고정
-	 * ON: Tightness 영역 버텍스는 고정점으로 동작 (기본값)
-	 * OFF: 모든 버텍스가 자유롭게 이동
+	 * - ON: Tightness 영역 버텍스는 고정, 확장 영역만 길이 보정
+	 * - OFF: 모든 버텍스가 자유롭게 이동
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Edge Length Preservation", meta = (DisplayName = "Lock Deformed Vertices", EditCondition = "bEnablePostProcess && bEnablePBDEdgeConstraint", EditConditionHides))
 	bool bPBDAnchorAffectedVertices = true;
