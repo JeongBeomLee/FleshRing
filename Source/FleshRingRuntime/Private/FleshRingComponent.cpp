@@ -7,7 +7,6 @@
 #include "FleshRingMeshExtractor.h"
 #include "FleshRingSDF.h"
 #include "FleshRingVirtualBandMesh.h"
-#include "FleshRingVirtualBandSDF.h"
 #include "FleshRingDeformerInstance.h"
 #include "FleshRingBulgeTypes.h"
 #include "FleshRingFalloff.h"
