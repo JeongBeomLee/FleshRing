@@ -118,7 +118,7 @@ public:
 	 * - OFF: 변형 거리와 관계없이 동일한 블렌딩 적용
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normals", meta = (DisplayName = "Displacement-Based Blending", EditCondition = "bEnableNormalRecompute"))
-	bool bEnableDisplacementBlending = false;
+	bool bEnableDisplacementBlending = true;
 
 	/**
 	 * 변위 블렌딩 최대 거리 (cm)

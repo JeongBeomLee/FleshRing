@@ -1616,20 +1616,87 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	// HopBased 설정 (SmoothingVolumeMode == HopBased일 때만 보임)
 	if (MaxSmoothingHopsHandle.IsValid())
 	{
-		SmoothingVolumeGroup.AddPropertyRow(MaxSmoothingHopsHandle.ToSharedRef());
-	}
-	if (HopFalloffTypeHandle.IsValid())
-	{
-		SmoothingVolumeGroup.AddPropertyRow(HopFalloffTypeHandle.ToSharedRef());
+		SmoothingVolumeGroup.AddPropertyRow(MaxSmoothingHopsHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						int32 Value;
+						Handle->GetValue(Value);
+						return Value != 5;
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(5);
+					})
+				)
+			);
 	}
 	// BoundsExpand 설정 (SmoothingVolumeMode == BoundsExpand일 때만 보임)
 	if (SmoothingBoundsZTopHandle.IsValid())
 	{
-		SmoothingVolumeGroup.AddPropertyRow(SmoothingBoundsZTopHandle.ToSharedRef());
+		SmoothingVolumeGroup.AddPropertyRow(SmoothingBoundsZTopHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyEqual(Value, 5.0f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(5.0f);
+					})
+				)
+			);
 	}
 	if (SmoothingBoundsZBottomHandle.IsValid())
 	{
-		SmoothingVolumeGroup.AddPropertyRow(SmoothingBoundsZBottomHandle.ToSharedRef());
+		SmoothingVolumeGroup.AddPropertyRow(SmoothingBoundsZBottomHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyEqual(Value, 0.0f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(0.0f);
+					})
+				)
+			);
+	}
+	// Advanced (HopBased 모드일 때만 표시)
+	TAttribute<EVisibility> SmoothingVolumeAdvancedVisibility = TAttribute<EVisibility>::Create([SmoothingVolumeModeHandle]() -> EVisibility
+	{
+		if (!SmoothingVolumeModeHandle.IsValid()) return EVisibility::Collapsed;
+		uint8 ModeValue;
+		SmoothingVolumeModeHandle->GetValue(ModeValue);
+		return static_cast<ESmoothingVolumeMode>(ModeValue) == ESmoothingVolumeMode::HopBased
+			? EVisibility::Visible : EVisibility::Collapsed;
+	});
+	IDetailGroup& SmoothingVolumeAdvancedGroup = SmoothingVolumeGroup.AddGroup(TEXT("SmoothingVolumeAdvanced"), LOCTEXT("SmoothingVolumeAdvancedGroup", "Advanced"));
+	SmoothingVolumeAdvancedGroup.HeaderRow()
+		.Visibility(SmoothingVolumeAdvancedVisibility)
+		.NameContent()
+		[
+			SNew(STextBlock)
+			.Text(LOCTEXT("SmoothingVolumeAdvanced", "Advanced"))
+			.Font(IDetailLayoutBuilder::GetDetailFont())
+		];
+	if (HopFalloffTypeHandle.IsValid())
+	{
+		SmoothingVolumeAdvancedGroup.AddPropertyRow(HopFalloffTypeHandle.ToSharedRef())
+			.Visibility(SmoothingVolumeAdvancedVisibility)
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						uint8 Value;
+						Handle->GetValue(Value);
+						return Value != static_cast<uint8>(EFalloffType::Hermite);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(static_cast<uint8>(EFalloffType::Hermite));
+					})
+				)
+			);
 	}
 
 	// ===== Smoothing 서브그룹 =====
@@ -1649,15 +1716,51 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	}
 	if (HeatPropagationIterationsHandle.IsValid())
 	{
-		HeatPropagationGroup.AddPropertyRow(HeatPropagationIterationsHandle.ToSharedRef());
+		HeatPropagationGroup.AddPropertyRow(HeatPropagationIterationsHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						int32 Value;
+						Handle->GetValue(Value);
+						return Value != 10;
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(10);
+					})
+				)
+			);
 	}
 	if (HeatPropagationLambdaHandle.IsValid())
 	{
-		HeatPropagationGroup.AddPropertyRow(HeatPropagationLambdaHandle.ToSharedRef());
+		HeatPropagationGroup.AddPropertyRow(HeatPropagationLambdaHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyEqual(Value, 0.5f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(0.5f);
+					})
+				)
+			);
 	}
 	if (bIncludeBulgeVerticesAsSeedsHandle.IsValid())
 	{
-		HeatPropagationGroup.AddPropertyRow(bIncludeBulgeVerticesAsSeedsHandle.ToSharedRef());
+		HeatPropagationGroup.AddPropertyRow(bIncludeBulgeVerticesAsSeedsHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						bool Value;
+						Handle->GetValue(Value);
+						return Value != true;
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(true);
+					})
+				)
+			);
 	}
 
 	// ===== Radial 서브그룹 =====
@@ -1668,11 +1771,53 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	}
 	if (RadialBlendStrengthHandle.IsValid())
 	{
-		RadialGroup.AddPropertyRow(RadialBlendStrengthHandle.ToSharedRef());
+		RadialGroup.AddPropertyRow(RadialBlendStrengthHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyEqual(Value, 1.0f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(1.0f);
+					})
+				)
+			);
 	}
+	// Advanced (Radial Smoothing 활성화 시에만 표시)
+	TAttribute<EVisibility> RadialAdvancedVisibility = TAttribute<EVisibility>::Create([bEnableRadialSmoothingHandle]() -> EVisibility
+	{
+		if (!bEnableRadialSmoothingHandle.IsValid()) return EVisibility::Collapsed;
+		bool bEnabled = false;
+		bEnableRadialSmoothingHandle->GetValue(bEnabled);
+		return bEnabled ? EVisibility::Visible : EVisibility::Collapsed;
+	});
+	IDetailGroup& RadialAdvancedGroup = RadialGroup.AddGroup(TEXT("RadialAdvanced"), LOCTEXT("RadialAdvancedGroup", "Advanced"));
+	RadialAdvancedGroup.HeaderRow()
+		.Visibility(RadialAdvancedVisibility)
+		.NameContent()
+		[
+			SNew(STextBlock)
+			.Text(LOCTEXT("RadialAdvanced", "Advanced"))
+			.Font(IDetailLayoutBuilder::GetDetailFont())
+		];
 	if (RadialSliceHeightHandle.IsValid())
 	{
-		RadialGroup.AddPropertyRow(RadialSliceHeightHandle.ToSharedRef());
+		RadialAdvancedGroup.AddPropertyRow(RadialSliceHeightHandle.ToSharedRef())
+			.Visibility(RadialAdvancedVisibility)
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyEqual(Value, 1.0f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(1.0f);
+					})
+				)
+			);
 	}
 
 	// ===== Surface Smoothing 서브그룹 =====
@@ -1684,26 +1829,84 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	// 공통 파라미터 (Iterations → Lambda 순서)
 	if (SmoothingIterationsHandle.IsValid())
 	{
-		LaplacianGroup.AddPropertyRow(SmoothingIterationsHandle.ToSharedRef());
+		LaplacianGroup.AddPropertyRow(SmoothingIterationsHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						int32 Value;
+						Handle->GetValue(Value);
+						return Value != 2;
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(2);
+					})
+				)
+			);
 	}
 	if (SmoothingLambdaHandle.IsValid())
 	{
-		LaplacianGroup.AddPropertyRow(SmoothingLambdaHandle.ToSharedRef());
+		LaplacianGroup.AddPropertyRow(SmoothingLambdaHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyEqual(Value, 0.5f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(0.5f);
+					})
+				)
+			);
 	}
 	// 알고리즘 선택
 	if (LaplacianSmoothingTypeHandle.IsValid())
 	{
 		LaplacianGroup.AddPropertyRow(LaplacianSmoothingTypeHandle.ToSharedRef());
 	}
-	// 알고리즘별 전용 파라미터
-	if (TaubinMuHandle.IsValid())
-	{
-		LaplacianGroup.AddPropertyRow(TaubinMuHandle.ToSharedRef());
-	}
 	// 앵커 모드 (직접 변형된 버텍스 고정)
 	if (bAnchorDeformedVerticesHandle.IsValid())
 	{
 		LaplacianGroup.AddPropertyRow(bAnchorDeformedVerticesHandle.ToSharedRef());
+	}
+	// Advanced (Surface Smoothing + Taubin 타입일 때만 표시)
+	TAttribute<EVisibility> LaplacianAdvancedVisibility = TAttribute<EVisibility>::Create([bEnableLaplacianSmoothingHandle, LaplacianSmoothingTypeHandle]() -> EVisibility
+	{
+		if (!bEnableLaplacianSmoothingHandle.IsValid() || !LaplacianSmoothingTypeHandle.IsValid())
+			return EVisibility::Collapsed;
+		bool bEnabled = false;
+		bEnableLaplacianSmoothingHandle->GetValue(bEnabled);
+		if (!bEnabled) return EVisibility::Collapsed;
+		uint8 TypeValue;
+		LaplacianSmoothingTypeHandle->GetValue(TypeValue);
+		return static_cast<ELaplacianSmoothingType>(TypeValue) == ELaplacianSmoothingType::Taubin
+			? EVisibility::Visible : EVisibility::Collapsed;
+	});
+	IDetailGroup& LaplacianAdvancedGroup = LaplacianGroup.AddGroup(TEXT("SurfaceSmoothingAdvanced"), LOCTEXT("SurfaceSmoothingAdvancedGroup", "Advanced"));
+	LaplacianAdvancedGroup.HeaderRow()
+		.Visibility(LaplacianAdvancedVisibility)
+		.NameContent()
+		[
+			SNew(STextBlock)
+			.Text(LOCTEXT("LaplacianAdvanced", "Advanced"))
+			.Font(IDetailLayoutBuilder::GetDetailFont())
+		];
+	if (TaubinMuHandle.IsValid())
+	{
+		LaplacianAdvancedGroup.AddPropertyRow(TaubinMuHandle.ToSharedRef())
+			.Visibility(LaplacianAdvancedVisibility)
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyEqual(Value, -0.53f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(-0.53f);
+					})
+				)
+			);
 	}
 
 	// ===== Edge Length Preservation 서브그룹 =====
@@ -1719,15 +1922,69 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	}
 	if (PBDStiffnessHandle.IsValid())
 	{
-		PBDGroup.AddPropertyRow(PBDStiffnessHandle.ToSharedRef());
+		PBDGroup.AddPropertyRow(PBDStiffnessHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyEqual(Value, 0.8f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(0.8f);
+					})
+				)
+			);
 	}
 	if (PBDIterationsHandle.IsValid())
 	{
-		PBDGroup.AddPropertyRow(PBDIterationsHandle.ToSharedRef());
+		PBDGroup.AddPropertyRow(PBDIterationsHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						int32 Value;
+						Handle->GetValue(Value);
+						return Value != 5;
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(5);
+					})
+				)
+			);
 	}
+	// Advanced (Edge Length Preservation 활성화 시에만 표시)
+	TAttribute<EVisibility> PBDAdvancedVisibility = TAttribute<EVisibility>::Create([bEnablePBDEdgeConstraintHandle]() -> EVisibility
+	{
+		if (!bEnablePBDEdgeConstraintHandle.IsValid()) return EVisibility::Collapsed;
+		bool bEnabled = false;
+		bEnablePBDEdgeConstraintHandle->GetValue(bEnabled);
+		return bEnabled ? EVisibility::Visible : EVisibility::Collapsed;
+	});
+	IDetailGroup& PBDAdvancedGroup = PBDGroup.AddGroup(TEXT("EdgeLengthPreservationAdvanced"), LOCTEXT("EdgeLengthPreservationAdvancedGroup", "Advanced"));
+	PBDAdvancedGroup.HeaderRow()
+		.Visibility(PBDAdvancedVisibility)
+		.NameContent()
+		[
+			SNew(STextBlock)
+			.Text(LOCTEXT("PBDAdvanced", "Advanced"))
+			.Font(IDetailLayoutBuilder::GetDetailFont())
+		];
 	if (PBDToleranceHandle.IsValid())
 	{
-		PBDGroup.AddPropertyRow(PBDToleranceHandle.ToSharedRef());
+		PBDAdvancedGroup.AddPropertyRow(PBDToleranceHandle.ToSharedRef())
+			.Visibility(PBDAdvancedVisibility)
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyEqual(Value, 0.2f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(0.2f);
+					})
+				)
+			);
 	}
 }
 
