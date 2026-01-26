@@ -260,7 +260,8 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 		FFleshRingDebugPointPS::FParameters* PSParams =
 			GraphBuilder.AllocParameters<FFleshRingDebugPointPS::FParameters>();
 		PSParams->DebugPointsRDG = TightnessSRV;
-		// RingVisibilityMask는 RHI SRV로 lambda 내에서 바인딩
+		PSParams->RingVisibilityMask = VisibilityMaskSRV;
+		PSParams->NumVisibilityMaskElements = NumMaskElements;
 		PSParams->RenderTargets[0] = FRenderTargetBinding(ColorTarget, ERenderTargetLoadAction::ELoad);
 		// 첫 번째 패스: depth buffer Clear
 		PSParams->RenderTargets.DepthStencil = FDepthStencilBinding(
@@ -274,7 +275,7 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 			ERDGPassFlags::Raster,
 			[VertexShader, PixelShader, LocalTightnessPointCount, ViewRect, TightnessSRV,
 			 ViewProjectionMatrix, InvViewportSize, LocalPointSizeBase, LocalPointSizeInfluence,
-			 VisibilityMaskSRV, NumMaskElements](FRHICommandList& RHICmdList)
+			 PSParams](FRHICommandList& RHICmdList)
 			{
 				RHICmdList.SetViewport(
 					ViewRect.Min.X, ViewRect.Min.Y, 0.0f,
@@ -304,12 +305,8 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 				VSParams.PointSizeInfluence = LocalPointSizeInfluence;
 				VSParams.ColorMode = 0;  // Tightness: Blue → Green → Red
 
-				FFleshRingDebugPointPS::FParameters PSParamsLocal;
-				PSParamsLocal.RingVisibilityMask = VisibilityMaskSRV ? VisibilityMaskSRV->GetRHI() : nullptr;
-				PSParamsLocal.NumVisibilityMaskElements = NumMaskElements;
-
 				SetShaderParameters(RHICmdList, VertexShader, VertexShader.GetVertexShader(), VSParams);
-				SetShaderParameters(RHICmdList, PixelShader, PixelShader.GetPixelShader(), PSParamsLocal);
+				SetShaderParameters(RHICmdList, PixelShader, PixelShader.GetPixelShader(), *PSParams);
 
 				RHICmdList.DrawPrimitive(0, 2, LocalTightnessPointCount);
 			}
@@ -327,7 +324,8 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 		FFleshRingDebugPointPS::FParameters* PSParams =
 			GraphBuilder.AllocParameters<FFleshRingDebugPointPS::FParameters>();
 		PSParams->DebugPointsRDG = BulgeSRV;
-		// RingVisibilityMask는 RHI SRV로 lambda 내에서 바인딩
+		PSParams->RingVisibilityMask = VisibilityMaskSRV;
+		PSParams->NumVisibilityMaskElements = NumMaskElements;
 		PSParams->RenderTargets[0] = FRenderTargetBinding(ColorTarget, ERenderTargetLoadAction::ELoad);
 		// 두 번째 패스: Tightness가 렌더링된 경우 Load, 아니면 Clear
 		PSParams->RenderTargets.DepthStencil = FDepthStencilBinding(
@@ -341,7 +339,7 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 			ERDGPassFlags::Raster,
 			[VertexShader, PixelShader, LocalBulgePointCount, ViewRect, BulgeSRV,
 			 ViewProjectionMatrix, InvViewportSize, LocalPointSizeBase, LocalPointSizeInfluence,
-			 VisibilityMaskSRV, NumMaskElements](FRHICommandList& RHICmdList)
+			 PSParams](FRHICommandList& RHICmdList)
 			{
 				RHICmdList.SetViewport(
 					ViewRect.Min.X, ViewRect.Min.Y, 0.0f,
@@ -371,12 +369,8 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 				VSParams.PointSizeInfluence = LocalPointSizeInfluence;
 				VSParams.ColorMode = 1;  // Bulge: Cyan → Magenta
 
-				FFleshRingDebugPointPS::FParameters PSParamsLocal;
-				PSParamsLocal.RingVisibilityMask = VisibilityMaskSRV ? VisibilityMaskSRV->GetRHI() : nullptr;
-				PSParamsLocal.NumVisibilityMaskElements = NumMaskElements;
-
 				SetShaderParameters(RHICmdList, VertexShader, VertexShader.GetVertexShader(), VSParams);
-				SetShaderParameters(RHICmdList, PixelShader, PixelShader.GetPixelShader(), PSParamsLocal);
+				SetShaderParameters(RHICmdList, PixelShader, PixelShader.GetPixelShader(), *PSParams);
 
 				RHICmdList.DrawPrimitive(0, 2, LocalBulgePointCount);
 			}

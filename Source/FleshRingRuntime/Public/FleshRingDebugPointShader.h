@@ -78,8 +78,7 @@ public:
         // Ring 가시성 필터링용 비트마스크 배열 (무제한 Ring 지원)
         // 각 uint32 요소는 32개 Ring의 가시성 비트마스크
         // 요소[0] = Ring 0-31, 요소[1] = Ring 32-63, ...
-        // RHI SRV 직접 사용 (lambda 내 바인딩용)
-        SHADER_PARAMETER_SRV(StructuredBuffer<uint>, RingVisibilityMask)
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, RingVisibilityMask)
         SHADER_PARAMETER(uint32, NumVisibilityMaskElements)
 
         // Render target binding for output
