@@ -132,7 +132,7 @@ struct FNormalRecomputeDispatchParams
 	// Normal recompute mode (matches ENormalRecomputeMethod)
 	// 노멀 재계산 모드 (ENormalRecomputeMethod와 일치)
 	// 0 = Geometric, 1 = SurfaceRotation
-	uint32 NormalRecomputeMode = 2;  // Default: PolarDecomposition
+	uint32 NormalRecomputeMode = 1;  // Default: SurfaceRotation
 
 	// ===== Hop-based Blending Parameters =====
 	// ===== 홉 기반 블렌딩 파라미터 =====
