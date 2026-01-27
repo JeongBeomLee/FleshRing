@@ -29,7 +29,7 @@
 #include "HAL/PlatformApplicationMisc.h"
 #include "Engine/StaticMesh.h"
 
-// Stat 그룹 및 카운터 선언
+// Stat group and counter declarations
 DECLARE_STATS_GROUP(TEXT("FleshRingEditor"), STATGROUP_FleshRingEditor, STATCAT_Advanced);
 DECLARE_CYCLE_STAT(TEXT("Tick"), STAT_FleshRingEditor_Tick, STATGROUP_FleshRingEditor);
 DECLARE_CYCLE_STAT(TEXT("Draw"), STAT_FleshRingEditor_Draw, STATGROUP_FleshRingEditor);
@@ -41,11 +41,11 @@ DECLARE_CYCLE_STAT(TEXT("Invalidate"), STAT_FleshRingEditor_Invalidate, STATGROU
 
 IMPLEMENT_HIT_PROXY(HFleshRingGizmoHitProxy, HHitProxy);
 IMPLEMENT_HIT_PROXY(HFleshRingAxisHitProxy, HHitProxy);
-// HFleshRingMeshHitProxy는 FleshRingMeshComponent.cpp (Runtime 모듈)에서 IMPLEMENT_HIT_PROXY됨
+// HFleshRingMeshHitProxy is IMPLEMENT_HIT_PROXY'd in FleshRingMeshComponent.cpp (Runtime module)
 IMPLEMENT_HIT_PROXY(HFleshRingBoneHitProxy, HHitProxy);
 IMPLEMENT_HIT_PROXY(HFleshRingBandSectionHitProxy, HHitProxy);
 
-// 에셋별 설정 저장용 Config 섹션 베이스
+// Config section base for per-asset settings storage
 static const FString FleshRingViewportConfigSectionBase = TEXT("FleshRingEditorViewport");
 
 FFleshRingEditorViewportClient::FFleshRingEditorViewportClient(
@@ -56,69 +56,69 @@ FFleshRingEditorViewportClient::FFleshRingEditorViewportClient(
 	, PreviewScene(InPreviewScene)
 	, ViewportWidget(InViewportWidget)
 {
-	// Widget에 ModeTools 연결 (ShouldDrawWidget 호출을 위해 필요)
+	// Connect ModeTools to Widget (required for ShouldDrawWidget calls)
 	if (Widget && ModeTools)
 	{
 		Widget->SetUsesEditorModeTools(ModeTools.Get());
 	}
 
-	// 기본 카메라 설정
+	// Default camera settings
 	SetViewLocation(FVector(-300, 200, 150));
 	SetViewRotation(FRotator(-15, -30, 0));
 
-	// 뷰포트 설정
+	// Viewport settings
 	SetRealtime(true);
 	DrawHelper.bDrawGrid = true;
 	DrawHelper.bDrawPivot = false;
 	DrawHelper.AxesLineThickness = 2.0f;
 	DrawHelper.PivotSize = 5.0f;
 
-	// 근거리 평면 기본값 (작은 오브젝트 확대 시 클리핑 방지)
+	// Near clip plane default (prevent clipping when zooming into small objects)
 	OverrideNearClipPlane(0.001f);
 
-	// 배경 설정
+	// Background settings
 	EngineShowFlags.SetGrid(true);
-	EngineShowFlags.SetBones(false);  // 직접 그리기 위해 기본 본 렌더링 비활성화
+	EngineShowFlags.SetBones(false);  // Disable default bone rendering to draw manually
 
-	// 조명 설정
+	// Lighting settings
 	EngineShowFlags.SetLighting(true);
 	EngineShowFlags.SetPostProcessing(true);
 
-	// Stats 표시 활성화 (FPS 등)
+	// Enable stats display (FPS, etc.)
 	SetShowStats(true);
 
-	// 정적 인스턴스 레지스트리에 등록 (타입 안전 확인용)
+	// Register with static instance registry (for type-safe checks)
 	GetAllInstances().Add(this);
 
-	// Preview Scene Settings 변경 델리게이트 구독
+	// Subscribe to Preview Scene Settings change delegate
 	if (UAssetViewerSettings* Settings = UAssetViewerSettings::Get())
 	{
 		AssetViewerSettingsChangedHandle = Settings->OnAssetViewerSettingsChanged().AddRaw(
 			this, &FFleshRingEditorViewportClient::OnAssetViewerSettingsChanged);
 	}
 
-	// 초기 ShowFlags 적용
+	// Apply initial ShowFlags
 	ApplyPreviewSceneShowFlags();
 }
 
 FFleshRingEditorViewportClient::~FFleshRingEditorViewportClient()
 {
-	// Preview Scene Settings 변경 델리게이트 해제
+	// Unsubscribe from Preview Scene Settings change delegate
 	if (UAssetViewerSettings* Settings = UAssetViewerSettings::Get())
 	{
 		Settings->OnAssetViewerSettingsChanged().Remove(AssetViewerSettingsChangedHandle);
 	}
 
-	// 설정 저장
+	// Save settings
 	SaveSettings();
 
-	// 정적 인스턴스 레지스트리에서 제거
+	// Remove from static instance registry
 	GetAllInstances().Remove(this);
 }
 
 void FFleshRingEditorViewportClient::ToggleLocalCoordSystem()
 {
-	// 스케일 모드일 때는 토글하지 않음 (항상 로컬 유지)
+	// Don't toggle in scale mode (always keep local)
 	if (GetWidgetMode() == UE::Widget::WM_Scale)
 	{
 		return;
@@ -130,7 +130,7 @@ void FFleshRingEditorViewportClient::ToggleLocalCoordSystem()
 
 bool FFleshRingEditorViewportClient::IsUsingLocalCoordSystem() const
 {
-	// 스케일 모드일 때는 항상 로컬
+	// Always local in scale mode
 	if (GetWidgetMode() == UE::Widget::WM_Scale)
 	{
 		return true;
@@ -141,7 +141,7 @@ bool FFleshRingEditorViewportClient::IsUsingLocalCoordSystem() const
 
 void FFleshRingEditorViewportClient::SetLocalCoordSystem(bool bLocal)
 {
-	// 스케일 모드일 때는 변경하지 않음 (항상 로컬 유지)
+	// Don't change in scale mode (always keep local)
 	if (GetWidgetMode() == UE::Widget::WM_Scale)
 	{
 		return;
@@ -156,26 +156,26 @@ void FFleshRingEditorViewportClient::Tick(float DeltaSeconds)
 	SCOPE_CYCLE_COUNTER(STAT_FleshRingEditor_Tick);
 	FEditorViewportClient::Tick(DeltaSeconds);
 
-	// 첫 Tick에서 저장된 설정 로드 (생성자에서는 뷰포트가 아직 준비되지 않음)
+	// Load saved settings on first Tick (viewport not ready in constructor)
 	if (!bSettingsLoaded)
 	{
 		LoadSettings();
 		bSettingsLoaded = true;
 	}
 
-	// 프리뷰 씬 틱
+	// Preview scene tick
 	if (PreviewScene)
 	{
 		PreviewScene->GetWorld()->Tick(LEVELTICK_All, DeltaSeconds);
 
-		// Deformer 초기화 대기 상태 확인 - 메시가 렌더링되면 초기화 실행
+		// Check Deformer pending init state - execute init when mesh is rendered
 		if (PreviewScene->IsPendingDeformerInit())
 		{
 			PreviewScene->ExecutePendingDeformerInit();
 		}
 	}
 
-	// 카메라 포커스 보간 처리
+	// Camera focus interpolation handling
 	if (bIsCameraInterpolating)
 	{
 		const FVector CurrentLocation = GetViewLocation();
@@ -183,7 +183,7 @@ void FFleshRingEditorViewportClient::Tick(float DeltaSeconds)
 
 		SetViewLocation(NewLocation);
 
-		// 목표 지점에 충분히 가까워지면 보간 종료 (강제 스냅 없이)
+		// End interpolation when close enough to target (no forced snap)
 		const float DistanceToTarget = FVector::Dist(NewLocation, CameraTargetLocation);
 		if (DistanceToTarget < 0.01f)
 		{
@@ -193,8 +193,8 @@ void FFleshRingEditorViewportClient::Tick(float DeltaSeconds)
 		Invalidate();
 	}
 
-	// 선택된 링이 삭제되었는지 확인하고 선택 해제
-	// (Undo/Redo 중에는 스킵 - RefreshViewport에서 복원됨)
+	// Check if selected Ring was deleted and clear selection
+	// (Skip during Undo/Redo - restored in RefreshViewport)
 	if (!bSkipSelectionValidation && SelectionType != EFleshRingSelectionType::None && PreviewScene)
 	{
 		int32 SelectedIndex = PreviewScene->GetSelectedRingIndex();
@@ -215,18 +215,18 @@ void FFleshRingEditorViewportClient::Tick(float DeltaSeconds)
 void FFleshRingEditorViewportClient::Draw(const FSceneView* View, FPrimitiveDrawInterface* PDI)
 {
 	SCOPE_CYCLE_COUNTER(STAT_FleshRingEditor_Draw);
-	// 본 그리기 배열 업데이트 (Persona 스타일 - 매 Draw마다 호출)
+	// Update bones to draw array (Persona style - called every Draw)
 	UpdateBonesToDraw();
 
 	FEditorViewportClient::Draw(View, PDI);
 
-	// 본 렌더링 (BoneDrawMode가 None이 아닐 때만)
+	// Bone rendering (only when BoneDrawMode is not None)
 	if (BoneDrawMode != EFleshRingBoneDrawMode::None)
 	{
 		DrawMeshBones(PDI);
 	}
 
-	// Ring 기즈모 그리기
+	// Draw Ring gizmos
 	if (bShowRingGizmos)
 	{
 		DrawRingGizmos(PDI);
@@ -237,7 +237,7 @@ void FFleshRingEditorViewportClient::DrawCanvas(FViewport& InViewport, FSceneVie
 {
 	FEditorViewportClient::DrawCanvas(InViewport, View, Canvas);
 
-	// 본 이름 표시 (Persona 스타일)
+	// Display bone names (Persona style)
 	if (BoneDrawMode != EFleshRingBoneDrawMode::None && bShowBoneNames && PreviewScene)
 	{
 		UDebugSkelMeshComponent* MeshComponent = PreviewScene->GetSkeletalMeshComponent();
@@ -254,7 +254,7 @@ void FFleshRingEditorViewportClient::DrawCanvas(FViewport& InViewport, FSceneVie
 
 				for (int32 BoneIdx = 0; BoneIdx < NumBones; ++BoneIdx)
 				{
-					// BonesToDraw 배열로 그릴 본 결정 (본 렌더링과 동일)
+					// Determine bones to draw using BonesToDraw array (same as bone rendering)
 					if (!BonesToDraw[BoneIdx])
 					{
 						continue;
@@ -263,10 +263,10 @@ void FFleshRingEditorViewportClient::DrawCanvas(FViewport& InViewport, FSceneVie
 					const FVector BonePos = MeshComponent->GetComponentTransform().TransformPosition(
 						ComponentSpaceTransforms[BoneIdx].GetLocation());
 
-					// View->Project로 스크린 좌표 변환 (Persona 방식)
+					// Convert to screen coordinates via View->Project (Persona method)
 					const FPlane Proj = View.Project(BonePos);
 
-					// proj.W > 0.f 체크로 카메라 뒤에 있는 본 숨김
+					// Hide bones behind camera with proj.W > 0.f check
 					if (Proj.W > 0.f)
 					{
 						const int32 XPos = static_cast<int32>(HalfX + (HalfX * Proj.X));
@@ -275,7 +275,7 @@ void FFleshRingEditorViewportClient::DrawCanvas(FViewport& InViewport, FSceneVie
 						const FName BoneName = RefSkeleton.GetBoneName(BoneIdx);
 						const FString BoneString = FString::Printf(TEXT("%d: %s"), BoneIdx, *BoneName.ToString());
 
-						// Persona 스타일: 흰색 텍스트 + 검은 그림자
+						// Persona style: white text + black shadow
 						FCanvasTextItem TextItem(
 							FVector2D(XPos, YPos),
 							FText::FromString(BoneString),
@@ -292,7 +292,7 @@ void FFleshRingEditorViewportClient::DrawCanvas(FViewport& InViewport, FSceneVie
 
 bool FFleshRingEditorViewportClient::InputKey(const FInputKeyEventArgs& EventArgs)
 {
-	// 카메라 조작 키 입력 시 포커스 보간 중단
+	// Stop focus interpolation on camera control key input
 	if (bIsCameraInterpolating && EventArgs.Event == IE_Pressed)
 	{
 		if (EventArgs.Key == EKeys::RightMouseButton ||
@@ -306,14 +306,14 @@ bool FFleshRingEditorViewportClient::InputKey(const FInputKeyEventArgs& EventArg
 
 	if (EventArgs.Event == IE_Pressed)
 	{
-		// F키로 메시에 포커스 (카메라 조작 중에는 무시)
+		// Focus on mesh with F key (ignored during camera manipulation)
 		if (EventArgs.Key == EKeys::F && !IsTracking())
 		{
 			FocusOnMesh();
 			return true;
 		}
 
-		// Delete 키로 선택된 Ring 삭제
+		// Delete selected Ring with Delete key
 		if (EventArgs.Key == EKeys::Delete)
 		{
 			if (CanDeleteSelectedRing())
@@ -323,7 +323,7 @@ bool FFleshRingEditorViewportClient::InputKey(const FInputKeyEventArgs& EventArg
 			}
 		}
 
-		// Ctrl+` 로 Local/World 좌표계 전환
+		// Toggle Local/World coordinate system with Ctrl+`
 		if (EventArgs.Key == EKeys::Tilde &&
 			(EventArgs.Viewport->KeyState(EKeys::LeftControl) || EventArgs.Viewport->KeyState(EKeys::RightControl)))
 		{
@@ -331,10 +331,10 @@ bool FFleshRingEditorViewportClient::InputKey(const FInputKeyEventArgs& EventArg
 			return true;
 		}
 
-		// 카메라 조작 중에는 QWER 키 무시 (우클릭 드래그 등)
+		// Ignore QWER keys during camera manipulation (right-click drag, etc.)
 		if (!IsTracking())
 		{
-			// QWER 키로 위젯 모드 전환 (ModeTools 사용)
+			// Switch widget mode with QWER keys (using ModeTools)
 			if (ModeTools)
 			{
 				if (EventArgs.Key == EKeys::Q)
@@ -363,7 +363,7 @@ bool FFleshRingEditorViewportClient::InputKey(const FInputKeyEventArgs& EventArg
 				}
 			}
 
-			// Shift+숫자키로 Show 토글 (Skeletal Mesh, Ring Gizmos, Ring Meshes)
+			// Toggle Show with Shift+number keys (Skeletal Mesh, Ring Gizmos, Ring Meshes)
 			bool bShift = EventArgs.Viewport->KeyState(EKeys::LeftShift) || EventArgs.Viewport->KeyState(EKeys::RightShift);
 			bool bCtrl = EventArgs.Viewport->KeyState(EKeys::LeftControl) || EventArgs.Viewport->KeyState(EKeys::RightControl);
 
@@ -394,7 +394,7 @@ bool FFleshRingEditorViewportClient::InputKey(const FInputKeyEventArgs& EventArg
 					return true;
 				}
 			}
-			// Ctrl+숫자키로 Debug 옵션 토글 (SDF Slice, Bulge Direction)
+			// Toggle Debug options with Ctrl+number keys (SDF Slice, Bulge Direction)
 			else if (bCtrl && !bShift)
 			{
 				if (EventArgs.Key == EKeys::Two)
@@ -410,7 +410,7 @@ bool FFleshRingEditorViewportClient::InputKey(const FInputKeyEventArgs& EventArg
 					return true;
 				}
 			}
-			// 숫자키만으로 Debug Visualization 토글
+			// Toggle Debug Visualization with number keys only
 			else if (!bShift && !bCtrl)
 			{
 				if (EventArgs.Key == EKeys::One)
@@ -450,7 +450,7 @@ bool FFleshRingEditorViewportClient::InputAxis(const FInputKeyEventArgs& Args)
 
 	if (!bDisableInput && PreviewScene)
 	{
-		// FAdvancedPreviewScene::HandleViewportInput 호출 (K키로 Sky Rotation 처리)
+		// Call FAdvancedPreviewScene::HandleViewportInput (handles Sky Rotation with K key)
 		bResult = PreviewScene->HandleViewportInput(
 			Args.Viewport,
 			Args.InputDevice,
@@ -466,7 +466,7 @@ bool FFleshRingEditorViewportClient::InputAxis(const FInputKeyEventArgs& Args)
 		}
 	}
 
-	// 처리되지 않았으면 기본 클래스로 전달 (L키로 Light Direction 처리 포함)
+	// Forward to base class if not handled (includes Light Direction handling with L key)
 	if (!bResult)
 	{
 		bResult = FEditorViewportClient::InputAxis(Args);
@@ -481,7 +481,7 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 	{
 		if (HitProxy)
 		{
-			// Virtual Band 섹션 클릭 (개별 섹션 피킹)
+			// Virtual Band section click (individual section picking)
 			if (HitProxy->IsA(HFleshRingBandSectionHitProxy::StaticGetType()))
 			{
 				HFleshRingBandSectionHitProxy* SectionProxy = static_cast<HFleshRingBandSectionHitProxy*>(HitProxy);
@@ -494,20 +494,20 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 
 					PreviewScene->SetSelectedRingIndex(SectionProxy->RingIndex);
 					SelectionType = EFleshRingSelectionType::Gizmo;
-					SelectedSection = SectionProxy->Section;  // 섹션 선택
+					SelectedSection = SectionProxy->Section;  // Select section
 					Invalidate();
 
 					OnRingSelectedInViewport.ExecuteIfBound(SectionProxy->RingIndex, EFleshRingSelectionType::Gizmo);
 				}
 				return;
 			}
-			// Ring 기즈모 클릭 (전체 밴드 또는 Virtual Ring 기즈모)
+			// Ring gizmo click (entire band or Virtual Ring gizmo)
 			if (HitProxy->IsA(HFleshRingGizmoHitProxy::StaticGetType()))
 			{
 				HFleshRingGizmoHitProxy* GizmoProxy = static_cast<HFleshRingGizmoHitProxy*>(HitProxy);
 				if (PreviewScene && EditingAsset.IsValid())
 				{
-					// 선택 트랜잭션 생성 (Undo 가능)
+					// Create selection transaction (Undo-able)
 					FScopedTransaction Transaction(NSLOCTEXT("FleshRingEditor", "SelectRingGizmo", "Select Ring Gizmo"));
 					EditingAsset->Modify();
 					EditingAsset->EditorSelectedRingIndex = GizmoProxy->RingIndex;
@@ -515,21 +515,21 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 
 					PreviewScene->SetSelectedRingIndex(GizmoProxy->RingIndex);
 					SelectionType = EFleshRingSelectionType::Gizmo;
-					SelectedSection = EBandSection::None;  // 섹션 선택 해제 (전체 밴드)
+					SelectedSection = EBandSection::None;  // Deselect section (entire band)
 					Invalidate();
 
-					// 트리/디테일 패널 동기화를 위한 델리게이트 호출
+					// Call delegate for tree/detail panel synchronization
 					OnRingSelectedInViewport.ExecuteIfBound(GizmoProxy->RingIndex, EFleshRingSelectionType::Gizmo);
 				}
 				return;
 			}
-			// Ring 메시 클릭 (커스텀 HitProxy) - 본보다 높은 우선순위 (HPP_Foreground)
+			// Ring mesh click (custom HitProxy) - higher priority than bone (HPP_Foreground)
 			else if (HitProxy->IsA(HFleshRingMeshHitProxy::StaticGetType()))
 			{
 				HFleshRingMeshHitProxy* MeshProxy = static_cast<HFleshRingMeshHitProxy*>(HitProxy);
 				if (PreviewScene && EditingAsset.IsValid())
 				{
-					// 선택 트랜잭션 생성 (Undo 가능)
+					// Create selection transaction (Undo-able)
 					FScopedTransaction Transaction(NSLOCTEXT("FleshRingEditor", "SelectRingMesh", "Select Ring Mesh"));
 					EditingAsset->Modify();
 					EditingAsset->EditorSelectedRingIndex = MeshProxy->RingIndex;
@@ -539,19 +539,19 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 					SelectionType = EFleshRingSelectionType::Mesh;
 					Invalidate();
 
-					// 트리/디테일 패널 동기화를 위한 델리게이트 호출
+					// Call delegate for tree/detail panel synchronization
 					OnRingSelectedInViewport.ExecuteIfBound(MeshProxy->RingIndex, EFleshRingSelectionType::Mesh);
 				}
 				return;
 			}
 
-			// 본 클릭 처리 (Ring 피킹보다 우선순위 낮음 - HPP_World)
+			// Bone click handling (lower priority than Ring picking - HPP_World)
 			if (HitProxy->IsA(HFleshRingBoneHitProxy::StaticGetType()))
 			{
 				HFleshRingBoneHitProxy* BoneProxy = static_cast<HFleshRingBoneHitProxy*>(HitProxy);
 				FName ClickedBoneName = BoneProxy->BoneName;
 
-				// 기존 Ring 선택 해제
+				// Clear existing Ring selection
 				if (PreviewScene)
 				{
 					PreviewScene->SetSelectedRingIndex(INDEX_NONE);
@@ -564,10 +564,10 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 					EditingAsset->EditorSelectionType = EFleshRingSelectionType::None;
 				}
 
-				// 본 선택
+				// Select bone
 				SetSelectedBone(ClickedBoneName);
 
-				// 스켈레톤 트리 동기화 델리게이트 호출
+				// Call skeleton tree synchronization delegate
 				OnBoneSelectedInViewport.ExecuteIfBound(ClickedBoneName);
 
 				Invalidate();
@@ -575,30 +575,30 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 			}
 		}
 
-		// 빈 공간 클릭 - 선택 해제 (Ring + 본)
+		// Empty space click - clear selection (Ring + bone)
 		ClearSelection();
 		ClearSelectedBone();
 	}
 
-	// 우클릭 처리 - 컨텍스트 메뉴 표시
+	// Right-click handling - show context menu
 	if (Key == EKeys::RightMouseButton && Event == IE_Released)
 	{
 		FName TargetBoneName = NAME_None;
 
-		// 1. 본 위에서 우클릭 - 해당 본 사용
+		// 1. Right-click on bone - use that bone
 		if (HitProxy && HitProxy->IsA(HFleshRingBoneHitProxy::StaticGetType()))
 		{
 			HFleshRingBoneHitProxy* BoneProxy = static_cast<HFleshRingBoneHitProxy*>(HitProxy);
 			TargetBoneName = BoneProxy->BoneName;
 			SetSelectedBone(TargetBoneName);
 		}
-		// 2. 본이 선택된 상태에서 빈 공간 우클릭 - 선택된 본 사용
+		// 2. Right-click on empty space with bone selected - use selected bone
 		else if (!SelectedBoneName.IsNone())
 		{
 			TargetBoneName = SelectedBoneName;
 		}
 
-		// 대상 본이 있으면 컨텍스트 메뉴 표시
+		// Show context menu if target bone exists
 		if (!TargetBoneName.IsNone())
 		{
 			PendingRingAddBoneName = TargetBoneName;
@@ -613,19 +613,19 @@ void FFleshRingEditorViewportClient::ProcessClick(FSceneView& View, HHitProxy* H
 
 void FFleshRingEditorViewportClient::ClearSelection()
 {
-	// Undo/Redo 중에는 선택 해제 스킵 (어디서 호출되든 보호)
+	// Skip clearing selection during Undo/Redo (protected wherever called)
 	if (bSkipSelectionValidation)
 	{
 		return;
 	}
 
-	// 이미 선택 해제 상태면 스킵 (불필요한 트랜잭션 방지)
+	// Skip if already deselected (avoid unnecessary transactions)
 	if (SelectionType == EFleshRingSelectionType::None)
 	{
 		return;
 	}
 
-	// 선택 해제 트랜잭션 생성 (Undo 가능)
+	// Create deselection transaction (Undo-able)
 	if (EditingAsset.IsValid())
 	{
 		FScopedTransaction Transaction(NSLOCTEXT("FleshRingEditor", "ClearRingSelection", "Clear Ring Selection"));
@@ -649,7 +649,7 @@ bool FFleshRingEditorViewportClient::CanDeleteSelectedRing() const
 		return false;
 	}
 
-	// Ring이 선택되어 있어야 함
+	// Ring must be selected
 	if (SelectionType == EFleshRingSelectionType::None)
 	{
 		return false;
@@ -668,17 +668,17 @@ void FFleshRingEditorViewportClient::DeleteSelectedRing()
 
 	int32 SelectedIndex = PreviewScene->GetSelectedRingIndex();
 
-	// Undo/Redo 지원
-	// 트랜잭션 범위를 제한하여 RefreshPreview()가 트랜잭션 밖에서 호출되도록 함
-	// (트랜잭션 중 PreviewSubdividedMesh 생성 시 Undo 크래시 방지)
+	// Undo/Redo support
+	// Limit transaction scope so RefreshPreview() is called outside transaction
+	// (Prevent Undo crash when PreviewSubdividedMesh is created during transaction)
 	{
 		FScopedTransaction Transaction(NSLOCTEXT("FleshRingEditor", "DeleteRing", "Delete Ring"));
 		EditingAsset->Modify();
 
-		// Ring 삭제
+		// Delete Ring
 		EditingAsset->Rings.RemoveAt(SelectedIndex);
 
-		// 선택 해제 (Transient 제거했으므로 Undo 시 정상 복원됨)
+		// Clear selection (Transient removed so properly restored on Undo)
 		EditingAsset->EditorSelectedRingIndex = -1;
 		EditingAsset->EditorSelectionType = EFleshRingSelectionType::None;
 	}
@@ -686,8 +686,8 @@ void FFleshRingEditorViewportClient::DeleteSelectedRing()
 	PreviewScene->SetSelectedRingIndex(-1);
 	SelectionType = EFleshRingSelectionType::None;
 
-	// 델리게이트 호출 (트리 갱신)
-	// 트랜잭션 종료 후 호출하여 메시 생성이 Undo 히스토리에 포함되지 않도록 함
+	// Call delegate (tree refresh)
+	// Called after transaction ends so mesh creation isn't included in Undo history
 	OnRingDeletedInViewport.ExecuteIfBound();
 
 	Invalidate();
@@ -697,29 +697,29 @@ void FFleshRingEditorViewportClient::SelectRing(int32 RingIndex, FName AttachedB
 {
 	if (RingIndex < 0)
 	{
-		// 이미 선택 해제 상태면 스킵 (중복 트랜잭션 방지 - RefreshTree 등에서 호출 시)
+		// Skip if already deselected (avoid duplicate transactions - when called from RefreshTree, etc.)
 		if (EditingAsset.IsValid() && EditingAsset->EditorSelectionType == EFleshRingSelectionType::None)
 		{
 			return;
 		}
-		// 음수 인덱스 = Ring 선택 해제 (본 선택은 유지)
+		// Negative index = clear Ring selection (keep bone selection)
 		ClearSelection();
 		return;
 	}
 
-	// 이미 같은 Ring이 같은 타입으로 선택되어 있으면 스킵 (중복 트랜잭션 방지)
+	// Skip if same Ring already selected with same type (avoid duplicate transactions)
 	if (EditingAsset.IsValid() &&
 		EditingAsset->EditorSelectedRingIndex == RingIndex &&
 		EditingAsset->EditorSelectionType != EFleshRingSelectionType::None)
 	{
-		// 본 하이라이트만 업데이트
+		// Only update bone highlight
 		SelectedBoneName = AttachedBoneName;
 		Invalidate();
 		return;
 	}
 
-	// RingMesh 유무에 따라 SelectionType 결정
-	// RingMesh가 없으면 Gizmo(가상 링/밴드) 선택, 있으면 Mesh 선택
+	// Determine SelectionType based on RingMesh presence
+	// If no RingMesh, select Gizmo (virtual ring/band), otherwise select Mesh
 	EFleshRingSelectionType NewSelectionType = EFleshRingSelectionType::Mesh;
 	if (EditingAsset.IsValid() && EditingAsset->Rings.IsValidIndex(RingIndex))
 	{
@@ -730,7 +730,7 @@ void FFleshRingEditorViewportClient::SelectRing(int32 RingIndex, FName AttachedB
 		}
 	}
 
-	// 선택 트랜잭션 생성 (Undo 가능)
+	// Create selection transaction (Undo-able)
 	if (EditingAsset.IsValid())
 	{
 		FScopedTransaction Transaction(NSLOCTEXT("FleshRingEditor", "SelectRing", "Select Ring"));
@@ -739,7 +739,7 @@ void FFleshRingEditorViewportClient::SelectRing(int32 RingIndex, FName AttachedB
 		EditingAsset->EditorSelectionType = NewSelectionType;
 	}
 
-	// Ring이 부착된 본 하이라이트 (델리게이트 호출 없이 직접 설정)
+	// Highlight bone that Ring is attached to (set directly without delegate call)
 	SelectedBoneName = AttachedBoneName;
 
 	if (PreviewScene)
@@ -756,13 +756,13 @@ void FFleshRingEditorViewportClient::SetAsset(UFleshRingAsset* InAsset)
 
 	if (PreviewScene && InAsset)
 	{
-		// Asset 설정 (메시 + 컴포넌트 + Ring 시각화)
+		// Set Asset (mesh + component + Ring visualization)
 		PreviewScene->SetFleshRingAsset(InAsset);
 
-		// 본 그리기 배열 업데이트
+		// Update bones to draw array
 		UpdateBonesToDraw();
 
-		// 카메라 포커스
+		// Camera focus
 		FocusOnMesh();
 	}
 }
@@ -780,7 +780,7 @@ void FFleshRingEditorViewportClient::ClearSelectedBone()
 	UpdateBonesToDraw();
 	Invalidate();
 
-	// 스켈레톤 트리에 알림
+	// Notify skeleton tree
 	OnBoneSelectionCleared.ExecuteIfBound();
 }
 
@@ -798,9 +798,9 @@ void FFleshRingEditorViewportClient::FocusOnMesh()
 	}
 
 	FBox FocusBox(ForceInit);
-	FName BoneToFocus = SelectedBoneName;  // 포커스할 본 (로컬 변수)
+	FName BoneToFocus = SelectedBoneName;  // Bone to focus (local variable)
 
-	// 1. 선택된 Ring이 있으면 Ring에 포커스
+	// 1. Focus on Ring if a Ring is selected
 	int32 SelectedRingIndex = PreviewScene->GetSelectedRingIndex();
 	if (SelectedRingIndex >= 0 && EditingAsset.IsValid() && EditingAsset->Rings.IsValidIndex(SelectedRingIndex))
 	{
@@ -810,29 +810,29 @@ void FFleshRingEditorViewportClient::FocusOnMesh()
 		{
 			FTransform BoneTransform = SkelMeshComp->GetBoneTransform(BoneIndex);
 
-			// Ring 메시가 있으면 메시 기준으로 포커스
+			// Focus on mesh bounds if Ring mesh exists
 			if (Ring.RingMesh)
 			{
-				// 메시 바운드 가져오기
+				// Get mesh bounds
 				FBoxSphereBounds MeshBounds = Ring.RingMesh->GetBounds();
 
-				// 스케일 적용
+				// Apply scale
 				FVector ScaledExtent = MeshBounds.BoxExtent * Ring.MeshScale;
 				float BoxExtent = ScaledExtent.GetMax();
 				BoxExtent = FMath::Max(BoxExtent, 15.0f);
 
-				// Ring 메시 위치 (MeshOffset 적용)
+				// Ring mesh position (with MeshOffset applied)
 				FVector RingCenter = BoneTransform.GetLocation() + BoneTransform.GetRotation().RotateVector(Ring.MeshOffset);
 				FocusBox = FBox(RingCenter - FVector(BoxExtent), RingCenter + FVector(BoxExtent));
 			}
 			else
 			{
-				// Ring 메시가 없으면 본에 포커스
+				// Focus on bone if no Ring mesh
 				BoneToFocus = Ring.BoneName;
 			}
 		}
 	}
-	// 2. 선택된 본이 있으면 본에 포커스
+	// 2. Focus on bone if a bone is selected
 	if (!FocusBox.IsValid && !BoneToFocus.IsNone())
 	{
 		int32 BoneIndex = SkelMeshComp->GetBoneIndex(BoneToFocus);
@@ -840,7 +840,7 @@ void FFleshRingEditorViewportClient::FocusOnMesh()
 		{
 			FVector BoneLocation = SkelMeshComp->GetBoneTransform(BoneIndex).GetLocation();
 
-			// 본 크기 추정 (자식 본까지의 거리)
+			// Estimate bone size (distance to child bones)
 			float BoxExtent = 15.0f;
 
 			const FReferenceSkeleton& RefSkel = SkelMeshComp->GetSkeletalMeshAsset()->GetRefSkeleton();
@@ -858,10 +858,10 @@ void FFleshRingEditorViewportClient::FocusOnMesh()
 		}
 	}
 
-	// 박스가 유효하지 않으면 메시 전체 바운드 사용 (Persona 방식)
+	// Use entire mesh bounds if box is not valid (Persona method)
 	if (!FocusBox.IsValid)
 	{
-		// Persona 방식: SkeletalMesh의 GetBounds().GetBox() 사용
+		// Persona method: use SkeletalMesh's GetBounds().GetBox()
 		USkeletalMesh* SkelMesh = SkelMeshComp->GetSkeletalMeshAsset();
 		if (SkelMesh)
 		{
@@ -869,24 +869,24 @@ void FFleshRingEditorViewportClient::FocusOnMesh()
 		}
 	}
 
-	// 타겟 위치/회전 계산 (FocusViewportOnBox 로직 참고)
+	// Calculate target position/rotation (reference FocusViewportOnBox logic)
 	const FVector BoxCenter = FocusBox.GetCenter();
 	const FVector BoxExtent = FocusBox.GetExtent();
 	const float BoxRadius = BoxExtent.Size();
 
-	// 현재 카메라 방향 유지하면서 거리만 조정
+	// Keep current camera direction, only adjust distance
 	const FRotator CurrentRotation = GetViewRotation();
 	const FVector ViewDirection = CurrentRotation.Vector();
 
-	// 적절한 거리 계산 (FOV 고려)
+	// Calculate appropriate distance (considering FOV)
 	const float HalfFOVRadians = FMath::DegreesToRadians(ViewFOV * 0.5f);
 	const float DistanceToFit = BoxRadius / FMath::Tan(HalfFOVRadians);
 
-	// 타겟 위치 설정
-	CameraTargetLocation = BoxCenter - ViewDirection * DistanceToFit * 1.5f;  // 1.5배 여유
+	// Set target position
+	CameraTargetLocation = BoxCenter - ViewDirection * DistanceToFit * 1.5f;  // 1.5x margin
 	CameraTargetRotation = CurrentRotation;
 
-	// 보간 시작
+	// Start interpolation
 	bIsCameraInterpolating = true;
 }
 
@@ -903,7 +903,7 @@ void FFleshRingEditorViewportClient::DrawMeshBones(FPrimitiveDrawInterface* PDI)
 		return;
 	}
 
-	// 컴포넌트가 등록되지 않았으면 스킵
+	// Skip if component is not registered
 	if (!MeshComponent->IsRegistered())
 	{
 		return;
@@ -917,20 +917,20 @@ void FFleshRingEditorViewportClient::DrawMeshBones(FPrimitiveDrawInterface* PDI)
 	const FReferenceSkeleton& RefSkeleton = MeshComponent->GetReferenceSkeleton();
 	const int32 NumBones = RefSkeleton.GetNum();
 
-	// 본이 없으면 리턴
+	// Return if no bones
 	if (NumBones == 0)
 	{
 		return;
 	}
 
-	// 스켈레탈 메시가 완전히 로드되었는지 확인
+	// Check if skeletal mesh is fully loaded
 	const TArray<FTransform>& ComponentSpaceTransforms = MeshComponent->GetComponentSpaceTransforms();
 	if (ComponentSpaceTransforms.Num() < NumBones)
 	{
 		return;
 	}
 
-	// 월드 Transform 배열 생성 (직접 ComponentSpaceTransforms 사용)
+	// Create world Transform array (directly using ComponentSpaceTransforms)
 	TArray<FTransform> WorldTransforms;
 	WorldTransforms.SetNum(NumBones);
 	for (int32 i = 0; i < NumBones; ++i)
@@ -938,7 +938,7 @@ void FFleshRingEditorViewportClient::DrawMeshBones(FPrimitiveDrawInterface* PDI)
 		WorldTransforms[i] = ComponentSpaceTransforms[i] * MeshComponent->GetComponentTransform();
 	}
 
-	// 그릴 본 인덱스 (모든 본)
+	// Bone indices to draw (all bones)
 	TArray<FBoneIndexType> AllBoneIndices;
 	AllBoneIndices.SetNum(NumBones);
 	for (int32 i = 0; i < NumBones; ++i)
@@ -946,7 +946,7 @@ void FFleshRingEditorViewportClient::DrawMeshBones(FPrimitiveDrawInterface* PDI)
 		AllBoneIndices[i] = static_cast<FBoneIndexType>(i);
 	}
 
-	// 본 색상 배열 생성 (다중 컬러 사용 시 자동 생성)
+	// Create bone color array (auto-generated when using multi-colors)
 	TArray<FLinearColor> BoneColors;
 	BoneColors.SetNum(NumBones);
 	if (bShowMultiColorBones)
@@ -961,7 +961,7 @@ void FFleshRingEditorViewportClient::DrawMeshBones(FPrimitiveDrawInterface* PDI)
 		}
 	}
 
-	// 선택된 본 인덱스 배열 생성
+	// Create selected bone index array
 	TArray<int32> SelectedBones;
 	if (!SelectedBoneName.IsNone())
 	{
@@ -972,7 +972,7 @@ void FFleshRingEditorViewportClient::DrawMeshBones(FPrimitiveDrawInterface* PDI)
 		}
 	}
 
-	// 본 피킹용 HitProxy 배열 (캐싱 - 스켈레탈 메시 변경 시만 재생성)
+	// Bone picking HitProxy array (cached - only recreated when skeletal mesh changes)
 	USkeletalMesh* CurrentSkelMesh = MeshComponent->GetSkeletalMeshAsset();
 	if (CachedSkeletalMesh.Get() != CurrentSkelMesh || CachedBoneHitProxies.Num() != NumBones)
 	{
@@ -984,7 +984,7 @@ void FFleshRingEditorViewportClient::DrawMeshBones(FPrimitiveDrawInterface* PDI)
 		}
 	}
 
-	// EFleshRingBoneDrawMode를 EBoneDrawMode로 변환
+	// Convert EFleshRingBoneDrawMode to EBoneDrawMode
 	EBoneDrawMode::Type EngineBoneDrawMode = EBoneDrawMode::All;
 	switch (BoneDrawMode)
 	{
@@ -1009,28 +1009,28 @@ void FFleshRingEditorViewportClient::DrawMeshBones(FPrimitiveDrawInterface* PDI)
 		break;
 	}
 
-	// DrawConfig 설정
+	// DrawConfig setup
 	FSkelDebugDrawConfig DrawConfig;
 	DrawConfig.BoneDrawMode = EngineBoneDrawMode;
 	DrawConfig.BoneDrawSize = BoneDrawSize;
 	DrawConfig.bForceDraw = false;
-	DrawConfig.bAddHitProxy = true;  // 본 피킹 활성화
+	DrawConfig.bAddHitProxy = true;  // Enable bone picking
 	DrawConfig.bUseMultiColorAsDefaultColor = bShowMultiColorBones;
 	DrawConfig.DefaultBoneColor = GetDefault<UPersonaOptions>()->DefaultBoneColor;
-	DrawConfig.SelectedBoneColor = GetDefault<UPersonaOptions>()->SelectedBoneColor;  // 초록색
+	DrawConfig.SelectedBoneColor = GetDefault<UPersonaOptions>()->SelectedBoneColor;  // Green
 	DrawConfig.AffectedBoneColor = GetDefault<UPersonaOptions>()->AffectedBoneColor;
-	DrawConfig.ParentOfSelectedBoneColor = GetDefault<UPersonaOptions>()->ParentOfSelectedBoneColor;  // 노란색
+	DrawConfig.ParentOfSelectedBoneColor = GetDefault<UPersonaOptions>()->ParentOfSelectedBoneColor;  // Yellow
 
-	// 본 렌더링 (BonesToDraw 멤버 변수 사용 - Persona 스타일)
+	// Bone rendering (using BonesToDraw member variable - Persona style)
 	SkeletalDebugRendering::DrawBones(
 		PDI,
 		MeshComponent->GetComponentLocation(),
 		AllBoneIndices,
 		RefSkeleton,
 		WorldTransforms,
-		SelectedBones,  // 선택된 본 전달 (초록색 + 부모 노란색 연결선)
+		SelectedBones,  // Pass selected bones (green + yellow parent connection lines)
 		BoneColors,
-		CachedBoneHitProxies,  // 캐시된 본 피킹용 HitProxy 배열
+		CachedBoneHitProxies,  // Cached bone picking HitProxy array
 		DrawConfig,
 		BonesToDraw
 	);
@@ -1057,13 +1057,13 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 	{
 		const FFleshRingSettings& Ring = Rings[i];
 
-		// 숨겨진 Ring 스킵 (Gizmo)
+		// Skip hidden Rings (Gizmo)
 		if (!Ring.bEditorVisible)
 		{
 			continue;
 		}
 
-		// 본 Transform 가져오기
+		// Get bone Transform
 		int32 BoneIndex = SkelMeshComp->GetBoneIndex(Ring.BoneName);
 		if (BoneIndex == INDEX_NONE)
 		{
@@ -1074,29 +1074,29 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 		FVector BoneLocation = BoneTransform.GetLocation();
 		FQuat BoneRotation = BoneTransform.GetRotation();
 
-		// Ring 메시 피킹 영역 (모든 모드에서 적용, 메시가 있을 때만)
+		// Ring mesh picking area (applies in all modes, only when mesh exists)
 		UStaticMesh* RingMesh = Ring.RingMesh.LoadSynchronous();
 		if (RingMesh)
 		{
 			PDI->SetHitProxy(new HFleshRingMeshHitProxy(i));
 
-			// 메시 위치 계산
+			// Calculate mesh position
 			FVector MeshLocation = BoneLocation + BoneRotation.RotateVector(Ring.MeshOffset);
 
-			// 메시 바운드 기반 피킹 영역 크기
+			// Picking area size based on mesh bounds
 			FBoxSphereBounds MeshBounds = RingMesh->GetBounds();
 			float MeshRadius = MeshBounds.SphereRadius * FMath::Max3(Ring.MeshScale.X, Ring.MeshScale.Y, Ring.MeshScale.Z);
 
-			// 보이지 않는 구체로 피킹 영역 설정 (SDPG_World로 본보다 뒤에)
+			// Set picking area with invisible sphere (SDPG_World to be behind bones)
 			DrawWireSphere(PDI, MeshLocation, FLinearColor(0, 0, 0, 0), MeshRadius, 8, SDPG_World);
 
 			PDI->SetHitProxy(nullptr);
 		}
 
-		// VirtualRing 모드일 때만 Ring 기즈모 표시 (SDF 모드에서는 Radius가 의미 없음)
+		// Only show Ring gizmo in VirtualRing mode (Radius meaningless in SDF mode)
 		if (Ring.InfluenceMode != EFleshRingInfluenceMode::VirtualRing)
 		{
-			// VirtualBand 모드: 4-레이어 밴드 기즈모
+			// VirtualBand mode: 4-layer band gizmo
 			if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 			{
 				FLinearColor GizmoColor = (i == SelectedIndex)
@@ -1113,12 +1113,12 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 					CurrentBoneIdx = RefSkeleton.GetParentIndex(CurrentBoneIdx);
 				}
 
-				// Virtual Band 기즈모: 전용 BandOffset/BandRotation 사용
+				// Virtual Band gizmo: use dedicated BandOffset/BandRotation
 				const FVirtualBandSettings& Band = Ring.VirtualBand;
 				FTransform BandTransform;
 				BandTransform.SetLocation(Band.BandOffset);
 				BandTransform.SetRotation(Band.BandRotation);
-				BandTransform.SetScale3D(FVector::OneVector);  // 밴드 기즈모는 스케일 없음
+				BandTransform.SetScale3D(FVector::OneVector);  // Band gizmo has no scale
 
 				FTransform LocalToWorld = BandTransform * BindPoseBoneTransform * SkelMeshComp->GetComponentTransform();
 				constexpr int32 Segments = 32;
@@ -1126,23 +1126,23 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 				const bool bHasLowerSection = (Band.Lower.Height > HeightEpsilon);
 				const bool bHasUpperSection = (Band.Upper.Height > HeightEpsilon);
 
-				// 새 좌표계: Z=0이 Mid Band 중심
+				// New coordinate system: Z=0 is Mid Band center
 				const float MidOffset = Band.Lower.Height + Band.BandHeight * 0.5f;
-				float LowerZ = -MidOffset;  // Lower 하단
-				float BandLowerZ = -Band.BandHeight * 0.5f;  // Band 하단
-				float BandUpperZ = Band.BandHeight * 0.5f;   // Band 상단
-				float UpperZ = Band.Upper.Height + Band.BandHeight * 0.5f;  // Upper 상단
+				float LowerZ = -MidOffset;  // Lower bottom
+				float BandLowerZ = -Band.BandHeight * 0.5f;  // Band bottom
+				float BandUpperZ = Band.BandHeight * 0.5f;   // Band top
+				float UpperZ = Band.Upper.Height + Band.BandHeight * 0.5f;  // Upper top
 
-				// 섹션별 색상 결정 함수
+				// Section color determination function
 				auto GetSectionColor = [&](EBandSection Section) -> FLinearColor {
 					if (i == SelectedIndex && SelectedSection == Section)
 					{
-						return FLinearColor::Green;  // 선택된 섹션: 초록
+						return FLinearColor::Green;  // Selected section: green
 					}
-					return GizmoColor;  // 기본 색상
+					return GizmoColor;  // Default color
 				};
 
-				// 섹션별 원 그리기 함수 (HitProxy 포함)
+				// Section circle drawing function (including HitProxy)
 				auto DrawSectionCircle = [&](float R, float Z, float T, EBandSection Section) {
 					PDI->SetHitProxy(new HFleshRingBandSectionHitProxy(i, Section));
 					FLinearColor Color = GetSectionColor(Section);
@@ -1154,7 +1154,7 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 					PDI->SetHitProxy(nullptr);
 				};
 
-				// Height=0인 섹션은 스킵하고 Mid 값만 사용
+				// Skip sections with Height=0 and only use Mid values
 				const float SectionLineThickness = RingGizmoThickness;
 				if (bHasLowerSection)
 				{
@@ -1167,21 +1167,21 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 					DrawSectionCircle(Band.Upper.Radius, UpperZ, SectionLineThickness, EBandSection::Upper);
 				}
 
-				// 수직 연결선 (전체 기즈모 HitProxy 사용)
+				// Vertical connection lines (using entire gizmo HitProxy)
 				PDI->SetHitProxy(new HFleshRingGizmoHitProxy(i));
 				for (int32 q = 0; q < 4; ++q) {
 					float Angle = (float)q / 4.0f * 2.0f * PI;
 					FVector Dir(FMath::Cos(Angle), FMath::Sin(Angle), 0.0f);
-					// Lower → MidLower (Lower 섹션이 있는 경우에만)
+					// Lower → MidLower (only if Lower section exists)
 					if (bHasLowerSection)
 					{
 						PDI->DrawLine(LocalToWorld.TransformPosition(Dir * Band.Lower.Radius + FVector(0, 0, LowerZ)),
 							LocalToWorld.TransformPosition(Dir * Band.MidLowerRadius + FVector(0, 0, BandLowerZ)), GizmoColor, SDPG_Foreground, 0.0f);
 					}
-					// MidLower → MidUpper (항상)
+					// MidLower → MidUpper (always)
 					PDI->DrawLine(LocalToWorld.TransformPosition(Dir * Band.MidLowerRadius + FVector(0, 0, BandLowerZ)),
 						LocalToWorld.TransformPosition(Dir * Band.MidUpperRadius + FVector(0, 0, BandUpperZ)), GizmoColor, SDPG_Foreground, 0.0f);
-					// MidUpper → Upper (Upper 섹션이 있는 경우에만)
+					// MidUpper → Upper (only if Upper section exists)
 					if (bHasUpperSection)
 					{
 						PDI->DrawLine(LocalToWorld.TransformPosition(Dir * Band.MidUpperRadius + FVector(0, 0, BandUpperZ)),
@@ -1194,39 +1194,39 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 			continue;
 		}
 
-		// 본 회전 * 링 회전 = 월드 회전 (기본값으로 본의 X축과 링의 Z축이 일치)
+		// Bone rotation * Ring rotation = world rotation (by default, bone X-axis aligns with Ring Z-axis)
 		FQuat RingWorldRotation = BoneRotation * Ring.RingRotation;
 
-		// RingOffset 적용
+		// Apply RingOffset
 		FVector GizmoLocation = BoneLocation + BoneRotation.RotateVector(Ring.RingOffset);
 
-		// Ring 색상 결정
+		// Determine Ring color
 		FLinearColor GizmoColor;
 		if (i == SelectedIndex)
 		{
-			// 선택된 Ring: Gizmo=노랑, Mesh=마젠타
+			// Selected Ring: Gizmo=yellow, Mesh=magenta
 			GizmoColor = (SelectionType == EFleshRingSelectionType::Gizmo)
 				? FLinearColor::Yellow
-				: FLinearColor(1.0f, 0.0f, 1.0f, 1.0f); // 마젠타 (Mesh 선택 시)
+				: FLinearColor(1.0f, 0.0f, 1.0f, 1.0f); // Magenta (when Mesh selected)
 		}
 		else
 		{
-			// 선택 안 된 Ring: 시안
+			// Unselected Ring: cyan
 			GizmoColor = FLinearColor(0.0f, 1.0f, 1.0f, 0.8f);
 		}
 
-		// HitProxy 설정 (Ring 기즈모용)
+		// Set HitProxy (for Ring gizmo)
 		PDI->SetHitProxy(new HFleshRingGizmoHitProxy(i));
 
-		// Ring 밴드 시각화 (직사각형 단면 원환체 = Hollow Cylinder)
-		// RingRadius = 내부 반지름 (링이 살을 누르는 표면)
-		// RingThickness = 벽 두께 (안쪽→바깥쪽 한 방향)
+		// Ring band visualization (rectangular cross-section torus = Hollow Cylinder)
+		// RingRadius = inner radius (surface where ring presses flesh)
+		// RingThickness = wall thickness (inward→outward one direction)
 		float InnerRadius = Ring.RingRadius;
 		float OuterRadius = Ring.RingRadius + Ring.RingThickness;
 		float HalfHeight = Ring.RingHeight / 2.0f;
 
-		// 상단/하단 면 채우기 (방사형 직선으로 빈틈없이)
-		int32 FillSegments = 360;  // 촘촘한 방사형 선
+		// Fill top/bottom faces (seamlessly with radial lines)
+		int32 FillSegments = 360;  // Dense radial lines
 		float ZOffsets[2] = { -HalfHeight, HalfHeight };
 
 		for (float ZOffset : ZOffsets)
@@ -1238,11 +1238,11 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 
 				FVector InnerPt = GizmoLocation + RingWorldRotation.RotateVector(Dir * InnerRadius + FVector(0, 0, ZOffset));
 				FVector OuterPt = GizmoLocation + RingWorldRotation.RotateVector(Dir * OuterRadius + FVector(0, 0, ZOffset));
-				PDI->DrawLine(InnerPt, OuterPt, GizmoColor, SDPG_Foreground, 0.0f);  // 최소 굵기
+				PDI->DrawLine(InnerPt, OuterPt, GizmoColor, SDPG_Foreground, 0.0f);  // Minimum thickness
 			}
 		}
 
-		// 내부/외부 원 경계선 (상/하)
+		// Inner/outer circle border lines (top/bottom)
 		int32 CircleSegments = 64;
 		float Radii[2] = { InnerRadius, OuterRadius };
 		for (float Radius : Radii)
@@ -1263,7 +1263,7 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 			}
 		}
 
-		// 수직 연결선 (4개 방향)
+		// Vertical connection lines (4 directions)
 		for (int32 q = 0; q < 4; ++q)
 		{
 			float Angle = (float)q / 4.0f * 2.0f * PI;
@@ -1278,10 +1278,10 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 			PDI->DrawLine(OuterBottom, OuterTop, GizmoColor, SDPG_Foreground, 0.0f);
 		}
 
-		// 본 위치에 작은 구 표시
+		// Display small sphere at bone position
 		DrawWireSphere(PDI, GizmoLocation, GizmoColor, 2.0f, 8, SDPG_Foreground);
 
-		// HitProxy 해제
+		// Clear HitProxy
 		PDI->SetHitProxy(nullptr);
 	}
 }
@@ -1318,7 +1318,7 @@ FVector FFleshRingEditorViewportClient::GetWidgetLocation() const
 		return FVector::ZeroVector;
 	}
 
-	// VirtualBand 모드: 바인드 포즈 사용 (SDF/변형과 일치)
+	// VirtualBand mode: use bind pose (consistent with SDF/deformation)
 	if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 	{
 		USkeletalMesh* SkelMesh = SkelMeshComp->GetSkeletalMeshAsset();
@@ -1331,14 +1331,14 @@ FVector FFleshRingEditorViewportClient::GetWidgetLocation() const
 			CurrentBoneIdx = RefSkeleton.GetParentIndex(CurrentBoneIdx);
 		}
 
-		// SelectionType에 따라 다른 오프셋 적용
-		// Gizmo 선택 → BandOffset 사용 (밴드 트랜스폼)
-		// Mesh 선택 → MeshOffset 사용 (메시 트랜스폼)
+		// Apply different offset based on SelectionType
+		// Gizmo selection → use BandOffset (band transform)
+		// Mesh selection → use MeshOffset (mesh transform)
 		const FVirtualBandSettings& Band = Ring.VirtualBand;
 		FTransform LocalTransform;
 		if (SelectionType == EFleshRingSelectionType::Gizmo)
 		{
-			// 섹션별 Z 오프셋 계산 (새 좌표계: Z=0이 Mid Band 중심)
+			// Calculate section Z offset (new coordinate system: Z=0 is Mid Band center)
 			float SectionZ = 0.0f;
 			if (SelectedSection == EBandSection::Upper)
 			{
@@ -1356,13 +1356,13 @@ FVector FFleshRingEditorViewportClient::GetWidgetLocation() const
 			{
 				SectionZ = -(Band.Lower.Height + Band.BandHeight * 0.5f);
 			}
-			// else: EBandSection::None → SectionZ = 0 (밴드 중심)
+			// else: EBandSection::None → SectionZ = 0 (band center)
 
-			// 섹션 Z를 밴드 로컬 좌표에서 오프셋으로 변환
+			// Convert section Z from band local coordinates to offset
 			FVector SectionOffset = Band.BandRotation.RotateVector(FVector(0, 0, SectionZ));
 			LocalTransform.SetLocation(Band.BandOffset + SectionOffset);
 			LocalTransform.SetRotation(Band.BandRotation);
-			LocalTransform.SetScale3D(FVector::OneVector);  // 밴드는 스케일 없음
+			LocalTransform.SetScale3D(FVector::OneVector);  // Band has no scale
 		}
 		else
 		{
@@ -1377,9 +1377,9 @@ FVector FFleshRingEditorViewportClient::GetWidgetLocation() const
 	FTransform BoneTransform = SkelMeshComp->GetBoneTransform(BoneIndex);
 	FVector BoneLocation = BoneTransform.GetLocation();
 
-	// 선택 타입에 따라 다른 오프셋 적용
-	// VirtualRing Gizmo 선택 → RingOffset 사용 (밴드 트랜스폼)
-	// Mesh 선택 또는 Auto 모드 → MeshOffset 사용 (메시 트랜스폼)
+	// Apply different offset based on selection type
+	// VirtualRing Gizmo selection → use RingOffset (band transform)
+	// Mesh selection or Auto mode → use MeshOffset (mesh transform)
 	if (SelectionType == EFleshRingSelectionType::Gizmo &&
 		Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualRing)
 	{
@@ -1387,14 +1387,14 @@ FVector FFleshRingEditorViewportClient::GetWidgetLocation() const
 	}
 	else
 	{
-		// Mesh 선택 또는 Auto 모드
+		// Mesh selection or Auto mode
 		return BoneLocation + BoneTransform.GetRotation().RotateVector(Ring.MeshOffset);
 	}
 }
 
 FMatrix FFleshRingEditorViewportClient::GetWidgetCoordSystem() const
 {
-	// AlignRotation 좌표계 반환 (내부에서 검증 수행)
+	// Return AlignRotation coordinate system (validation performed internally)
 	return GetSelectedRingAlignMatrix();
 }
 
@@ -1433,7 +1433,7 @@ FMatrix FFleshRingEditorViewportClient::GetSelectedRingAlignMatrix() const
 	FTransform BoneTransform = SkelMeshComp->GetBoneTransform(BoneIndex);
 	FQuat BoneRotation = BoneTransform.GetRotation();
 
-	// VirtualBand 모드: 바인드 포즈 사용
+	// VirtualBand mode: use bind pose
 	if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 	{
 		USkeletalMesh* SkelMesh = SkelMeshComp->GetSkeletalMeshAsset();
@@ -1448,29 +1448,29 @@ FMatrix FFleshRingEditorViewportClient::GetSelectedRingAlignMatrix() const
 		BoneRotation = SkelMeshComp->GetComponentTransform().GetRotation() * BindPoseBoneTransform.GetRotation();
 	}
 
-	// 좌표계 모드 확인 (World vs Local) - 커스텀 플래그 사용
+	// Check coordinate system mode (World vs Local) - using custom flag
 	if (bUseLocalCoordSystem)
 	{
 		FQuat TargetRotation;
 		if (bIsDraggingRotation)
 		{
-			// 드래그 중이면 드래그 시작 시점의 회전 사용 (기즈모 고정)
+			// While dragging, use rotation from drag start (gizmo fixed)
 			TargetRotation = DragStartWorldRotation;
 		}
 		else
 		{
-			// 로컬 모드: 본 회전 * 링/메시 회전 = 현재 월드 회전
+			// Local mode: bone rotation * ring/mesh rotation = current world rotation
 			FQuat CurrentRotation;
 			if (SelectionType == EFleshRingSelectionType::Gizmo)
 			{
 				if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualRing)
 				{
-					// VirtualRing Gizmo 선택은 RingRotation 사용
+					// VirtualRing Gizmo selection uses RingRotation
 					CurrentRotation = Ring.RingRotation;
 				}
 				else if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 				{
-					// Virtual Band Gizmo 선택은 전용 BandRotation 사용
+					// Virtual Band Gizmo selection uses dedicated BandRotation
 					CurrentRotation = Ring.VirtualBand.BandRotation;
 				}
 				else
@@ -1480,40 +1480,40 @@ FMatrix FFleshRingEditorViewportClient::GetSelectedRingAlignMatrix() const
 			}
 			else
 			{
-				// Mesh 선택은 MeshRotation 사용 (메시 트랜스폼)
+				// Mesh selection uses MeshRotation (mesh transform)
 				CurrentRotation = Ring.MeshRotation;
 			}
 			TargetRotation = BoneRotation * CurrentRotation;
 		}
 
-		// FQuatRotationMatrix 사용 (FRotator 변환 시 Gimbal lock 문제 방지)
+		// Use FQuatRotationMatrix (prevents Gimbal lock issue when converting to FRotator)
 		return FQuatRotationMatrix(TargetRotation);
 	}
 	else
 	{
-		// 월드 모드: 순수 월드 축 기준
+		// World mode: pure world axis based
 		return FMatrix::Identity;
 	}
 }
 
 ECoordSystem FFleshRingEditorViewportClient::GetWidgetCoordSystemSpace() const
 {
-	// 항상 COORD_World를 반환하여 Widget 시스템의 Local Space 회전 반전 로직을 비활성화
-	// GetWidgetCoordSystem()에서 이미 회전된 좌표계를 반환하고 있으므로,
-	// 추가적인 Local Space 처리가 필요 없음
+	// Always return COORD_World to disable Widget system's Local Space rotation inversion logic
+	// GetWidgetCoordSystem() already returns a rotated coordinate system,
+	// so no additional Local Space processing is needed
 	return COORD_World;
 }
 
 void FFleshRingEditorViewportClient::SetWidgetCoordSystemSpace(ECoordSystem NewCoordSystem)
 {
-	// 기본 툴바 버튼 클릭 시 호출됨 - 커스텀 플래그 토글
+	// Called when default toolbar button clicked - toggle custom flag
 	bUseLocalCoordSystem = (NewCoordSystem == COORD_Local);
 	Invalidate();
 }
 
 UE::Widget::EWidgetMode FFleshRingEditorViewportClient::GetWidgetMode() const
 {
-	// ModeTools의 위젯 모드 사용 (툴바 하이라이트 동작)
+	// Use ModeTools widget mode (for toolbar highlight behavior)
 	if (ModeTools)
 	{
 		return ModeTools->GetWidgetMode();
@@ -1524,7 +1524,7 @@ UE::Widget::EWidgetMode FFleshRingEditorViewportClient::GetWidgetMode() const
 bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAxisList::Type CurrentAxis, FVector& Drag, FRotator& Rot, FVector& Scale)
 {
 	SCOPE_CYCLE_COUNTER(STAT_FleshRingEditor_InputWidgetDelta);
-	// Widget 축이 선택되지 않았으면 처리 안 함
+	// Don't process if no widget axis is selected
 	if (CurrentAxis == EAxisList::None)
 	{
 		return false;
@@ -1547,7 +1547,7 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		return false;
 	}
 
-	// 본 Transform 가져오기 (로컬 좌표 변환용)
+	// Get bone Transform (for local coordinate conversion)
 	USkeletalMeshComponent* SkelMeshComp = PreviewScene->GetSkeletalMeshComponent();
 	if (!SkelMeshComp || !SkelMeshComp->GetSkeletalMeshAsset())
 	{
@@ -1564,7 +1564,7 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 	FTransform BoneTransform = SkelMeshComp->GetBoneTransform(BoneIndex);
 	FQuat BoneRotation = BoneTransform.GetRotation();
 
-	// VirtualBand 모드: 바인드 포즈 사용
+	// VirtualBand mode: use bind pose
 	if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 	{
 		USkeletalMesh* SkelMesh = SkelMeshComp->GetSkeletalMeshAsset();
@@ -1580,34 +1580,34 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		BoneRotation = SkelMeshComp->GetComponentTransform().GetRotation() * BindPoseBoneTransform.GetRotation();
 	}
 
-	// 스냅 적용
+	// Apply snapping
 	const ULevelEditorViewportSettings* ViewportSettings = GetDefault<ULevelEditorViewportSettings>();
 
-	// 이동 스냅 - 기즈모 축 기준으로 적용
-	// Widget 시스템은 월드 좌표로 Drag를 전달하므로, 기즈모 로컬로 변환 후 스냅 적용
+	// Translation snap - apply based on gizmo axis
+	// Widget system passes Drag in world coordinates, so convert to gizmo local before applying snap
 	FVector SnappedDrag = Drag;
 	if (ViewportSettings->GridEnabled && GEditor && !Drag.IsZero())
 	{
 		float GridSize = GEditor->GetGridSize();
 
-		// 기즈모 좌표계 행렬 가져오기
+		// Get gizmo coordinate system matrix
 		FMatrix GizmoMatrix = GetSelectedRingAlignMatrix();
 		FMatrix GizmoMatrixInverse = GizmoMatrix.Inverse();
 
-		// 월드 Drag를 기즈모 로컬 좌표로 변환
+		// Convert world Drag to gizmo local coordinates
 		FVector LocalDragForSnap = GizmoMatrixInverse.TransformVector(Drag);
 
-		// 기즈모 로컬 좌표에서 스냅 적용
+		// Apply snap in gizmo local coordinates
 		FVector SnappedLocalDrag;
 		SnappedLocalDrag.X = FMath::GridSnap(LocalDragForSnap.X, GridSize);
 		SnappedLocalDrag.Y = FMath::GridSnap(LocalDragForSnap.Y, GridSize);
 		SnappedLocalDrag.Z = FMath::GridSnap(LocalDragForSnap.Z, GridSize);
 
-		// 다시 월드 좌표로 변환
+		// Convert back to world coordinates
 		SnappedDrag = GizmoMatrix.TransformVector(SnappedLocalDrag);
 	}
 
-	// 회전 스냅
+	// Rotation snap
 	FRotator SnappedRot = Rot;
 	if (ViewportSettings->RotGridEnabled && GEditor)
 	{
@@ -1617,7 +1617,7 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		SnappedRot.Roll = FMath::GridSnap(Rot.Roll, RotGridSize.Roll);
 	}
 
-	// 스케일 스냅
+	// Scale snap
 	FVector SnappedScale = Scale;
 	if (ViewportSettings->SnapScaleEnabled && GEditor)
 	{
@@ -1627,29 +1627,29 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		SnappedScale.Z = FMath::GridSnap(Scale.Z, ScaleGridSize);
 	}
 
-	// 스케일 Z축 방향 보정: Lower/MidLower는 부호 반전
-	// Widget 시스템이 주는 Scale.Z는 기즈모 Z축 기준
-	// Lower/MidLower는 "아래로 드래그 → Height 증가"가 직관적이므로 부호 반전
+	// Scale Z-axis direction correction: Lower/MidLower sign inverted
+	// Widget system's Scale.Z is based on gizmo Z-axis
+	// Lower/MidLower: "drag down → Height increase" is intuitive, so invert sign
 	if (SelectedSection == EBandSection::Lower || SelectedSection == EBandSection::MidLower)
 	{
 		SnappedScale.Z = -SnappedScale.Z;
 	}
 
-	// 월드 드래그를 본 로컬 좌표로 변환
-	// (Widget 시스템은 World/Local 모드 상관없이 항상 월드 좌표로 Drag를 전달함)
+	// Convert world drag to bone local coordinates
+	// (Widget system always passes Drag in world coordinates regardless of World/Local mode)
 	FVector LocalDrag = BoneRotation.UnrotateVector(SnappedDrag);
 
-	// 선택 타입에 따라 다른 오프셋 업데이트
+	// Update different offset based on selection type
 	if (SelectionType == EFleshRingSelectionType::Gizmo)
 	{
-		// Auto 모드: Gizmo 선택이어도 MeshOffset/MeshRotation 사용 (SDF 기반)
-		// (Auto는 기즈모가 없으므로 여기로 오면 안 되지만 안전을 위해 처리)
+		// Auto mode: even with Gizmo selection, use MeshOffset/MeshRotation (SDF based)
+		// (Auto has no gizmo so should not reach here, but handle for safety)
 		if (Ring.InfluenceMode == EFleshRingInfluenceMode::Auto)
 		{
-			// 이동 -> MeshOffset 업데이트
+			// Translation -> update MeshOffset
 			Ring.MeshOffset += LocalDrag;
 
-			// 회전 -> MeshRotation 업데이트
+			// Rotation -> update MeshRotation
 			if (bIsDraggingRotation)
 			{
 				FQuat FrameDeltaRotation = Rot.Quaternion();
@@ -1667,7 +1667,7 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 				}
 			}
 
-			// 스케일 처리 -> MeshScale 사용
+			// Scale handling -> use MeshScale
 			if (!SnappedScale.IsZero())
 			{
 				Ring.MeshScale += SnappedScale;
@@ -1678,7 +1678,7 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		}
 		else if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualRing)
 		{
-			// VirtualRing 모드: RingOffset/RingRotation 사용
+			// VirtualRing mode: use RingOffset/RingRotation
 			Ring.RingOffset += LocalDrag;
 
 			if (bIsDraggingRotation)
@@ -1698,7 +1698,7 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 				}
 			}
 
-			// 스케일 처리: RingRadius 조절
+			// Scale handling: adjust RingRadius
 			if (!SnappedScale.IsZero())
 			{
 				float ScaleDelta = FMath::Max3(SnappedScale.X, SnappedScale.Y, SnappedScale.Z);
@@ -1711,7 +1711,7 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		}
 		else if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 		{
-			// Virtual Band 모드: 전용 BandOffset/BandRotation 사용
+			// Virtual Band mode: use dedicated BandOffset/BandRotation
 			FVirtualBandSettings& BandSettings = Ring.VirtualBand;
 			BandSettings.BandOffset += LocalDrag;
 
@@ -1732,7 +1732,7 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 				}
 			}
 
-			// 스케일 처리: 섹션별 + 축별 분리
+			// Scale handling: per-section + per-axis separation
 			float RadialScaleDelta = FMath::Max(SnappedScale.X, SnappedScale.Y);
 			if (FMath::IsNearlyZero(RadialScaleDelta))
 			{
@@ -1741,7 +1741,7 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 
 			if (SelectedSection == EBandSection::None)
 			{
-				// 전체 밴드: X/Y → 모든 Radius, Z → 모든 Height
+				// Entire band: X/Y → all Radius, Z → all Height
 				if (!FMath::IsNearlyZero(RadialScaleDelta))
 				{
 					float RadialFactor = 1.0f + RadialScaleDelta;
@@ -1761,7 +1761,7 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 			}
 			else if (SelectedSection == EBandSection::Upper)
 			{
-				// Upper 섹션: X/Y → Upper.Radius, Z → Upper.Height
+				// Upper section: X/Y → Upper.Radius, Z → Upper.Height
 				if (!FMath::IsNearlyZero(RadialScaleDelta))
 				{
 					float RadialFactor = 1.0f + RadialScaleDelta;
@@ -1775,7 +1775,7 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 			}
 			else if (SelectedSection == EBandSection::MidUpper)
 			{
-				// MidUpper 섹션: X/Y → MidUpperRadius, Z → BandHeight
+				// MidUpper section: X/Y → MidUpperRadius, Z → BandHeight
 				if (!FMath::IsNearlyZero(RadialScaleDelta))
 				{
 					float RadialFactor = 1.0f + RadialScaleDelta;
@@ -1787,14 +1787,14 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 					float HeightFactor = 1.0f + SnappedScale.Z;
 					BandSettings.BandHeight = FMath::Clamp(BandSettings.BandHeight * HeightFactor, 0.1f, 100.0f);
 
-					// MidLower/Lower 고정: 원점을 밴드 축 +방향으로 보정 → MidUpper만 이동
+					// Keep MidLower/Lower fixed: offset origin in band +Z direction → only MidUpper moves
 					float HeightDelta = BandSettings.BandHeight - OldBandHeight;
 					BandSettings.BandOffset += BandSettings.BandRotation.RotateVector(FVector(0.0f, 0.0f, HeightDelta * 0.5f));
 				}
 			}
 			else if (SelectedSection == EBandSection::MidLower)
 			{
-				// MidLower 섹션: X/Y → MidLowerRadius, Z → BandHeight
+				// MidLower section: X/Y → MidLowerRadius, Z → BandHeight
 				if (!FMath::IsNearlyZero(RadialScaleDelta))
 				{
 					float RadialFactor = 1.0f + RadialScaleDelta;
@@ -1806,14 +1806,14 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 					float HeightFactor = 1.0f + SnappedScale.Z;
 					BandSettings.BandHeight = FMath::Clamp(BandSettings.BandHeight * HeightFactor, 0.1f, 100.0f);
 
-					// MidUpper/Upper 고정: 원점을 밴드 축 -방향으로 보정 → MidLower만 이동
+					// Keep MidUpper/Upper fixed: offset origin in band -Z direction → only MidLower moves
 					float HeightDelta = BandSettings.BandHeight - OldBandHeight;
 					BandSettings.BandOffset += BandSettings.BandRotation.RotateVector(FVector(0.0f, 0.0f, -HeightDelta * 0.5f));
 				}
 			}
 			else if (SelectedSection == EBandSection::Lower)
 			{
-				// Lower 섹션: X/Y → Lower.Radius, Z → Lower.Height
+				// Lower section: X/Y → Lower.Radius, Z → Lower.Height
 				if (!FMath::IsNearlyZero(RadialScaleDelta))
 				{
 					float RadialFactor = 1.0f + RadialScaleDelta;
@@ -1829,49 +1829,49 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 	}
 	else if (SelectionType == EFleshRingSelectionType::Mesh)
 	{
-		// Ring 메시 이동 -> MeshOffset 업데이트
+		// Ring mesh translation -> update MeshOffset
 		Ring.MeshOffset += LocalDrag;
 
-		// 회전도 적용
+		// Apply rotation as well
 		if (bIsDraggingRotation)
 		{
-			// Widget이 주는 Rot는 월드 좌표계로 분해된 값
-			// 로컬 축 회전이 월드 FRotator로 변환되면서 Pitch/Yaw/Roll에 분산됨
-			// 따라서 Rot 전체를 쿼터니언으로 변환하여 사용해야 회전이 정확히 360도 누적됨
+			// Rot from Widget is decomposed in world coordinate system
+			// Local axis rotation gets distributed across Pitch/Yaw/Roll when converted to world FRotator
+			// Therefore must convert entire Rot to quaternion for accurate 360 degree accumulation
 			FQuat FrameDeltaRotation = Rot.Quaternion();
 
 			if (!FrameDeltaRotation.IsIdentity())
 			{
-				// 누적 델타에 추가 (짐벌락 방지: FRotator를 다시 읽지 않고 쿼터니언으로 누적)
+				// Add to accumulated delta (prevents gimbal lock: accumulate as quaternion instead of re-reading FRotator)
 				AccumulatedDeltaRotation = FrameDeltaRotation * AccumulatedDeltaRotation;
 				AccumulatedDeltaRotation.Normalize();
 
-				// 드래그 시작 회전에 누적 델타 적용
+				// Apply accumulated delta to drag start rotation
 				FQuat NewWorldRotation = AccumulatedDeltaRotation * DragStartWorldRotation;
 				NewWorldRotation.Normalize();
 
-				// 월드 회전을 본 로컬 회전으로 변환 후 저장
+				// Convert world rotation to bone local rotation and save
 				FQuat NewLocalRotation = BoneRotation.Inverse() * NewWorldRotation;
 				Ring.MeshRotation = NewLocalRotation;
-				Ring.MeshEulerRotation = NewLocalRotation.Rotator();  // EulerRotation 동기화
+				Ring.MeshEulerRotation = NewLocalRotation.Rotator();  // Sync EulerRotation
 			}
 		}
 
-		// 스케일 적용
+		// Apply scale
 		if (!SnappedScale.IsZero())
 		{
 			Ring.MeshScale += SnappedScale;
-			// 최소값만 클램프
+			// Clamp to minimum only
 			Ring.MeshScale.X = FMath::Max(Ring.MeshScale.X, 0.01f);
 			Ring.MeshScale.Y = FMath::Max(Ring.MeshScale.Y, 0.01f);
 			Ring.MeshScale.Z = FMath::Max(Ring.MeshScale.Z, 0.01f);
 		}
 
-		// StaticMeshComponent Transform 업데이트
+		// Update StaticMeshComponent Transform
 		FVector MeshLocation = BoneTransform.GetLocation() + BoneRotation.RotateVector(Ring.MeshOffset);
 		FQuat WorldRotation = BoneRotation * Ring.MeshRotation;
 
-		// 1. PreviewScene의 RingMeshComponents 업데이트 (Deformer 비활성화 시)
+		// 1. Update PreviewScene's RingMeshComponents (when Deformer is disabled)
 		const TArray<UFleshRingMeshComponent*>& RingMeshComponents = PreviewScene->GetRingMeshComponents();
 		if (RingMeshComponents.IsValidIndex(SelectedIndex) && RingMeshComponents[SelectedIndex])
 		{
@@ -1879,7 +1879,7 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 			RingMeshComponents[SelectedIndex]->SetWorldScale3D(Ring.MeshScale);
 		}
 
-		// 2. FleshRingComponent의 RingMeshComponents 업데이트 (Deformer 활성화 시)
+		// 2. Update FleshRingComponent's RingMeshComponents (when Deformer is enabled)
 		UFleshRingComponent* FleshRingComp = PreviewScene->GetFleshRingComponent();
 		if (FleshRingComp)
 		{
@@ -1892,11 +1892,11 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		}
 	}
 
-	// 성능 최적화: MarkPackageDirty()는 TrackingStopped()에서 한 번만 호출
-	// 드래그 중 매 프레임 호출 시 5-10ms 오버헤드 발생
+	// Performance optimization: MarkPackageDirty() is called only once in TrackingStopped()
+	// 5-10ms overhead per frame when called during drag
 
-	// 트랜스폼만 업데이트 (Deformer 유지, 깜빡임 방지)
-	// 선택된 Ring 인덱스를 전달하여 해당 Ring만 처리 (최적화)
+	// Update transforms only (keep Deformer, prevent flickering)
+	// Pass selected Ring index to process only that Ring (optimization)
 	if (PreviewScene)
 	{
 		UFleshRingComponent* FleshRingComp = PreviewScene->GetFleshRingComponent();
@@ -1908,7 +1908,7 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 		}
 	}
 
-	// 뷰포트 갱신
+	// Refresh viewport
 	{
 		SCOPE_CYCLE_COUNTER(STAT_FleshRingEditor_Invalidate);
 		Invalidate();
@@ -1919,17 +1919,17 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 
 void FFleshRingEditorViewportClient::TrackingStarted(const FInputEventState& InInputState, bool bIsDraggingWidget, bool bNudge)
 {
-	// 드래그 시작 시 트랜잭션 시작
+	// Start transaction when drag begins
 	if (bIsDraggingWidget && EditingAsset.IsValid() && SelectionType != EFleshRingSelectionType::None)
 	{
 		ScopedTransaction = MakeUnique<FScopedTransaction>(NSLOCTEXT("FleshRingEditor", "ModifyRingTransform", "Modify Ring Transform"));
 		EditingAsset->Modify();
 
-		// 회전 모드일 때만 회전 관련 초기화 수행
+		// Only perform rotation-related initialization in rotation mode
 		bool bIsRotationMode = ModeTools && ModeTools->GetWidgetMode() == UE::Widget::WM_Rotate;
 		if (bIsRotationMode)
 		{
-			// 드래그 시작 시 초기 회전 저장 (기즈모 좌표계 고정용)
+			// Save initial rotation at drag start (for gizmo coordinate system fixing)
 			USkeletalMeshComponent* SkelMeshComp = PreviewScene ? PreviewScene->GetSkeletalMeshComponent() : nullptr;
 			int32 SelectedIndex = PreviewScene ? PreviewScene->GetSelectedRingIndex() : -1;
 
@@ -1941,7 +1941,7 @@ void FFleshRingEditorViewportClient::TrackingStarted(const FInputEventState& InI
 				{
 					FQuat BoneRotation = SkelMeshComp->GetBoneTransform(BoneIndex).GetRotation();
 
-					// VirtualBand 모드: 바인드 포즈 사용
+					// VirtualBand mode: use bind pose
 					if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 					{
 						USkeletalMesh* SkelMesh = SkelMeshComp->GetSkeletalMeshAsset();
@@ -1957,7 +1957,7 @@ void FFleshRingEditorViewportClient::TrackingStarted(const FInputEventState& InI
 						BoneRotation = ComponentToWorld.GetRotation() * BindPoseBoneTransform.GetRotation();
 					}
 
-					// Gizmo 선택 시 모드별 회전 사용
+					// Use mode-specific rotation for Gizmo selection
 					FQuat CurrentRotation;
 					if (SelectionType == EFleshRingSelectionType::Gizmo)
 					{
@@ -1976,14 +1976,14 @@ void FFleshRingEditorViewportClient::TrackingStarted(const FInputEventState& InI
 					}
 					else
 					{
-						// Mesh 선택은 MeshRotation 사용
+						// Mesh selection uses MeshRotation
 						CurrentRotation = Ring.MeshRotation;
 					}
 
 					DragStartWorldRotation = BoneRotation * CurrentRotation;
-					DragStartWorldRotation.Normalize();  // 정규화
+					DragStartWorldRotation.Normalize();  // Normalize
 
-					// 누적 델타 회전 초기화
+					// Initialize accumulated delta rotation
 					AccumulatedDeltaRotation = FQuat::Identity;
 
 					bIsDraggingRotation = true;
@@ -1997,14 +1997,14 @@ void FFleshRingEditorViewportClient::TrackingStarted(const FInputEventState& InI
 
 void FFleshRingEditorViewportClient::TrackingStopped()
 {
-	// 드래그 종료 시 트랜잭션 종료
-	// 트랜잭션이 있었는지 먼저 체크 (Ring 수정 시에만 트랜잭션 생성됨)
+	// End transaction when drag finishes
+	// Check if transaction existed first (transaction is only created when Ring is modified)
 	bool bHadTransaction = ScopedTransaction.IsValid();
 	ScopedTransaction.Reset();
 	bIsDraggingRotation = false;
 
-	// 드래그 종료 시 에셋 dirty 마킹 (성능 최적화: 드래그 중에는 호출 안 함)
-	// 카메라 이동 등 에셋을 수정하지 않는 경우는 제외
+	// Mark asset dirty when drag ends (performance optimization: not called during drag)
+	// Exclude cases that don't modify asset like camera movement
 	if (bHadTransaction && EditingAsset.IsValid())
 	{
 		SCOPE_CYCLE_COUNTER(STAT_FleshRingEditor_MarkPackageDirty);
@@ -2018,7 +2018,7 @@ void FFleshRingEditorViewportClient::InvalidateAndDraw()
 {
 	Invalidate();
 
-	// 드롭박스가 열려있을 때도 뷰포트 강제 렌더링
+	// Force viewport rendering even when dropdown is open
 	if (Viewport)
 	{
 		Viewport->Draw();
@@ -2044,7 +2044,7 @@ void FFleshRingEditorViewportClient::ToggleShowRingMeshes()
 {
 	bShowRingMeshes = !bShowRingMeshes;
 
-	// Ring 메시 컴포넌트 Visibility 토글
+	// Toggle Ring mesh component Visibility
 	if (PreviewScene)
 	{
 		PreviewScene->SetRingMeshesVisible(bShowRingMeshes);
@@ -2055,7 +2055,7 @@ void FFleshRingEditorViewportClient::ToggleShowRingMeshes()
 
 void FFleshRingEditorViewportClient::ToggleShowGrid()
 {
-	// UAssetViewerSettings에서 현재 프로파일의 Grid 설정 토글
+	// Toggle Grid setting of current profile in UAssetViewerSettings
 	UAssetViewerSettings* Settings = UAssetViewerSettings::Get();
 	if (!Settings || !PreviewScene)
 	{
@@ -2068,20 +2068,20 @@ void FFleshRingEditorViewportClient::ToggleShowGrid()
 		return;
 	}
 
-	// 프로파일의 bShowGrid 토글
+	// Toggle profile's bShowGrid
 	Settings->Profiles[ProfileIndex].bShowGrid = !Settings->Profiles[ProfileIndex].bShowGrid;
 
-	// 변경 알림 (다른 리스너들에게)
+	// Notify change (to other listeners)
 	Settings->OnAssetViewerSettingsChanged().Broadcast(GET_MEMBER_NAME_CHECKED(FPreviewSceneProfile, bShowGrid));
 
-	// 즉시 적용
+	// Apply immediately
 	ApplyPreviewSceneShowFlags();
 	Invalidate();
 }
 
 bool FFleshRingEditorViewportClient::ShouldShowGrid() const
 {
-	// UAssetViewerSettings에서 현재 프로파일의 Grid 설정 반환
+	// Return Grid setting of current profile from UAssetViewerSettings
 	UAssetViewerSettings* Settings = UAssetViewerSettings::Get();
 	if (!Settings || !PreviewScene)
 	{
@@ -2101,20 +2101,20 @@ void FFleshRingEditorViewportClient::ApplyShowFlagsToScene()
 {
 	if (PreviewScene)
 	{
-		// 스켈레탈 메시 가시성 적용
+		// Apply skeletal mesh visibility
 		if (USkeletalMeshComponent* SkelMeshComp = PreviewScene->GetSkeletalMeshComponent())
 		{
 			SkelMeshComp->SetVisibility(bShowSkeletalMesh);
 		}
 
-		// Ring 메시 가시성 적용
+		// Apply Ring mesh visibility
 		PreviewScene->SetRingMeshesVisible(bShowRingMeshes);
 	}
 }
 
 void FFleshRingEditorViewportClient::OnAssetViewerSettingsChanged(const FName& PropertyName)
 {
-	// Preview Scene Settings 변경 시 ShowFlags 적용 후 뷰포트 갱신
+	// Apply ShowFlags and refresh viewport when Preview Scene Settings changes
 	ApplyPreviewSceneShowFlags();
 	Invalidate();
 }
@@ -2126,7 +2126,7 @@ void FFleshRingEditorViewportClient::ApplyPreviewSceneShowFlags()
 		return;
 	}
 
-	// UAssetViewerSettings에서 현재 프로파일 설정 가져오기
+	// Get current profile settings from UAssetViewerSettings
 	UAssetViewerSettings* Settings = UAssetViewerSettings::Get();
 	if (!Settings)
 	{
@@ -2141,7 +2141,7 @@ void FFleshRingEditorViewportClient::ApplyPreviewSceneShowFlags()
 
 	const FPreviewSceneProfile& Profile = Settings->Profiles[ProfileIndex];
 
-	// PostProcessing 적용 (먼저 처리해야 함 - DisableAdvancedFeatures가 다른 플래그 초기화)
+	// Apply PostProcessing (must process first - DisableAdvancedFeatures resets other flags)
 	if (Profile.bPostProcessingEnabled)
 	{
 		EngineShowFlags.EnableAdvancedFeatures();
@@ -2153,12 +2153,12 @@ void FFleshRingEditorViewportClient::ApplyPreviewSceneShowFlags()
 		EngineShowFlags.SetBloom(false);
 	}
 
-	// ShowFlags 적용
+	// Apply ShowFlags
 	EngineShowFlags.SetGrid(Profile.bShowGrid);
 	EngineShowFlags.SetMeshEdges(Profile.bShowMeshEdges);
 	EngineShowFlags.SetTonemapper(Profile.bEnableToneMapping);
 
-	// DrawHelper의 Grid도 동기화
+	// Sync DrawHelper's Grid as well
 	DrawHelper.bDrawGrid = Profile.bShowGrid;
 }
 
@@ -2166,7 +2166,7 @@ FString FFleshRingEditorViewportClient::GetConfigSectionName() const
 {
 	if (EditingAsset.IsValid())
 	{
-		// 에셋 경로를 섹션 이름에 포함 (예: FleshRingEditorViewport:/Game/FleshRings/MyAsset)
+		// Include asset path in section name (e.g., FleshRingEditorViewport:/Game/FleshRings/MyAsset)
 		return FString::Printf(TEXT("%s:%s"), *FleshRingViewportConfigSectionBase, *EditingAsset->GetPathName());
 	}
 	return FleshRingViewportConfigSectionBase;
@@ -2176,29 +2176,29 @@ void FFleshRingEditorViewportClient::SaveSettings()
 {
 	const FString SectionName = GetConfigSectionName();
 
-	// === 뷰포트 타입 저장 ===
+	// === Save viewport type ===
 	GConfig->SetInt(*SectionName, TEXT("ViewportType"), static_cast<int32>(GetViewportType()), GEditorPerProjectIni);
 
-	// === 원근 카메라 설정 저장 ===
+	// === Save perspective camera settings ===
 	GConfig->SetVector(*SectionName, TEXT("PerspectiveViewLocation"), ViewTransformPerspective.GetLocation(), GEditorPerProjectIni);
 	GConfig->SetRotator(*SectionName, TEXT("PerspectiveViewRotation"), ViewTransformPerspective.GetRotation(), GEditorPerProjectIni);
 
-	// === 직교 카메라 설정 저장 ===
+	// === Save orthographic camera settings ===
 	GConfig->SetVector(*SectionName, TEXT("OrthographicViewLocation"), ViewTransformOrthographic.GetLocation(), GEditorPerProjectIni);
 	GConfig->SetRotator(*SectionName, TEXT("OrthographicViewRotation"), ViewTransformOrthographic.GetRotation(), GEditorPerProjectIni);
 	GConfig->SetFloat(*SectionName, TEXT("OrthoZoom"), ViewTransformOrthographic.GetOrthoZoom(), GEditorPerProjectIni);
 
-	// === 카메라 속도 저장 ===
+	// === Save camera speed ===
 	GConfig->SetFloat(*SectionName, TEXT("CameraSpeed"), GetCameraSpeedSettings().GetCurrentSpeed(), GEditorPerProjectIni);
 
-	// === FOV 저장 ===
+	// === Save FOV ===
 	GConfig->SetFloat(*SectionName, TEXT("ViewFOV"), ViewFOV, GEditorPerProjectIni);
 
-	// === 클리핑 평면 저장 ===
+	// === Save clipping planes ===
 	GConfig->SetFloat(*SectionName, TEXT("NearClipPlane"), GetNearClipPlane(), GEditorPerProjectIni);
 	GConfig->SetFloat(*SectionName, TEXT("FarClipPlane"), GetFarClipPlaneOverride(), GEditorPerProjectIni);
 
-	// 직교 클리핑 평면
+	// Orthographic clipping planes
 	TOptional<double> OrthoNear = GetOrthographicNearPlaneOverride();
 	TOptional<double> OrthoFar = GetOrthographicFarPlaneOverride();
 	GConfig->SetBool(*SectionName, TEXT("HasOrthoNearClip"), OrthoNear.IsSet(), GEditorPerProjectIni);
@@ -2212,27 +2212,27 @@ void FFleshRingEditorViewportClient::SaveSettings()
 		GConfig->SetDouble(*SectionName, TEXT("OrthoFarClipPlane"), OrthoFar.GetValue(), GEditorPerProjectIni);
 	}
 
-	// === 노출 설정 저장 ===
+	// === Save exposure settings ===
 	GConfig->SetFloat(*SectionName, TEXT("ExposureFixedEV100"), ExposureSettings.FixedEV100, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ExposureBFixed"), ExposureSettings.bFixed, GEditorPerProjectIni);
 
-	// === 뷰모드 저장 (Lit, Unlit, Wireframe 등) ===
+	// === Save view mode (Lit, Unlit, Wireframe, etc.) ===
 	GConfig->SetInt(*SectionName, TEXT("ViewMode"), static_cast<int32>(GetViewMode()), GEditorPerProjectIni);
 
-	// === 커스텀 Show 플래그 저장 ===
+	// === Save custom Show flags ===
 	GConfig->SetBool(*SectionName, TEXT("ShowSkeletalMesh"), bShowSkeletalMesh, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowRingGizmos"), bShowRingGizmos, GEditorPerProjectIni);
 	GConfig->SetFloat(*SectionName, TEXT("RingGizmoThickness"), RingGizmoThickness, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowRingMeshes"), bShowRingMeshes, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowBones"), bShowBones, GEditorPerProjectIni);
 
-	// 본 그리기 옵션 저장
+	// Save bone draw options
 	GConfig->SetBool(*SectionName, TEXT("ShowBoneNames"), bShowBoneNames, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowMultiColorBones"), bShowMultiColorBones, GEditorPerProjectIni);
 	GConfig->SetFloat(*SectionName, TEXT("BoneDrawSize"), BoneDrawSize, GEditorPerProjectIni);
 	GConfig->SetInt(*SectionName, TEXT("BoneDrawMode"), static_cast<int32>(BoneDrawMode), GEditorPerProjectIni);
 
-	// 디버그 시각화 옵션 저장
+	// Save debug visualization options
 	GConfig->SetBool(*SectionName, TEXT("ShowDebugVisualization"), bCachedShowDebugVisualization, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowSdfVolume"), bCachedShowSdfVolume, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowAffectedVertices"), bCachedShowAffectedVertices, GEditorPerProjectIni);
@@ -2242,7 +2242,7 @@ void FFleshRingEditorViewportClient::SaveSettings()
 	GConfig->SetBool(*SectionName, TEXT("ShowBulgeRange"), bCachedShowBulgeRange, GEditorPerProjectIni);
 	GConfig->SetInt(*SectionName, TEXT("DebugSliceZ"), CachedDebugSliceZ, GEditorPerProjectIni);
 
-	// Config 파일에 즉시 저장
+	// Save to config file immediately
 	GConfig->Flush(false, GEditorPerProjectIni);
 }
 
@@ -2250,14 +2250,14 @@ void FFleshRingEditorViewportClient::LoadSettings()
 {
 	const FString SectionName = GetConfigSectionName();
 
-	// === 뷰포트 타입 로드 (가장 먼저 - 카메라 위치 적용 전에 타입 설정) ===
+	// === Load viewport type (first - set type before applying camera position) ===
 	int32 SavedViewportType = static_cast<int32>(ELevelViewportType::LVT_Perspective);
 	if (GConfig->GetInt(*SectionName, TEXT("ViewportType"), SavedViewportType, GEditorPerProjectIni))
 	{
 		SetViewportType(static_cast<ELevelViewportType>(SavedViewportType));
 	}
 
-	// === 원근 카메라 설정 로드 ===
+	// === Load perspective camera settings ===
 	bool bHasSavedPerspectiveLocation = false;
 	FVector SavedPerspectiveLocation;
 	if (GConfig->GetVector(*SectionName, TEXT("PerspectiveViewLocation"), SavedPerspectiveLocation, GEditorPerProjectIni))
@@ -2274,7 +2274,7 @@ void FFleshRingEditorViewportClient::LoadSettings()
 		bHasSavedPerspectiveRotation = true;
 	}
 
-	// === 직교 카메라 설정 로드 ===
+	// === Load orthographic camera settings ===
 	bool bHasSavedOrthographicLocation = false;
 	FVector SavedOrthographicLocation;
 	if (GConfig->GetVector(*SectionName, TEXT("OrthographicViewLocation"), SavedOrthographicLocation, GEditorPerProjectIni))
@@ -2297,8 +2297,8 @@ void FFleshRingEditorViewportClient::LoadSettings()
 		ViewTransformOrthographic.SetOrthoZoom(SavedOrthoZoom);
 	}
 
-	// 저장된 카메라 위치를 실제 뷰에 적용 (엔진 재시작 시 카메라 복원)
-	// FocusOnMesh()에서 시작된 카메라 보간 중단 (저장된 위치 우선)
+	// Apply saved camera position to actual view (restore camera on engine restart)
+	// Stop camera interpolation started by FocusOnMesh() (saved position takes priority)
 	bool bHasSavedCameraSettings = false;
 	if (GetViewportType() == LVT_Perspective)
 	{
@@ -2327,13 +2327,13 @@ void FFleshRingEditorViewportClient::LoadSettings()
 		}
 	}
 
-	// 저장된 설정이 있으면 FocusOnMesh() 보간 중단
+	// Stop FocusOnMesh() interpolation if saved settings exist
 	if (bHasSavedCameraSettings)
 	{
 		bIsCameraInterpolating = false;
 	}
 
-	// === 카메라 속도 로드 ===
+	// === Load camera speed ===
 	float SavedCameraSpeed = 1.0f;
 	if (GConfig->GetFloat(*SectionName, TEXT("CameraSpeed"), SavedCameraSpeed, GEditorPerProjectIni))
 	{
@@ -2342,14 +2342,14 @@ void FFleshRingEditorViewportClient::LoadSettings()
 		SetCameraSpeedSettings(SpeedSettings);
 	}
 
-	// === FOV 로드 ===
+	// === Load FOV ===
 	float SavedFOV = 90.0f;
 	if (GConfig->GetFloat(*SectionName, TEXT("ViewFOV"), SavedFOV, GEditorPerProjectIni))
 	{
 		ViewFOV = SavedFOV;
 	}
 
-	// === 클리핑 평면 로드 ===
+	// === Load clipping planes ===
 	float SavedNearClip = 1.0f;
 	if (GConfig->GetFloat(*SectionName, TEXT("NearClipPlane"), SavedNearClip, GEditorPerProjectIni))
 	{
@@ -2365,7 +2365,7 @@ void FFleshRingEditorViewportClient::LoadSettings()
 		}
 	}
 
-	// 직교 클리핑 평면 로드
+	// Load orthographic clipping planes
 	bool bHasOrthoNearClip = false;
 	bool bHasOrthoFarClip = false;
 	GConfig->GetBool(*SectionName, TEXT("HasOrthoNearClip"), bHasOrthoNearClip, GEditorPerProjectIni);
@@ -2389,12 +2389,12 @@ void FFleshRingEditorViewportClient::LoadSettings()
 		}
 	}
 
-	// === 노출 설정 로드 ===
+	// === Load exposure settings ===
 	GConfig->GetFloat(*SectionName, TEXT("ExposureFixedEV100"), ExposureSettings.FixedEV100, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ExposureBFixed"), ExposureSettings.bFixed, GEditorPerProjectIni);
 
-	// === 뷰모드 로드 (Lit, Unlit, Wireframe 등) ===
-	// 주의: ApplyPreviewSceneShowFlags()가 뷰모드를 덮어쓰므로 나중에 다시 적용
+	// === Load view mode (Lit, Unlit, Wireframe, etc.) ===
+	// Note: ApplyPreviewSceneShowFlags() overwrites view mode, so reapply later
 	EViewModeIndex LoadedViewMode = VMI_Lit;
 	bool bHasSavedViewMode = false;
 	int32 SavedViewMode = static_cast<int32>(VMI_Lit);
@@ -2404,14 +2404,14 @@ void FFleshRingEditorViewportClient::LoadSettings()
 		bHasSavedViewMode = true;
 	}
 
-	// === 커스텀 Show 플래그 로드 ===
+	// === Load custom Show flags ===
 	GConfig->GetBool(*SectionName, TEXT("ShowSkeletalMesh"), bShowSkeletalMesh, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowRingGizmos"), bShowRingGizmos, GEditorPerProjectIni);
 	GConfig->GetFloat(*SectionName, TEXT("RingGizmoThickness"), RingGizmoThickness, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowRingMeshes"), bShowRingMeshes, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowBones"), bShowBones, GEditorPerProjectIni);
 
-	// 본 그리기 옵션 로드
+	// Load bone draw options
 	GConfig->GetBool(*SectionName, TEXT("ShowBoneNames"), bShowBoneNames, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowMultiColorBones"), bShowMultiColorBones, GEditorPerProjectIni);
 	GConfig->GetFloat(*SectionName, TEXT("BoneDrawSize"), BoneDrawSize, GEditorPerProjectIni);
@@ -2419,7 +2419,7 @@ void FFleshRingEditorViewportClient::LoadSettings()
 	GConfig->GetInt(*SectionName, TEXT("BoneDrawMode"), BoneDrawModeInt, GEditorPerProjectIni);
 	BoneDrawMode = static_cast<EFleshRingBoneDrawMode::Type>(FMath::Clamp(BoneDrawModeInt, 0, 5));
 
-	// 디버그 시각화 옵션 로드
+	// Load debug visualization options
 	GConfig->GetBool(*SectionName, TEXT("ShowDebugVisualization"), bCachedShowDebugVisualization, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowSdfVolume"), bCachedShowSdfVolume, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowAffectedVertices"), bCachedShowAffectedVertices, GEditorPerProjectIni);
@@ -2429,7 +2429,7 @@ void FFleshRingEditorViewportClient::LoadSettings()
 	GConfig->GetBool(*SectionName, TEXT("ShowBulgeRange"), bCachedShowBulgeRange, GEditorPerProjectIni);
 	GConfig->GetInt(*SectionName, TEXT("DebugSliceZ"), CachedDebugSliceZ, GEditorPerProjectIni);
 
-	// 캐싱된 값을 FleshRingComponent에 적용
+	// Apply cached values to FleshRingComponent
 	if (PreviewScene)
 	{
 		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
@@ -2443,18 +2443,18 @@ void FFleshRingEditorViewportClient::LoadSettings()
 			Comp->bShowBulgeRange = bCachedShowBulgeRange;
 			Comp->DebugSliceZ = CachedDebugSliceZ;
 
-			// SDFSlice 평면 가시성 적용
+			// Apply SDFSlice plane visibility
 			Comp->SetDebugSlicePlanesVisible(Comp->bShowSDFSlice && Comp->bShowDebugVisualization);
 		}
 	}
 
-	// 로드된 Show Flag를 PreviewScene에 적용
+	// Apply loaded Show Flags to PreviewScene
 	ApplyShowFlagsToScene();
 
-	// Preview Scene Settings도 적용
+	// Apply Preview Scene Settings as well
 	ApplyPreviewSceneShowFlags();
 
-	// 뷰모드 재적용 (ApplyPreviewSceneShowFlags()가 ShowFlags를 덮어쓰므로)
+	// Reapply view mode (since ApplyPreviewSceneShowFlags() overwrites ShowFlags)
 	if (bHasSavedViewMode)
 	{
 		SetViewMode(LoadedViewMode);
@@ -2469,7 +2469,7 @@ void FFleshRingEditorViewportClient::ToggleShowDebugVisualization()
 		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
 		{
 			Comp->bShowDebugVisualization = bCachedShowDebugVisualization;
-			// 평면 액터 즉시 숨기기/보이기
+			// Hide/show plane actors immediately
 			Comp->SetDebugSlicePlanesVisible(Comp->bShowSDFSlice && Comp->bShowDebugVisualization);
 		}
 	}
@@ -2525,7 +2525,7 @@ void FFleshRingEditorViewportClient::ToggleShowSDFSlice()
 		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
 		{
 			Comp->bShowSDFSlice = bCachedShowSDFSlice;
-			// 평면 액터 즉시 숨기기/보이기
+			// Hide/show plane actors immediately
 			Comp->SetDebugSlicePlanesVisible(Comp->bShowSDFSlice && Comp->bShowDebugVisualization);
 		}
 	}
@@ -2638,7 +2638,7 @@ void FFleshRingEditorViewportClient::UpdateBonesToDraw()
 		return;
 	}
 
-	// 부모 인덱스 배열 생성
+	// Create parent indices array
 	TArray<int32> ParentIndices;
 	ParentIndices.SetNum(NumBones);
 	for (int32 BoneIndex = 0; BoneIndex < NumBones; ++BoneIndex)
@@ -2646,7 +2646,7 @@ void FFleshRingEditorViewportClient::UpdateBonesToDraw()
 		ParentIndices[BoneIndex] = RefSkeleton.GetParentIndex(BoneIndex);
 	}
 
-	// 선택된 본 배열 생성
+	// Create selected bones array
 	TArray<int32> SelectedBones;
 	if (!SelectedBoneName.IsNone())
 	{
@@ -2657,7 +2657,7 @@ void FFleshRingEditorViewportClient::UpdateBonesToDraw()
 		}
 	}
 
-	// EFleshRingBoneDrawMode를 EBoneDrawMode로 변환
+	// Convert EFleshRingBoneDrawMode to EBoneDrawMode
 	EBoneDrawMode::Type EngineBoneDrawMode = EBoneDrawMode::All;
 	switch (BoneDrawMode)
 	{
@@ -2682,7 +2682,7 @@ void FFleshRingEditorViewportClient::UpdateBonesToDraw()
 		break;
 	}
 
-	// SkeletalDebugRendering의 함수를 사용하여 그릴 본 계산
+	// Use SkeletalDebugRendering function to calculate bones to draw
 	SkeletalDebugRendering::CalculateBonesToDraw(
 		ParentIndices,
 		SelectedBones,
@@ -2691,18 +2691,18 @@ void FFleshRingEditorViewportClient::UpdateBonesToDraw()
 }
 
 // ============================================================================
-// 우클릭 컨텍스트 메뉴 관련 함수
+// Right-click context menu related functions
 // ============================================================================
 
 void FFleshRingEditorViewportClient::ShowBoneContextMenu(FName BoneName, const FVector2D& ScreenPos)
 {
-	// 가중치 본 캐시가 비어있으면 빌드
+	// Build weighted bone cache if empty
 	if (WeightedBoneIndices.Num() == 0)
 	{
 		BuildWeightedBoneCache();
 	}
 
-	// 선택된 본의 인덱스 가져오기
+	// Get index of selected bone
 	int32 BoneIndex = INDEX_NONE;
 	if (PreviewScene)
 	{
@@ -2715,15 +2715,15 @@ void FFleshRingEditorViewportClient::ShowBoneContextMenu(FName BoneName, const F
 		}
 	}
 
-	// Ring 추가 가능 조건: 자신 또는 자손 중 가중치가 있는 본이 있으면 추가 가능
-	// (스켈레톤 트리의 bIsMeshBone = HasWeightedDescendant() 로직과 동일)
+	// Ring add condition: can add if self or any descendant has weights
+	// (same logic as skeleton tree's bIsMeshBone = HasWeightedDescendant())
 	bool bCanAddRing = (BoneIndex != INDEX_NONE) && HasWeightedDescendant(BoneIndex);
 
 	FMenuBuilder MenuBuilder(true, nullptr);
 
 	MenuBuilder.BeginSection("BoneActions", NSLOCTEXT("FleshRingEditor", "BoneActionsSection", "Bone"));
 	{
-		// Add Ring 메뉴 - 메시 본 (자신 또는 자손에 가중치 있음)에만 활성화
+		// Add Ring menu - enabled only for mesh bones (self or descendants have weights)
 		MenuBuilder.AddMenuEntry(
 			NSLOCTEXT("FleshRingEditor", "AddRingAtPosition", "Add Ring Here..."),
 			bCanAddRing
@@ -2736,7 +2736,7 @@ void FFleshRingEditorViewportClient::ShowBoneContextMenu(FName BoneName, const F
 			)
 		);
 
-		// Copy Bone Name 메뉴
+		// Copy Bone Name menu
 		MenuBuilder.AddMenuEntry(
 			NSLOCTEXT("FleshRingEditor", "CopyBoneName", "Copy Bone Name"),
 			FText::GetEmpty(),
@@ -2751,7 +2751,7 @@ void FFleshRingEditorViewportClient::ShowBoneContextMenu(FName BoneName, const F
 	}
 	MenuBuilder.EndSection();
 
-	// 메뉴 표시 - 커서 위치에 표시 (ScreenPos는 뷰포트 로컬 좌표이므로 커서 위치 사용)
+	// Display menu - show at cursor position (ScreenPos is viewport local coordinates so use cursor position)
 	TSharedPtr<SWidget> MenuWidget = MenuBuilder.MakeWidget();
 
 	if (TSharedPtr<SFleshRingEditorViewport> ViewportPtr = ViewportWidget.Pin())
@@ -2773,23 +2773,23 @@ void FFleshRingEditorViewportClient::OnContextMenu_AddRing()
 		return;
 	}
 
-	// 에셋 피커 설정
+	// Asset picker config
 	FAssetPickerConfig AssetPickerConfig;
 	AssetPickerConfig.Filter.ClassPaths.Add(UStaticMesh::StaticClass()->GetClassPathName());
 	AssetPickerConfig.Filter.bRecursiveClasses = true;
 	AssetPickerConfig.SelectionMode = ESelectionMode::Single;
-	AssetPickerConfig.bAllowNullSelection = false;  // 버튼으로 처리하므로 비활성화
+	AssetPickerConfig.bAllowNullSelection = false;  // Disabled as handled by button
 	AssetPickerConfig.bFocusSearchBoxWhenOpened = true;
 	AssetPickerConfig.InitialAssetViewType = EAssetViewType::List;
 
-	// 메쉬 선택 시 콜백 - 멤버 변수를 캡처하기 위해 람다 사용
+	// Callback when mesh is selected - use lambda to capture member variables
 	FName CapturedBoneName = PendingRingAddBoneName;
 	FVector2D CapturedScreenPos = PendingRingAddScreenPos;
 
 	AssetPickerConfig.OnAssetSelected = FOnAssetSelected::CreateLambda(
 		[this, CapturedBoneName, CapturedScreenPos](const FAssetData& AssetData)
 		{
-			// 팝업 닫기
+			// Close popup
 			FSlateApplication::Get().DismissAllMenus();
 
 			UStaticMesh* SelectedMesh = nullptr;
@@ -2798,11 +2798,11 @@ void FFleshRingEditorViewportClient::OnContextMenu_AddRing()
 				SelectedMesh = Cast<UStaticMesh>(AssetData.GetAsset());
 			}
 
-			// 본 로컬 오프셋 및 회전 계산 (본 축 라인에 투영된 위치, 녹색 라인 방향)
+			// Calculate bone local offset and rotation (projected position on bone axis line, green line direction)
 			FRotator LocalRotation;
 			FVector LocalOffset = CalculateBoneLocalOffsetFromScreenPos(CapturedScreenPos, CapturedBoneName, &LocalRotation);
 
-			// Ring 추가 요청
+			// Request Ring add
 			OnAddRingAtPositionRequested.ExecuteIfBound(
 				CapturedBoneName,
 				LocalOffset,
@@ -2812,19 +2812,19 @@ void FFleshRingEditorViewportClient::OnContextMenu_AddRing()
 		}
 	);
 
-	// 상태 초기화 (에셋 피커 열기 전에)
+	// Reset state (before opening asset picker)
 	PendingRingAddBoneName = NAME_None;
 
-	// 에셋 피커 팝업 표시
+	// Display asset picker popup
 	FContentBrowserModule& ContentBrowserModule =
 		FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
 
 	TSharedRef<SWidget> AssetPickerWidget = ContentBrowserModule.Get().CreateAssetPicker(AssetPickerConfig);
 
-	// 팝업 메뉴로 표시
+	// Display as popup menu
 	if (TSharedPtr<SFleshRingEditorViewport> ViewportPtr = ViewportWidget.Pin())
 	{
-		// 하단 버튼 바 포함 팝업 (다이얼로그 스타일)
+		// Popup with bottom button bar (dialog style)
 		FSlateApplication::Get().PushMenu(
 			ViewportPtr.ToSharedRef(),
 			FWidgetPath(),
@@ -2833,20 +2833,20 @@ void FFleshRingEditorViewportClient::OnContextMenu_AddRing()
 				.HeightOverride(500.0f)
 				[
 					SNew(SVerticalBox)
-					// 에셋 피커 (상단)
+					// Asset picker (top)
 					+ SVerticalBox::Slot()
 					.FillHeight(1.0f)
 					[
 						AssetPickerWidget
 					]
-					// 구분선
+					// Separator
 					+ SVerticalBox::Slot()
 					.AutoHeight()
 					.Padding(0.0f, 4.0f)
 					[
 						SNew(SSeparator)
 					]
-					// 버튼 바 (하단)
+					// Button bar (bottom)
 					+ SVerticalBox::Slot()
 					.AutoHeight()
 					.Padding(8.0f, 4.0f, 8.0f, 8.0f)
@@ -2854,7 +2854,7 @@ void FFleshRingEditorViewportClient::OnContextMenu_AddRing()
 						SNew(SHorizontalBox)
 						+ SHorizontalBox::Slot()
 						.FillWidth(1.0f)
-						// 왼쪽 여백
+						// Left margin
 						+ SHorizontalBox::Slot()
 						.AutoWidth()
 						.Padding(0.0f, 0.0f, 4.0f, 0.0f)
@@ -2866,11 +2866,11 @@ void FFleshRingEditorViewportClient::OnContextMenu_AddRing()
 							{
 								FSlateApplication::Get().DismissAllMenus();
 
-								// 본 로컬 오프셋 및 회전 계산
+								// Calculate bone local offset and rotation
 								FRotator LocalRotation;
 								FVector LocalOffset = CalculateBoneLocalOffsetFromScreenPos(CapturedScreenPos, CapturedBoneName, &LocalRotation);
 
-								// 메쉬 없이 Ring 추가 요청
+								// Request Ring add without mesh
 								OnAddRingAtPositionRequested.ExecuteIfBound(
 									CapturedBoneName,
 									LocalOffset,
@@ -2906,7 +2906,7 @@ FVector FFleshRingEditorViewportClient::CalculateBoneLocalOffsetFromScreenPos(co
 		return FVector::ZeroVector;
 	}
 
-	// 본 트랜스폼 가져오기
+	// Get bone transform
 	UDebugSkelMeshComponent* SkeletalMeshComponent = PreviewScene->GetSkeletalMeshComponent();
 	if (!SkeletalMeshComponent)
 	{
@@ -2923,28 +2923,28 @@ FVector FFleshRingEditorViewportClient::CalculateBoneLocalOffsetFromScreenPos(co
 	FTransform BoneTransform = SkeletalMeshComponent->GetBoneTransform(BoneIndex);
 	FVector BoneOrigin = BoneTransform.GetLocation();
 
-	// 가중치 본 캐시가 비어있으면 빌드
+	// Build weighted bone cache if empty
 	if (WeightedBoneIndices.Num() == 0)
 	{
 		const_cast<FFleshRingEditorViewportClient*>(this)->BuildWeightedBoneCache();
 	}
 
-	// 본 축 방향 계산: 현재 본에서 가중치가 있는 자식 본으로 향하는 방향 사용
+	// Calculate bone axis direction: use direction from current bone toward weighted child bone
 	FVector BoneAxisDir;
 
-	// 가중치가 있는 자식 본 개수 확인
+	// Check weighted child bone count
 	int32 WeightedChildCount = CountWeightedChildBones(BoneIndex);
 
 	if (WeightedChildCount == 1)
 	{
-		// 가중치가 있는 자식 본이 하나만 있을 때: 자동 방향 계산
+		// When only one weighted child bone exists: automatic direction calculation
 		int32 WeightedChildIndex = FindWeightedChildBone(BoneIndex);
 		FVector ChildLocation = SkeletalMeshComponent->GetBoneTransform(WeightedChildIndex).GetLocation();
 		BoneAxisDir = (ChildLocation - BoneOrigin).GetSafeNormal();
 	}
 	else if (WeightedChildCount >= 2)
 	{
-		// 가중치가 있는 자식 본이 여러 개: 기본 회전값 사용 (방향이 모호함)
+		// Multiple weighted child bones: use default rotation (direction is ambiguous)
 		if (OutLocalRotation)
 		{
 			*OutLocalRotation = FRotator(-90.0f, 0.0f, 0.0f);
@@ -2953,7 +2953,7 @@ FVector FFleshRingEditorViewportClient::CalculateBoneLocalOffsetFromScreenPos(co
 	}
 	else
 	{
-		// 말단 본 (자식 없음): 기본 회전값 사용
+		// End bone (no children): use default rotation
 		if (OutLocalRotation)
 		{
 			*OutLocalRotation = FRotator(-90.0f, 0.0f, 0.0f);
@@ -2961,7 +2961,7 @@ FVector FFleshRingEditorViewportClient::CalculateBoneLocalOffsetFromScreenPos(co
 		return FVector::ZeroVector;
 	}
 
-	// 스크린 좌표 → 월드 레이 변환
+	// Screen coordinates → world ray conversion
 	FSceneViewFamilyContext ViewFamily(FSceneViewFamily::ConstructionValues(
 		Viewport,
 		GetScene(),
@@ -2977,12 +2977,12 @@ FVector FFleshRingEditorViewportClient::CalculateBoneLocalOffsetFromScreenPos(co
 	FVector RayOrigin, RayDirection;
 	View->DeprojectFVector2D(ScreenPos, RayOrigin, RayDirection);
 
-	// 레이와 본 축 사이의 최근접점 계산
-	// 두 직선 사이의 최근접점을 구하는 공식
+	// Calculate closest point between ray and bone axis
+	// Formula for closest point between two lines
 	FVector W0 = BoneOrigin - RayOrigin;
-	float A = FVector::DotProduct(BoneAxisDir, BoneAxisDir);  // 항상 1 (정규화됨)
+	float A = FVector::DotProduct(BoneAxisDir, BoneAxisDir);  // Always 1 (normalized)
 	float B = FVector::DotProduct(BoneAxisDir, RayDirection);
-	float C = FVector::DotProduct(RayDirection, RayDirection); // 항상 1 (정규화됨)
+	float C = FVector::DotProduct(RayDirection, RayDirection); // Always 1 (normalized)
 	float D = FVector::DotProduct(BoneAxisDir, W0);
 	float E = FVector::DotProduct(RayDirection, W0);
 
@@ -2991,30 +2991,30 @@ FVector FFleshRingEditorViewportClient::CalculateBoneLocalOffsetFromScreenPos(co
 	float T_BoneAxis;
 	if (FMath::Abs(Denom) < SMALL_NUMBER)
 	{
-		// 두 직선이 평행한 경우 - 본 원점 사용
+		// Lines are parallel - use bone origin
 		T_BoneAxis = 0.0f;
 	}
 	else
 	{
-		// 본 축 위의 최근접점 파라미터
+		// Closest point parameter on bone axis
 		T_BoneAxis = (B * E - C * D) / Denom;
 	}
 
-	// 녹색 라인 방향으로의 월드 오프셋 계산
-	// BoneAxisDir = 현재→자식 본 방향 (녹색 라인)
+	// Calculate world offset along green line direction
+	// BoneAxisDir = current→child bone direction (green line)
 	FVector WorldOffset = BoneAxisDir * T_BoneAxis;
 
-	// 월드 오프셋을 본 로컬 좌표계로 변환
-	// 이렇게 해야 RingOffset이 녹색 라인 위에 정확히 정렬됨
+	// Convert world offset to bone local coordinate system
+	// This ensures RingOffset aligns exactly on the green line
 	FVector LocalOffset = BoneTransform.GetRotation().UnrotateVector(WorldOffset);
 
-	// 회전 계산: 녹색 라인 방향이 Ring의 Z축이 되도록
+	// Rotation calculation: make green line direction become Ring's Z axis
 	if (OutLocalRotation)
 	{
-		// 녹색 라인 방향을 본 로컬 공간으로 변환
+		// Convert green line direction to bone local space
 		FVector LocalAxisDir = BoneTransform.GetRotation().UnrotateVector(BoneAxisDir);
 
-		// Z축(0,0,1)에서 녹색 라인 방향으로 회전하는 쿼터니언 계산
+		// Calculate quaternion that rotates from Z axis (0,0,1) to green line direction
 		FQuat RotationQuat = FQuat::FindBetweenNormals(FVector::UpVector, LocalAxisDir);
 		*OutLocalRotation = RotationQuat.Rotator();
 	}
@@ -3049,33 +3049,33 @@ FRotator FFleshRingEditorViewportClient::CalculateDefaultRingRotationForBone(FNa
 		return DefaultRotation;
 	}
 
-	// 가중치 본 캐시가 비어있으면 빌드
+	// Build weighted bone cache if empty
 	if (WeightedBoneIndices.Num() == 0)
 	{
 		const_cast<FFleshRingEditorViewportClient*>(this)->BuildWeightedBoneCache();
 	}
 
-	// 가중치가 있는 자식 본 개수 확인
+	// Check weighted child bone count
 	int32 WeightedChildCount = CountWeightedChildBones(BoneIndex);
 
 	if (WeightedChildCount == 1)
 	{
-		// 가중치가 있는 자식 본이 하나만 있을 때: 자동 방향 계산
+		// When only one weighted child bone exists: automatic direction calculation
 		int32 WeightedChildIndex = FindWeightedChildBone(BoneIndex);
 		FTransform BoneTransform = SkeletalMeshComponent->GetBoneTransform(BoneIndex);
 		FVector BoneOrigin = BoneTransform.GetLocation();
 		FVector ChildLocation = SkeletalMeshComponent->GetBoneTransform(WeightedChildIndex).GetLocation();
 		FVector BoneAxisDir = (ChildLocation - BoneOrigin).GetSafeNormal();
 
-		// 녹색 라인 방향을 본 로컬 공간으로 변환
+		// Convert green line direction to bone local space
 		FVector LocalAxisDir = BoneTransform.GetRotation().UnrotateVector(BoneAxisDir);
 
-		// Z축(0,0,1)에서 녹색 라인 방향으로 회전하는 쿼터니언 계산
+		// Calculate quaternion that rotates from Z axis (0,0,1) to green line direction
 		FQuat RotationQuat = FQuat::FindBetweenNormals(FVector::UpVector, LocalAxisDir);
 		return RotationQuat.Rotator();
 	}
 
-	// 가중치가 있는 자식 본이 0개 또는 2개 이상: 기본값 사용
+	// No weighted child bones or 2+ weighted child bones: use default
 	return DefaultRotation;
 }
 
@@ -3100,7 +3100,7 @@ void FFleshRingEditorViewportClient::BuildWeightedBoneCache()
 		return;
 	}
 
-	// LOD 0의 렌더 데이터에서 웨이팅된 본 찾기
+	// Find weighted bones from LOD 0 render data
 	FSkeletalMeshRenderData* RenderData = SkelMesh->GetResourceForRendering();
 	if (!RenderData || RenderData->LODRenderData.Num() == 0)
 	{
@@ -3109,7 +3109,7 @@ void FFleshRingEditorViewportClient::BuildWeightedBoneCache()
 
 	const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[0];
 
-	// 각 섹션의 BoneMap에 있는 본들이 웨이팅된 본들
+	// Bones in each section's BoneMap are the weighted bones
 	for (const FSkelMeshRenderSection& Section : LODData.RenderSections)
 	{
 		for (FBoneIndexType BoneIndex : Section.BoneMap)
@@ -3145,7 +3145,7 @@ int32 FFleshRingEditorViewportClient::FindWeightedChildBone(int32 ParentBoneInde
 
 	const FReferenceSkeleton& RefSkeleton = SkelMesh->GetRefSkeleton();
 
-	// 자식 본 중에서 가중치가 있는 본 찾기
+	// Find weighted bone among child bones
 	for (int32 i = 0; i < RefSkeleton.GetNum(); ++i)
 	{
 		if (RefSkeleton.GetParentIndex(i) == ParentBoneIndex)
@@ -3162,7 +3162,7 @@ int32 FFleshRingEditorViewportClient::FindWeightedChildBone(int32 ParentBoneInde
 
 bool FFleshRingEditorViewportClient::HasWeightedDescendant(int32 BoneIndex) const
 {
-	// 자신이 가중치가 있으면 true
+	// True if self has weights
 	if (IsBoneWeighted(BoneIndex))
 	{
 		return true;
@@ -3188,7 +3188,7 @@ bool FFleshRingEditorViewportClient::HasWeightedDescendant(int32 BoneIndex) cons
 	const FReferenceSkeleton& RefSkeleton = SkelMesh->GetRefSkeleton();
 	const int32 NumBones = RefSkeleton.GetNum();
 
-	// 자손 본 재귀 체크
+	// Recursively check descendant bones
 	for (int32 ChildIndex = 0; ChildIndex < NumBones; ++ChildIndex)
 	{
 		if (RefSkeleton.GetParentIndex(ChildIndex) == BoneIndex)

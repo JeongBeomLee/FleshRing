@@ -26,7 +26,7 @@ TSharedRef<IDetailCustomization> FFleshRingAssetDetailCustomization::MakeInstanc
 
 void FFleshRingAssetDetailCustomization::CustomizeDetails(IDetailLayoutBuilder& DetailBuilder)
 {
-	// 편집 중인 Asset 캐싱
+	// Cache Asset being edited
 	TArray<TWeakObjectPtr<UObject>> Objects;
 	DetailBuilder.GetObjectsBeingCustomized(Objects);
 	if (Objects.Num() > 0)
@@ -35,7 +35,7 @@ void FFleshRingAssetDetailCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 	}
 
 	// =====================================
-	// 카테고리 순서 정의 (호출 순서대로 배치)
+	// Category order definition (arranged by call order)
 	// =====================================
 
 	// 1. Target
@@ -66,7 +66,7 @@ void FFleshRingAssetDetailCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 		ECategoryPriority::Important
 	);
 
-	// 5. Normals - UE 로컬라이제이션 방지를 위해 명시적 영문 이름 지정
+	// 5. Normals - Explicit English name to prevent UE localization
 	DetailBuilder.EditCategory(
 		TEXT("Normals"),
 		LOCTEXT("NormalsCategory", "Normals"),
@@ -83,7 +83,7 @@ FReply FFleshRingAssetDetailCustomization::OnRefreshPreviewClicked()
 {
 	if (CachedAsset.IsValid() && GEditor)
 	{
-		// 에디터 찾아서 PreviewScene의 메시 강제 재생성
+		// Find editor and force regenerate mesh in PreviewScene
 		UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
 		if (AssetEditorSubsystem)
 		{
@@ -106,7 +106,7 @@ FReply FFleshRingAssetDetailCustomization::OnGenerateRuntimeMeshClicked()
 {
 	if (CachedAsset.IsValid())
 	{
-		// UAssetEditorSubsystem을 통해 열린 에디터에서 PreviewComponent 가져오기
+		// Get PreviewComponent from editor opened via UAssetEditorSubsystem
 		UFleshRingComponent* PreviewComponent = nullptr;
 
 		if (GEditor)
@@ -117,7 +117,7 @@ FReply FFleshRingAssetDetailCustomization::OnGenerateRuntimeMeshClicked()
 				TArray<IAssetEditorInstance*> Editors = AssetEditorSubsystem->FindEditorsForAsset(CachedAsset.Get());
 				for (IAssetEditorInstance* Editor : Editors)
 				{
-					// FFleshRingAssetEditor는 FAssetEditorToolkit을 상속
+					// FFleshRingAssetEditor inherits from FAssetEditorToolkit
 					FFleshRingAssetEditor* FleshRingEditor = static_cast<FFleshRingAssetEditor*>(Editor);
 					if (FleshRingEditor)
 					{

@@ -19,7 +19,7 @@
 FFleshRingDebugPointSceneProxy::FFleshRingDebugPointSceneProxy(const UFleshRingDebugPointComponent* InComponent)
 	: FPrimitiveSceneProxy(InComponent)
 {
-	// 기본 설정
+	// Default settings
 	bAlwaysHasVelocity = false;
 	bCastDynamicShadow = false;
 }
@@ -38,8 +38,8 @@ void FFleshRingDebugPointSceneProxy::CreateRenderThreadResources(FRHICommandList
 {
 	FPrimitiveSceneProxy::CreateRenderThreadResources(RHICmdList);
 
-	// Post-Opaque 렌더 델리게이트 등록
-	// Opaque 렌더링 이후, Translucency 이전에 호출됨
+	// Register Post-Opaque render delegate
+	// Called after Opaque rendering, before Translucency
 	if (IsInRenderingThread())
 	{
 		IRendererModule& RendererModule = FModuleManager::GetModuleChecked<IRendererModule>("Renderer");
@@ -51,7 +51,7 @@ void FFleshRingDebugPointSceneProxy::CreateRenderThreadResources(FRHICommandList
 
 void FFleshRingDebugPointSceneProxy::DestroyRenderThreadResources()
 {
-	// 델리게이트 등록 해제
+	// Unregister delegate
 	if (PostOpaqueRenderDelegateHandle.IsValid())
 	{
 		IRendererModule& RendererModule = FModuleManager::GetModuleChecked<IRendererModule>("Renderer");
@@ -121,13 +121,13 @@ void FFleshRingDebugPointSceneProxy::GetDynamicMeshElements(
 	uint32 VisibilityMap,
 	FMeshElementCollector& Collector) const
 {
-	// 실제 렌더링은 PostOpaqueRenderDelegate에서 수행
-	// GetDynamicMeshElements는 빈 구현
+	// Actual rendering is performed in PostOpaqueRenderDelegate
+	// GetDynamicMeshElements is left empty
 }
 
 void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRenderParameters& Parameters)
 {
-	// 버퍼 유효성 체크 및 로컬 복사
+	// Buffer validity check and local copy
 	TRefCountPtr<FRDGPooledBuffer> LocalTightnessBuffer;
 	TRefCountPtr<FRDGPooledBuffer> LocalBulgeBuffer;
 	uint32 LocalTightnessPointCount = 0;
@@ -139,7 +139,7 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 	{
 		FScopeLock Lock(&BufferLock);
 
-		// Tightness buffer 검증
+		// Tightness buffer validation
 		if (TightnessBufferShared.IsValid() && TightnessBufferShared->IsValid())
 		{
 			LocalTightnessBuffer = *TightnessBufferShared;
@@ -152,7 +152,7 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 			}
 		}
 
-		// Bulge buffer 검증
+		// Bulge buffer validation
 		if (BulgeBufferShared.IsValid() && BulgeBufferShared->IsValid())
 		{
 			LocalBulgeBuffer = *BulgeBufferShared;
@@ -168,29 +168,29 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 		LocalVisibilityMaskArray = VisibilityMaskArray;
 	}
 
-	// 렌더링할 것이 없으면 리턴
+	// Return if there's nothing to render
 	if (!bRenderTightness && !bRenderBulge)
 	{
 		return;
 	}
 
-	// View 유효성 체크
+	// View validity check
 	if (!Parameters.View)
 	{
 		return;
 	}
 
-	// FViewInfo는 FSceneView를 상속, FSceneView 인터페이스 사용 가능
+	// FViewInfo inherits from FSceneView, can use FSceneView interface
 	const FSceneView* View = reinterpret_cast<const FSceneView*>(Parameters.View);
 
-	// Scene 필터링: 이 프록시가 등록된 Scene과 동일한 뷰포트에서만 렌더링
-	// PostOpaqueRenderDelegate는 전역 델리게이트이므로 모든 뷰포트에서 호출됨
+	// Scene filtering: Only render in viewports matching the Scene this proxy is registered to
+	// PostOpaqueRenderDelegate is a global delegate, so it's called for all viewports
 	if (View->Family && View->Family->Scene != &GetScene())
 	{
 		return;
 	}
 
-	// 셰이더 가져오기
+	// Get shaders
 	FGlobalShaderMap* ShaderMap = GetGlobalShaderMap(View->GetFeatureLevel());
 	TShaderMapRef<FFleshRingDebugPointVS> VertexShader(ShaderMap);
 	TShaderMapRef<FFleshRingDebugPointPS> PixelShader(ShaderMap);
@@ -200,34 +200,34 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 		return;
 	}
 
-	// RDG 그래프 빌더 사용
+	// Use RDG graph builder
 	FRDGBuilder& GraphBuilder = *Parameters.GraphBuilder;
 
-	// 렌더 타겟 가져오기
+	// Get render target
 	FRDGTextureRef ColorTarget = Parameters.ColorTexture;
 	if (!ColorTarget)
 	{
 		return;
 	}
 
-	// 뷰 파라미터 계산
+	// Calculate view parameters
 	FMatrix44f ViewProjectionMatrix = FMatrix44f(View->ViewMatrices.GetViewMatrix() * View->ViewMatrices.GetProjectionNoAAMatrix());
 	FIntRect ViewRect = View->UnscaledViewRect;
 	FVector2f InvViewportSize(1.0f / FMath::Max(1, ViewRect.Width()), 1.0f / FMath::Max(1, ViewRect.Height()));
 
-	// 가시성 마스크 배열이 비어있으면 모든 링 가시로 설정 (기본값)
+	// If visibility mask array is empty, set all rings visible (default)
 	if (LocalVisibilityMaskArray.Num() == 0)
 	{
 		LocalVisibilityMaskArray.Add(0xFFFFFFFFu);
 	}
 
-	// 가시성 마스크용 StructuredBuffer 생성 (무제한 링 지원)
+	// Create StructuredBuffer for visibility mask (supports unlimited rings)
 	const uint32 NumMaskElements = static_cast<uint32>(LocalVisibilityMaskArray.Num());
 	FRDGBufferRef VisibilityMaskBuffer = GraphBuilder.CreateBuffer(
 		FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumMaskElements),
 		TEXT("FleshRingVisibilityMask"));
 
-	// 마스크 데이터 업로드
+	// Upload mask data
 	GraphBuilder.QueueBufferUpload(
 		VisibilityMaskBuffer,
 		LocalVisibilityMaskArray.GetData(),
@@ -235,7 +235,7 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 
 	FRDGBufferSRVRef VisibilityMaskSRV = GraphBuilder.CreateSRV(VisibilityMaskBuffer);
 
-	// 공유 뎁스 버퍼 생성 (Tightness + Bulge 모두 사용)
+	// Create shared depth buffer (used by both Tightness and Bulge)
 	FRDGTextureDesc DepthDesc = FRDGTextureDesc::Create2D(
 		ColorTarget->Desc.Extent,
 		PF_DepthStencil,
@@ -245,12 +245,12 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 		ColorTarget->Desc.NumSamples);
 	FRDGTextureRef DebugDepthBuffer = GraphBuilder.CreateTexture(DepthDesc, TEXT("FleshRingDebugDepth"));
 
-	// 렌더링 파라미터 캡처
+	// Capture rendering parameters
 	float LocalPointSizeBase = PointSizeBase;
 	float LocalPointSizeInfluence = PointSizeInfluence;
 
 	// ========================================
-	// Pass 1: Tightness 디버그 포인트 (ColorMode = 0)
+	// Pass 1: Tightness debug points (ColorMode = 0)
 	// ========================================
 	if (bRenderTightness)
 	{
@@ -263,7 +263,7 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 		PSParams->RingVisibilityMask = VisibilityMaskSRV;
 		PSParams->NumVisibilityMaskElements = NumMaskElements;
 		PSParams->RenderTargets[0] = FRenderTargetBinding(ColorTarget, ERenderTargetLoadAction::ELoad);
-		// 첫 번째 패스: depth buffer Clear
+		// First pass: Clear depth buffer
 		PSParams->RenderTargets.DepthStencil = FDepthStencilBinding(
 			DebugDepthBuffer,
 			ERenderTargetLoadAction::EClear,
@@ -314,7 +314,7 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 	}
 
 	// ========================================
-	// Pass 2: Bulge 디버그 포인트 (ColorMode = 1)
+	// Pass 2: Bulge debug points (ColorMode = 1)
 	// ========================================
 	if (bRenderBulge)
 	{
@@ -327,7 +327,7 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 		PSParams->RingVisibilityMask = VisibilityMaskSRV;
 		PSParams->NumVisibilityMaskElements = NumMaskElements;
 		PSParams->RenderTargets[0] = FRenderTargetBinding(ColorTarget, ERenderTargetLoadAction::ELoad);
-		// 두 번째 패스: Tightness가 렌더링된 경우 Load, 아니면 Clear
+		// Second pass: Load if Tightness was rendered, otherwise Clear
 		PSParams->RenderTargets.DepthStencil = FDepthStencilBinding(
 			DebugDepthBuffer,
 			bRenderTightness ? ERenderTargetLoadAction::ELoad : ERenderTargetLoadAction::EClear,

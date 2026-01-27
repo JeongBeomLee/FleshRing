@@ -29,11 +29,11 @@ public:
 	virtual void BeginDestroy() override;
 
 	/**
-	 * Deformer로부터 설정 초기화
-	 * @param InDeformer - 소스 Deformer
-	 * @param InMeshComponent - 대상 MeshComponent
-	 * @param InOwnerFleshRingComponent - 이 Deformer를 소유하는 FleshRingComponent (다중 컴포넌트 환경 지원)
-	 *                                    nullptr이면 기존 방식(FindComponentByClass) 사용
+	 * Initialize settings from Deformer
+	 * @param InDeformer - Source Deformer
+	 * @param InMeshComponent - Target MeshComponent
+	 * @param InOwnerFleshRingComponent - FleshRingComponent that owns this Deformer (supports multi-component environments)
+	 *                                    If nullptr, uses legacy method (FindComponentByClass)
 	 */
 	void SetupFromDeformer(
 		UFleshRingDeformer* InDeformer,
@@ -48,22 +48,22 @@ public:
 	virtual UMeshDeformerInstance* GetInstanceForSourceDeformer() override { return this; }
 
 	/**
-	 * TightenedBindPose 캐시 무효화 (트랜스폼 변경 시 재계산 트리거)
-	 * @param DirtyRingIndex - 특정 Ring만 무효화 (INDEX_NONE이면 전체 무효화)
+	 * Invalidate TightenedBindPose cache (triggers recalculation on transform change)
+	 * @param DirtyRingIndex - Invalidate only specific Ring (INDEX_NONE invalidates all)
 	 */
 	void InvalidateTightnessCache(int32 DirtyRingIndex = INDEX_NONE);
 
 	/**
-	 * 메시 변경 시 전체 캐시 무효화 (베이킹용)
-	 * 소스 포지션 캐시와 TightenedBindPose 캐시를 모두 무효화하여
-	 * 다음 프레임에서 새 메시 기준으로 버퍼를 재생성하도록 함
+	 * Invalidate all caches on mesh change (for baking)
+	 * Invalidates both source position cache and TightenedBindPose cache
+	 * so that buffers are regenerated based on the new mesh in the next frame
 	 */
 	void InvalidateForMeshChange();
 
 	/**
-	 * 디버그용: LOD별 AffectedVertices 데이터 반환
-	 * @param LODIndex - LOD 인덱스 (0 = 최고 품질)
-	 * @return 해당 LOD의 Ring별 Affected 데이터 배열, 없으면 nullptr
+	 * For debug: Return per-LOD AffectedVertices data
+	 * @param LODIndex - LOD index (0 = highest quality)
+	 * @return Array of per-Ring Affected data for the given LOD, nullptr if not available
 	 */
 	const TArray<FRingAffectedData>* GetAffectedRingDataForDebug(int32 LODIndex = 0) const
 	{
@@ -75,9 +75,9 @@ public:
 	}
 
 	/**
-	 * GPU Influence Readback 완료 여부 확인
-	 * @param LODIndex - LOD 인덱스
-	 * @return Readback 완료 시 true
+	 * Check if GPU Influence Readback is complete
+	 * @param LODIndex - LOD index
+	 * @return true when Readback is complete
 	 */
 	bool IsDebugInfluenceReadbackComplete(int32 LODIndex = 0) const
 	{
@@ -90,9 +90,9 @@ public:
 	}
 
 	/**
-	 * GPU Influence Readback 결과 반환
-	 * @param LODIndex - LOD 인덱스
-	 * @return Readback된 Influence 배열 포인터, 없으면 nullptr
+	 * Return GPU Influence Readback result
+	 * @param LODIndex - LOD index
+	 * @return Pointer to Readback Influence array, nullptr if not available
 	 */
 	const TArray<float>* GetDebugInfluenceReadbackResult(int32 LODIndex = 0) const
 	{
@@ -106,8 +106,8 @@ public:
 	}
 
 	/**
-	 * GPU Influence Readback 완료 플래그 리셋 (다음 Readback 준비용)
-	 * @param LODIndex - LOD 인덱스
+	 * Reset GPU Influence Readback complete flag (for preparing next Readback)
+	 * @param LODIndex - LOD index
 	 */
 	void ResetDebugInfluenceReadback(int32 LODIndex = 0)
 	{
@@ -119,9 +119,9 @@ public:
 	}
 
 	/**
-	 * GPU 디버그 렌더링용 캐시된 포인트 버퍼 가져오기
-	 * @param LODIndex - LOD 인덱스
-	 * @return 캐시된 DebugPointBuffer, 없으면 빈 포인터
+	 * Get cached point buffer for GPU debug rendering
+	 * @param LODIndex - LOD index
+	 * @return Cached DebugPointBuffer, empty pointer if not available
 	 */
 	TRefCountPtr<FRDGPooledBuffer> GetCachedDebugPointBuffer(int32 LODIndex = 0) const
 	{
@@ -135,9 +135,9 @@ public:
 	}
 
 	/**
-	 * GPU 디버그 렌더링용 캐시된 포인트 버퍼 SharedPtr 가져오기
-	 * @param LODIndex - LOD 인덱스
-	 * @return CachedDebugPointBufferShared의 SharedPtr, 없으면 nullptr
+	 * Get cached point buffer SharedPtr for GPU debug rendering
+	 * @param LODIndex - LOD index
+	 * @return SharedPtr of CachedDebugPointBufferShared, nullptr if not available
 	 */
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> GetCachedDebugPointBufferSharedPtr(int32 LODIndex = 0) const
 	{
@@ -149,9 +149,9 @@ public:
 	}
 
 	/**
-	 * Bulge GPU 디버그 렌더링용 캐시된 포인트 버퍼 SharedPtr 가져오기
-	 * @param LODIndex - LOD 인덱스
-	 * @return CachedDebugBulgePointBufferShared의 SharedPtr, 없으면 nullptr
+	 * Get cached point buffer SharedPtr for Bulge GPU debug rendering
+	 * @param LODIndex - LOD index
+	 * @return SharedPtr of CachedDebugBulgePointBufferShared, nullptr if not available
 	 */
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> GetCachedDebugBulgePointBufferSharedPtr(int32 LODIndex = 0) const
 	{
@@ -163,9 +163,9 @@ public:
 	}
 
 	/**
-	 * Affected 디버그 포인트 수 가져오기 (실제 변형에 사용되는 값)
-	 * @param LODIndex - LOD 인덱스
-	 * @return 총 Affected 버텍스 수
+	 * Get Affected debug point count (value used for actual deformation)
+	 * @param LODIndex - LOD index
+	 * @return Total Affected vertex count
 	 */
 	uint32 GetTotalAffectedVertexCount(int32 LODIndex = 0) const
 	{
@@ -180,14 +180,14 @@ public:
 	virtual bool RequestReadbackDeformerGeometry(TUniquePtr<FMeshDeformerGeometryReadbackRequest> InRequest) override { return false; }
 
 	/**
-	 * 베이크용 GPU 변형 결과 Readback
-	 * TightenedBindPose + Normals + Tangents를 CPU로 읽어옴
+	 * Readback GPU deformation result for baking
+	 * Reads TightenedBindPose + Normals + Tangents to CPU
 	 *
-	 * @param OutPositions - 변형된 버텍스 위치 (float3 packed)
-	 * @param OutNormals - 재계산된 노멀 (float3 packed)
-	 * @param OutTangents - 재계산된 탄젠트 (float4 packed)
-	 * @param LODIndex - LOD 인덱스
-	 * @return 성공 여부
+	 * @param OutPositions - Deformed vertex positions (float3 packed)
+	 * @param OutNormals - Recalculated normals (float3 packed)
+	 * @param OutTangents - Recalculated tangents (float4 packed)
+	 * @param LODIndex - LOD index
+	 * @return Success status
 	 */
 	bool ReadbackDeformedGeometry(
 		TArray<FVector3f>& OutPositions,
@@ -196,9 +196,9 @@ public:
 		int32 LODIndex = 0);
 
 	/**
-	 * TightenedBindPose가 캐싱되어 있는지 확인
-	 * @param LODIndex - LOD 인덱스
-	 * @return 캐싱되어 있으면 true
+	 * Check if TightenedBindPose is cached
+	 * @param LODIndex - LOD index
+	 * @return true if cached
 	 */
 	bool HasCachedDeformedGeometry(int32 LODIndex = 0) const;
 #endif
@@ -221,59 +221,59 @@ private:
 	// Track last LOD index for invalidating previous position on LOD change
 	int32 LastLodIndex = INDEX_NONE;
 
-	// ===== LOD별 Tightness Deformation 데이터 =====
+	// ===== Per-LOD Tightness Deformation Data =====
 	// Per-LOD Tightness Deformation Data
 	struct FLODDeformationData
 	{
-		// 영향받는 버텍스 관리자
+		// Affected vertices manager
 		FFleshRingAffectedVerticesManager AffectedVerticesManager;
 
-		// 버텍스 등록 완료 여부
+		// Whether vertex registration is complete
 		bool bAffectedVerticesRegistered = false;
 
-		// 캐시된 버텍스 데이터 (RDG 업로드용)
+		// Cached vertex data (for RDG upload)
 		TArray<float> CachedSourcePositions;
 		bool bSourcePositionsCached = false;
 
-		// TightenedBindPose 캐싱
+		// TightenedBindPose caching
 		// Using TSharedPtr wrapper for thread-safe sharing with render thread
 		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedTightenedBindPoseShared;
 		bool bTightenedBindPoseCached = false;
 		uint32 CachedTightnessVertexCount = 0;
 
-		// 재계산된 노멀 캐싱 (NormalRecomputeCS 결과)
-		// TightenedBindPose와 함께 캐싱되어 캐싱된 프레임에서도 올바른 노멀 사용
+		// Recalculated normals caching (NormalRecomputeCS result)
+		// Cached along with TightenedBindPose to use correct normals even in cached frames
 		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedNormalsShared;
 
-		// 재계산된 탄젠트 캐싱 (TangentRecomputeCS 결과)
-		// Gram-Schmidt 정규직교화된 탄젠트를 캐싱
+		// Recalculated tangents caching (TangentRecomputeCS result)
+		// Caches Gram-Schmidt orthonormalized tangents
 		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedTangentsShared;
 
-		// 디버그 Influence 캐싱 (TightnessCS에서 출력)
-		// DrawAffectedVertices에서 GPU 계산 Influence 시각화용
+		// Debug Influence caching (output from TightnessCS)
+		// For visualizing GPU-computed Influence in DrawAffectedVertices
 		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedDebugInfluencesShared;
 
-		// 디버그 포인트 버퍼 캐싱 (WorldPosition + Influence)
+		// Debug point buffer caching (WorldPosition + Influence)
 		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedDebugPointBufferShared;
 
-		// Bulge 디버그 포인트 버퍼 캐싱 (WorldPosition + Influence)
-		// Cyan→Magenta 색상 그라데이션으로 표시
+		// Bulge debug point buffer caching (WorldPosition + Influence)
+		// Displayed with Cyan to Magenta color gradient
 		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedDebugBulgePointBufferShared;
 
-		// ===== GPU Readback 관련 =====
-		// Readback 결과 저장 (스레드 안전 공유용)
+		// ===== GPU Readback Related =====
+		// Readback result storage (for thread-safe sharing)
 		TSharedPtr<TArray<float>> DebugInfluenceReadbackResult;
 
-		// Readback 완료 플래그 (스레드 안전)
+		// Readback complete flag (thread-safe)
 		TSharedPtr<std::atomic<bool>> bDebugInfluenceReadbackComplete;
 
-		// Readback할 버텍스 수
+		// Number of vertices to Readback
 		uint32 DebugInfluenceCount = 0;
 	};
 
-	// LOD별 데이터 배열 (인덱스 = LOD 번호)
+	// Per-LOD data array (index = LOD number)
 	TArray<FLODDeformationData> LODData;
 
-	// LOD 개수 (초기화 시 설정)
+	// Number of LODs (set during initialization)
 	int32 NumLODs = 0;
 };

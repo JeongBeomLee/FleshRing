@@ -20,7 +20,7 @@ void SFleshRingEditorViewportToolbar::Construct(const FArguments& InArgs, TShare
 
 TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 {
-	// 뷰포트 클라이언트 가져오기
+	// Get the viewport client
 	TSharedPtr<SFleshRingEditorViewport> ViewportPtr = Viewport.Pin();
 	if (!ViewportPtr.IsValid())
 	{
@@ -33,12 +33,12 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 		return SNullWidget::NullWidget;
 	}
 
-	// WeakPtr로 캡처하여 수명 문제 방지
+	// Capture as WeakPtr to avoid lifetime issues
 	TWeakPtr<FFleshRingEditorViewportClient> WeakViewportClient = ViewportClient;
 
 	FMenuBuilder MenuBuilder(true, ViewportPtr->GetCommandList());
 
-	// Scene 섹션 (Grid 등 일반 뷰포트 설정)
+	// Scene section (general viewport settings like Grid)
 	MenuBuilder.BeginSection("SceneShow", LOCTEXT("SceneShowHeader", "Scene"));
 	{
 		MenuBuilder.AddMenuEntry(
@@ -69,7 +69,7 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 	}
 	MenuBuilder.EndSection();
 
-	// FleshRing 전용 Show 옵션
+	// FleshRing-specific Show options
 	MenuBuilder.BeginSection("FleshRingShow", LOCTEXT("FleshRingShowHeader", "FleshRing"));
 	{
 		MenuBuilder.AddMenuEntry(
@@ -124,13 +124,13 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 			EUserInterfaceActionType::ToggleButton
 		);
 
-		// Ring Gizmo 두께 슬라이더
+		// Ring Gizmo thickness slider
 		MenuBuilder.AddWidget(
 			SNew(SHorizontalBox)
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
 			.VAlign(VAlign_Center)
-			.Padding(FMargin(24.0f, 0.0f, 4.0f, 0.0f))  // 들여쓰기
+			.Padding(FMargin(24.0f, 0.0f, 4.0f, 0.0f))  // Indentation
 			[
 				SNew(STextBlock)
 				.Text(LOCTEXT("GizmoThickness", "Band Thickness"))
@@ -202,13 +202,13 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 			EUserInterfaceActionType::ToggleButton
 		);
 
-		// 본 그리기 서브메뉴 (Bones 체크박스 제거, BoneDrawMode로 통합)
+		// Bone drawing submenu (removed Bones checkbox, consolidated into BoneDrawMode)
 		MenuBuilder.AddSubMenu(
 			LOCTEXT("BoneDrawing", "Bone Drawing"),
 			LOCTEXT("BoneDrawingTooltip", "Bone drawing options"),
 			FNewMenuDelegate::CreateLambda([WeakViewportClient](FMenuBuilder& SubMenuBuilder)
 			{
-				// 본 그리기 모드 라디오 버튼들 (먼저 배치)
+				// Bone draw mode radio buttons (placed first)
 				SubMenuBuilder.AddMenuEntry(
 					LOCTEXT("BoneDrawModeAll", "All Hierarchy"),
 					LOCTEXT("BoneDrawModeAllTooltip", "Draw all bones"),
@@ -367,7 +367,7 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 
 				SubMenuBuilder.AddSeparator();
 
-				// 본 이름 표시
+				// Show bone names
 				SubMenuBuilder.AddMenuEntry(
 					LOCTEXT("ShowBoneNames", "Bone Names"),
 					LOCTEXT("ShowBoneNamesTooltip", "Show/Hide bone names"),
@@ -401,7 +401,7 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 					EUserInterfaceActionType::ToggleButton
 				);
 
-				// 다중 컬러 본
+				// Multi-color bones
 				SubMenuBuilder.AddMenuEntry(
 					LOCTEXT("ShowMultiColorBones", "Multi-Color Bones"),
 					LOCTEXT("ShowMultiColorBonesTooltip", "Show bones with multiple colors based on hierarchy"),
@@ -437,7 +437,7 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 
 				SubMenuBuilder.AddSeparator();
 
-				// 본 그리기 크기 슬라이더
+				// Bone draw size slider
 				SubMenuBuilder.AddWidget(
 					SNew(SHorizontalBox)
 					+ SHorizontalBox::Slot()
@@ -493,10 +493,10 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 	}
 	MenuBuilder.EndSection();
 
-	// Debug / Visualization 섹션
+	// Debug / Visualization section
 	MenuBuilder.BeginSection("DebugVisualization", LOCTEXT("DebugVisualizationHeader", "Debug / Visualization"));
 	{
-		// Show Debug Visualization (마스터 스위치)
+		// Show Debug Visualization (master switch)
 		MenuBuilder.AddMenuEntry(
 			LOCTEXT("ShowDebugVisualization", "Show Debug Visualization"),
 			LOCTEXT("ShowDebugVisualizationTooltip", "Enable/Disable all debug visualization (Key: 1)"),
@@ -627,7 +627,7 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 			EUserInterfaceActionType::ToggleButton
 		);
 
-		// Show Bulge Direction (Heatmap이 켜져있을 때만 활성화)
+		// Show Bulge Direction (only enabled when Heatmap is on)
 		MenuBuilder.AddMenuEntry(
 			LOCTEXT("ShowBulgeDirection", "Show Bulge Direction"),
 			LOCTEXT("ShowBulgeDirectionTooltip", "Show/Hide direction arrows on bulge heatmap (Ctrl+4)"),
@@ -644,7 +644,7 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 				{
 					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
 					{
-						// Debug Visualization과 Bulge Heatmap 둘 다 켜져있어야 활성화
+						// Only enabled when both Debug Visualization and Bulge Heatmap are on
 						return Client->ShouldShowDebugVisualization() && Client->ShouldShowBulgeHeatmap();
 					}
 					return false;
@@ -662,7 +662,7 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 			EUserInterfaceActionType::ToggleButton
 		);
 
-		// Show Bulge Range (원기둥 범위 시각화)
+		// Show Bulge Range (cylinder range visualization)
 		MenuBuilder.AddMenuEntry(
 			LOCTEXT("ShowBulgeRange", "Show Bulge Range"),
 			LOCTEXT("ShowBulgeRangeTooltip", "Show/Hide bulge influence range as cylinder wireframe (Shift+4)"),
@@ -730,7 +730,7 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 			EUserInterfaceActionType::ToggleButton
 		);
 
-		// Debug Slice Z (SpinBox 위젯)
+		// Debug Slice Z (SpinBox widget)
 		MenuBuilder.AddWidget(
 			SNew(SHorizontalBox)
 			+ SHorizontalBox::Slot()

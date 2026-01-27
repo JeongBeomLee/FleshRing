@@ -8,15 +8,15 @@
 class FFleshRingEditorViewportClient;
 
 /**
- * FleshRing 에디터 전용 EdMode
- * Widget 표시/숨기기 제어
+ * FleshRing editor-only EdMode
+ * Controls Widget show/hide
  */
 class FFleshRingEdMode : public FEdMode
 {
 public:
 	static const FEditorModeID EM_FleshRingEdModeId;
 
-	/** 현재 활성 인스턴스 (Asset Editor당 하나) */
+	/** Current active instance (one per Asset Editor) */
 	static FFleshRingEdMode* CurrentInstance;
 
 	FFleshRingEdMode();
@@ -30,10 +30,10 @@ public:
 	virtual bool GetCustomDrawingCoordinateSystem(FMatrix& InMatrix, void* InData) override;
 	virtual bool GetCustomInputCoordinateSystem(FMatrix& InMatrix, void* InData) override;
 
-	/** ViewportClient 설정 */
+	/** Set ViewportClient */
 	void SetViewportClient(FFleshRingEditorViewportClient* InClient) { ViewportClient = InClient; }
 
 private:
-	/** 연결된 ViewportClient */
+	/** Connected ViewportClient */
 	FFleshRingEditorViewportClient* ViewportClient = nullptr;
 };

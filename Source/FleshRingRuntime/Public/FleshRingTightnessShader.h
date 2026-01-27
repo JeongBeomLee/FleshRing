@@ -2,10 +2,8 @@
 
 // ============================================================================
 // FleshRing Tightness Shader
-// FleshRing 조이기(Tightness) 셰이더
 // ============================================================================
 // Purpose: Creating tight flesh appearance with optional GPU skinning
-// 목적: 살이 조여지는 효과 생성 (GPU 스키닝 옵션 포함)
 
 #pragma once
 
@@ -19,184 +17,155 @@
 
 // ============================================================================
 // FFleshRingTightnessCS - Tightness Compute Shader
-// 조이기 효과 컴퓨트 셰이더
 // ============================================================================
 // Processes only AffectedVertices (not all mesh vertices) for performance
 // Pulls vertices inward toward Ring center axis
 // Supports optional GPU skinning for animated meshes
-// 성능 최적화를 위해 영향받는 버텍스만 처리 (전체 메시 버텍스 X)
-// 버텍스를 링 중심축 방향으로 안쪽으로 당김
-// 애니메이션된 메시를 위한 GPU 스키닝 옵션 지원
 class FFleshRingTightnessCS : public FGlobalShader
 {
 public:
     // Register this class to UE shader system
-    // UE 셰이더 시스템에 이 클래스 등록
     DECLARE_GLOBAL_SHADER(FFleshRingTightnessCS);
 
     // Declare using parameter struct
-    // 파라미터 구조체 사용 선언
     SHADER_USE_PARAMETER_STRUCT(FFleshRingTightnessCS, FGlobalShader);
 
     // Shader Parameters - Must match FleshRingTightnessCS.usf
-    // 셰이더 파라미터 - FleshRingTightnessCS.usf와 일치해야 함
     BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
         // ===== Input Buffers (SRV - Read Only) =====
-        // ===== 입력 버퍼 (SRV - 읽기 전용) =====
 
         // Input: Original vertex positions (bind pose component space)
-        // 입력: 원본 버텍스 위치 (바인드 포즈 컴포넌트 스페이스)
         SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float>, SourcePositions)
 
         // Input: Indices of affected vertices to process
-        // 입력: 처리할 영향받는 버텍스 인덱스
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, AffectedIndices)
 
-        // Influence는 GPU에서 직접 계산 (VirtualRing: CalculateVirtualRingInfluence, VirtualBand: CalculateVirtualBandInfluence)
+        // Influence is calculated directly on GPU (VirtualRing: CalculateVirtualRingInfluence, VirtualBand: CalculateVirtualBandInfluence)
 
         // Input: Representative vertex indices for UV seam welding
-        // 입력: UV seam 용접을 위한 대표 버텍스 인덱스
-        // RepresentativeIndices[ThreadIndex] = 해당 위치 그룹의 대표 버텍스 인덱스
-        // 셰이더에서: 대표 위치 읽기 → 변형 계산 → 자기 인덱스에 기록
+        // RepresentativeIndices[ThreadIndex] = representative vertex index for that position group
+        // In shader: read representative position -> compute deformation -> write to own index
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, RepresentativeIndices)
 
         // ===== Output Buffer (UAV - Read/Write) =====
-        // ===== 출력 버퍼 (UAV - 읽기/쓰기) =====
 
         // Output: Deformed vertex positions
-        // 출력: 변형된 버텍스 위치
         SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float>, OutputPositions)
 
         // Output: Volume accumulation buffer for Bulge pass (Atomic operation)
-        // 출력: Bulge 패스용 부피 누적 버퍼 (Atomic 연산)
         SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<uint>, VolumeAccumBuffer)
 
-        // Output: Debug Influence values for visualization (ThreadIndex당 1 float)
-        // 출력: 시각화용 디버그 Influence 값
+        // Output: Debug Influence values for visualization (1 float per ThreadIndex)
         SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float>, DebugInfluences)
 
         // Flag to enable debug influence output (0 = disabled, 1 = enabled)
-        // 디버그 Influence 출력 활성화 플래그
         SHADER_PARAMETER(uint32, bOutputDebugInfluences)
 
-        // Base offset for debug buffer (multi-ring support)
-        // 디버그 버퍼 기본 오프셋 (다중 링 지원) - DebugInfluences에 사용
+        // Base offset for debug buffer (multi-ring support) - used for DebugInfluences
         SHADER_PARAMETER(uint32, DebugPointBaseOffset)
 
-        // DebugPointBuffer는 DebugPointOutputCS에서 최종 위치 기반으로 처리
+        // DebugPointBuffer is processed in DebugPointOutputCS based on final positions
 
         // ===== Skinning Buffers (SRV - Read Only) =====
-        // ===== 스키닝 버퍼 (SRV - 읽기 전용) =====
 
         // Bone matrices (3 float4 per bone = 3x4 matrix)
-        // RefToLocal 행렬: [Bind Pose Component Space] → [Animated Component Space]
-        // 본 행렬 (본당 3개의 float4 = 3x4 행렬)
+        // RefToLocal matrix: [Bind Pose Component Space] -> [Animated Component Space]
         SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float4>, BoneMatrices)
 
         // Packed bone indices + weights
-        // 패킹된 본 인덱스 + 웨이트
-        // 버텍스마다 [본인덱스0, 본인덱스1, ...] [웨이트0, 웨이트1, ...]
-        // 4본 스키닝이라면 100번째 버텍스에서
-        // [5,6,7,0] [0.5,0.3,0.2,0.0]
+        // Per vertex: [BoneIndex0, BoneIndex1, ...] [Weight0, Weight1, ...]
+        // For 4-bone skinning at vertex 100: [5,6,7,0] [0.5,0.3,0.2,0.0]
         SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<uint>, InputWeightStream)
 
         // ===== Skinning Parameters =====
-        // ===== 스키닝 파라미터 =====
 
-        SHADER_PARAMETER(uint32, InputWeightStride)    // 웨이트 스트림 스트라이드 (바이트)
-        SHADER_PARAMETER(uint32, InputWeightIndexSize) // 인덱스/웨이트 바이트 크기 (패킹됨)
-        SHADER_PARAMETER(uint32, NumBoneInfluences)    // 버텍스당 본 영향 수 (4 or 8)
-        SHADER_PARAMETER(uint32, bEnableSkinning)      // 스키닝 활성화 플래그 (0 or 1)
+        SHADER_PARAMETER(uint32, InputWeightStride)    // Weight stream stride (bytes)
+        SHADER_PARAMETER(uint32, InputWeightIndexSize) // Index/weight byte size (packed)
+        SHADER_PARAMETER(uint32, NumBoneInfluences)    // Bone influences per vertex (4 or 8)
+        SHADER_PARAMETER(uint32, bEnableSkinning)      // Skinning enable flag (0 or 1)
 
         // ===== Ring Parameters (Constant Buffer) =====
-        // ===== 링 파라미터 (상수 버퍼) =====
 
-        SHADER_PARAMETER(FVector3f, RingCenter)       // 링 중심 위치 (컴포넌트 스페이스)
-        SHADER_PARAMETER(FVector3f, RingAxis)         // 링 축 방향 (정규화됨)
-        SHADER_PARAMETER(float, TightnessStrength)    // 조이기 강도
-        SHADER_PARAMETER(float, RingRadius)           // 링 내부 반지름
-        SHADER_PARAMETER(float, RingHeight)            // 링 높이 (축 방향)
-        SHADER_PARAMETER(float, RingThickness)        // 링 두께 (Radial falloff 범위) - VirtualRing 모드 GPU Influence 계산용
-        SHADER_PARAMETER(uint32, FalloffType)         // Falloff 타입 (0=Linear, 1=Quadratic, 2=Hermite) - VirtualRing 모드 GPU Influence 계산용
-        SHADER_PARAMETER(uint32, InfluenceMode)       // Influence 모드 (0=Auto/SDF, 1=VirtualRing, 2=VirtualBand)
+        SHADER_PARAMETER(FVector3f, RingCenter)       // Ring center position (component space)
+        SHADER_PARAMETER(FVector3f, RingAxis)         // Ring axis direction (normalized)
+        SHADER_PARAMETER(float, TightnessStrength)    // Tightness strength
+        SHADER_PARAMETER(float, RingRadius)           // Ring inner radius
+        SHADER_PARAMETER(float, RingHeight)           // Ring height (axis direction)
+        SHADER_PARAMETER(float, RingThickness)        // Ring thickness (radial falloff range) - for VirtualRing mode GPU Influence calculation
+        SHADER_PARAMETER(uint32, FalloffType)         // Falloff type (0=Linear, 1=Quadratic, 2=Hermite) - for VirtualRing mode GPU Influence calculation
+        SHADER_PARAMETER(uint32, InfluenceMode)       // Influence mode (0=Auto/SDF, 1=VirtualRing, 2=VirtualBand)
 
         // ===== VirtualBand (Virtual Band) Parameters =====
-        // ===== 가상 밴드 파라미터 (가변 반경 GPU Influence 계산용) =====
-        SHADER_PARAMETER(float, LowerRadius)          // 하단 끝 반경
-        SHADER_PARAMETER(float, MidLowerRadius)       // 밴드 하단 반경
-        SHADER_PARAMETER(float, MidUpperRadius)       // 밴드 상단 반경
-        SHADER_PARAMETER(float, UpperRadius)          // 상단 끝 반경
-        SHADER_PARAMETER(float, LowerHeight)          // Lower Section 높이
-        SHADER_PARAMETER(float, BandSectionHeight)    // Band Section 높이
-        SHADER_PARAMETER(float, UpperHeight)          // Upper Section 높이
+        // For variable radius GPU Influence calculation (Catmull-Rom spline)
+        SHADER_PARAMETER(float, LowerRadius)          // Lower end radius
+        SHADER_PARAMETER(float, MidLowerRadius)       // Band lower radius
+        SHADER_PARAMETER(float, MidUpperRadius)       // Band upper radius
+        SHADER_PARAMETER(float, UpperRadius)          // Upper end radius
+        SHADER_PARAMETER(float, LowerHeight)          // Lower section height
+        SHADER_PARAMETER(float, BandSectionHeight)    // Band section height
+        SHADER_PARAMETER(float, UpperHeight)          // Upper section height
 
         // ===== Counts =====
-        // ===== 버텍스 수 =====
 
-        SHADER_PARAMETER(uint32, NumAffectedVertices) // 영향받는 버텍스 수
-        SHADER_PARAMETER(uint32, NumTotalVertices)    // 전체 버텍스 수 (범위 체크용)
+        SHADER_PARAMETER(uint32, NumAffectedVertices) // Number of affected vertices
+        SHADER_PARAMETER(uint32, NumTotalVertices)    // Total vertex count (for bounds checking)
 
         // ===== Volume Accumulation Parameters (for Bulge pass) =====
-        // ===== 부피 누적 파라미터 (Bulge 패스용) =====
 
-        SHADER_PARAMETER(uint32, bAccumulateVolume)   // 부피 누적 활성화 (0 = 비활성, 1 = 활성)
-        SHADER_PARAMETER(float, FixedPointScale)      // Fixed-point 스케일 (예: 1000.0)
-        SHADER_PARAMETER(uint32, RingIndex)           // Ring 인덱스 (VolumeAccumBuffer 슬롯 지정)
+        SHADER_PARAMETER(uint32, bAccumulateVolume)   // Enable volume accumulation (0 = disabled, 1 = enabled)
+        SHADER_PARAMETER(float, FixedPointScale)      // Fixed-point scale (e.g., 1000.0)
+        SHADER_PARAMETER(uint32, RingIndex)           // Ring index (VolumeAccumBuffer slot designation)
 
         // ===== SDF Parameters (OBB Design) =====
-        // ===== SDF 파라미터 (OBB 설계) =====
         //
-        // OBB 방식: SDF는 Ring 로컬 스페이스에서 생성
-        // 셰이더에서 버텍스(컴포넌트 스페이스)를 로컬로 역변환 후 SDF 샘플링
+        // OBB approach: SDF is generated in Ring local space
+        // In shader: transform vertex (component space) to local, then sample SDF
         // ComponentToSDFLocal = LocalToComponent.Inverse()
 
-        // SDF 3D 텍스처 (Ring 로컬 스페이스)
-        // SDF 값: negative = 내부, positive = 외부
+        // SDF 3D texture (Ring local space)
+        // SDF value: negative = inside, positive = outside
         SHADER_PARAMETER_RDG_TEXTURE_SRV(Texture3D<float>, SDFTexture)
         SHADER_PARAMETER_SAMPLER(SamplerState, SDFSampler)
 
-        // SDF 볼륨 바운드 (Ring 로컬 스페이스)
-        // UV 변환: (LocalPos - BoundsMin) / (BoundsMax - BoundsMin)
+        // SDF volume bounds (Ring local space)
+        // UV transform: (LocalPos - BoundsMin) / (BoundsMax - BoundsMin)
         SHADER_PARAMETER(FVector3f, SDFBoundsMin)
         SHADER_PARAMETER(FVector3f, SDFBoundsMax)
 
-        // SDF 영향 모드 (0 = VirtualRing, 1 = Auto/SDF-based)
+        // SDF influence mode (0 = VirtualRing, 1 = Auto/SDF-based)
         SHADER_PARAMETER(uint32, bUseSDFInfluence)
 
-        // 컴포넌트 스페이스 → SDF 로컬 스페이스 변환 행렬 (OBB 지원)
-        // BindPos를 로컬로 역변환 후 SDF 샘플링에 사용
+        // Component space -> SDF local space transform matrix (OBB support)
+        // Used to inverse-transform BindPos to local, then sample SDF
         SHADER_PARAMETER(FMatrix44f, ComponentToSDFLocal)
 
-        // SDF 로컬 스페이스 → 컴포넌트 스페이스 변환 행렬
-        // Local 변위를 Component로 변환할 때 사용 (스케일 포함 정확한 역변환)
+        // SDF local space -> Component space transform matrix
+        // Used to transform local displacement to component (accurate inverse with scale)
         SHADER_PARAMETER(FMatrix44f, SDFLocalToComponent)
 
-        // SDF 모드 falloff 거리 (이 거리에서 Influence가 0이 됨)
         // SDF mode falloff distance (Influence becomes 0 at this distance)
         SHADER_PARAMETER(float, SDFInfluenceFalloffDistance)
 
         // Ring Center/Axis (SDF Local Space)
-        // 원본 Ring 바운드 기준으로 계산 (확장 전)
-        // SDF 바운드가 확장되어도 Ring의 실제 위치/축을 정확히 전달
+        // Calculated based on original Ring bounds (before extension)
+        // Accurately conveys Ring's actual position/axis even if SDF bounds are extended
         SHADER_PARAMETER(FVector3f, SDFLocalRingCenter)
         SHADER_PARAMETER(FVector3f, SDFLocalRingAxis)
 
-        // Z축 상단 확장 거리 (절대값, cm 단위)
-        // 링 위쪽으로 얼마나 확장할지 설정 (0 = 확장 없음)
+        // Z-axis top extension distance (absolute value, in cm)
+        // How far to extend above the ring (0 = no extension)
         SHADER_PARAMETER(float, BoundsZTop)
 
-        // Z축 하단 확장 거리 (절대값, cm 단위)
-        // 링 아래쪽으로 얼마나 확장할지 설정 (0 = 확장 없음)
+        // Z-axis bottom extension distance (absolute value, in cm)
+        // How far to extend below the ring (0 = no extension)
         SHADER_PARAMETER(float, BoundsZBottom)
     END_SHADER_PARAMETER_STRUCT()
 
     // Shader Compilation Settings
-    // 셰이더 컴파일 설정
     static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
     {
         // SM5 = Shader Model 5 (~=DX11)
         // Require SM5 for compute shader support
-        // SM5 이상에서만 컴퓨트 셰이더 지원
         return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::SM5);
     }
 
@@ -205,22 +174,18 @@ public:
         FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
 
         // Thread group size = 64 (must match .usf)
-        // 스레드 그룹 크기 = 64 (.usf와 일치해야 함)
         OutEnvironment.SetDefine(TEXT("THREADGROUP_SIZE"), 64);
 
-        // Note: Influence values are pre-calculated on CPU with FalloffType
-        // 참고: Influence 값은 CPU에서 FalloffType에 따라 미리 계산되어 GPU로 전달됨
+        // Note: Influence values are pre-calculated on CPU with FalloffType and passed to GPU
     }
 };
 
 // ============================================================================
 // FTightnessDispatchParams - Dispatch Parameters
-// 디스패치 파라미터 구조체
 // ============================================================================
 
 /**
  * Structure that encapsulates the parameters to be passed to the Dispatch function
- * GPU Dispatch에 전달할 파라미터를 캡슐화하는 구조체
  * Makes it easier to modify parameters without changing function signatures
  */
 struct FTightnessDispatchParams
@@ -231,15 +196,11 @@ struct FTightnessDispatchParams
      * Ring center position (component space)
      * - bEnableSkinning=false: bind pose component space
      * - bEnableSkinning=true: animated component space (current frame)
-     * 링 중심 위치 (컴포넌트 스페이스)
-     * - 스키닝 비활성화: 바인드 포즈 컴포넌트 스페이스
-     * - 스키닝 활성화: 애니메이션된 컴포넌트 스페이스 (현재 프레임)
      */
     FVector3f RingCenter;
 
     /**
      * Ring orientation axis (normalized)
-     * 링 축 방향 (정규화됨)
      */
     FVector3f RingAxis;
 
@@ -247,63 +208,57 @@ struct FTightnessDispatchParams
 
     /**
      * Inner radius from bone axis to ring inner surface
-     * 본 축에서 링 안쪽 면까지의 거리 (내부 반지름)
      */
     float RingRadius;
 
     /**
-     * Ring height along axis direction (for GPU reference only)
-     * 링 높이 - 축 방향 (GPU 참조용, 실제 변형에는 사용 안함)
+     * Ring height along axis direction (for GPU reference only, not used in actual deformation)
      */
     float RingHeight;
 
     /**
-     * Ring thickness (radial falloff range) - VirtualRing mode GPU Influence calculation
-     * 링 두께 (Radial falloff 범위) - VirtualRing 모드 GPU Influence 계산용
+     * Ring thickness (radial falloff range) - for VirtualRing mode GPU Influence calculation
      */
     float RingThickness;
 
     /**
-     * Falloff type (0=Linear, 1=Quadratic, 2=Hermite) - VirtualRing mode GPU Influence calculation
-     * Falloff 타입 - VirtualRing 모드 GPU Influence 계산용
+     * Falloff type (0=Linear, 1=Quadratic, 2=Hermite) - for VirtualRing mode GPU Influence calculation
      */
     uint32 FalloffType;
 
     /**
      * Influence mode (0=Auto/SDF, 1=VirtualRing, 2=VirtualBand)
-     * Influence 계산 모드
      */
     uint32 InfluenceMode;
 
     // =========== VirtualBand (Virtual Band) Parameters ===========
-    // 가변 반경 기반 GPU Influence 계산용 (Catmull-Rom 스플라인)
+    // For variable radius-based GPU Influence calculation (Catmull-Rom spline)
 
-    /** 하단 끝 반경 (Lower Section 아래쪽) */
+    /** Lower end radius (below Lower Section) */
     float LowerRadius;
 
-    /** 밴드 하단 반경 (MidLower - 조임 지점 하단) */
+    /** Band lower radius (MidLower - below tightening point) */
     float MidLowerRadius;
 
-    /** 밴드 상단 반경 (MidUpper - 조임 지점 상단) */
+    /** Band upper radius (MidUpper - above tightening point) */
     float MidUpperRadius;
 
-    /** 상단 끝 반경 (Upper Section 위쪽, 살 불룩) */
+    /** Upper end radius (above Upper Section, flesh bulge) */
     float UpperRadius;
 
-    /** Lower Section 높이 (하단 경사 구간) */
+    /** Lower section height (lower slope region) */
     float LowerHeight;
 
-    /** Band Section 높이 (조이는 영역) */
+    /** Band section height (tightening region) */
     float BandSectionHeight;
 
-    /** Upper Section 높이 (상단 경사 구간, 불룩 영역) */
+    /** Upper section height (upper slope region, bulge area) */
     float UpperHeight;
 
     // =========== Deformation Parameters ===========
 
     /**
      * Tightness deformation strength
-     * 조이기(Tightness) 변형 강도
      */
     float TightnessStrength;
 
@@ -311,13 +266,11 @@ struct FTightnessDispatchParams
 
     /**
      * Number of affected vertices to process
-     * 처리할 영향받는 버텍스 수
      */
     uint32 NumAffectedVertices;
 
     /**
      * Total mesh vertex count (for bounds checking)
-     * 전체 메시 버텍스 수 (범위 체크용)
      */
     uint32 NumTotalVertices;
 
@@ -325,142 +278,123 @@ struct FTightnessDispatchParams
 
     /**
      * Enable GPU skinning (0=bind pose, 1=skinned)
-     * GPU 스키닝 활성화 (0=바인드 포즈, 1=스키닝)
      */
     uint32 bEnableSkinning;
 
     /**
      * Weight stream stride in bytes
-     * 웨이트 스트림 스트라이드 (바이트)
-     * 다음 버텍스 데이터로 가려면 몇 바이트 건너뛰어야 하는지
-     * 4본 스키닝: 12, 8본 스키닝: 24
+     * Bytes to skip to reach next vertex data
+     * 4-bone skinning: 12, 8-bone skinning: 24
      */
     uint32 InputWeightStride;
 
     /**
      * Packed: BoneIndexByteSize | (BoneWeightByteSize << 8)
-     * 패킹: 본인덱스바이트크기 | (본웨이트바이트크기 << 8)
-     * 하위 8비트: 본 인덱스 크기(바이트), 상위 8비트: 본 웨이트 크기(바이트)
-     * 일반적인 값:
-     * 본 인덱스: 1바이트 (0~255 범위, 본 256개까지)
-     * 본 웨이트: 2바이트 (0~65535 범위, 정밀도 ↑)
+     * Lower 8 bits: bone index size (bytes), Upper 8 bits: bone weight size (bytes)
+     * Typical values:
+     * Bone index: 1 byte (0~255 range, up to 256 bones)
+     * Bone weight: 2 bytes (0~65535 range, higher precision)
      */
     uint32 InputWeightIndexSize;
 
     /**
      * Number of bone influences per vertex (4 or 8)
-     * 버텍스당 본 영향 수 (4 또는 8)
      */
     uint32 NumBoneInfluences;
 
     // =========== SDF Parameters (OBB Design) ===========
-    // =========== SDF 파라미터 (OBB 설계) ===========
 
     /**
-     * SDF volume minimum bounds (Ring 로컬 스페이스)
-     * SDF 볼륨 최소 바운드
+     * SDF volume minimum bounds (Ring local space)
      */
     FVector3f SDFBoundsMin;
 
     /**
-     * SDF volume maximum bounds (Ring 로컬 스페이스)
-     * SDF 볼륨 최대 바운드
+     * SDF volume maximum bounds (Ring local space)
      */
     FVector3f SDFBoundsMax;
 
     /**
-     * Use SDF-based influence calculation (0=VirtualRing, 1=SDF Auto)
-     * SDF 기반 영향도 계산 사용 (0=수동, 1=SDF 자동)
+     * Use SDF-based influence calculation (0=VirtualRing/manual, 1=SDF Auto)
      */
     uint32 bUseSDFInfluence;
 
     /**
-     * Component space → SDF local space transform matrix (OBB support)
-     * 컴포넌트 스페이스 → SDF 로컬 스페이스 변환 행렬 (OBB 지원)
+     * Component space -> SDF local space transform matrix (OBB support)
      * = LocalToComponent.Inverse()
-     * BindPos를 로컬로 역변환 후 SDF 샘플링에 사용
+     * Used to inverse-transform BindPos to local, then sample SDF
      */
     FMatrix44f ComponentToSDFLocal;
 
     /**
-     * SDF local space → Component space transform matrix
-     * SDF 로컬 스페이스 → 컴포넌트 스페이스 변환 행렬
-     * Local 변위를 Component로 변환할 때 사용 (스케일 포함 정확한 역변환)
+     * SDF local space -> Component space transform matrix
+     * Used to transform local displacement to component (accurate inverse with scale)
      */
     FMatrix44f SDFLocalToComponent;
 
     /**
      * SDF falloff distance - Influence goes from 1.0 to 0.0 over this distance
-     * SDF falloff 거리 - 이 거리에 걸쳐 Influence가 1.0에서 0.0으로 감소
-     * Default: 5.0 (Ring 근처에서 부드러운 전환)
+     * Default: 5.0 (smooth transition near Ring)
      */
     float SDFInfluenceFalloffDistance;
 
     /**
-     * Z축 상단 확장 거리 (절대값, cm 단위)
-     * 링 위쪽으로 얼마나 확장할지 (0 = 확장 없음)
+     * Z-axis top extension distance (absolute value, in cm)
+     * How far to extend above the ring (0 = no extension)
      */
     float BoundsZTop;
 
     /**
-     * Z축 하단 확장 거리 (절대값, cm 단위)
-     * 링 아래쪽으로 얼마나 확장할지 (0 = 확장 없음)
+     * Z-axis bottom extension distance (absolute value, in cm)
+     * How far to extend below the ring (0 = no extension)
      */
     float BoundsZBottom;
 
     // =========== SDF Local Ring Geometry ===========
-    // =========== SDF 로컬 링 지오메트리 ===========
 
     /**
      * Ring Center (SDF Local Space)
-     * 원본 Ring 바운드 기준으로 계산 (확장 전)
-     * SDF 바운드가 확장되어도 Ring의 실제 위치를 정확히 전달
+     * Calculated based on original Ring bounds (before extension)
+     * Accurately conveys Ring's actual position even if SDF bounds are extended
      */
     FVector3f SDFLocalRingCenter;
 
     /**
      * Ring Axis (SDF Local Space)
-     * 원본 Ring 바운드 기준으로 계산 (확장 전)
-     * SDF 바운드가 확장되어도 Ring의 실제 축을 정확히 전달
+     * Calculated based on original Ring bounds (before extension)
+     * Accurately conveys Ring's actual axis even if SDF bounds are extended
      */
     FVector3f SDFLocalRingAxis;
 
     // =========== Volume Accumulation Parameters (for Bulge pass) ===========
-    // =========== 부피 누적 파라미터 (Bulge 패스용) ===========
 
     /**
-     * Enable volume accumulation for Bulge pass
-     * Bulge 패스를 위한 부피 누적 활성화 (0 = 비활성, 1 = 활성)
+     * Enable volume accumulation for Bulge pass (0 = disabled, 1 = enabled)
      */
     uint32 bAccumulateVolume;
 
     /**
-     * Fixed-point scale for Atomic operations
-     * Atomic 연산을 위한 Fixed-point 스케일 (예: 1000.0)
-     * float × Scale → uint로 변환하여 Atomic 연산
+     * Fixed-point scale for Atomic operations (e.g., 1000.0)
+     * float x Scale -> convert to uint for Atomic operations
      */
     float FixedPointScale;
 
     /**
-     * Ring index for per-ring VolumeAccumBuffer slot
-     * Ring별 VolumeAccumBuffer 슬롯 지정용 인덱스
+     * Ring index for per-ring VolumeAccumBuffer slot designation
      */
     uint32 RingIndex;
 
     // =========== Debug Parameters ===========
-    // =========== 디버그 파라미터 ===========
 
     /**
-     * Enable debug influence output for visualization
-     * 시각화를 위한 디버그 Influence 출력 활성화 (0 = 비활성, 1 = 활성)
+     * Enable debug influence output for visualization (0 = disabled, 1 = enabled)
      */
     uint32 bOutputDebugInfluences;
 
-    // DebugPoint 출력은 DebugPointOutputCS에서 처리
+    // DebugPoint output is handled in DebugPointOutputCS
 
     /**
-     * Base offset for debug buffer (multi-ring support)
-     * 디버그 버퍼 기본 오프셋 (다중 링 지원) - DebugInfluences에 사용
+     * Base offset for debug buffer (multi-ring support) - used for DebugInfluences
      * Ring 0: offset 0, Ring 1: offset = Ring0.NumAffectedVertices, etc.
      */
     uint32 DebugPointBaseOffset;
@@ -472,7 +406,7 @@ struct FTightnessDispatchParams
         , RingHeight(2.0f)
         , RingThickness(2.0f)
         , FalloffType(0)
-        , InfluenceMode(1)  // Default: VirtualRing (SDF가 없을 때)
+        , InfluenceMode(1)  // Default: VirtualRing (when SDF is not available)
         , LowerRadius(9.0f)
         , MidLowerRadius(8.0f)
         , MidUpperRadius(8.0f)
@@ -508,16 +442,14 @@ struct FTightnessDispatchParams
 
 // ============================================================================
 // Helper Functions - Parameter Creation
-// 헬퍼 함수 - 파라미터 생성
 // ============================================================================
 
 /**
  * Create FTightnessDispatchParams from FRingAffectedData (bind pose mode)
- * FRingAffectedData에서 FTightnessDispatchParams 생성 (바인드 포즈 모드)
  *
- * @param AffectedData - 영향받는 버텍스 데이터 (Ring 파라미터 포함)
- * @param TotalVertexCount - 메시 전체 버텍스 수
- * @return GPU Dispatch용 파라미터 구조체 (스키닝 비활성화)
+ * @param AffectedData - Affected vertex data (including Ring parameters)
+ * @param TotalVertexCount - Total mesh vertex count
+ * @return Parameter struct for GPU Dispatch (skinning disabled)
  */
 inline FTightnessDispatchParams CreateTightnessParams(
     const FRingAffectedData& AffectedData,
@@ -525,24 +457,24 @@ inline FTightnessDispatchParams CreateTightnessParams(
 {
     FTightnessDispatchParams Params;
 
-    // Ring 트랜스폼 정보 (바인드 포즈)
+    // Ring transform info (bind pose)
     Params.RingCenter = FVector3f(AffectedData.RingCenter);
     Params.RingAxis = FVector3f(AffectedData.RingAxis);
 
-    // Ring 지오메트리 정보
+    // Ring geometry info
     Params.RingRadius = AffectedData.RingRadius;
     Params.RingHeight = AffectedData.RingHeight;
     Params.RingThickness = AffectedData.RingThickness;
     Params.FalloffType = static_cast<uint32>(AffectedData.FalloffType);
 
-    // 변형 강도 (FFleshRingSettings에서 복사된 값)
+    // Deformation strength (copied from FFleshRingSettings)
     Params.TightnessStrength = AffectedData.TightnessStrength;
 
-    // 버텍스 카운트
+    // Vertex counts
     Params.NumAffectedVertices = static_cast<uint32>(AffectedData.Vertices.Num());
     Params.NumTotalVertices = TotalVertexCount;
 
-    // 스키닝 비활성화
+    // Disable skinning
     Params.bEnableSkinning = 0;
     Params.InputWeightStride = 0;
     Params.InputWeightIndexSize = 0;
@@ -553,44 +485,33 @@ inline FTightnessDispatchParams CreateTightnessParams(
 
 // ============================================================================
 // Dispatch Function Declarations
-// Dispatch 함수 선언
 // ============================================================================
 
 /**
  * Dispatch TightnessCS to process affected vertices (bind pose mode)
- * TightnessCS를 디스패치하여 영향받는 버텍스 처리 (바인드 포즈 모드)
  *
  * @param GraphBuilder - RDG builder for resource management
- *                       RDG 빌더 (리소스 관리용)
- * @param Params - Dispatch parameters (Ring settings, counts, volume accumulation ...)
- *                 디스패치 파라미터 (링 설정, 버텍스 수, 부피 누적 등)
+ * @param Params - Dispatch parameters (Ring settings, counts, volume accumulation, etc.)
  * @param SourcePositionsBuffer - RDG buffer containing source vertex positions
- *                                원본 버텍스 위치 버퍼
  * @param AffectedIndicesBuffer - Buffer containing vertex indices to process
- *                                처리할 버텍스 인덱스 버퍼
  * @param InfluencesBuffer - Buffer containing per-vertex influence weights
- *                           버텍스별 영향도 버퍼
  * @param RepresentativeIndicesBuffer - Buffer containing representative vertex indices for UV seam welding
- *                                      UV seam 용접용 대표 버텍스 인덱스 버퍼 (nullptr이면 AffectedIndices 사용)
+ *                                      (uses AffectedIndices if nullptr)
  * @param OutputPositionsBuffer - UAV buffer for deformed positions
- *                                변형된 위치 출력 버퍼 (UAV)
  * @param SDFTexture - (Optional) SDF 3D texture for Auto influence mode
- *                     (옵션) SDF 자동 영향 모드용 3D 텍스처
- *                     nullptr이면 VirtualRing 모드 (Influences 버퍼 사용)
+ *                     (VirtualRing mode using Influences buffer if nullptr)
  * @param VolumeAccumBuffer - (Optional) Volume accumulation buffer for Bulge pass
- *                            (옵션) Bulge 패스용 부피 누적 버퍼
- *                            nullptr이면 부피 누적 비활성화
+ *                            (volume accumulation disabled if nullptr)
  * @param DebugInfluencesBuffer - (Optional) Debug influence output buffer
- *                                (옵션) 디버그 Influence 출력 버퍼
- *                                Params.bOutputDebugInfluences=1일 때 사용
- *                                DebugPointBuffer는 DebugPointOutputCS에서 최종 위치 기반으로 처리
+ *                                Used when Params.bOutputDebugInfluences=1
+ *                                DebugPointBuffer is processed in DebugPointOutputCS based on final positions
  */
 void DispatchFleshRingTightnessCS(
     FRDGBuilder& GraphBuilder,
     const FTightnessDispatchParams& Params,
     FRDGBufferRef SourcePositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
-    // Influence는 GPU에서 직접 계산
+    // Influence is calculated directly on GPU
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRDGTextureRef SDFTexture = nullptr,
@@ -599,38 +520,27 @@ void DispatchFleshRingTightnessCS(
 
 /**
  * Dispatch TightnessCS with readback for validation/testing (bind pose mode)
- * TightnessCS 디스패치 + GPU→CPU 리드백 (검증/테스트용, 바인드 포즈 모드)
  *
  * @param GraphBuilder - RDG builder for resource management
- *                       RDG 빌더 (리소스 관리용)
  * @param Params - Dispatch parameters
- *                 디스패치 파라미터
  * @param SourcePositionsBuffer - RDG buffer containing source vertex positions
- *                                원본 버텍스 위치 버퍼
  * @param AffectedIndicesBuffer - Buffer containing vertex indices to process
- *                                처리할 버텍스 인덱스 버퍼
  * @param InfluencesBuffer - Buffer containing per-vertex influence weights
- *                           버텍스별 영향도 버퍼
  * @param RepresentativeIndicesBuffer - Buffer containing representative vertex indices for UV seam welding
- *                                      UV seam 용접용 대표 버텍스 인덱스 버퍼 (nullptr이면 AffectedIndices 사용)
+ *                                      (uses AffectedIndices if nullptr)
  * @param OutputPositionsBuffer - UAV buffer for deformed positions
- *                                변형된 위치 출력 버퍼 (UAV)
  * @param Readback - Readback object for GPU->CPU transfer
- *                   GPU→CPU 데이터 전송용 리드백 객체
  * @param SDFTexture - (Optional) SDF 3D texture for Auto influence mode
- *                     (옵션) SDF 자동 영향 모드용 3D 텍스처
  * @param VolumeAccumBuffer - (Optional) Volume accumulation buffer for Bulge pass
- *                            (옵션) Bulge 패스용 부피 누적 버퍼
  * @param DebugInfluencesBuffer - (Optional) Debug influence output buffer
- *                                (옵션) 디버그 Influence 출력 버퍼
- *                                DebugPointBuffer는 DebugPointOutputCS에서 처리
+ *                                DebugPointBuffer is processed in DebugPointOutputCS
  */
 void DispatchFleshRingTightnessCS_WithReadback(
     FRDGBuilder& GraphBuilder,
     const FTightnessDispatchParams& Params,
     FRDGBufferRef SourcePositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
-    // Influence는 GPU에서 직접 계산
+    // Influence is calculated directly on GPU
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRHIGPUBufferReadback* Readback,

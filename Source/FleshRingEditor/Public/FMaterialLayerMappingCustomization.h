@@ -12,8 +12,8 @@ class FAssetThumbnailPool;
 class SBox;
 
 /**
- * FMaterialLayerMapping 구조체의 프로퍼티 타입 커스터마이저
- * 머티리얼 썸네일을 표시하여 시각적 식별 용이하게 함
+ * Property type customizer for FMaterialLayerMapping struct
+ * Displays material thumbnails for easy visual identification
  */
 class FMaterialLayerMappingCustomization : public IPropertyTypeCustomization
 {
@@ -21,51 +21,51 @@ public:
 	FMaterialLayerMappingCustomization();
 	virtual ~FMaterialLayerMappingCustomization();
 
-	/** 커스터마이저 인스턴스 생성 (팩토리 함수) */
+	/** Create customizer instance (factory function) */
 	static TSharedRef<IPropertyTypeCustomization> MakeInstance();
 
-	/** IPropertyTypeCustomization 인터페이스 구현 */
+	/** IPropertyTypeCustomization interface implementation */
 
-	// Header row customization (collapsed view - 썸네일 + 이름 표시)
+	// Header row customization (collapsed view - thumbnail + name display)
 	virtual void CustomizeHeader(
 		TSharedRef<IPropertyHandle> PropertyHandle,
 		FDetailWidgetRow& HeaderRow,
 		IPropertyTypeCustomizationUtils& CustomizationUtils) override;
 
-	// Children customization (expanded view - LayerType만 표시)
+	// Children customization (expanded view - LayerType only)
 	virtual void CustomizeChildren(
 		TSharedRef<IPropertyHandle> PropertyHandle,
 		IDetailChildrenBuilder& ChildBuilder,
 		IPropertyTypeCustomizationUtils& CustomizationUtils) override;
 
 private:
-	/** 상위 FleshRingAsset 가져오기 */
+	/** Get parent FleshRingAsset */
 	UFleshRingAsset* GetOuterAsset() const;
 
-	/** MaterialSlotIndex로 머티리얼 가져오기 */
+	/** Get material by MaterialSlotIndex */
 	UMaterialInterface* GetMaterialForSlot(int32 SlotIndex) const;
 
-	/** 썸네일 콘텐츠 업데이트 */
+	/** Update thumbnail content */
 	void UpdateThumbnailContent();
 
-	/** 에셋 변경 콜백 */
+	/** Asset changed callback */
 	void OnAssetChanged(UFleshRingAsset* ChangedAsset);
 
-	/** 메인 프로퍼티 핸들 캐싱 */
+	/** Cache main property handle */
 	TSharedPtr<IPropertyHandle> MainPropertyHandle;
 
-	/** 슬롯 인덱스 핸들 캐싱 (썸네일 업데이트용) */
+	/** Cache slot index handle (for thumbnail update) */
 	TSharedPtr<IPropertyHandle> CachedSlotIndexHandle;
 
-	/** 썸네일 풀 (에디터에서 썸네일 렌더링용) */
+	/** Thumbnail pool (for editor thumbnail rendering) */
 	TSharedPtr<FAssetThumbnailPool> ThumbnailPool;
 
-	/** 썸네일 컨테이너 (동적 업데이트용) */
+	/** Thumbnail container (for dynamic updates) */
 	TSharedPtr<SBox> ThumbnailContainer;
 
-	/** 에셋 변경 델리게이트 핸들 */
+	/** Asset changed delegate handle */
 	FDelegateHandle AssetChangedDelegateHandle;
 
-	/** 캐싱된 에셋 포인터 (델리게이트 해제용) */
+	/** Cached asset pointer (for delegate release) */
 	TWeakObjectPtr<UFleshRingAsset> CachedAsset;
 };

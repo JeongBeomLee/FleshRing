@@ -3,8 +3,8 @@
 // FleshRingSubdivisionShader.h
 // GPU Barycentric Interpolation Shader for Subdivision
 //
-// CPU가 Red-Green Refinement / LEB로 토폴로지를 결정하고,
-// GPU는 실제 버텍스 데이터 보간만 수행
+// CPU determines topology via Red-Green Refinement / LEB,
+// GPU only performs actual vertex data interpolation
 
 #pragma once
 
@@ -97,7 +97,7 @@ struct FSubdivisionGPUBuffers
 	FRDGBufferRef OutputBoneWeights = nullptr;
 	FRDGBufferRef OutputBoneIndices = nullptr;
 
-	// Output triangle indices (직접 복사, 보간 불필요)
+	// Output triangle indices (direct copy, no interpolation needed)
 	FRDGBufferRef OutputIndices = nullptr;
 };
 

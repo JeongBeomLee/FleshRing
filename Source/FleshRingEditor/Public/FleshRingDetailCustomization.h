@@ -12,28 +12,28 @@ class USkeletalMesh;
 struct FAssetData;
 
 /**
- * UFleshRingComponent의 Detail Panel 커스터마이저
- * 프로퍼티 그룹핑, 카테고리 정리, 커스텀 위젯 등 담당
+ * Detail Panel customizer for UFleshRingComponent
+ * Handles property grouping, category organization, custom widgets, etc.
  */
 class FFleshRingDetailCustomization : public IDetailCustomization
 {
 public:
-	/** DetailCustomization 인스턴스 생성 (팩토리 함수) */
+	/** Create DetailCustomization instance (factory function) */
 	static TSharedRef<IDetailCustomization> MakeInstance();
 
-	/** IDetailCustomization 인터페이스 구현 */
+	/** IDetailCustomization interface implementation */
 	virtual void CustomizeDetails(IDetailLayoutBuilder& DetailBuilder) override;
 
 private:
-	/** 선택된 컴포넌트들 캐싱 */
+	/** Cache selected components */
 	TArray<TWeakObjectPtr<UObject>> SelectedObjects;
 
-	/** FleshRingAsset 필터링: Owner의 SkeletalMesh와 일치하는 Asset만 표시 */
+	/** FleshRingAsset filtering: Only show Assets matching Owner's SkeletalMesh */
 	bool OnShouldFilterAsset(const FAssetData& AssetData) const;
 
-	/** Owner의 SkeletalMesh 가져오기 */
+	/** Get Owner's SkeletalMesh */
 	USkeletalMesh* GetOwnerSkeletalMesh() const;
 
-	/** 첫 번째 선택된 FleshRingComponent 가져오기 */
+	/** Get first selected FleshRingComponent */
 	UFleshRingComponent* GetFirstSelectedComponent() const;
 };

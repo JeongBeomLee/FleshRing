@@ -14,14 +14,14 @@ void FFleshRingRuntimeModule::StartupModule()
     FString PluginShaderDir = FPaths::Combine(IPluginManager::Get().FindPlugin(TEXT("FleshRingPlugin"))->GetBaseDir(), TEXT("Shaders"));
     AddShaderSourceDirectoryMapping(TEXT("/Plugin/FleshRingPlugin"), PluginShaderDir);
 
-    // FleshRingComputeSystem 등록
-    // 렌더러가 EndOfFrameUpdate에서 FleshRing 작업을 올바른 타이밍에 실행하도록 함
+    // Register FleshRingComputeSystem
+    // Ensures the renderer executes FleshRing tasks at the correct timing in EndOfFrameUpdate
     FFleshRingComputeSystem::Register();
 }
 
 void FFleshRingRuntimeModule::ShutdownModule()
 {
-    // FleshRingComputeSystem 해제
+    // Unregister FleshRingComputeSystem
     FFleshRingComputeSystem::Unregister();
 }
 

@@ -14,13 +14,13 @@ class SComboButton;
 class SInlineEditableTextBlock;
 
 /**
- * Bone 드롭다운용 트리 아이템
+ * Tree item for bone dropdown
  */
 struct FBoneDropdownItem : public TSharedFromThis<FBoneDropdownItem>
 {
 	FName BoneName;
 	int32 BoneIndex = INDEX_NONE;
-	bool bIsMeshBone = false;  // 웨이팅된 본 (자손 포함)
+	bool bIsMeshBone = false;  // Weighted bone (including descendants)
 	TArray<TSharedPtr<FBoneDropdownItem>> Children;
 	TWeakPtr<FBoneDropdownItem> ParentItem;
 
@@ -35,16 +35,16 @@ struct FBoneDropdownItem : public TSharedFromThis<FBoneDropdownItem>
 };
 
 /**
- * FFleshRingSettings 구조체의 프로퍼티 타입 커스터마이저
- * Bone 이름을 드롭다운으로 선택할 수 있게 함
+ * Property type customizer for FFleshRingSettings struct
+ * Allows selecting bone names from a dropdown
  */
 class FFleshRingSettingsCustomization : public IPropertyTypeCustomization
 {
 public:
-	/** 커스터마이저 인스턴스 생성 (팩토리 함수) */
+	/** Create customizer instance (factory function) */
 	static TSharedRef<IPropertyTypeCustomization> MakeInstance();
 
-	/** IPropertyTypeCustomization 인터페이스 구현 */
+	/** IPropertyTypeCustomization interface implementation */
 
 	// Header row customization (collapsed view)
 	virtual void CustomizeHeader(
@@ -59,51 +59,51 @@ public:
 		IPropertyTypeCustomizationUtils& CustomizationUtils) override;
 
 private:
-	/** Bone 트리 구조 빌드 */
+	/** Build bone tree structure */
 	void BuildBoneTree();
 
-	/** 웨이팅된 본 캐시 빌드 */
+	/** Build weighted bone cache */
 	void BuildWeightedBoneCache(class USkeletalMesh* SkelMesh);
 
-	/** 본이 웨이팅되어 있는지 확인 */
+	/** Check if bone is weighted */
 	bool IsBoneWeighted(int32 BoneIndex) const;
 
-	/** 검색 가능한 Bone 드롭다운 위젯 생성 */
+	/** Create searchable bone dropdown widget */
 	TSharedRef<SWidget> CreateSearchableBoneDropdown();
 
-	/** 검색 텍스트 변경 시 호출 */
+	/** Called when search text changes */
 	void OnBoneSearchTextChanged(const FText& NewText);
 
-	/** 검색 필터 적용 */
+	/** Apply search filter */
 	void ApplySearchFilter();
 
-	/** TreeView 행 생성 */
+	/** Generate TreeView row */
 	TSharedRef<ITableRow> GenerateBoneTreeRow(TSharedPtr<FBoneDropdownItem> InItem, const TSharedRef<STableViewBase>& OwnerTable);
 
-	/** TreeView 자식 가져오기 */
+	/** Get TreeView children */
 	void GetBoneTreeChildren(TSharedPtr<FBoneDropdownItem> Item, TArray<TSharedPtr<FBoneDropdownItem>>& OutChildren);
 
-	/** TreeView에서 선택 시 호출 */
+	/** Called when selection changes in TreeView */
 	void OnBoneTreeSelectionChanged(TSharedPtr<FBoneDropdownItem> NewSelection, ESelectInfo::Type SelectInfo);
 
-	/** 모든 트리 아이템 확장 */
+	/** Expand all tree items */
 	void ExpandAllBoneTreeItems();
 
-	/** 현재 선택된 Bone 이름 가져오기 */
+	/** Get currently selected bone name */
 	FText GetCurrentBoneName() const;
 
-	/** 현재 본이 유효하지 않은지 확인 (경고 아이콘 표시용) */
+	/** Check if current bone is invalid (for warning icon display) */
 	bool IsBoneInvalid() const;
 
-	/** EulerRotation에서 FQuat으로 동기화 */
+	/** Sync from EulerRotation to FQuat */
 	void SyncQuatFromEuler(
 		TSharedPtr<IPropertyHandle> EulerHandle,
 		TSharedPtr<IPropertyHandle> QuatHandle);
 
-	/** FQuat 핸들에서 Euler 각도 읽기 */
+	/** Read Euler angles from FQuat handle */
 	FRotator GetQuatAsEuler(TSharedPtr<IPropertyHandle> QuatHandle) const;
 
-	/** FVector용 선형 드래그 Row 추가 */
+	/** Add linear drag row for FVector */
 	void AddLinearVectorRow(
 		IDetailChildrenBuilder& ChildBuilder,
 		TSharedRef<IPropertyHandle> VectorHandle,
@@ -111,7 +111,7 @@ private:
 		float Delta,
 		TAttribute<bool> IsEnabled = true);
 
-	/** FRotator용 선형 드래그 Row 추가 */
+	/** Add linear drag row for FRotator */
 	void AddLinearRotatorRow(
 		IDetailChildrenBuilder& ChildBuilder,
 		TSharedRef<IPropertyHandle> RotatorHandle,
@@ -119,20 +119,20 @@ private:
 		float Delta,
 		TAttribute<bool> IsEnabled = true);
 
-	/** Euler 각도를 FQuat 핸들에 쓰기 */
+	/** Write Euler angles to FQuat handle */
 	void SetEulerToQuat(TSharedPtr<IPropertyHandle> QuatHandle, const FRotator& Euler);
 
-	/** FVector용 선형 드래그 위젯 생성 (그룹용) */
+	/** Create linear drag widget for FVector (for groups) */
 	TSharedRef<SWidget> CreateLinearVectorWidget(
 		TSharedRef<IPropertyHandle> VectorHandle,
 		float Delta);
 
-	/** FRotator용 선형 드래그 위젯 생성 (그룹용) */
+	/** Create linear drag widget for FRotator (for groups) */
 	TSharedRef<SWidget> CreateLinearRotatorWidget(
 		TSharedRef<IPropertyHandle> RotatorHandle,
 		float Delta);
 
-	/** FVector용 선형 드래그 Row + Reset 버튼 추가 */
+	/** Add linear drag row with reset button for FVector */
 	void AddLinearVectorRowWithReset(
 		IDetailChildrenBuilder& ChildBuilder,
 		TSharedRef<IPropertyHandle> VectorHandle,
@@ -141,7 +141,7 @@ private:
 		const FVector& DefaultValue,
 		TAttribute<bool> IsEnabled = true);
 
-	/** FRotator용 선형 드래그 Row + Reset 버튼 추가 */
+	/** Add linear drag row with reset button for FRotator */
 	void AddLinearRotatorRowWithReset(
 		IDetailChildrenBuilder& ChildBuilder,
 		TSharedRef<IPropertyHandle> RotatorHandle,
@@ -150,118 +150,118 @@ private:
 		const FRotator& DefaultValue,
 		TAttribute<bool> IsEnabled = true);
 
-	/** FVector용 선형 드래그 위젯 + Reset 버튼 생성 (그룹용) */
+	/** Create linear drag widget with reset button for FVector (for groups) */
 	TSharedRef<SWidget> CreateLinearVectorWidgetWithReset(
 		TSharedRef<IPropertyHandle> VectorHandle,
 		float Delta,
 		const FVector& DefaultValue);
 
-	/** FRotator용 선형 드래그 위젯 + Reset 버튼 생성 (그룹용) */
+	/** Create linear drag widget with reset button for FRotator (for groups) */
 	TSharedRef<SWidget> CreateLinearRotatorWidgetWithReset(
 		TSharedRef<IPropertyHandle> RotatorHandle,
 		float Delta,
 		const FRotator& DefaultValue);
 
-	/** FVector용 Reset 버튼 생성 */
+	/** Create reset button for FVector */
 	TSharedRef<SWidget> CreateResetButton(
 		TSharedRef<IPropertyHandle> VectorHandle,
 		const FVector& DefaultValue);
 
-	/** FRotator용 Reset 버튼 생성 */
+	/** Create reset button for FRotator */
 	TSharedRef<SWidget> CreateResetButton(
 		TSharedRef<IPropertyHandle> RotatorHandle,
 		const FRotator& DefaultValue);
 
-	/** FVector 위젯 + Reset 버튼 (우측 끝 배치) */
+	/** FVector widget with reset button (right-aligned) */
 	TSharedRef<SWidget> CreateVectorWidgetWithResetButton(
 		TSharedRef<IPropertyHandle> VectorHandle,
 		float Delta,
 		const FVector& DefaultValue);
 
-	/** FRotator 위젯 + Reset 버튼 (우측 끝 배치) */
+	/** FRotator widget with reset button (right-aligned) */
 	TSharedRef<SWidget> CreateRotatorWidgetWithResetButton(
 		TSharedRef<IPropertyHandle> RotatorHandle,
 		float Delta,
 		const FRotator& DefaultValue);
 
-	/** 프로퍼티 핸들 캐싱 */
+	/** Cached property handle */
 	TSharedPtr<IPropertyHandle> BoneNameHandle;
 
-	/** 메인 프로퍼티 핸들 (Asset 접근용) */
+	/** Main property handle (for Asset access) */
 	TSharedPtr<IPropertyHandle> MainPropertyHandle;
 
-	/** FQuat 프로퍼티 핸들 캐싱 (Euler 표시용) */
+	/** Cached FQuat property handle (for Euler display) */
 	TSharedPtr<IPropertyHandle> RingRotationHandle;
 	TSharedPtr<IPropertyHandle> MeshRotationHandle;
 
-	/** 본 트리 루트 아이템 */
+	/** Bone tree root items */
 	TArray<TSharedPtr<FBoneDropdownItem>> BoneTreeRoots;
 
-	/** 모든 본 아이템 (인덱스로 빠른 접근용) */
+	/** All bone items (for fast index-based access) */
 	TArray<TSharedPtr<FBoneDropdownItem>> AllBoneItems;
 
-	/** 필터링된 본 트리 루트 아이템 */
+	/** Filtered bone tree root items */
 	TArray<TSharedPtr<FBoneDropdownItem>> FilteredBoneTreeRoots;
 
-	/** 웨이팅된 본 인덱스 캐시 */
+	/** Weighted bone indices cache */
 	TSet<int32> WeightedBoneIndices;
 
-	/** 검색 텍스트 */
+	/** Search text */
 	FString BoneSearchText;
 
-	/** Bone TreeView 위젯 참조 (갱신용) */
+	/** Bone TreeView widget reference (for refresh) */
 	TSharedPtr<STreeView<TSharedPtr<FBoneDropdownItem>>> BoneTreeView;
 
-	/** ComboButton 위젯 참조 (닫기용) */
+	/** ComboButton widget reference (for closing) */
 	TSharedPtr<SComboButton> BoneComboButton;
 
-	/** Asset에서 TargetSkeletalMesh 가져오기 */
+	/** Get TargetSkeletalMesh from Asset */
 	class USkeletalMesh* GetTargetSkeletalMesh() const;
 
-	/** 상위 Asset 가져오기 */
+	/** Get outer Asset */
 	class UFleshRingAsset* GetOuterAsset() const;
 
-	/** 헤더 클릭 시 Ring 선택 */
+	/** Select Ring when header clicked */
 	FReply OnHeaderClicked(int32 RingIndex);
 
-	/** 헤더 클릭 시 Ring 선택 (void 버전, FSimpleDelegate용) */
+	/** Select Ring when header clicked (void version, for FSimpleDelegate) */
 	void OnHeaderClickedVoid();
 
-	/** 표시용 Ring 이름 가져오기 */
+	/** Get Ring name for display */
 	FText GetDisplayRingName(int32 Index) const;
 
-	/** Ring 이름 커밋 시 호출 */
+	/** Called when Ring name is committed */
 	void OnRingNameCommitted(const FText& NewText, ETextCommit::Type CommitType);
 
-	/** 이 Ring이 현재 선택되어 있는지 확인 */
+	/** Check if this Ring is currently selected */
 	bool IsThisRingSelected() const;
 
-	/** 헤더 배경색 반환 (선택 상태에 따라 하이라이트) */
+	/** Return header background color (highlighted based on selection state) */
 	FSlateColor GetHeaderBackgroundColor() const;
 
-	/** 가시성 아이콘 반환 (bEditorVisible 상태에 따라) */
+	/** Return visibility icon (based on bEditorVisible state) */
 	const FSlateBrush* GetVisibilityIcon() const;
 
-	/** 가시성 토글 버튼 클릭 핸들러 */
+	/** Visibility toggle button click handler */
 	FReply OnVisibilityToggleClicked();
 
-	/** 배열 인덱스 캐시 */
+	/** Cached array index */
 	int32 CachedArrayIndex = INDEX_NONE;
 
-	/** Ring 이름 인라인 편집 위젯 참조 */
+	/** Ring name inline edit widget reference */
 	TSharedPtr<class SRingNameWidget> RingNameWidget;
 
-	// === MeshScale 비율 잠금 기능 ===
+	// === MeshScale ratio lock feature ===
 
-	/** MeshScale 비율 잠금 위젯 생성 (잠금 버튼 + 벡터 위젯) */
+	/** Create MeshScale ratio lock widget (lock button + vector widget) */
 	TSharedRef<SWidget> CreateMeshScaleWidget(TSharedRef<IPropertyHandle> VectorHandle, float Delta);
 
-	/** MeshScale 잠금 버튼 클릭 핸들러 */
+	/** MeshScale lock button click handler */
 	FReply OnMeshScaleLockClicked();
 
-	/** MeshScale 비율 잠금 상태 (true: 비율 유지) */
+	/** MeshScale ratio lock state (true: maintain ratio) */
 	bool bMeshScaleLocked = false;
 
-	/** MeshScale 프로퍼티 핸들 캐싱 (비율 계산용) */
+	/** Cached MeshScale property handle (for ratio calculation) */
 	TSharedPtr<IPropertyHandle> MeshScaleHandle;
 };

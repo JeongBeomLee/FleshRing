@@ -29,17 +29,17 @@
 
 #define LOCTEXT_NAMESPACE "FleshRingSkeletonTree"
 
-/** Ring 이름 변경 델리게이트 */
+/** Ring rename delegate */
 DECLARE_DELEGATE_TwoParams(FOnRingRenamed, int32 /*RingIndex*/, FName /*NewName*/);
 
-/** Ring 이동 델리게이트 (Shift 드래그 시 월드 위치 유지) */
+/** Ring move delegate (preserve world position on Shift drag) */
 DECLARE_DELEGATE_ThreeParams(FOnRingMoved, int32 /*RingIndex*/, FName /*NewBoneName*/, bool /*bPreserveWorldPosition*/);
 
-/** Ring 복제 델리게이트 (Alt 드래그) */
+/** Ring duplicate delegate (Alt drag) */
 DECLARE_DELEGATE_TwoParams(FOnRingDuplicated, int32 /*SourceRingIndex*/, FName /*TargetBoneName*/);
 
 /**
- * FleshRing 트리 행 위젯 (SExpanderArrow + Wires 지원)
+ * FleshRing tree row widget (SExpanderArrow + Wires support)
  */
 class SFleshRingTreeRow : public STableRow<TSharedPtr<FFleshRingTreeItem>>
 {
@@ -64,13 +64,13 @@ public:
 		OnRingMoved = InArgs._OnRingMoved;
 		OnRingDuplicated = InArgs._OnRingDuplicated;
 
-		// 원본 이름 저장 (검증 실패 시 복원용)
+		// Save original name (for restoration on validation failure)
 		if (Item.IsValid())
 		{
 			OriginalName = Item->GetDisplayName().ToString();
 		}
 
-		// 아이콘과 색상, 툴팁 결정
+		// Determine icon, color, and tooltip
 		const FSlateBrush* IconBrush = nullptr;
 		FSlateColor TextColor = FSlateColor::UseForeground();
 		FSlateColor IconColor = FSlateColor::UseForeground();
@@ -85,21 +85,21 @@ public:
 			TooltipText = FText::Format(
 				LOCTEXT("RingTooltip",
 					"Ring attached to bone: {0}\nDouble-click to rename\n\n"
-					"Alt 키를 누른 채 드래그하면 Ring을 복제합니다.\n"
-					"Shift 키를 누른 채 드래그하면 절대 위치를 유지합니다."),
+					"Hold Alt while dragging to duplicate the Ring.\n"
+					"Hold Shift while dragging to preserve absolute position."),
 				FText::FromName(Item->BoneName));
 		}
 		else
 		{
 			if (Item->bIsMeshBone)
 			{
-				// 실제 메시 본: 채워진 뼈 아이콘
+				// Actual mesh bone: filled bone icon
 				IconBrush = FAppStyle::GetBrush("SkeletonTree.Bone");
 				TooltipText = LOCTEXT("WeightedBoneTooltip", "This bone or one of its descendants has vertices weighted to it.\nRight-click to add a Ring.");
 			}
 			else
 			{
-				// 웨이팅 안 된 본: 비활성화 스타일 (빈 뼈 아이콘)
+				// Non-weighted bone: disabled style (empty bone icon)
 				IconBrush = FAppStyle::GetBrush("SkeletonTree.BoneNonWeighted");
 				TextColor = FSlateColor(FLinearColor(0.4f, 0.4f, 0.4f));
 				IconColor = FSlateColor(FLinearColor(0.4f, 0.4f, 0.4f));
@@ -107,25 +107,25 @@ public:
 			}
 		}
 
-		// 홀수/짝수 행 배경색 (Persona 스타일)
+		// Odd/even row background color (Persona style)
 		FLinearColor RowBgColor = (RowIndex % 2 == 0)
-			? FLinearColor(0.0f, 0.0f, 0.0f, 0.0f)      // 짝수: 투명
-			: FLinearColor(1.0f, 1.0f, 1.0f, 0.03f);    // 홀수: 살짝 밝게
+			? FLinearColor(0.0f, 0.0f, 0.0f, 0.0f)      // Even: transparent
+			: FLinearColor(1.0f, 1.0f, 1.0f, 0.03f);    // Odd: slightly brighter
 
-		// STableRow 구성 (Content 없이 - ConstructChildren에서 직접 처리)
+		// Configure STableRow (without Content - handle directly in ConstructChildren)
 		STableRow<TSharedPtr<FFleshRingTreeItem>>::Construct(
 			STableRow<TSharedPtr<FFleshRingTreeItem>>::FArguments()
 			.Padding(FMargin(0, 0)),
 			InOwnerTable
 		);
 
-		// 이름 위젯 생성 (Ring은 인라인 편집 가능)
+		// Create name widget (Ring supports inline editing)
 		TSharedRef<SWidget> NameWidget = bIsRing
 			? CreateRingNameWidget(TextColor, TooltipText)
 			: CreateBoneNameWidget(TextColor, TooltipText);
 
-		// 기본 expander 대신 우리 Content 직접 설정
-		// SExpanderArrow를 최외곽에 배치해서 전체 행 높이에 와이어가 그려지게 함
+		// Set our Content directly instead of default expander
+		// Place SExpanderArrow at outermost position so wires are drawn at full row height
 		ChildSlot
 		[
 			SNew(SBorder)
@@ -134,7 +134,7 @@ public:
 			.Padding(0)
 			[
 				SNew(SHorizontalBox)
-				// Expander Arrow (행 전체 높이 차지)
+				// Expander Arrow (takes full row height)
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
 				.VAlign(VAlign_Fill)
@@ -142,13 +142,13 @@ public:
 					SNew(SExpanderArrow, SharedThis(this))
 					.ShouldDrawWires(true)
 				]
-				// 아이콘 + 텍스트 (패딩 적용)
+				// Icon + Text (with padding)
 				+ SHorizontalBox::Slot()
 				.FillWidth(1.0f)
-				.Padding(0, 2)  // 세로 패딩
+				.Padding(0, 2)  // Vertical padding
 				[
 					SNew(SHorizontalBox)
-					// 아이콘
+					// Icon
 					+ SHorizontalBox::Slot()
 					.AutoWidth()
 					.Padding(0, 0, 6, 0)
@@ -159,14 +159,14 @@ public:
 						.ColorAndOpacity(IconColor)
 						.DesiredSizeOverride(bIsRing ? FVector2D(12, 12) : FVector2D(18, 18))
 					]
-					// 이름
+					// Name
 					+ SHorizontalBox::Slot()
 					.AutoWidth()
 					.VAlign(VAlign_Center)
 					[
 						NameWidget
 					]
-					// 눈 아이콘 (가시성 토글) - Ring일 때만 표시
+					// Eye icon (visibility toggle) - only shown for Ring
 					+ SHorizontalBox::Slot()
 					.AutoWidth()
 					.Padding(4, 0, 0, 0)
@@ -189,10 +189,10 @@ public:
 		];
 	}
 
-	/** 편집 모드 진입 */
+	/** Enter editing mode */
 	void EnterEditingMode()
 	{
-		// 편집 시작 시 원본 이름 저장 (검증 실패 시 복원용)
+		// Save original name at edit start (for restoration on validation failure)
 		if (Item.IsValid())
 		{
 			OriginalName = Item->GetDisplayName().ToString();
@@ -207,7 +207,7 @@ public:
 
 	virtual FReply OnPreviewKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent) override
 	{
-		// Enter 키 감지 (OnVerifyRingNameChanged에서 이전 이름으로 되돌리기 위해)
+		// Detect Enter key (to revert to previous name in OnVerifyRingNameChanged)
 		if (InKeyEvent.GetKey() == EKeys::Enter)
 		{
 			bIsEnterPressed = true;
@@ -215,14 +215,14 @@ public:
 		return STableRow<TSharedPtr<FFleshRingTreeItem>>::OnPreviewKeyDown(MyGeometry, InKeyEvent);
 	}
 
-	// === 드래그 앤 드롭 ===
+	// === Drag and Drop ===
 
 	virtual FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
 	{
-		// 부모 클래스 먼저 호출 (선택 처리)
+		// Call parent class first (handle selection)
 		FReply Reply = STableRow<TSharedPtr<FFleshRingTreeItem>>::OnMouseButtonDown(MyGeometry, MouseEvent);
 
-		// Ring 아이템에서 왼쪽 버튼 클릭 시 드래그 감지 준비 (선택 후)
+		// Prepare drag detection on left button click for Ring item (after selection)
 		if (Item.IsValid() && Item->ItemType == EFleshRingTreeItemType::Ring && MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 		{
 			Reply = Reply.DetectDrag(SharedThis(this), EKeys::LeftMouseButton);
@@ -232,7 +232,7 @@ public:
 
 	virtual FReply OnDragDetected(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
 	{
-		// Ring 아이템 드래그 시작
+		// Start Ring item drag
 		if (Item.IsValid() && Item->ItemType == EFleshRingTreeItemType::Ring)
 		{
 			FString RingName = Item->GetDisplayName().ToString();
@@ -241,7 +241,7 @@ public:
 				RingName,
 				Item->BoneName,
 				Item->EditingAsset.Get(),
-				MouseEvent.GetModifierKeys()  // Modifier 키 상태 캡처
+				MouseEvent.GetModifierKeys()  // Capture modifier key state
 			);
 			return FReply::Handled().BeginDragDrop(DragOp);
 		}
@@ -255,9 +255,9 @@ public:
 		{
 			bool bIsDifferentBone = (Item->BoneName != DragOp->SourceBoneName);
 
-			// 드롭 가능 조건:
-			// 1. bIsMeshBone = 자신 또는 자손 중 웨이팅된 본이 있음
-			// 2. 다른 본이거나, Alt 드래그(복제)면 같은 본도 허용
+			// Drop conditions:
+			// 1. bIsMeshBone = this or a descendant has weighted vertices
+			// 2. Different bone, or Alt drag (duplicate) allows same bone
 			bool bCanDrop = Item->bIsMeshBone && (bIsDifferentBone || DragOp->IsAltDrag());
 
 			DragOp->bCanDrop = bCanDrop;
@@ -297,7 +297,7 @@ public:
 		{
 			if (DragOp->IsAltDrag())
 			{
-				// Alt+드래그: Ring 복제
+				// Alt+drag: Ring duplicate
 				if (OnRingDuplicated.IsBound())
 				{
 					OnRingDuplicated.Execute(DragOp->RingIndex, Item->BoneName);
@@ -305,7 +305,7 @@ public:
 			}
 			else
 			{
-				// 일반/Shift+드래그: Ring 이동
+				// Normal/Shift+drag: Ring move
 				if (OnRingMoved.IsBound())
 				{
 					bool bPreserveWorldPosition = DragOp->IsShiftDrag();
@@ -318,7 +318,7 @@ public:
 	}
 
 private:
-	/** Ring 이름 위젯 생성 (인라인 편집 가능, 검증 포함) */
+	/** Create Ring name widget (inline editing with validation) */
 	TSharedRef<SWidget> CreateRingNameWidget(FSlateColor TextColor, FText TooltipText)
 	{
 		return SAssignNew(ValidationBorder, SBorder)
@@ -337,7 +337,7 @@ private:
 			];
 	}
 
-	/** Bone 이름 위젯 생성 (읽기 전용) */
+	/** Create Bone name widget (read-only) */
 	TSharedRef<SWidget> CreateBoneNameWidget(FSlateColor TextColor, FText TooltipText)
 	{
 		return SNew(STextBlock)
@@ -348,7 +348,7 @@ private:
 			.ToolTipText(TooltipText);
 	}
 
-	/** Ring 이름 검증 (빈 이름/중복 체크) */
+	/** Ring name validation (empty name/duplicate check) */
 	bool OnVerifyRingNameChanged(const FText& NewText, FText& OutErrorMessage)
 	{
 		if (!Asset || !Item.IsValid())
@@ -360,13 +360,13 @@ private:
 		FName NewName = FName(*NewText.ToString());
 		bool bIsValid = true;
 
-		// 빈 이름 체크
+		// Empty name check
 		if (NewName.IsNone())
 		{
 			OutErrorMessage = LOCTEXT("EmptyNameError", "Name cannot be empty.");
 			bIsValid = false;
 		}
-		// 중복 이름 체크
+		// Duplicate name check
 		else if (!Asset->IsRingNameUnique(NewName, Item->RingIndex))
 		{
 			OutErrorMessage = LOCTEXT("DuplicateNameError", "This name is already in use. Please choose a different name.");
@@ -377,13 +377,13 @@ private:
 		{
 			bIsNameValid = false;
 
-			// Enter 시에만 이전 이름으로 되돌림
+			// Revert to previous name only on Enter
 			if (bIsEnterPressed && InlineTextBlock.IsValid())
 			{
 				InlineTextBlock->SetText(FText::FromString(OriginalName));
 			}
 			bIsEnterPressed = false;
-			return false;  // 편집 모드 유지
+			return false;  // Stay in edit mode
 		}
 
 		bIsNameValid = true;
@@ -391,10 +391,10 @@ private:
 		return true;
 	}
 
-	/** Ring 이름 커밋 */
+	/** Ring name commit */
 	void OnRingNameCommitted(const FText& NewText, ETextCommit::Type CommitType)
 	{
-		// 검증 테두리 초기화
+		// Reset validation border
 		if (ValidationBorder.IsValid())
 		{
 			ValidationBorder->SetBorderImage(FAppStyle::GetBrush("NoBorder"));
@@ -402,7 +402,7 @@ private:
 
 		if (CommitType == ETextCommit::OnEnter)
 		{
-			// Enter로 확정: 유효한 이름만 적용
+			// Confirm with Enter: apply only valid names
 			if (bIsNameValid && Item.IsValid() && OnRingRenamed.IsBound())
 			{
 				OnRingRenamed.Execute(Item->RingIndex, FName(*NewText.ToString()));
@@ -410,18 +410,18 @@ private:
 		}
 		else if (CommitType == ETextCommit::OnUserMovedFocus)
 		{
-			// 포커스 이동: 유효하면 적용, 유효하지 않으면 원래 이름으로 복원
+			// Focus moved: apply if valid, restore original name if invalid
 			if (bIsNameValid && Item.IsValid() && OnRingRenamed.IsBound())
 			{
 				OnRingRenamed.Execute(Item->RingIndex, FName(*NewText.ToString()));
 			}
-			// 유효하지 않으면 InlineTextBlock이 원래 텍스트로 자동 복원됨
+			// If invalid, InlineTextBlock auto-restores to original text
 		}
 
-		bIsNameValid = true;  // 상태 초기화
+		bIsNameValid = true;  // Reset state
 	}
 
-	/** 가시성 아이콘 반환 (bEditorVisible 상태에 따라) */
+	/** Return visibility icon (based on bEditorVisible state) */
 	const FSlateBrush* GetVisibilityIcon() const
 	{
 		if (Asset && Item.IsValid() && Asset->Rings.IsValidIndex(Item->RingIndex))
@@ -432,7 +432,7 @@ private:
 		return FAppStyle::GetBrush("Icons.Visible");
 	}
 
-	/** 가시성 토글 버튼 클릭 */
+	/** Visibility toggle button click */
 	FReply OnVisibilityToggleClicked()
 	{
 		if (Asset && Item.IsValid() && Asset->Rings.IsValidIndex(Item->RingIndex))
@@ -442,7 +442,7 @@ private:
 
 			Asset->Rings[Item->RingIndex].bEditorVisible = !Asset->Rings[Item->RingIndex].bEditorVisible;
 
-			// Asset 변경 알림 (에디터 뷰포트 갱신용)
+			// Notify Asset change (for editor viewport refresh)
 			Asset->OnAssetChanged.Broadcast(Asset);
 		}
 		return FReply::Handled();
@@ -459,7 +459,7 @@ private:
 	TSharedPtr<SBorder> ValidationBorder;
 	FString OriginalName;
 	bool bIsNameValid = true;
-	bool bIsEnterPressed = false;	// Enter 키 감지 플래그
+	bool bIsEnterPressed = false;	// Enter key detection flag
 };
 
 #undef LOCTEXT_NAMESPACE
@@ -472,7 +472,7 @@ FText FFleshRingTreeItem::GetDisplayName() const
 {
 	if (ItemType == EFleshRingTreeItemType::Ring)
 	{
-		// 커스텀 Ring 이름 또는 기본 이름 (FleshRing_인덱스)
+		// Custom Ring name or default name (FleshRing_index)
 		if (UFleshRingAsset* Asset = EditingAsset.Get())
 		{
 			if (Asset->Rings.IsValidIndex(RingIndex))
@@ -516,7 +516,7 @@ TSharedRef<FFleshRingDragDropOp> FFleshRingDragDropOp::New(int32 InRingIndex, co
 	Operation->Asset = InAsset;
 	Operation->bCanDrop = false;
 	Operation->ModifierKeysState = InModifierKeys;
-	// 기본 아이콘: 빨간색 (드롭 불가)
+	// Default icon: red (drop not allowed)
 	Operation->SetIcon(FAppStyle::GetBrush(TEXT("Graph.ConnectorFeedback.Error")));
 	Operation->Construct();
 	return Operation;
@@ -556,7 +556,7 @@ void SFleshRingSkeletonTree::Construct(const FArguments& InArgs)
 	OnFocusCameraRequested = InArgs._OnFocusCameraRequested;
 	OnRingDeleted = InArgs._OnRingDeleted;
 
-	// 에셋 변경 델리게이트 구독 (디테일 패널에서 이름 변경 시 트리 갱신)
+	// Subscribe to asset change delegate (refresh tree when name changes in detail panel)
 	if (UFleshRingAsset* Asset = EditingAsset.Get())
 	{
 		Asset->OnAssetChanged.AddSP(this, &SFleshRingSkeletonTree::OnAssetChangedHandler);
@@ -567,20 +567,20 @@ void SFleshRingSkeletonTree::Construct(const FArguments& InArgs)
 	ChildSlot
 	[
 		SNew(SVerticalBox)
-		// 상단 툴바
+		// Top toolbar
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(4)
 		[
 			CreateToolbar()
 		]
-		// 구분선
+		// Separator
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		[
 			SNew(SSeparator)
 		]
-		// 트리 뷰
+		// Tree view
 		+ SVerticalBox::Slot()
 		.FillHeight(1.0f)
 		[
@@ -602,7 +602,7 @@ void SFleshRingSkeletonTree::Construct(const FArguments& InArgs)
 TSharedRef<SWidget> SFleshRingSkeletonTree::CreateToolbar()
 {
 	return SNew(SHorizontalBox)
-		// + 버튼 (Ring 추가)
+		// + button (Add Ring)
 		+ SHorizontalBox::Slot()
 		.AutoWidth()
 		.Padding(0, 0, 4, 0)
@@ -619,7 +619,7 @@ TSharedRef<SWidget> SFleshRingSkeletonTree::CreateToolbar()
 				.ColorAndOpacity(FSlateColor::UseForeground())
 			]
 		]
-		// 검색 박스
+		// Search box
 		+ SHorizontalBox::Slot()
 		.FillWidth(1.0f)
 		.Padding(0, 0, 4, 0)
@@ -628,7 +628,7 @@ TSharedRef<SWidget> SFleshRingSkeletonTree::CreateToolbar()
 			.HintText(LOCTEXT("SearchHint", "Search skeleton tree..."))
 			.OnTextChanged(this, &SFleshRingSkeletonTree::OnSearchTextChanged)
 		]
-		// 필터 버튼
+		// Filter button
 		+ SHorizontalBox::Slot()
 		.AutoWidth()
 		[
@@ -700,16 +700,16 @@ TSharedPtr<SWidget> SFleshRingSkeletonTree::CreateContextMenu()
 {
 	FMenuBuilder MenuBuilder(true, nullptr);
 
-	// TreeView에서 현재 선택된 아이템 직접 조회 (타이밍 이슈 해결)
-	// OnContextMenuOpening이 OnSelectionChanged보다 먼저 호출될 수 있어서
-	// SelectedItem 멤버 변수 대신 TreeView에서 직접 가져옴
+	// Get currently selected item directly from TreeView (resolves timing issue)
+	// OnContextMenuOpening may be called before OnSelectionChanged, so
+	// get directly from TreeView instead of using SelectedItem member variable
 	TArray<TSharedPtr<FFleshRingTreeItem>> SelectedItems = TreeView->GetSelectedItems();
 	TSharedPtr<FFleshRingTreeItem> CurrentItem = SelectedItems.Num() > 0 ? SelectedItems[0] : nullptr;
 
-	// 본 선택 시
+	// When bone is selected
 	if (CurrentItem.IsValid() && CurrentItem->ItemType == EFleshRingTreeItemType::Bone)
 	{
-		// SelectedItem 동기화 (CanAddRing() 등에서 사용)
+		// Sync SelectedItem (used in CanAddRing() etc.)
 		SelectedItem = CurrentItem;
 
 		MenuBuilder.BeginSection("BoneActions", LOCTEXT("BoneActionsSection", "Bone"));
@@ -733,12 +733,12 @@ TSharedPtr<SWidget> SFleshRingSkeletonTree::CreateContextMenu()
 				)
 			);
 
-			// Ring 붙여넣기 (복사된 Ring이 있을 때만)
+			// Paste Ring (only when a copied Ring exists)
 			if (CanPasteRing())
 			{
 				MenuBuilder.AddSeparator();
 
-				// 링 붙여넣기 (원본 본에)
+				// Paste ring (to original bone)
 				FMenuEntryParams PasteParams;
 				PasteParams.LabelOverride = LOCTEXT("PasteRing", "Paste Ring");
 				PasteParams.ToolTipOverride = LOCTEXT("PasteRingTooltip", "Paste ring to original bone");
@@ -749,7 +749,7 @@ TSharedPtr<SWidget> SFleshRingSkeletonTree::CreateContextMenu()
 				PasteParams.InputBindingOverride = FText::FromString(TEXT("Ctrl+V"));
 				MenuBuilder.AddMenuEntry(PasteParams);
 
-				// 선택된 본에 링 붙여넣기 (메시 본에만 가능)
+				// Paste ring to selected bone (only available for mesh bones)
 				FMenuEntryParams PasteToSelectedParams;
 				PasteToSelectedParams.LabelOverride = LOCTEXT("PasteRingToSelectedBone", "Paste Ring to Selected Bone");
 				PasteToSelectedParams.ToolTipOverride = LOCTEXT("PasteRingToSelectedBoneTooltip", "Paste ring to currently selected bone");
@@ -764,14 +764,14 @@ TSharedPtr<SWidget> SFleshRingSkeletonTree::CreateContextMenu()
 		}
 		MenuBuilder.EndSection();
 	}
-	// Ring 선택 시
+	// When Ring is selected
 	else if (CurrentItem.IsValid() && CurrentItem->ItemType == EFleshRingTreeItemType::Ring)
 	{
 		SelectedItem = CurrentItem;
 
 		MenuBuilder.BeginSection("RingActions", LOCTEXT("RingActionsSection", "Ring"));
 		{
-			// Ring 복사
+			// Copy Ring
 			FMenuEntryParams CopyParams;
 			CopyParams.LabelOverride = LOCTEXT("CopyRing", "Copy Ring");
 			CopyParams.ToolTipOverride = LOCTEXT("CopyRingTooltip", "Copy this ring");
@@ -783,7 +783,7 @@ TSharedPtr<SWidget> SFleshRingSkeletonTree::CreateContextMenu()
 			CopyParams.InputBindingOverride = FText::FromString(TEXT("Ctrl+C"));
 			MenuBuilder.AddMenuEntry(CopyParams);
 
-			// Rename Ring (아이콘 + 단축키 힌트)
+			// Rename Ring (icon + shortcut hint)
 			FMenuEntryParams RenameParams;
 			RenameParams.LabelOverride = LOCTEXT("RenameRing", "Rename Ring");
 			RenameParams.ToolTipOverride = LOCTEXT("RenameRingTooltip", "Rename this ring");
@@ -794,7 +794,7 @@ TSharedPtr<SWidget> SFleshRingSkeletonTree::CreateContextMenu()
 			RenameParams.InputBindingOverride = FText::FromString(TEXT("F2"));
 			MenuBuilder.AddMenuEntry(RenameParams);
 
-			// Ring 삭제
+			// Delete Ring
 			MenuBuilder.AddMenuEntry(
 				LOCTEXT("DeleteRing", "Delete Ring"),
 				LOCTEXT("DeleteRingTooltip", "Delete this ring"),
@@ -826,9 +826,9 @@ void SFleshRingSkeletonTree::OnSearchTextChanged(const FText& NewText)
 void SFleshRingSkeletonTree::ApplyFilter()
 {
 	FilteredRootItems.Empty();
-	RowIndexCounter = 0;  // 행 인덱스 카운터 리셋
+	RowIndexCounter = 0;  // Reset row index counter
 
-	// 재귀적으로 필터 적용
+	// Apply filter recursively
 	TFunction<bool(TSharedPtr<FFleshRingTreeItem>)> FilterItem = [&](TSharedPtr<FFleshRingTreeItem> Item) -> bool
 	{
 		if (!Item.IsValid())
@@ -840,7 +840,7 @@ void SFleshRingSkeletonTree::ApplyFilter()
 
 		if (Item->ItemType == EFleshRingTreeItemType::Bone)
 		{
-			// 본 필터 모드 확인
+			// Check bone filter mode
 			switch (BoneFilterMode)
 			{
 			case EBoneFilterMode::ShowMeshBonesOnly:
@@ -848,7 +848,7 @@ void SFleshRingSkeletonTree::ApplyFilter()
 				break;
 			case EBoneFilterMode::ShowBonesWithRingsOnly:
 				{
-					// 이 본에 Ring이 있는지 확인
+					// Check if this bone has a Ring
 					bool bHasRing = false;
 					for (const auto& Child : Item->Children)
 					{
@@ -865,7 +865,7 @@ void SFleshRingSkeletonTree::ApplyFilter()
 				break;
 			}
 
-			// 검색 텍스트 확인
+			// Check search text
 			if (bPassesFilter && !SearchText.IsEmpty())
 			{
 				bPassesFilter = Item->BoneName.ToString().Contains(SearchText);
@@ -873,7 +873,7 @@ void SFleshRingSkeletonTree::ApplyFilter()
 		}
 		else if (Item->ItemType == EFleshRingTreeItemType::Ring)
 		{
-			// Ring 검색: 표시 이름("Ring [X]") 또는 부착된 본 이름으로 검색
+			// Ring search: search by display name ("Ring [X]") or attached bone name
 			if (!SearchText.IsEmpty())
 			{
 				FString DisplayName = Item->GetDisplayName().ToString();
@@ -881,7 +881,7 @@ void SFleshRingSkeletonTree::ApplyFilter()
 			}
 		}
 
-		// 자식 중 하나라도 필터 통과하면 부모도 표시
+		// If any child passes the filter, show the parent as well
 		bool bChildPasses = false;
 		for (const auto& Child : Item->Children)
 		{
@@ -905,10 +905,10 @@ void SFleshRingSkeletonTree::ApplyFilter()
 
 	if (TreeView.IsValid())
 	{
-		// RebuildList로 행 완전 재생성 (하이라이트 업데이트)
+		// Rebuild rows completely with RebuildList (update highlight)
 		TreeView->RebuildList();
 
-		// 모든 아이템 확장
+		// Expand all items
 		TFunction<void(TSharedPtr<FFleshRingTreeItem>)> ExpandAll = [&](TSharedPtr<FFleshRingTreeItem> Item)
 		{
 			TreeView->SetItemExpansion(Item, true);
@@ -963,7 +963,7 @@ bool SFleshRingSkeletonTree::IsShowBonesWithRingsOnlyChecked() const
 
 void SFleshRingSkeletonTree::SetAsset(UFleshRingAsset* InAsset)
 {
-	// 기존 델리게이트 해제
+	// Unsubscribe from existing delegate
 	if (UFleshRingAsset* OldAsset = EditingAsset.Get())
 	{
 		OldAsset->OnAssetChanged.RemoveAll(this);
@@ -971,7 +971,7 @@ void SFleshRingSkeletonTree::SetAsset(UFleshRingAsset* InAsset)
 
 	EditingAsset = InAsset;
 
-	// 새 에셋의 델리게이트 구독 (디테일 패널에서 이름 변경 시 트리 갱신)
+	// Subscribe to new asset's delegate (refresh tree when name changes in detail panel)
 	if (InAsset)
 	{
 		InAsset->OnAssetChanged.AddSP(this, &SFleshRingSkeletonTree::OnAssetChangedHandler);
@@ -982,7 +982,7 @@ void SFleshRingSkeletonTree::SetAsset(UFleshRingAsset* InAsset)
 
 void SFleshRingSkeletonTree::OnAssetChangedHandler(UFleshRingAsset* Asset)
 {
-	// 디테일 패널에서 Ring 이름 변경 시 트리 갱신
+	// Refresh tree when Ring name is changed in detail panel
 	if (TreeView.IsValid())
 	{
 		TreeView->RebuildList();
@@ -991,14 +991,14 @@ void SFleshRingSkeletonTree::OnAssetChangedHandler(UFleshRingAsset* Asset)
 
 void SFleshRingSkeletonTree::RefreshTree()
 {
-	// 현재 확장 상태 저장
+	// Save current expansion state
 	SaveExpansionState();
 
-	// 트리 재빌드
+	// Rebuild tree
 	BuildTree();
 	ApplyFilter();
 
-	// 확장 상태 복원
+	// Restore expansion state
 	RestoreExpansionState();
 }
 
@@ -1061,7 +1061,7 @@ void SFleshRingSkeletonTree::RestoreExpansionState()
 
 void SFleshRingSkeletonTree::OnTreeExpansionChanged(TSharedPtr<FFleshRingTreeItem> Item, bool bIsExpanded)
 {
-	// 확장 상태 즉시 저장
+	// Save expansion state immediately
 	if (Item.IsValid() && Item->ItemType == EFleshRingTreeItemType::Bone)
 	{
 		if (bIsExpanded)
@@ -1083,7 +1083,7 @@ void SFleshRingSkeletonTree::SelectBone(FName BoneName)
 
 		if (TreeView.IsValid())
 		{
-			// 부모 노드들 확장
+			// Expand parent nodes
 			TSharedPtr<FFleshRingTreeItem> Current = SelectedItem;
 			while (Current.IsValid())
 			{
@@ -1123,7 +1123,7 @@ void SFleshRingSkeletonTree::SelectRingByIndex(int32 RingIndex)
 		return;
 	}
 
-	// Ring 아이템 찾기
+	// Find Ring item
 	TSharedPtr<FFleshRingTreeItem> FoundRingItem;
 	TFunction<void(TSharedPtr<FFleshRingTreeItem>)> FindRingRecursive = [&](TSharedPtr<FFleshRingTreeItem> Item)
 	{
@@ -1159,7 +1159,7 @@ void SFleshRingSkeletonTree::SelectRingByIndex(int32 RingIndex)
 
 		if (TreeView.IsValid())
 		{
-			// 부모 노드들 확장
+			// Expand parent nodes
 			TSharedPtr<FFleshRingTreeItem> Current = FoundRingItem->Parent.Pin();
 			while (Current.IsValid())
 			{
@@ -1199,17 +1199,17 @@ void SFleshRingSkeletonTree::BuildTree()
 		return;
 	}
 
-	// 웨이팅된 본 캐시 빌드
+	// Build weighted bone cache
 	BuildWeightedBoneCache(SkelMesh);
 
-	// 자손 중 웨이팅된 본이 있는지 체크하는 재귀 함수
+	// Recursive function to check if any descendant has weighted bones
 	TFunction<bool(int32)> HasWeightedDescendant = [&](int32 BoneIndex) -> bool
 	{
 		if (IsBoneWeighted(BoneIndex))
 		{
 			return true;
 		}
-		// 자손 본 체크
+		// Check descendant bones
 		for (int32 ChildIndex = 0; ChildIndex < NumBones; ++ChildIndex)
 		{
 			if (RefSkeleton.GetParentIndex(ChildIndex) == BoneIndex)
@@ -1223,7 +1223,7 @@ void SFleshRingSkeletonTree::BuildTree()
 		return false;
 	};
 
-	// 모든 본 아이템 생성
+	// Create all bone items
 	TArray<TSharedPtr<FFleshRingTreeItem>> AllBoneItems;
 	AllBoneItems.SetNum(NumBones);
 
@@ -1231,13 +1231,13 @@ void SFleshRingSkeletonTree::BuildTree()
 	{
 		FName BoneName = RefSkeleton.GetBoneName(BoneIndex);
 		TSharedPtr<FFleshRingTreeItem> BoneItem = FFleshRingTreeItem::CreateBone(BoneName, BoneIndex);
-		// 자신 또는 자손 중 웨이팅된 본이 있으면 메시 본으로 표시
+		// Mark as mesh bone if self or any descendant has weighted bones
 		BoneItem->bIsMeshBone = HasWeightedDescendant(BoneIndex);
 		AllBoneItems[BoneIndex] = BoneItem;
 		BoneItemMap.Add(BoneName, BoneItem);
 	}
 
-	// 부모-자식 관계 설정
+	// Set parent-child relationships
 	for (int32 BoneIndex = 0; BoneIndex < NumBones; ++BoneIndex)
 	{
 		int32 ParentIndex = RefSkeleton.GetParentIndex(BoneIndex);
@@ -1255,10 +1255,10 @@ void SFleshRingSkeletonTree::BuildTree()
 		}
 	}
 
-	// Ring 아이템 추가
+	// Add Ring items
 	UpdateRingItems();
 
-	// 깊이 및 마지막 자식 플래그 설정
+	// Set depth and last child flags
 	TFunction<void(TSharedPtr<FFleshRingTreeItem>, int32)> SetDepthRecursive = [&](TSharedPtr<FFleshRingTreeItem> Item, int32 CurrentDepth)
 	{
 		Item->Depth = CurrentDepth;
@@ -1284,7 +1284,7 @@ void SFleshRingSkeletonTree::UpdateRingItems()
 		return;
 	}
 
-	// 기존 Ring 아이템 제거 (모든 본에서)
+	// Remove existing Ring items (from all bones)
 	for (auto& Pair : BoneItemMap)
 	{
 		TSharedPtr<FFleshRingTreeItem> BoneItem = Pair.Value;
@@ -1294,7 +1294,7 @@ void SFleshRingSkeletonTree::UpdateRingItems()
 		});
 	}
 
-	// Ring 아이템 추가
+	// Add Ring items
 	for (int32 RingIndex = 0; RingIndex < Asset->Rings.Num(); ++RingIndex)
 	{
 		const FFleshRingSettings& Ring = Asset->Rings[RingIndex];
@@ -1304,7 +1304,7 @@ void SFleshRingSkeletonTree::UpdateRingItems()
 			TSharedPtr<FFleshRingTreeItem> RingItem = FFleshRingTreeItem::CreateRing(Ring.BoneName, RingIndex, Asset);
 			RingItem->Parent = *FoundBone;
 
-			// Ring은 본의 자식들 앞에 추가 (맨 앞)
+			// Add Ring before bone's children (at the front)
 			(*FoundBone)->Children.Insert(RingItem, 0);
 		}
 	}
@@ -1324,7 +1324,7 @@ void SFleshRingSkeletonTree::BuildWeightedBoneCache(USkeletalMesh* SkelMesh)
 		return;
 	}
 
-	// LOD 0의 렌더 데이터에서 웨이팅된 본 찾기
+	// Find weighted bones from LOD 0 render data
 	FSkeletalMeshRenderData* RenderData = SkelMesh->GetResourceForRendering();
 	if (!RenderData || RenderData->LODRenderData.Num() == 0)
 	{
@@ -1333,7 +1333,7 @@ void SFleshRingSkeletonTree::BuildWeightedBoneCache(USkeletalMesh* SkelMesh)
 
 	const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[0];
 
-	// 각 섹션의 BoneMap에 있는 본들이 웨이팅된 본들
+	// Bones in each section's BoneMap are the weighted bones
 	for (const FSkelMeshRenderSection& Section : LODData.RenderSections)
 	{
 		for (FBoneIndexType BoneIndex : Section.BoneMap)
@@ -1345,7 +1345,7 @@ void SFleshRingSkeletonTree::BuildWeightedBoneCache(USkeletalMesh* SkelMesh)
 
 TSharedRef<ITableRow> SFleshRingSkeletonTree::GenerateTreeRow(TSharedPtr<FFleshRingTreeItem> Item, const TSharedRef<STableViewBase>& OwnerTable)
 {
-	// SFleshRingTreeRow 사용 (SExpanderArrow + Wires 지원)
+	// Use SFleshRingTreeRow (supports SExpanderArrow + Wires)
 	return SNew(SFleshRingTreeRow, OwnerTable)
 		.Item(Item)
 		.HighlightText(FText::FromString(SearchText))
@@ -1376,7 +1376,7 @@ void SFleshRingSkeletonTree::OnTreeSelectionChanged(TSharedPtr<FFleshRingTreeIte
 
 	if (!Item.IsValid())
 	{
-		// 선택 해제
+		// Selection cleared
 		if (OnBoneSelected.IsBound())
 		{
 			OnBoneSelected.Execute(NAME_None);
@@ -1390,21 +1390,21 @@ void SFleshRingSkeletonTree::OnTreeSelectionChanged(TSharedPtr<FFleshRingTreeIte
 
 	if (Item->ItemType == EFleshRingTreeItemType::Ring)
 	{
-		// Ring 선택 (본 하이라이트는 OnRingSelected 내부에서 처리)
+		// Ring selected (bone highlighting is handled inside OnRingSelected)
 		if (OnRingSelected.IsBound())
 		{
 			OnRingSelected.Execute(Item->RingIndex);
 		}
-		// 본 델리게이트는 호출하지 않음 (Ring 선택 시 부착 본은 자동 하이라이트)
+		// Don't call bone delegate (attached bone is auto-highlighted when Ring is selected)
 	}
 	else
 	{
-		// 본 선택
+		// Bone selected
 		if (OnBoneSelected.IsBound())
 		{
 			OnBoneSelected.Execute(Item->BoneName);
 		}
-		// Ring 선택 해제
+		// Deselect Ring
 		if (OnRingSelected.IsBound())
 		{
 			OnRingSelected.Execute(INDEX_NONE);
@@ -1418,13 +1418,13 @@ void SFleshRingSkeletonTree::OnTreeDoubleClick(TSharedPtr<FFleshRingTreeItem> It
 	{
 		if (Item->ItemType == EFleshRingTreeItemType::Bone)
 		{
-			// 본 더블클릭: 확장/축소 토글
+			// Bone double-click: toggle expand/collapse
 			bool bIsExpanded = TreeView->IsItemExpanded(Item);
 			TreeView->SetItemExpansion(Item, !bIsExpanded);
 		}
 		else if (Item->ItemType == EFleshRingTreeItemType::Ring)
 		{
-			// Ring 더블클릭: 이름 편집 모드
+			// Ring double-click: enter name editing mode
 			TSharedPtr<ITableRow> RowWidget = TreeView->WidgetFromItem(Item);
 			if (RowWidget.IsValid())
 			{
@@ -1444,16 +1444,16 @@ void SFleshRingSkeletonTree::HandleRingRenamed(int32 RingIndex, FName NewName)
 	{
 		if (Asset->Rings.IsValidIndex(RingIndex))
 		{
-			// Row에서 이미 검증했으므로 바로 적용
+			// Apply directly since already validated in Row
 			FScopedTransaction Transaction(LOCTEXT("RenameRingFromTree", "Rename Ring"));
 			Asset->Modify();
 			Asset->Rings[RingIndex].RingName = NewName;
 			Asset->PostEditChange();
 
-			// 디테일 패널 등 다른 UI 갱신
+			// Update other UI like detail panel
 			Asset->OnAssetChanged.Broadcast(Asset);
 
-			// 트리 갱신 (RebuildList로 행 재생성하여 이름 업데이트)
+			// Refresh tree (rebuild rows with RebuildList to update names)
 			if (TreeView.IsValid())
 			{
 				TreeView->RebuildList();
@@ -1481,7 +1481,7 @@ TSharedPtr<FFleshRingTreeItem> SFleshRingSkeletonTree::FindItem(FName BoneName, 
 	return nullptr;
 }
 
-// === 컨텍스트 메뉴 액션 ===
+// === Context Menu Actions ===
 
 void SFleshRingSkeletonTree::OnContextMenuAddRing()
 {
@@ -1490,23 +1490,23 @@ void SFleshRingSkeletonTree::OnContextMenuAddRing()
 		return;
 	}
 
-	// 선택된 본 이름 저장 (람다에서 사용)
+	// Save selected bone name (used in lambda)
 	FName BoneNameToAdd = SelectedItem->BoneName;
 
-	// 에셋 피커 설정
+	// Asset picker configuration
 	FAssetPickerConfig AssetPickerConfig;
 	AssetPickerConfig.Filter.ClassPaths.Add(UStaticMesh::StaticClass()->GetClassPathName());
 	AssetPickerConfig.Filter.bRecursiveClasses = true;
 	AssetPickerConfig.SelectionMode = ESelectionMode::Single;
-	AssetPickerConfig.bAllowNullSelection = false;  // 버튼으로 처리하므로 비활성화
+	AssetPickerConfig.bAllowNullSelection = false;  // Disabled since we handle this with button
 	AssetPickerConfig.bFocusSearchBoxWhenOpened = true;
 	AssetPickerConfig.InitialAssetViewType = EAssetViewType::List;
 
-	// 메쉬 선택 시 콜백
+	// Callback when mesh is selected
 	AssetPickerConfig.OnAssetSelected = FOnAssetSelected::CreateLambda(
 		[this, BoneNameToAdd](const FAssetData& AssetData)
 		{
-			// 팝업 닫기
+			// Close popup
 			FSlateApplication::Get().DismissAllMenus();
 
 			UStaticMesh* SelectedMesh = nullptr;
@@ -1515,18 +1515,18 @@ void SFleshRingSkeletonTree::OnContextMenuAddRing()
 				SelectedMesh = Cast<UStaticMesh>(AssetData.GetAsset());
 			}
 
-			// Ring 추가 요청
+			// Request Ring addition
 			OnAddRingRequested.ExecuteIfBound(BoneNameToAdd, SelectedMesh);
 		}
 	);
 
-	// 에셋 피커 팝업 표시
+	// Show asset picker popup
 	FContentBrowserModule& ContentBrowserModule =
 		FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
 
 	TSharedRef<SWidget> AssetPickerWidget = ContentBrowserModule.Get().CreateAssetPicker(AssetPickerConfig);
 
-	// 하단 버튼 바 포함 팝업 (다이얼로그 스타일)
+	// Popup with bottom button bar (dialog style)
 	FSlateApplication::Get().PushMenu(
 		AsShared(),
 		FWidgetPath(),
@@ -1535,20 +1535,20 @@ void SFleshRingSkeletonTree::OnContextMenuAddRing()
 			.HeightOverride(500.0f)
 			[
 				SNew(SVerticalBox)
-				// 에셋 피커 (상단)
+				// Asset picker (top)
 				+ SVerticalBox::Slot()
 				.FillHeight(1.0f)
 				[
 					AssetPickerWidget
 				]
-				// 구분선
+				// Separator
 				+ SVerticalBox::Slot()
 				.AutoHeight()
 				.Padding(0.0f, 4.0f)
 				[
 					SNew(SSeparator)
 				]
-				// 버튼 바 (하단)
+				// Button bar (bottom)
 				+ SVerticalBox::Slot()
 				.AutoHeight()
 				.Padding(8.0f, 4.0f, 8.0f, 8.0f)
@@ -1556,7 +1556,7 @@ void SFleshRingSkeletonTree::OnContextMenuAddRing()
 					SNew(SHorizontalBox)
 					+ SHorizontalBox::Slot()
 					.FillWidth(1.0f)
-					// 왼쪽 여백
+					// Left margin
 					+ SHorizontalBox::Slot()
 					.AutoWidth()
 					.Padding(0.0f, 0.0f, 4.0f, 0.0f)
@@ -1591,7 +1591,7 @@ void SFleshRingSkeletonTree::OnContextMenuAddRing()
 
 bool SFleshRingSkeletonTree::CanAddRing() const
 {
-	// 메시 본에만 Ring 추가 가능 (IK/가상 본 제외)
+	// Can only add Ring to mesh bones (excludes IK/virtual bones)
 	return SelectedItem.IsValid()
 		&& SelectedItem->ItemType == EFleshRingTreeItemType::Bone
 		&& SelectedItem->bIsMeshBone;
@@ -1613,22 +1613,22 @@ void SFleshRingSkeletonTree::OnContextMenuDeleteRing()
 	int32 RingIndex = SelectedItem->RingIndex;
 	if (Asset->Rings.IsValidIndex(RingIndex))
 	{
-		// Undo/Redo 지원
-		// 트랜잭션 범위를 제한하여 RefreshPreview()가 트랜잭션 밖에서 호출되도록 함
-		// (트랜잭션 중 PreviewSubdividedMesh 생성 시 Undo 크래시 방지)
+		// Undo/Redo support
+		// Limit transaction scope so RefreshPreview() is called outside the transaction
+		// (Prevents Undo crash when creating PreviewSubdividedMesh during transaction)
 		{
 			FScopedTransaction Transaction(FText::FromString(TEXT("Delete Ring")));
 			Asset->Modify();
 
 			Asset->Rings.RemoveAt(RingIndex);
 
-			// 선택 해제 (Undo 시 정상 복원됨)
+			// Selection cleared (properly restored on Undo)
 			Asset->EditorSelectedRingIndex = -1;
 			Asset->EditorSelectionType = EFleshRingSelectionType::None;
 		}
 
-		// 델리게이트 호출 (HandleRingDeleted에서 RefreshPreview + RefreshTree 처리)
-		// 트랜잭션 종료 후 호출하여 메시 생성이 Undo 히스토리에 포함되지 않도록 함
+		// Call delegate (HandleRingDeleted handles RefreshPreview + RefreshTree)
+		// Called after transaction ends so mesh generation is not included in Undo history
 		OnRingDeleted.ExecuteIfBound();
 	}
 }
@@ -1706,13 +1706,13 @@ void SFleshRingSkeletonTree::OnContextMenuPasteRingToSelectedBone()
 
 bool SFleshRingSkeletonTree::CanPasteRing() const
 {
-	// 복사된 Ring이 없으면 불가
+	// Cannot paste if no Ring has been copied
 	if (!CopiedRingSettings.IsSet())
 	{
 		return false;
 	}
 
-	// Ring이 선택되어 있으면 붙여넣기 불가 (소켓과 동일한 동작)
+	// Cannot paste if Ring is selected (same behavior as sockets)
 	if (SelectedItem.IsValid() && SelectedItem->ItemType == EFleshRingTreeItemType::Ring)
 	{
 		return false;
@@ -1723,8 +1723,8 @@ bool SFleshRingSkeletonTree::CanPasteRing() const
 
 bool SFleshRingSkeletonTree::CanPasteRingToSelectedBone() const
 {
-	// 기본 붙여넣기 조건 + 선택된 본이 메시 본인지 확인
-	// IK/가상 본에는 Ring 추가 불가 (CanAddRing과 동일 조건)
+	// Basic paste conditions + check if selected bone is a mesh bone
+	// Cannot add Ring to IK/virtual bones (same conditions as CanAddRing)
 	return CanPasteRing()
 		&& SelectedItem.IsValid()
 		&& SelectedItem->ItemType == EFleshRingTreeItemType::Bone
@@ -1739,7 +1739,7 @@ void SFleshRingSkeletonTree::PasteRingToBone(FName TargetBoneName)
 		return;
 	}
 
-	// 현재 선택 상태 저장 (소켓과 동일하게 선택 유지)
+	// Save current selection state (maintain selection like sockets)
 	FName SelectedBoneName = SelectedItem.IsValid() ? SelectedItem->BoneName : NAME_None;
 
 	FScopedTransaction Transaction(LOCTEXT("PasteRing", "Paste Ring"));
@@ -1747,18 +1747,18 @@ void SFleshRingSkeletonTree::PasteRingToBone(FName TargetBoneName)
 
 	FFleshRingSettings NewRing = CopiedRingSettings.GetValue();
 	NewRing.BoneName = TargetBoneName;
-	// 기존 Asset의 MakeUniqueRingName 사용
+	// Use Asset's existing MakeUniqueRingName
 	NewRing.RingName = Asset->MakeUniqueRingName(CopiedRingSettings->RingName);
 
 	Asset->Rings.Add(NewRing);
 
-	// 에셋 변경 알림 (선택은 변경하지 않음 - 소켓과 동일한 동작)
+	// Notify asset change (don't change selection - same behavior as sockets)
 	Asset->OnAssetChanged.Broadcast(Asset);
 
-	// 트리 갱신
+	// Refresh tree
 	RefreshTree();
 
-	// 선택 상태 복원
+	// Restore selection state
 	if (!SelectedBoneName.IsNone())
 	{
 		SelectBone(SelectedBoneName);
@@ -1767,7 +1767,7 @@ void SFleshRingSkeletonTree::PasteRingToBone(FName TargetBoneName)
 
 FReply SFleshRingSkeletonTree::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent)
 {
-	// Ctrl+C: Ring 복사
+	// Ctrl+C: Copy Ring
 	if (InKeyEvent.IsControlDown() && InKeyEvent.GetKey() == EKeys::C)
 	{
 		if (CanCopyRing())
@@ -1777,7 +1777,7 @@ FReply SFleshRingSkeletonTree::OnKeyDown(const FGeometry& MyGeometry, const FKey
 		}
 	}
 
-	// Ctrl+Shift+V: 선택한 본에 붙여넣기 (Ctrl+V보다 먼저 체크, 메시 본에만 가능)
+	// Ctrl+Shift+V: Paste to selected bone (check before Ctrl+V, only available for mesh bones)
 	if (InKeyEvent.IsControlDown() && InKeyEvent.IsShiftDown() && InKeyEvent.GetKey() == EKeys::V)
 	{
 		if (CanPasteRingToSelectedBone())
@@ -1787,7 +1787,7 @@ FReply SFleshRingSkeletonTree::OnKeyDown(const FGeometry& MyGeometry, const FKey
 		}
 	}
 
-	// Ctrl+V: 원본 본에 붙여넣기
+	// Ctrl+V: Paste to original bone
 	if (InKeyEvent.IsControlDown() && !InKeyEvent.IsShiftDown() && InKeyEvent.GetKey() == EKeys::V)
 	{
 		if (CanPasteRing())
@@ -1797,7 +1797,7 @@ FReply SFleshRingSkeletonTree::OnKeyDown(const FGeometry& MyGeometry, const FKey
 		}
 	}
 
-	// F2 키: Ring 이름 변경
+	// F2 key: Rename Ring
 	if (InKeyEvent.GetKey() == EKeys::F2)
 	{
 		if (SelectedItem.IsValid() && SelectedItem->ItemType == EFleshRingTreeItemType::Ring)
@@ -1807,14 +1807,14 @@ FReply SFleshRingSkeletonTree::OnKeyDown(const FGeometry& MyGeometry, const FKey
 		}
 	}
 
-	// F 키: 카메라 포커스
+	// F key: Focus camera
 	if (InKeyEvent.GetKey() == EKeys::F)
 	{
 		OnFocusCameraRequested.ExecuteIfBound();
 		return FReply::Handled();
 	}
 
-	// Delete 키: 선택된 Ring 삭제
+	// Delete key: Delete selected Ring
 	if (InKeyEvent.GetKey() == EKeys::Delete)
 	{
 		if (CanDeleteRing())
@@ -1835,19 +1835,19 @@ void SFleshRingSkeletonTree::MoveRingToBone(int32 RingIndex, FName NewBoneName, 
 		return;
 	}
 
-	// 같은 본이면 무시 (복제가 아닌 이동의 경우)
+	// Ignore if same bone (for move, not duplicate)
 	if (Asset->Rings[RingIndex].BoneName == NewBoneName)
 	{
 		return;
 	}
 
-	// Undo/Redo 지원
+	// Undo/Redo support
 	FScopedTransaction Transaction(LOCTEXT("MoveRingToBone", "Move Ring to Bone"));
 	Asset->Modify();
 
 	FFleshRingSettings& Ring = Asset->Rings[RingIndex];
 
-	// Shift+드래그: 월드(바인드 포즈) 위치 유지
+	// Shift+drag: Preserve world (bind pose) position
 	USkeletalMesh* SkelMesh = Asset->TargetSkeletalMesh.LoadSynchronous();
 	if (bPreserveWorldPosition && SkelMesh)
 	{
@@ -1857,7 +1857,7 @@ void SFleshRingSkeletonTree::MoveRingToBone(int32 RingIndex, FName NewBoneName, 
 
 		if (OldBoneIndex != INDEX_NONE && NewBoneIndex != INDEX_NONE)
 		{
-			// 바인드 포즈 기준 본 트랜스폼 계산 (기존 코드 패턴 사용)
+			// Calculate bone transform based on bind pose (using existing code pattern)
 			auto GetBindPoseTransform = [&RefSkeleton](int32 BoneIndex) -> FTransform
 			{
 				FTransform BindPoseBoneTransform = FTransform::Identity;
@@ -1873,26 +1873,26 @@ void SFleshRingSkeletonTree::MoveRingToBone(int32 RingIndex, FName NewBoneName, 
 			FTransform OldBoneAbsolute = GetBindPoseTransform(OldBoneIndex);
 			FTransform NewBoneAbsolute = GetBindPoseTransform(NewBoneIndex);
 
-			// MeshOffset 변환: OldWorld → NewLocal
+			// Transform MeshOffset: OldWorld -> NewLocal
 			FVector OldWorldOffset = OldBoneAbsolute.TransformPosition(Ring.MeshOffset);
 			Ring.MeshOffset = NewBoneAbsolute.InverseTransformPosition(OldWorldOffset);
 
-			// MeshRotation 변환: OldWorld → NewLocal
+			// Transform MeshRotation: OldWorld -> NewLocal
 			FQuat OldWorldRotation = OldBoneAbsolute.GetRotation() * Ring.MeshRotation;
 			Ring.MeshRotation = NewBoneAbsolute.GetRotation().Inverse() * OldWorldRotation;
 		}
 	}
 
-	// BoneName 변경
+	// Change BoneName
 	Ring.BoneName = NewBoneName;
 
-	// 에셋 변경 알림
+	// Notify asset change
 	Asset->OnAssetChanged.Broadcast(Asset);
 
-	// 트리 갱신
+	// Refresh tree
 	RefreshTree();
 
-	// 이동한 Ring 선택
+	// Select moved Ring
 	SelectRingByIndex(RingIndex);
 }
 
@@ -1907,23 +1907,23 @@ void SFleshRingSkeletonTree::DuplicateRingToBone(int32 SourceRingIndex, FName Ta
 	FScopedTransaction Transaction(LOCTEXT("DuplicateRing", "Duplicate Ring"));
 	Asset->Modify();
 
-	// Ring 복제
+	// Duplicate Ring
 	FFleshRingSettings NewRing = Asset->Rings[SourceRingIndex];
 	NewRing.BoneName = TargetBoneName;
 
-	// 기존 UFleshRingAsset::MakeUniqueRingName() 사용 (언리얼 소켓과 동일한 FName 넘버링)
+	// Use existing UFleshRingAsset::MakeUniqueRingName() (same FName numbering as Unreal sockets)
 	NewRing.RingName = Asset->MakeUniqueRingName(NewRing.RingName);
 
-	// 배열에 추가
+	// Add to array
 	int32 NewIndex = Asset->Rings.Add(NewRing);
 
-	// 에셋 변경 알림
+	// Notify asset change
 	Asset->OnAssetChanged.Broadcast(Asset);
 
-	// 트리 갱신
+	// Refresh tree
 	RefreshTree();
 
-	// 복제된 Ring 선택
+	// Select duplicated Ring
 	SelectRingByIndex(NewIndex);
 }
 

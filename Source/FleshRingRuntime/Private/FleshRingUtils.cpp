@@ -11,19 +11,19 @@ namespace FleshRingUtils
 {
 	bool IsSkeletalMeshValid(USkeletalMesh* Mesh, bool bLogWarnings)
 	{
-		// nullptr 또는 pending kill/GC된 객체 체크
+		// Check for nullptr or pending kill/GC'd object
 		if (!Mesh || !IsValid(Mesh))
 		{
 			return false;
 		}
 
-		// 파괴 진행 중인 객체 체크 (corrupt 상태 방지)
+		// Check for object being destroyed (prevent corrupt state)
 		if (Mesh->HasAnyFlags(RF_BeginDestroyed | RF_FinishDestroyed))
 		{
 			return false;
 		}
 
-		// 렌더 리소스 체크 (GetSkeleton() 먼저 호출하여 기본 접근 검증)
+		// Check render resource (call GetSkeleton() first to verify basic access)
 		if (!Mesh->GetSkeleton())
 		{
 			if (bLogWarnings)
@@ -45,7 +45,7 @@ namespace FleshRingUtils
 			return false;
 		}
 
-		// LOD 데이터 존재 체크
+		// Check LOD data exists
 		if (RenderData->LODRenderData.Num() == 0)
 		{
 			if (bLogWarnings)
@@ -56,7 +56,7 @@ namespace FleshRingUtils
 			return false;
 		}
 
-		// LOD 0의 버텍스 버퍼 체크 (Null resource in uniform buffer 크래시 방지)
+		// Check vertex buffer of LOD 0 (prevent "Null resource in uniform buffer" crash)
 		const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[0];
 		if (LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices() == 0)
 		{
@@ -68,7 +68,7 @@ namespace FleshRingUtils
 			return false;
 		}
 
-		// 스켈레톤 체크
+		// Check skeleton
 		const FReferenceSkeleton& RefSkel = Mesh->GetRefSkeleton();
 		const int32 NumBones = RefSkel.GetNum();
 
@@ -82,11 +82,11 @@ namespace FleshRingUtils
 			return false;
 		}
 
-		// 부모 인덱스 유효성 체크 (EnsureParentsExist 크래시 방지)
+		// Check parent index validity (prevent EnsureParentsExist crash)
 		for (int32 i = 0; i < NumBones; ++i)
 		{
 			const int32 ParentIndex = RefSkel.GetParentIndex(i);
-			// 루트 본은 INDEX_NONE(-1), 나머지는 0 ~ i-1 범위여야 함
+			// Root bone is INDEX_NONE(-1), others must be in range 0 ~ i-1
 			if (ParentIndex != INDEX_NONE && (ParentIndex < 0 || ParentIndex >= i))
 			{
 				if (bLogWarnings)

@@ -8,7 +8,7 @@
 #include "FleshRingAsset.h"
 #include "FleshRingComponent.h"
 #include "Engine/SkeletalMesh.h"
-#include "RenderingThread.h"  // FlushRenderingCommands용
+#include "RenderingThread.h"  // For FlushRenderingCommands
 #include "Slate/SceneViewport.h"
 #include "EditorModeRegistry.h"
 #include "BufferVisualizationMenuCommands.h"
@@ -22,34 +22,34 @@ void SFleshRingEditorViewport::Construct(const FArguments& InArgs)
 {
 	EditingAsset = InArgs._Asset;
 
-	// EdMode를 글로벌 레지스트리에 등록 (아직 안 되어 있으면)
+	// Register EdMode to global registry (if not already registered)
 	if (!FEditorModeRegistry::Get().GetFactoryMap().Contains(FFleshRingEdMode::EM_FleshRingEdModeId))
 	{
 		FEditorModeRegistry::Get().RegisterMode<FFleshRingEdMode>(FFleshRingEdMode::EM_FleshRingEdModeId);
 	}
 
-	// ModeTools 생성 및 EdMode 활성화
+	// Create ModeTools and activate EdMode
 	ModeTools = MakeShared<FEditorModeTools>();
 	ModeTools->SetDefaultMode(FFleshRingEdMode::EM_FleshRingEdModeId);
 	ModeTools->ActivateDefaultMode();
 
-	// EdMode 캐싱 (static 인스턴스 사용)
+	// Cache EdMode (using static instance)
 	FleshRingEdMode = FFleshRingEdMode::CurrentInstance;
 
-	// 기본 위젯 모드 설정
+	// Set default widget mode
 	ModeTools->SetWidgetMode(UE::Widget::WM_Translate);
 
-	// 프리뷰 씬 생성
+	// Create preview scene
 	FAdvancedPreviewScene::ConstructionValues CVS;
 	CVS.bCreatePhysicsScene = false;
 	CVS.LightBrightness = 3.0f;
 	CVS.SkyBrightness = 1.0f;
 	PreviewScene = MakeShared<FFleshRingPreviewScene>(CVS);
 
-	// 부모 클래스 구성
+	// Construct parent class
 	SEditorViewport::Construct(SEditorViewport::FArguments());
 
-	// Asset 설정
+	// Set Asset
 	if (EditingAsset.IsValid())
 	{
 		SetAsset(EditingAsset.Get());
@@ -63,7 +63,7 @@ SFleshRingEditorViewport::~SFleshRingEditorViewport()
 		ViewportClient->Viewport = nullptr;
 	}
 
-	// ModeTools 정리
+	// Clean up ModeTools
 	if (ModeTools.IsValid())
 	{
 		ModeTools->DeactivateAllModes();
@@ -85,7 +85,7 @@ void SFleshRingEditorViewport::RefreshPreview()
 {
 	if (PreviewScene.IsValid() && EditingAsset.IsValid())
 	{
-		// Asset 전체 갱신 (메시 + 컴포넌트 + Ring 시각화)
+		// Full Asset refresh (mesh + component + Ring visualization)
 		PreviewScene->SetFleshRingAsset(EditingAsset.Get());
 	}
 
@@ -99,8 +99,8 @@ void SFleshRingEditorViewport::UpdateRingTransformsOnly(int32 DirtyRingIndex)
 {
 	if (PreviewScene.IsValid())
 	{
-		// FleshRingComponent의 트랜스폼만 업데이트 (Deformer 유지, 깜빡임 방지)
-		// DirtyRingIndex를 전달하여 해당 Ring만 처리
+		// Update only FleshRingComponent transforms (keep Deformer, prevent flickering)
+		// Pass DirtyRingIndex to process only that Ring
 		UFleshRingComponent* FleshRingComp = PreviewScene->GetFleshRingComponent();
 		if (FleshRingComp)
 		{
@@ -121,11 +121,11 @@ void SFleshRingEditorViewport::RefreshSDFOnly()
 		UFleshRingComponent* FleshRingComp = PreviewScene->GetFleshRingComponent();
 		if (FleshRingComp)
 		{
-			// 1. SDF 재생성 (VirtualBand 파라미터 기반)
+			// 1. Regenerate SDF (based on VirtualBand parameters)
 			FleshRingComp->RefreshSDF();
-			FlushRenderingCommands();  // GPU 작업 완료 대기
+			FlushRenderingCommands();  // Wait for GPU work to complete
 
-			// 2. 트랜스폼 업데이트 + 캐시 무효화 (변형 재계산 트리거)
+			// 2. Update transforms + invalidate cache (trigger deformation recalculation)
 			FleshRingComp->UpdateRingTransforms();
 		}
 	}
@@ -145,7 +145,7 @@ TSharedPtr<FExtender> SFleshRingEditorViewport::GetExtenders() const
 {
 	TSharedPtr<FExtender> Extender = MakeShared<FExtender>();
 
-	// 뷰 모드 메뉴에 버퍼 시각화 서브메뉴 추가
+	// Add buffer visualization submenu to view mode menu
 	TWeakPtr<const SFleshRingEditorViewport> WeakViewport = SharedThis(this);
 	Extender->AddMenuExtension(
 		TEXT("ViewMode"),
@@ -189,7 +189,7 @@ TSharedPtr<FExtender> SFleshRingEditorViewport::GetExtenders() const
 
 void SFleshRingEditorViewport::OnFloatingButtonClicked()
 {
-	// 필요시 플로팅 버튼 클릭 처리
+	// Handle floating button click if needed
 }
 
 TSharedRef<FEditorViewportClient> SFleshRingEditorViewport::MakeEditorViewportClient()
@@ -199,7 +199,7 @@ TSharedRef<FEditorViewportClient> SFleshRingEditorViewport::MakeEditorViewportCl
 		PreviewScene.Get(),
 		SharedThis(this));
 
-	// EdMode에 ViewportClient 연결
+	// Connect ViewportClient to EdMode
 	if (FleshRingEdMode)
 	{
 		FleshRingEdMode->SetViewportClient(ViewportClient.Get());
@@ -223,7 +223,7 @@ void SFleshRingEditorViewport::OnFocusViewportToSelection()
 
 void SFleshRingEditorViewport::PopulateViewportOverlays(TSharedRef<SOverlay> Overlay)
 {
-	// 기본 오버레이 구성
+	// Construct default overlay
 	SEditorViewport::PopulateViewportOverlays(Overlay);
 }
 
@@ -234,10 +234,10 @@ TSharedRef<SWidget> SFleshRingEditorViewport::MakeToolbar()
 
 void SFleshRingEditorViewport::BindCommands()
 {
-	// 부모 클래스 커맨드 바인딩 (뷰 모드, 카메라 등)
+	// Parent class command binding (view mode, camera, etc.)
 	SEditorViewport::BindCommands();
 
-	// 버퍼 시각화 커맨드 바인딩
+	// Buffer visualization command binding
 	FBufferVisualizationMenuCommands::Get().BindCommands(*CommandList, Client);
 }
 

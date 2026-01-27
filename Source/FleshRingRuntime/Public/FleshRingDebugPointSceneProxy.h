@@ -11,17 +11,17 @@
 class UFleshRingDebugPointComponent;
 
 /**
- * FFleshRingDebugPointSceneProxy - GPU 디버그 포인트 렌더링용 Scene Proxy
+ * FFleshRingDebugPointSceneProxy - Scene Proxy for GPU debug point rendering
  *
- * GPU 버퍼의 디버그 포인트를 Scene 렌더링 단계에서 그려서
- * 에디터 기즈모(PDI)보다 먼저 렌더링되도록 합니다.
+ * Draws debug points from GPU buffers during Scene rendering stage,
+ * rendering before editor gizmos (PDI).
  *
- * 렌더링 방식:
- * - IRendererModule::RegisterPostOpaqueRenderDelegate 사용
- * - Opaque 렌더링 이후, Translucency 이전에 커스텀 렌더링
- * - 에디터 기즈모(PDI)보다 먼저 그려짐
+ * Rendering method:
+ * - Uses IRendererModule::RegisterPostOpaqueRenderDelegate
+ * - Custom rendering after Opaque, before Translucency
+ * - Drawn before editor gizmos (PDI)
  *
- * 렌더링 순서: Scene Geometry < Debug Points < Editor Gizmos
+ * Rendering order: Scene Geometry < Debug Points < Editor Gizmos
  */
 class FLESHRINGRUNTIME_API FFleshRingDebugPointSceneProxy : public FPrimitiveSceneProxy
 {
@@ -36,20 +36,20 @@ public:
 	virtual SIZE_T GetTypeHash() const override;
 	virtual uint32 GetMemoryFootprint() const override { return sizeof(*this) + GetAllocatedSize(); }
 
-	/** 이 프록시가 렌더링되어야 하는지 여부 */
+	/** Whether this proxy should be rendered */
 	virtual FPrimitiveViewRelevance GetViewRelevance(const FSceneView* View) const override;
 
-	/** 동적 메시 엘리먼트 수집 - 빈 구현 (커스텀 렌더 델리게이트 사용) */
+	/** Collect dynamic mesh elements - empty implementation (uses custom render delegate) */
 	virtual void GetDynamicMeshElements(
 		const TArray<const FSceneView*>& Views,
 		const FSceneViewFamily& ViewFamily,
 		uint32 VisibilityMap,
 		FMeshElementCollector& Collector) const override;
 
-	/** Scene에 등록될 때 호출 */
+	/** Called when registered to Scene */
 	virtual void CreateRenderThreadResources(FRHICommandListBase& RHICmdList) override;
 
-	/** Scene에서 제거될 때 호출 */
+	/** Called when removed from Scene */
 	virtual void DestroyRenderThreadResources() override;
 
 	// ========================================
@@ -57,58 +57,58 @@ public:
 	// ========================================
 
 	/**
-	 * Tightness 버퍼 업데이트 (렌더 스레드에서 호출)
-	 * @param InBuffer - 풀링된 RDG 버퍼 참조
-	 * @param InVisibilityMaskArray - 가시 Ring 비트마스크 배열 (무제한 Ring 지원)
+	 * Update Tightness buffer (called from render thread)
+	 * @param InBuffer - Pooled RDG buffer reference
+	 * @param InVisibilityMaskArray - Visible Ring bitmask array (unlimited Ring support)
 	 */
 	void UpdateTightnessBuffer_RenderThread(
 		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBuffer,
 		const TArray<uint32>& InVisibilityMaskArray);
 
 	/**
-	 * Bulge 버퍼 업데이트 (렌더 스레드에서 호출)
-	 * @param InBuffer - 풀링된 RDG 버퍼 참조
-	 * @param InVisibilityMaskArray - 가시 Ring 비트마스크 배열 (무제한 Ring 지원)
+	 * Update Bulge buffer (called from render thread)
+	 * @param InBuffer - Pooled RDG buffer reference
+	 * @param InVisibilityMaskArray - Visible Ring bitmask array (unlimited Ring support)
 	 */
 	void UpdateBulgeBuffer_RenderThread(
 		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBuffer,
 		const TArray<uint32>& InVisibilityMaskArray);
 
-	/** Tightness 버퍼 클리어 */
+	/** Clear Tightness buffer */
 	void ClearTightnessBuffer_RenderThread();
 
-	/** Bulge 버퍼 클리어 */
+	/** Clear Bulge buffer */
 	void ClearBulgeBuffer_RenderThread();
 
-	/** 모든 버퍼 클리어 */
+	/** Clear all buffers */
 	void ClearBuffer_RenderThread();
 
 	// ========================================
 	// Rendering Parameters
 	// ========================================
 
-	/** 기본 포인트 크기 (픽셀) */
+	/** Base point size (pixels) */
 	float PointSizeBase = 8.0f;
 
-	/** Influence 기반 추가 포인트 크기 */
+	/** Additional point size based on Influence */
 	float PointSizeInfluence = 4.0f;
 
 private:
-	/** Tightness GPU 디버그 포인트 버퍼 */
+	/** Tightness GPU debug point buffer */
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> TightnessBufferShared;
 
-	/** Bulge GPU 디버그 포인트 버퍼 */
+	/** Bulge GPU debug point buffer */
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> BulgeBufferShared;
 
-	/** 가시 Ring 비트마스크 배열 (무제한 Ring 지원) */
+	/** Visible Ring bitmask array (unlimited Ring support) */
 	TArray<uint32> VisibilityMaskArray;
 
-	/** 버퍼 접근 동기화 */
+	/** Buffer access synchronization */
 	mutable FCriticalSection BufferLock;
 
-	/** Post-Opaque 렌더 델리게이트 핸들 */
+	/** Post-Opaque render delegate handle */
 	FDelegateHandle PostOpaqueRenderDelegateHandle;
 
-	/** Post-Opaque 렌더링 콜백 */
+	/** Post-Opaque rendering callback */
 	void RenderPostOpaque_RenderThread(FPostOpaqueRenderParameters& Parameters);
 };

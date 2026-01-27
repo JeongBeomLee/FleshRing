@@ -43,8 +43,8 @@ RWBuffer<float> OutputPositions;
 StructuredBuffer<uint> AffectedIndices;
 
 // UV Seam Welding: Representative vertex indices
-// UV seam의 모든 duplicate vertex는 같은 representative를 공유
-// 이를 통해 같은 위치의 모든 vertex가 동일하게 움직임
+// All duplicate vertices at UV seam share the same representative
+// This ensures all vertices at the same position move identically
 StructuredBuffer<uint> RepresentativeIndices;
 
 // Input: Per-vertex influence weights (0-1)
@@ -199,15 +199,15 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     }
 
     // =========================================================================
-    // UV Seam Welding: 대표 버텍스 기반 읽기/쓰기 분리
+    // UV Seam Welding: Separate read/write based on representative vertex
     // =========================================================================
-    // WriteIndex: 실제로 출력할 버텍스 인덱스 (AffectedIndices에서)
-    // ReadIndex: 위치를 읽어올 대표 버텍스 인덱스 (RepresentativeIndices에서)
+    // WriteIndex: vertex index to actually output (from AffectedIndices)
+    // ReadIndex: representative vertex index to read position from (from RepresentativeIndices)
     //
-    // 같은 Position의 모든 UV duplicate들은:
-    //   - 같은 ReadIndex를 공유 (같은 위치에서 읽음)
-    //   - 각자의 WriteIndex에 출력 (자기 버텍스에 씀)
-    // => 결과적으로 모든 duplicate가 동일한 위치로 이동 -> UV seam crack 방지
+    // All UV duplicates at same Position:
+    //   - Share same ReadIndex (read from same position)
+    //   - Output to their own WriteIndex (write to their own vertex)
+    // => As a result, all duplicates move to identical position -> prevents UV seam crack
     uint WriteIndex = AffectedIndices[ThreadIndex];
     uint ReadIndex = RepresentativeIndices[ThreadIndex];
 
@@ -220,14 +220,14 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     // Read current position from REPRESENTATIVE vertex
     float3 CurrentPos = ReadPosition(InputPositions, ReadIndex);
 
-    // ===== 레이어별 스무딩 제외 =====
-    // 스타킹 레이어 제외 옵션이 켜져 있으면 스타킹은 스무딩하지 않음
+    // ===== Per-layer smoothing exclusion =====
+    // If stocking layer exclusion option is enabled, do not smooth stocking
     if (bExcludeStockingFromSmoothing != 0)
     {
         uint LayerType = VertexLayerTypes[ReadIndex];
         if (LayerType == LAYER_STOCKING)
         {
-            // 스타킹: 원래 위치 그대로 출력
+            // Stocking: output original position as-is
             WritePosition(WriteIndex, CurrentPos);
             return;
         }

@@ -10,15 +10,15 @@
 class UFleshRingComponent;
 struct FSkeletalMaterial;
 
-/** 에셋 변경 시 브로드캐스트되는 델리게이트 (구조적 변경 시 전체 리프레시) */
+/** Delegate broadcast when asset changes (full refresh on structural changes) */
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnFleshRingAssetChanged, UFleshRingAsset*);
 
-/** Ring 선택 변경 시 브로드캐스트되는 델리게이트 (디테일 패널 → 뷰포트/트리 동기화) */
+/** Delegate broadcast when Ring selection changes (Detail Panel -> Viewport/Tree sync) */
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnRingSelectionChanged, int32 /*RingIndex*/);
 
 /**
- * FleshRing 설정을 저장하는 에셋
- * Content Browser에서 생성하여 여러 캐릭터에 재사용 가능
+ * Asset storing FleshRing settings
+ * Create in Content Browser and reuse across multiple characters
  */
 UCLASS(BlueprintType)
 class FLESHRINGRUNTIME_API UFleshRingAsset : public UObject
@@ -32,7 +32,7 @@ public:
 	// Target Mesh
 	// =====================================
 
-	/** 이 에셋이 타겟으로 하는 스켈레탈 메시 */
+	/** Target skeletal mesh for this asset */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target")
 	TSoftObjectPtr<USkeletalMesh> TargetSkeletalMesh;
 
@@ -40,7 +40,7 @@ public:
 	// Subdivision Settings (Skeletal Mesh Detail)
 	// =====================================
 
-	/** Subdivision 설정 (에디터 프리뷰 + 런타임) */
+	/** Subdivision settings (editor preview + runtime) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skeletal Mesh Detail Settings", meta = (DisplayName = "Skeletal Mesh Detail Settings"))
 	FSubdivisionSettings SubdivisionSettings;
 
@@ -48,26 +48,26 @@ public:
 	// Ring Settings
 	// =====================================
 
-	/** Ring 설정 배열 */
+	/** Ring settings array */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring Settings")
 	TArray<FFleshRingSettings> Rings;
 
 	// =====================================
-	// Material Layer Settings (침투 해결용)
+	// Material Layer Settings (for penetration resolution)
 	// =====================================
 
 	/**
-	 * 머티리얼-레이어 매핑 배열
-	 * TargetSkeletalMesh 설정 시 자동으로 채워짐
-	 * 각 슬롯의 Layer Type만 수정 가능
+	 * Material-layer mapping array
+	 * Auto-populated when TargetSkeletalMesh is set
+	 * Only Layer Type for each slot is editable
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, EditFixedSize, Category = "Material Layer Settings",
 		meta = (TitleProperty = "MaterialSlotName"))
 	TArray<FMaterialLayerMapping> MaterialLayerMappings;
 
 	/**
-	 * 레이어 침투 해결 활성화
-	 * 비활성화하면 레이어 순서 보정 없이 순수 변형만 적용
+	 * Enable layer penetration resolution
+	 * If disabled, applies pure deformation without layer order correction
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Material Layer Settings")
 	bool bEnableLayerPenetrationResolution = true;
@@ -77,75 +77,75 @@ public:
 	// =====================================
 
 	/**
-	 * 노멀 재계산 활성화
-	 * - ON: 변형된 메시의 Face Normal 평균으로 버텍스 노멀 재계산
-	 * - OFF: 원본 노멀 사용 (라이팅 부정확할 수 있음)
+	 * Enable normal recalculation
+	 * - ON: Recalculate vertex normals from deformed mesh face normal averages
+	 * - OFF: Use original normals (lighting may be inaccurate)
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normals", meta = (DisplayName = "Recalculate Normals"))
 	bool bEnableNormalRecompute = true;
 
 	/**
-	 * 노멀 재계산 방식
-	 * - Surface Rotation: 원본 Smooth Normal을 면 회전량만큼 회전 (기본값, 부드러운 결과)
-	 * - Geometric: Face Normal 평균 (TBN 정확, faceted 결과)
+	 * Normal recalculation method
+	 * - Surface Rotation: Rotate original smooth normal by face rotation (default, smooth result)
+	 * - Geometric: Face normal average (accurate TBN, faceted result)
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normals", meta = (DisplayName = "Normal Recompute Method", EditCondition = "bEnableNormalRecompute"))
 	ENormalRecomputeMethod NormalRecomputeMethod = ENormalRecomputeMethod::SurfaceRotation;
 
 	/**
-	 * 깊이 기반 블렌딩 활성화
-	 * - ON: 변형 영역 경계에서 재계산된 노멀과 원본 노멀을 토폴로지 깊이에 따라 부드럽게 블렌드
-	 * - OFF: 재계산된 노멀만 사용 (경계에서 급격한 라이팅 변화 발생 가능)
+	 * Enable depth-based blending
+	 * - ON: Smoothly blend recalculated and original normals based on topology depth at deformation boundaries
+	 * - OFF: Use only recalculated normals (may cause sharp lighting changes at boundaries)
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normals", meta = (DisplayName = "Depth-Based Blending", EditCondition = "bEnableNormalRecompute"))
 	bool bEnableNormalHopBlending = true;
 
 	/**
-	 * 노멀 블렌딩 감쇠 곡선 타입
-	 * - Linear: 선형 감쇠 (날카로운 경계)
-	 * - Quadratic: 2차 곡선 (부드러움)
-	 * - Hermite: S-커브 (가장 부드러움, 권장)
+	 * Normal blending falloff curve type
+	 * - Linear: Linear falloff (sharp boundary)
+	 * - Quadratic: Quadratic curve (smooth)
+	 * - Hermite: S-curve (smoothest, recommended)
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normals", meta = (DisplayName = "Depth Falloff", EditCondition = "bEnableNormalRecompute && bEnableNormalHopBlending"))
 	EFalloffType NormalBlendFalloffType = EFalloffType::Hermite;
 
 	/**
-	 * 변위 기반 블렌딩 활성화
-	 * - ON: 버텍스의 실제 변형 거리에 따라 노멀 블렌딩 강도 조절
-	 *   - 변형이 작은 버텍스는 원본 노멀에 가깝게
-	 *   - 변형이 큰 버텍스는 재계산된 노멀 사용
-	 *   - Depth-Based 블렌딩과 함께 사용 시: FinalBlend = DepthBlend * DisplacementBlend
-	 * - OFF: 변형 거리와 관계없이 동일한 블렌딩 적용
+	 * Enable displacement-based blending
+	 * - ON: Adjust normal blending strength based on actual vertex displacement distance
+	 *   - Vertices with small displacement blend closer to original normals
+	 *   - Vertices with large displacement use recalculated normals
+	 *   - When used with Depth-Based blending: FinalBlend = DepthBlend * DisplacementBlend
+	 * - OFF: Apply same blending regardless of displacement distance
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normals", meta = (DisplayName = "Displacement-Based Blending", EditCondition = "bEnableNormalRecompute"))
 	bool bEnableDisplacementBlending = true;
 
 	/**
-	 * 변위 블렌딩 최대 거리 (cm)
-	 * - 이 거리 이상 변형된 버텍스는 100% 재계산된 노멀 사용
-	 * - 0 ~ MaxDisplacement 사이에서 선형 보간
+	 * Maximum displacement distance for blending (cm)
+	 * - Vertices displaced beyond this distance use 100% recalculated normals
+	 * - Linear interpolation between 0 and MaxDisplacement
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normals", meta = (DisplayName = "Max Displacement (cm)", EditCondition = "bEnableNormalRecompute && bEnableDisplacementBlending", ClampMin = "0.01", UIMin = "0.01", UIMax = "10.0"))
 	float MaxDisplacementForBlend = 1.0f;
 
 	/**
-	 * 탄젠트 재계산 활성화
-	 * - ON: 재계산된 노멀에 맞춰 탄젠트를 정규직교화하여 TBN 매트릭스 일관성 유지
-	 * - OFF: 원본 탄젠트 사용 (노멀맵 렌더링 부정확할 수 있음)
-	 * - Note: 노멀 재계산이 꺼져있으면 탄젠트 재계산도 무시됨
+	 * Enable tangent recalculation
+	 * - ON: Orthonormalize tangents to match recalculated normals for TBN matrix consistency
+	 * - OFF: Use original tangents (normal map rendering may be inaccurate)
+	 * - Note: Tangent recalculation is ignored when normal recalculation is disabled
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normals", meta = (DisplayName = "Recalculate Tangents", EditCondition = "bEnableNormalRecompute"))
 	bool bEnableTangentRecompute = true;
 
 	// =====================================
-	// Editor Selection State (Undo 가능, 디스크 저장 시 초기화)
+	// Editor Selection State (Undo-able, reset on disk save)
 	// =====================================
 
-	/** 에디터에서 선택된 Ring 인덱스 (-1 = 선택 없음) */
+	/** Editor selected Ring index (-1 = no selection) */
 	UPROPERTY()
 	int32 EditorSelectedRingIndex = -1;
 
-	/** 에디터에서 선택 타입 (Gizmo/Mesh) */
+	/** Editor selection type (Gizmo/Mesh) */
 	UPROPERTY()
 	EFleshRingSelectionType EditorSelectionType = EFleshRingSelectionType::None;
 
@@ -153,25 +153,25 @@ public:
 	// Utility Functions
 	// =====================================
 
-	/** Ring 추가 */
+	/** Add Ring */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing")
 	int32 AddRing(const FFleshRingSettings& NewRing);
 
-	/** Ring 제거 */
+	/** Remove Ring */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing")
 	bool RemoveRing(int32 Index);
 
-	/** Ring 개수 반환 */
+	/** Get Ring count */
 	UFUNCTION(BlueprintPure, Category = "FleshRing")
 	int32 GetNumRings() const { return Rings.Num(); }
 
-	/** Ring 이름이 고유한지 확인 (특정 인덱스 제외) */
+	/** Check if Ring name is unique (excluding specific index) */
 	bool IsRingNameUnique(FName Name, int32 ExcludeIndex = INDEX_NONE) const;
 
-	/** 고유한 Ring 이름 생성 (중복 시 suffix 추가) */
+	/** Generate unique Ring name (adds suffix if duplicate) */
 	FName MakeUniqueRingName(FName BaseName, int32 ExcludeIndex = INDEX_NONE) const;
 
-	/** 유효성 검사 */
+	/** Validity check */
 	UFUNCTION(BlueprintPure, Category = "FleshRing")
 	bool IsValid() const;
 
@@ -180,122 +180,122 @@ public:
 	// =====================================
 
 	/**
-	 * 머티리얼 슬롯 인덱스로 레이어 타입 조회
-	 * @param MaterialSlotIndex - 조회할 머티리얼 슬롯 인덱스
-	 * @return 해당 슬롯의 레이어 타입 (매핑 없으면 Unknown)
+	 * Get layer type by material slot index
+	 * @param MaterialSlotIndex - Material slot index to query
+	 * @return Layer type of the slot (Unknown if no mapping)
 	 */
 	UFUNCTION(BlueprintPure, Category = "Material Layer Settings")
 	EFleshRingLayerType GetLayerTypeForMaterialSlot(int32 MaterialSlotIndex) const;
 
 private:
 	/**
-	 * Material Layer Mappings를 TargetSkeletalMesh의 슬롯과 동기화
-	 * - 기존 매핑의 LayerType은 보존
-	 * - 새 슬롯은 자동 감지된 LayerType으로 추가
-	 * - 삭제된 슬롯은 제거
-	 * TargetSkeletalMesh 변경 시 PostEditChangeProperty에서 자동 호출됨
+	 * Sync Material Layer Mappings with TargetSkeletalMesh slots
+	 * - Preserves existing mapping LayerTypes
+	 * - Adds new slots with auto-detected LayerType
+	 * - Removes deleted slots
+	 * Auto-called from PostEditChangeProperty when TargetSkeletalMesh changes
 	 */
 	void SyncMaterialLayerMappings();
 
-	/** 머티리얼 이름에서 레이어 타입 자동 감지 */
+	/** Auto-detect layer type from material name */
 	static EFleshRingLayerType DetectLayerTypeFromMaterialName(const FSkeletalMaterial& Material);
 
 	/**
-	 * Undo/Redo 시 Ring 개수 변경 감지용 (트랜잭션에 포함되지 않음)
-	 * UPROPERTY가 아니므로 Undo 시 복원되지 않아 변경 감지 가능
+	 * For detecting Ring count changes during Undo/Redo (not included in transaction)
+	 * Not a UPROPERTY, so not restored on Undo, enabling change detection
 	 */
 	int32 LastKnownRingCount = 0;
 
 public:
 
-	/** Subdivided 메시가 생성되어 있는지 */
+	/** Check if subdivided mesh exists */
 	UFUNCTION(BlueprintPure, Category = "FleshRing|Subdivision")
 	bool HasSubdividedMesh() const;
 
-	/** 베이크된 메시가 생성되어 있는지 */
+	/** Check if baked mesh exists */
 	UFUNCTION(BlueprintPure, Category = "FleshRing|Baked")
 	bool HasBakedMesh() const;
 
-	/** Subdivision 파라미터 변경으로 재생성 필요한지 */
+	/** Check if subdivision regeneration needed due to parameter changes */
 	UFUNCTION(BlueprintPure, Category = "FleshRing|Subdivision")
 	bool NeedsSubdivisionRegeneration() const;
 
-	/** 현재 파라미터 해시 계산 */
+	/** Calculate current parameter hash */
 	uint32 CalculateSubdivisionParamsHash() const;
 
 #if WITH_EDITOR
 	/**
-	 * Subdivided SkeletalMesh 생성 (에디터 전용)
-	 * Ring 영향 영역의 삼각형을 subdivision하고 SkinWeight를 barycentric 보간
-	 * 런타임용 - Ring 영역만 부분 subdivision
-	 * DetailCustomization에서 버튼으로 호출됨
+	 * Generate Subdivided SkeletalMesh (editor only)
+	 * Subdivide triangles in Ring affected area and barycentric interpolate SkinWeights
+	 * For runtime - partial subdivision of Ring area only
+	 * Called via button in DetailCustomization
 	 *
-	 * @param SourceComponent - AffectedVertices 데이터 제공용 Component (에디터 프리뷰)
-	 *                          SmoothingVolumeMode에 따라 Extended/PostProcessing 영역 포함
-	 *                          nullptr이면 기존 OBB 기반 영역 사용 (폴백)
+	 * @param SourceComponent - Component providing AffectedVertices data (editor preview)
+	 *                          Includes Extended/PostProcessing areas based on SmoothingVolumeMode
+	 *                          Falls back to OBB-based area if nullptr
 	 */
 	void GenerateSubdividedMesh(UFleshRingComponent* SourceComponent = nullptr);
 
-	/** Subdivided 메시 제거 (DetailCustomization에서 버튼으로 호출됨) */
+	/** Clear subdivided mesh (called via button in DetailCustomization) */
 	void ClearSubdividedMesh();
 
 	// =====================================
-	// Baked Mesh (변형 적용 완료된 런타임용 메시)
+	// Baked Mesh (runtime mesh with deformation applied)
 	// =====================================
 
 	/**
-	 * 베이크된 메시 생성 (에디터 전용)
-	 * 변형(Tightness, Bulge, Smoothing)이 적용된 최종 메시 생성
-	 * 런타임에서는 이 메시를 사용하여 Deformer 없이 동작
+	 * Generate baked mesh (editor only)
+	 * Generate final mesh with deformations (Tightness, Bulge, Smoothing) applied
+	 * At runtime, uses this mesh to operate without Deformer
 	 *
-	 * @param SourceComponent - GPU 변형 결과를 제공하는 FleshRingComponent
-	 * @return 성공 여부
+	 * @param SourceComponent - FleshRingComponent providing GPU deformation results
+	 * @return Success status
 	 */
 	bool GenerateBakedMesh(UFleshRingComponent* SourceComponent);
 
-	/** 베이크 메시 제거 */
+	/** Clear baked mesh */
 	void ClearBakedMesh();
 
-	/** 베이크 파라미터 변경으로 재생성 필요한지 */
+	/** Check if bake regeneration needed due to parameter changes */
 	bool NeedsBakeRegeneration() const;
 
-	/** 베이크 파라미터 해시 계산 (Ring 설정 + 변형 파라미터 포함) */
+	/** Calculate bake parameter hash (includes Ring settings + deformation parameters) */
 	uint32 CalculateBakeParamsHash() const;
 
 	/**
-	 * 에셋 내 누적된 고아 메시 정리
-	 * 이전 버전에서 BakedMesh_1, BakedMesh_2... 등이 누적된 경우 호출
-	 * 현재 사용 중인 SubdividedMesh, BakedMesh 외의 SkeletalMesh 제거
-	 * @return 제거된 고아 메시 개수
+	 * Cleanup orphaned meshes accumulated in asset
+	 * Call when previous versions accumulated BakedMesh_1, BakedMesh_2... etc.
+	 * Removes SkeletalMeshes except currently used SubdividedMesh and BakedMesh
+	 * @return Number of orphaned meshes removed
 	 */
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "FleshRing|Maintenance")
 	int32 CleanupOrphanedMeshes();
 #endif
 
-	/** 에셋 로드 후 호출 - 에디터 선택 상태 초기화 */
+	/** Called after asset load - reset editor selection state */
 	virtual void PostLoad() override;
 
 #if WITH_EDITOR
-	/** 에셋 저장 전 호출 - 자동 베이크 수행 */
+	/** Called before asset save - perform auto-bake */
 	virtual void PreSave(FObjectPreSaveContext SaveContext) override;
 #endif
 
 #if WITH_EDITOR
-	/** 에디터에서 프로퍼티 변경 시 호출 */
+	/** Called when property changes in editor */
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 
-	/** Undo/Redo 트랜잭션 완료 후 호출 - 손상된 메시 복구 */
+	/** Called after Undo/Redo transaction completes - recover damaged mesh */
 	virtual void PostTransacted(const FTransactionObjectEvent& TransactionEvent) override;
 
-	/** 에셋 변경 델리게이트 - 구조적 변경 시 전체 리프레시 */
+	/** Asset change delegate - full refresh on structural changes */
 	FOnFleshRingAssetChanged OnAssetChanged;
 
-	/** Ring 선택 변경 델리게이트 - 디테일 패널 → 뷰포트/트리 동기화 */
+	/** Ring selection change delegate - Detail Panel -> Viewport/Tree sync */
 	FOnRingSelectionChanged OnRingSelectionChanged;
 
 	/**
-	 * Ring 선택 설정 (델리게이트 호출 포함)
-	 * 디테일 패널에서 Ring 클릭 시 뷰포트/트리 동기화를 위해 사용
+	 * Set Ring selection (includes delegate call)
+	 * Used for Viewport/Tree sync when Ring is clicked in Detail Panel
 	 */
 	void SetEditorSelectedRingIndex(int32 RingIndex, EFleshRingSelectionType SelectionType);
 #endif

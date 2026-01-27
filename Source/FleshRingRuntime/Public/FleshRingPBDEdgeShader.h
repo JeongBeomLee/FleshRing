@@ -53,16 +53,14 @@ public:
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, AffectedIndices)
 
 		// UV Seam Welding: Representative vertex indices
-		// 대표 버텍스 인덱스 (UV seam 용접용)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, RepresentativeIndices)
 
 		// Per-vertex anchor flags (1 = Affected/Anchor, 0 = Non-Affected/Free)
-		// Affected Vertices (Tightness 영역)는 고정, 나머지는 자유롭게 이동
+		// Affected Vertices (Tightness region) are fixed, others move freely
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, IsAnchorFlags)
 
 		// Full mesh anchor map (indexed by absolute vertex index)
 		// For neighbor anchor lookup (neighbors might not be in current region)
-		// 이웃의 앵커 여부 조회용 전체 메시 크기 맵
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, FullVertexAnchorFlags)
 
 		// Adjacency data with rest lengths
@@ -78,7 +76,7 @@ public:
 
 		// Tolerance ratio (0.0 ~ 0.5)
 		// Allowed range: [RestLength * (1-Tolerance), RestLength * (1+Tolerance)]
-		// 예: Tolerance=0.2 → 원래 길이의 80%~120% 범위 허용
+		// Example: Tolerance=0.2 → allows 80%~120% of original length
 		SHADER_PARAMETER(float, Tolerance)
 	END_SHADER_PARAMETER_STRUCT()
 
@@ -115,7 +113,7 @@ struct FPBDEdgeDispatchParams
 
 	/** Tolerance ratio (0.0 ~ 0.5)
 	 *  Allowed range: [RestLength * (1-Tolerance), RestLength * (1+Tolerance)]
-	 *  예: Tolerance=0.2 → 원래 길이의 80%~120% 범위 허용
+	 *  Example: Tolerance=0.2 → allows 80%~120% of original length
 	 */
 	float Tolerance;
 

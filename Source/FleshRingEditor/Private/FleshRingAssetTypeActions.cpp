@@ -13,7 +13,7 @@ FText FFleshRingAssetTypeActions::GetName() const
 
 FColor FFleshRingAssetTypeActions::GetTypeColor() const
 {
-	// 분홍/살색 계열 - FleshRing 테마에 맞게
+	// Pink/flesh tone - matches FleshRing theme
 	return FColor(255, 128, 128);
 }
 

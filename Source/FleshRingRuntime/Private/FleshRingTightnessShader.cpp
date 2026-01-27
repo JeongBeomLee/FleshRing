@@ -2,10 +2,8 @@
 
 // ============================================================================
 // FleshRing Tightness Shader - Implementation
-// FleshRing 조이기(Tightness) 셰이더 - 구현부
 // ============================================================================
 // Purpose: Pull vertices toward Ring center axis (Tightness effect)
-// 목적: 버텍스를 링 중심축 방향으로 안쪽으로 당김 (조이기 효과)
 
 #include "FleshRingTightnessShader.h"
 #include "FleshRingDebugTypes.h"
@@ -19,7 +17,6 @@
 #include "RHIStaticStates.h"
 
 // Includes for asset-based testing
-// 에셋 기반 테스트를 위한 include
 #include "FleshRingComponent.h"
 #include "FleshRingAsset.h"
 #include "EngineUtils.h"
@@ -30,7 +27,6 @@
 
 // ============================================================================
 // Shader Implementation Registration
-// 셰이더 구현 등록
 // ============================================================================
 IMPLEMENT_GLOBAL_SHADER(
     FFleshRingTightnessCS,
@@ -41,7 +37,6 @@ IMPLEMENT_GLOBAL_SHADER(
 
 // ============================================================================
 // Dispatch Function Implementation
-// Dispatch 함수 구현
 // ============================================================================
 
 void DispatchFleshRingTightnessCS(
@@ -49,16 +44,15 @@ void DispatchFleshRingTightnessCS(
     const FTightnessDispatchParams& Params,
     FRDGBufferRef SourcePositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
-    // Influence는 GPU에서 직접 계산
+    // Influence is calculated directly on GPU
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRDGTextureRef SDFTexture,
     FRDGBufferRef VolumeAccumBuffer,
     FRDGBufferRef DebugInfluencesBuffer)
-    // DebugPointBuffer는 DebugPointOutputCS에서 처리
+    // DebugPointBuffer is handled by DebugPointOutputCS
 {
     // Early out if no vertices to process
-    // 처리할 버텍스가 없으면 조기 반환
     if (Params.NumAffectedVertices == 0)
     {
         UE_LOG(LogTemp, Warning, TEXT("[TightnessShader] Early return: NumAffectedVertices=0"));
@@ -66,37 +60,32 @@ void DispatchFleshRingTightnessCS(
     }
 
     // Allocate shader parameters
-    // 셰이더 파라미터 할당
     FFleshRingTightnessCS::FParameters* PassParameters =
         GraphBuilder.AllocParameters<FFleshRingTightnessCS::FParameters>();
 
     // ===== Bind input buffers (SRV) =====
-    // ===== 입력 버퍼 바인딩 (SRV) =====
     PassParameters->SourcePositions = GraphBuilder.CreateSRV(SourcePositionsBuffer, PF_R32_FLOAT);
     PassParameters->AffectedIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
-    // Influence는 GPU에서 직접 계산 (CalculateVirtualRingInfluence, CalculateVirtualBandInfluence)
+    // Influence is calculated directly on GPU (CalculateVirtualRingInfluence, CalculateVirtualBandInfluence)
 
-    // ===== UV Seam Welding: RepresentativeIndices 바인딩 =====
-    // RepresentativeIndices가 nullptr이면 AffectedIndices를 대신 사용 (fallback)
-    // 셰이더에서: 대표 위치 읽기 → 변형 계산 → 자기 인덱스에 기록
+    // ===== UV Seam Welding: RepresentativeIndices binding =====
+    // If RepresentativeIndices is nullptr, use AffectedIndices as fallback
+    // In shader: read representative position -> calculate deformation -> write to own index
     if (RepresentativeIndicesBuffer)
     {
         PassParameters->RepresentativeIndices = GraphBuilder.CreateSRV(RepresentativeIndicesBuffer);
     }
     else
     {
-        // Fallback: AffectedIndices 사용 (각 버텍스가 자기 자신이 대표)
+        // Fallback: use AffectedIndices (each vertex is its own representative)
         PassParameters->RepresentativeIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
     }
 
     // ===== Bind output buffer (UAV) =====
-    // ===== 출력 버퍼 바인딩 (UAV) =====
     PassParameters->OutputPositions = GraphBuilder.CreateUAV(OutputPositionsBuffer, PF_R32_FLOAT);
 
     // ===== Skinning disabled (bind pose mode) =====
-    // ===== 스키닝 비활성화 (바인드 포즈 모드) =====
     // Note: RDG requires valid SRV bindings with uploaded data even for unused resources
-    // RDG는 사용하지 않는 리소스도 데이터가 업로드된 유효한 SRV 바인딩이 필요함
     static const float DummyBoneMatrixData[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
     static const uint32 DummyWeightData = 0;
 
@@ -120,7 +109,6 @@ void DispatchFleshRingTightnessCS(
     PassParameters->bEnableSkinning = 0;
 
     // ===== Ring parameters =====
-    // ===== 링 파라미터 =====
     PassParameters->RingCenter = Params.RingCenter;
     PassParameters->RingAxis = Params.RingAxis;
     PassParameters->TightnessStrength = Params.TightnessStrength;
@@ -131,7 +119,6 @@ void DispatchFleshRingTightnessCS(
     PassParameters->InfluenceMode = Params.InfluenceMode;
 
     // ===== VirtualBand (Virtual Band) Parameters =====
-    // ===== 가상 밴드 파라미터 =====
     PassParameters->LowerRadius = Params.LowerRadius;
     PassParameters->MidLowerRadius = Params.MidLowerRadius;
     PassParameters->MidUpperRadius = Params.MidUpperRadius;
@@ -141,13 +128,11 @@ void DispatchFleshRingTightnessCS(
     PassParameters->UpperHeight = Params.UpperHeight;
 
     // ===== Counts =====
-    // ===== 버텍스 수 =====
     PassParameters->NumAffectedVertices = Params.NumAffectedVertices;
     PassParameters->NumTotalVertices = Params.NumTotalVertices;
 
     // ===== SDF Parameters (OBB Design) =====
-    // ===== SDF 파라미터 (OBB 설계) =====
-    // SDFTexture가 유효하면 SDF Auto 모드, nullptr이면 VirtualRing 모드
+    // If SDFTexture is valid, use SDF Auto mode; if nullptr, use VirtualRing mode
     if (SDFTexture)
     {
         PassParameters->SDFTexture = GraphBuilder.CreateSRV(SDFTexture);
@@ -155,26 +140,26 @@ void DispatchFleshRingTightnessCS(
         PassParameters->SDFBoundsMin = Params.SDFBoundsMin;
         PassParameters->SDFBoundsMax = Params.SDFBoundsMax;
         PassParameters->bUseSDFInfluence = 1;
-        // OBB 지원: 컴포넌트 → 로컬 역변환 행렬
+        // OBB support: Component to Local inverse transform matrix
         PassParameters->ComponentToSDFLocal = Params.ComponentToSDFLocal;
         PassParameters->SDFLocalToComponent = Params.SDFLocalToComponent;
-        // SDF falloff 거리
+        // SDF falloff distance
         PassParameters->SDFInfluenceFalloffDistance = Params.SDFInfluenceFalloffDistance;
-        // Ring Center/Axis (SDF Local Space) - 바운드 확장 시에도 정확한 위치 전달
+        // Ring Center/Axis (SDF Local Space) - pass accurate position even when bounds are extended
         PassParameters->SDFLocalRingCenter = Params.SDFLocalRingCenter;
         PassParameters->SDFLocalRingAxis = Params.SDFLocalRingAxis;
     }
     else
     {
-        // VirtualRing 모드: Dummy SDF 텍스처 바인딩 (RDG 요구사항 - 모든 파라미터 바인딩 필수)
+        // VirtualRing mode: Bind dummy SDF texture (RDG requirement - all parameters must be bound)
         FRDGTextureDesc DummySDFDesc = FRDGTextureDesc::Create3D(
             FIntVector(1, 1, 1),
             PF_R32_FLOAT,
             FClearValueBinding::Black,
-            TexCreate_ShaderResource | TexCreate_UAV);  // UAV 추가 (Clear용)
+            TexCreate_ShaderResource | TexCreate_UAV);  // Add UAV (for Clear)
         FRDGTextureRef DummySDFTexture = GraphBuilder.CreateTexture(DummySDFDesc, TEXT("FleshRingTightness_DummySDF"));
 
-        // RDG 검증 통과: 텍스처에 쓰기 패스 추가 (Producer 필요)
+        // RDG validation pass: add write pass to texture (Producer required)
         AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DummySDFTexture), 0.0f);
 
         PassParameters->SDFTexture = GraphBuilder.CreateSRV(DummySDFTexture);
@@ -182,85 +167,79 @@ void DispatchFleshRingTightnessCS(
         PassParameters->SDFBoundsMin = FVector3f::ZeroVector;
         PassParameters->SDFBoundsMax = FVector3f::OneVector;
         PassParameters->bUseSDFInfluence = 0;
-        // VirtualRing 모드: Identity 행렬 (사용 안함)
+        // VirtualRing mode: Identity matrix (not used)
         PassParameters->ComponentToSDFLocal = FMatrix44f::Identity;
         PassParameters->SDFLocalToComponent = FMatrix44f::Identity;
-        // VirtualRing 모드에서는 사용 안 하지만 바인딩 필요
+        // Not used in VirtualRing mode but binding required
         PassParameters->SDFInfluenceFalloffDistance = 5.0f;
-        // VirtualRing 모드: 기본값 바인딩 (사용 안함)
+        // VirtualRing mode: default value binding (not used)
         PassParameters->SDFLocalRingCenter = FVector3f::ZeroVector;
         PassParameters->SDFLocalRingAxis = FVector3f(0.0f, 0.0f, 1.0f);
     }
 
     // ===== Smoothing Bounds Z Extension Parameters =====
-    // ===== 스무딩 영역 Z 확장 파라미터 =====
     PassParameters->BoundsZTop = Params.BoundsZTop;
     PassParameters->BoundsZBottom = Params.BoundsZBottom;
 
     // ===== Volume Accumulation Parameters (for Bulge pass) =====
-    // ===== 부피 누적 파라미터 (Bulge 패스용) =====
     PassParameters->bAccumulateVolume = Params.bAccumulateVolume;
     PassParameters->FixedPointScale = Params.FixedPointScale;
     PassParameters->RingIndex = Params.RingIndex;
 
     if (VolumeAccumBuffer)
     {
-        // VolumeAccumBuffer가 제공되면 바인딩
+        // Bind VolumeAccumBuffer if provided
         PassParameters->VolumeAccumBuffer = GraphBuilder.CreateUAV(VolumeAccumBuffer, PF_R32_UINT);
     }
     else
     {
-        // VolumeAccumBuffer가 없으면 Dummy 생성 (RDG 요구사항 - 모든 파라미터 바인딩 필수)
+        // Create dummy if VolumeAccumBuffer is not provided (RDG requirement - all parameters must be bound)
         FRDGBufferRef DummyVolumeBuffer = GraphBuilder.CreateBuffer(
             FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), 1),
             TEXT("FleshRingTightness_DummyVolumeAccum")
         );
-        // Dummy 버퍼 초기화 (RDG Producer 필요)
+        // Initialize dummy buffer (RDG Producer required)
         AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DummyVolumeBuffer, PF_R32_UINT), 0u);
         PassParameters->VolumeAccumBuffer = GraphBuilder.CreateUAV(DummyVolumeBuffer, PF_R32_UINT);
-        // Dummy일 때는 부피 누적 비활성화 강제
+        // Force disable volume accumulation when using dummy
         PassParameters->bAccumulateVolume = 0;
     }
 
     // ===== Debug Influence Output Parameters =====
-    // ===== 디버그 Influence 출력 파라미터 =====
     PassParameters->bOutputDebugInfluences = Params.bOutputDebugInfluences;
-    // DebugInfluenceBaseOffset과 DebugPointBaseOffset은 동일한 오프셋 사용
+    // DebugInfluenceBaseOffset and DebugPointBaseOffset use the same offset
 
     if (DebugInfluencesBuffer && Params.bOutputDebugInfluences)
     {
-        // DebugInfluencesBuffer가 제공되고 출력이 활성화되면 바인딩
+        // Bind if DebugInfluencesBuffer is provided and output is enabled
         PassParameters->DebugInfluences = GraphBuilder.CreateUAV(DebugInfluencesBuffer, PF_R32_FLOAT);
     }
     else
     {
-        // DebugInfluences가 없거나 비활성화면 Dummy 생성 (RDG 요구사항)
+        // Create dummy if DebugInfluences is not provided or disabled (RDG requirement)
         FRDGBufferRef DummyDebugInfluencesBuffer = GraphBuilder.CreateBuffer(
             FRDGBufferDesc::CreateBufferDesc(sizeof(float), 1),
             TEXT("FleshRingTightness_DummyDebugInfluences")
         );
-        // Dummy 버퍼 초기화 (RDG Producer 필요)
+        // Initialize dummy buffer (RDG Producer required)
         AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(DummyDebugInfluencesBuffer, PF_R32_FLOAT), 0.0f);
         PassParameters->DebugInfluences = GraphBuilder.CreateUAV(DummyDebugInfluencesBuffer, PF_R32_FLOAT);
-        // Dummy일 때는 출력 비활성화 강제
+        // Force disable output when using dummy
         PassParameters->bOutputDebugInfluences = 0;
     }
 
-    // DebugPointBaseOffset은 DebugInfluences에도 사용됨
+    // DebugPointBaseOffset is also used for DebugInfluences
     PassParameters->DebugPointBaseOffset = Params.DebugPointBaseOffset;
-    // DebugPointBuffer는 DebugPointOutputCS에서 최종 위치 기반으로 처리
+    // DebugPointBuffer is handled by DebugPointOutputCS based on final positions
 
     // Get shader reference
-    // 셰이더 참조 가져오기
     TShaderMapRef<FFleshRingTightnessCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
 
     // Calculate dispatch groups
-    // 디스패치 그룹 수 계산
-    const uint32 ThreadGroupSize = 64; // .usf의 [numthreads(64,1,1)]와 일치
+    const uint32 ThreadGroupSize = 64; // Matches [numthreads(64,1,1)] in .usf
     const uint32 NumGroups = FMath::DivideAndRoundUp(Params.NumAffectedVertices, ThreadGroupSize);
 
     // Add compute pass to RDG
-    // RDG에 컴퓨트 패스 추가
     FComputeShaderUtils::AddPass(
         GraphBuilder,
         RDG_EVENT_NAME("FleshRingTightnessCS"),
@@ -272,7 +251,6 @@ void DispatchFleshRingTightnessCS(
 
 // ============================================================================
 // Dispatch with Readback (for testing/validation)
-// 리드백 포함 디스패치 (테스트/검증용)
 // ============================================================================
 
 void DispatchFleshRingTightnessCS_WithReadback(
@@ -280,7 +258,7 @@ void DispatchFleshRingTightnessCS_WithReadback(
     const FTightnessDispatchParams& Params,
     FRDGBufferRef SourcePositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
-    // Influence는 GPU에서 직접 계산
+    // Influence is calculated directly on GPU
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRHIGPUBufferReadback* Readback,
@@ -289,7 +267,6 @@ void DispatchFleshRingTightnessCS_WithReadback(
     FRDGBufferRef DebugInfluencesBuffer)
 {
     // Dispatch the compute shader
-    // 컴퓨트 셰이더 디스패치
     DispatchFleshRingTightnessCS(
         GraphBuilder,
         Params,
@@ -302,43 +279,42 @@ void DispatchFleshRingTightnessCS_WithReadback(
         DebugInfluencesBuffer
     );
 
-    // Add readback pass (GPU → CPU data transfer)
-    // 리드백 패스 추가 (GPU → CPU 데이터 전송)
+    // Add readback pass (GPU to CPU data transfer)
     AddEnqueueCopyPass(GraphBuilder, Readback, OutputPositionsBuffer, 0);
 }
 
 // ============================================================================
-// 실제 에셋 기반 테스트 - FleshRing.TightnessTest 콘솔 커맨드
-// 월드에서 FleshRingComponent를 찾아 실제 에셋 데이터로 TightnessCS 테스트
+// Asset-based Test - FleshRing.TightnessTest Console Command
+// Finds FleshRingComponent in world and tests TightnessCS with actual asset data
 // ============================================================================
 
-// GPU 결과 검증 함수 (현재는 사용하지 않음 - 각 Ring별 인라인 검증으로 대체)
-// 필요시 재사용 가능하도록 유지
+// GPU result validation function (currently unused - replaced by per-Ring inline validation)
+// Kept for potential reuse
 
 // ============================================================================
-// FleshRing.TightnessTest - 실제 에셋 기반 TightnessCS 테스트 콘솔 커맨드
+// FleshRing.TightnessTest - Asset-based TightnessCS Test Console Command
 //
-// 사용법: PIE 모드에서 콘솔에 FleshRing.TightnessTest 입력
-// 조건: 월드에 FleshRingComponent가 있는 액터 + FleshRingAsset 할당 필요
+// Usage: Enter FleshRing.TightnessTest in console during PIE mode
+// Requirements: Actor with FleshRingComponent in world + FleshRingAsset assigned
 // ============================================================================
 static FAutoConsoleCommand GFleshRingTightnessTestCommand(
     TEXT("FleshRing.TightnessTest"),
-    TEXT("FleshRingAsset을 사용하여 TightnessCS GPU 연산을 테스트합니다"),
+    TEXT("Tests TightnessCS GPU computation using FleshRingAsset"),
     FConsoleCommandDelegate::CreateLambda([]()
     {
         UE_LOG(LogTemp, Log, TEXT(""));
         UE_LOG(LogTemp, Log, TEXT("========================================="));
-        UE_LOG(LogTemp, Log, TEXT("  FleshRing TightnessCS 테스트"));
-        UE_LOG(LogTemp, Log, TEXT("  (실제 에셋 기반 GPU 연산 검증)"));
+        UE_LOG(LogTemp, Log, TEXT("  FleshRing TightnessCS Test"));
+        UE_LOG(LogTemp, Log, TEXT("  (Asset-based GPU Computation Validation)"));
         UE_LOG(LogTemp, Log, TEXT("========================================="));
 
         // ============================================================
-        // 1단계: 월드에서 FleshRingComponent 탐색
+        // Step 1: Search for FleshRingComponent in World
         // ============================================================
         UE_LOG(LogTemp, Log, TEXT(""));
-        UE_LOG(LogTemp, Log, TEXT("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"));
-        UE_LOG(LogTemp, Log, TEXT("【 1단계: FleshRingComponent 탐색 】"));
-        UE_LOG(LogTemp, Log, TEXT("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"));
+        UE_LOG(LogTemp, Log, TEXT("----------------------------------------"));
+        UE_LOG(LogTemp, Log, TEXT("[ Step 1: FleshRingComponent Search ]"));
+        UE_LOG(LogTemp, Log, TEXT("----------------------------------------"));
 
         UFleshRingComponent* FoundComponent = nullptr;
         USkeletalMeshComponent* TargetSkelMesh = nullptr;
@@ -359,81 +335,81 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
 
         if (!FoundComponent)
         {
-            UE_LOG(LogTemp, Error, TEXT("  ✗ FleshRingComponent를 찾을 수 없습니다"));
+            UE_LOG(LogTemp, Error, TEXT("  X FleshRingComponent not found"));
             UE_LOG(LogTemp, Error, TEXT(""));
-            UE_LOG(LogTemp, Error, TEXT("  해결 방법:"));
-            UE_LOG(LogTemp, Error, TEXT("    1. 월드에 FleshRingComponent가 있는 액터를 배치하세요"));
-            UE_LOG(LogTemp, Error, TEXT("    2. FleshRingAsset을 컴포넌트에 할당하세요"));
-            UE_LOG(LogTemp, Error, TEXT("    3. PIE 모드(플레이)에서 테스트하세요"));
+            UE_LOG(LogTemp, Error, TEXT("  Solutions:"));
+            UE_LOG(LogTemp, Error, TEXT("    1. Place an actor with FleshRingComponent in the world"));
+            UE_LOG(LogTemp, Error, TEXT("    2. Assign FleshRingAsset to the component"));
+            UE_LOG(LogTemp, Error, TEXT("    3. Test in PIE mode (Play)"));
             return;
         }
 
         if (!TargetSkelMesh)
         {
-            UE_LOG(LogTemp, Error, TEXT("  ✗ TargetSkeletalMesh가 없습니다"));
+            UE_LOG(LogTemp, Error, TEXT("  X TargetSkeletalMesh not found"));
             return;
         }
 
         UFleshRingAsset* Asset = FoundComponent->FleshRingAsset;
         if (Asset->Rings.Num() == 0)
         {
-            UE_LOG(LogTemp, Error, TEXT("  ✗ FleshRingAsset에 Ring이 없습니다"));
+            UE_LOG(LogTemp, Error, TEXT("  X FleshRingAsset has no Rings"));
             return;
         }
 
-        UE_LOG(LogTemp, Log, TEXT("  ✓ FleshRingComponent 발견"));
-        UE_LOG(LogTemp, Log, TEXT("    - 액터: %s"), *FoundComponent->GetOwner()->GetName());
+        UE_LOG(LogTemp, Log, TEXT("  O FleshRingComponent found"));
+        UE_LOG(LogTemp, Log, TEXT("    - Actor: %s"), *FoundComponent->GetOwner()->GetName());
         UE_LOG(LogTemp, Log, TEXT("    - FleshRingAsset: %s"), *Asset->GetName());
-        UE_LOG(LogTemp, Log, TEXT("    - Ring 개수: %d개"), Asset->Rings.Num());
+        UE_LOG(LogTemp, Log, TEXT("    - Ring count: %d"), Asset->Rings.Num());
         UE_LOG(LogTemp, Log, TEXT("    - TargetMesh: %s"), *TargetSkelMesh->GetName());
 
         // ============================================================
-        // 2단계: AffectedVertices 등록 (영향 버텍스 선택)
+        // Step 2: Register AffectedVertices (Affected Vertex Selection)
         // ============================================================
         UE_LOG(LogTemp, Log, TEXT(""));
-        UE_LOG(LogTemp, Log, TEXT("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"));
-        UE_LOG(LogTemp, Log, TEXT("【 2단계: 영향 버텍스 선택 】"));
-        UE_LOG(LogTemp, Log, TEXT("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"));
+        UE_LOG(LogTemp, Log, TEXT("----------------------------------------"));
+        UE_LOG(LogTemp, Log, TEXT("[ Step 2: Affected Vertex Selection ]"));
+        UE_LOG(LogTemp, Log, TEXT("----------------------------------------"));
 
         FFleshRingAffectedVerticesManager AffectedManager;
         if (!AffectedManager.RegisterAffectedVertices(FoundComponent, TargetSkelMesh))
         {
-            UE_LOG(LogTemp, Error, TEXT("  ✗ AffectedVertices 등록 실패"));
+            UE_LOG(LogTemp, Error, TEXT("  X AffectedVertices registration failed"));
             return;
         }
 
         const TArray<FRingAffectedData>& AllRingData = AffectedManager.GetAllRingData();
         if (AllRingData.Num() == 0)
         {
-            UE_LOG(LogTemp, Error, TEXT("  ✗ 등록된 Ring 데이터 없음"));
+            UE_LOG(LogTemp, Error, TEXT("  X No Ring data registered"));
             return;
         }
 
-        UE_LOG(LogTemp, Log, TEXT("  ✓ 영향 버텍스 선택 완료"));
-        UE_LOG(LogTemp, Log, TEXT("    - 처리된 Ring 수: %d개"), AllRingData.Num());
-        UE_LOG(LogTemp, Log, TEXT("    - 총 영향 버텍스: %d개"), AffectedManager.GetTotalAffectedCount());
+        UE_LOG(LogTemp, Log, TEXT("  O Affected vertex selection complete"));
+        UE_LOG(LogTemp, Log, TEXT("    - Rings processed: %d"), AllRingData.Num());
+        UE_LOG(LogTemp, Log, TEXT("    - Total affected vertices: %d"), AffectedManager.GetTotalAffectedCount());
 
-        // Ring별 영향 버텍스 요약
+        // Per-Ring affected vertex summary
         for (int32 i = 0; i < AllRingData.Num(); ++i)
         {
-            UE_LOG(LogTemp, Log, TEXT("    - Ring[%d] '%s': %d개 버텍스"),
+            UE_LOG(LogTemp, Log, TEXT("    - Ring[%d] '%s': %d vertices"),
                 i, *AllRingData[i].BoneName.ToString(), AllRingData[i].Vertices.Num());
         }
 
         // ============================================================
-        // 3단계: 메시에서 버텍스 데이터 추출
+        // Step 3: Extract Vertex Data from Mesh
         // ============================================================
         USkeletalMesh* SkelMesh = TargetSkelMesh->GetSkeletalMeshAsset();
         if (!SkelMesh)
         {
-            UE_LOG(LogTemp, Error, TEXT("  ✗ SkeletalMesh 에셋 없음"));
+            UE_LOG(LogTemp, Error, TEXT("  X SkeletalMesh asset not found"));
             return;
         }
 
         const FSkeletalMeshRenderData* RenderData = SkelMesh->GetResourceForRendering();
         if (!RenderData || RenderData->LODRenderData.Num() == 0)
         {
-            UE_LOG(LogTemp, Error, TEXT("  ✗ RenderData 없음"));
+            UE_LOG(LogTemp, Error, TEXT("  X RenderData not found"));
             return;
         }
 
@@ -441,12 +417,12 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
         const uint32 TotalVertexCount = LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
 
         UE_LOG(LogTemp, Log, TEXT(""));
-        UE_LOG(LogTemp, Log, TEXT("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"));
-        UE_LOG(LogTemp, Log, TEXT("【 3단계: 메시 버텍스 데이터 추출 】"));
-        UE_LOG(LogTemp, Log, TEXT("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"));
-        UE_LOG(LogTemp, Log, TEXT("  메시 전체 버텍스 수: %d개"), TotalVertexCount);
+        UE_LOG(LogTemp, Log, TEXT("----------------------------------------"));
+        UE_LOG(LogTemp, Log, TEXT("[ Step 3: Mesh Vertex Data Extraction ]"));
+        UE_LOG(LogTemp, Log, TEXT("----------------------------------------"));
+        UE_LOG(LogTemp, Log, TEXT("  Total mesh vertex count: %d"), TotalVertexCount);
 
-        // 버텍스 위치 데이터 추출 (모든 Ring에서 공유)
+        // Extract vertex position data (shared across all Rings)
         TArray<float> SourcePositions;
         SourcePositions.SetNum(TotalVertexCount * 3);
 
@@ -457,18 +433,18 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
             SourcePositions[i * 3 + 1] = Pos.Y;
             SourcePositions[i * 3 + 2] = Pos.Z;
         }
-        UE_LOG(LogTemp, Log, TEXT("  버텍스 위치 버퍼 추출 완료"));
+        UE_LOG(LogTemp, Log, TEXT("  Vertex position buffer extraction complete"));
 
-        // 공유 데이터 포인터
+        // Shared data pointer
         TSharedPtr<TArray<float>> SourceDataPtr = MakeShared<TArray<float>>(SourcePositions);
 
         // ============================================================
-        // 4단계: 각 Ring별로 GPU 테스트 실행
+        // Step 4: Run GPU Test for Each Ring
         // ============================================================
         UE_LOG(LogTemp, Log, TEXT(""));
-        UE_LOG(LogTemp, Log, TEXT("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"));
-        UE_LOG(LogTemp, Log, TEXT("【 4단계: Ring별 GPU TightnessCS 테스트 】"));
-        UE_LOG(LogTemp, Log, TEXT("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"));
+        UE_LOG(LogTemp, Log, TEXT("----------------------------------------"));
+        UE_LOG(LogTemp, Log, TEXT("[ Step 4: Per-Ring GPU TightnessCS Test ]"));
+        UE_LOG(LogTemp, Log, TEXT("----------------------------------------"));
 
         int32 TestedRingCount = 0;
 
@@ -477,55 +453,55 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
             const FRingAffectedData& RingData = AllRingData[RingIdx];
 
             UE_LOG(LogTemp, Log, TEXT(""));
-            UE_LOG(LogTemp, Log, TEXT("──────────────────────────────────────"));
-            UE_LOG(LogTemp, Log, TEXT("▶ Ring[%d] '%s' 테스트"), RingIdx, *RingData.BoneName.ToString());
-            UE_LOG(LogTemp, Log, TEXT("──────────────────────────────────────"));
+            UE_LOG(LogTemp, Log, TEXT("--------------------------------------"));
+            UE_LOG(LogTemp, Log, TEXT("> Ring[%d] '%s' Test"), RingIdx, *RingData.BoneName.ToString());
+            UE_LOG(LogTemp, Log, TEXT("--------------------------------------"));
 
-            // FalloffType을 문자열로 변환
+            // Convert FalloffType to string
             FString FalloffTypeStr;
             switch (RingData.FalloffType)
             {
-            case EFalloffType::Linear:    FalloffTypeStr = TEXT("Linear (선형)"); break;
-            case EFalloffType::Quadratic: FalloffTypeStr = TEXT("Quadratic (2차)"); break;
-            case EFalloffType::Hermite:   FalloffTypeStr = TEXT("Hermite (S커브)"); break;
+            case EFalloffType::Linear:    FalloffTypeStr = TEXT("Linear"); break;
+            case EFalloffType::Quadratic: FalloffTypeStr = TEXT("Quadratic"); break;
+            case EFalloffType::Hermite:   FalloffTypeStr = TEXT("Hermite (S-curve)"); break;
             default:                      FalloffTypeStr = TEXT("Unknown"); break;
             }
 
-            UE_LOG(LogTemp, Log, TEXT("  [Ring 설정]"));
-            UE_LOG(LogTemp, Log, TEXT("    - 본 위치 (바인드포즈): (%.2f, %.2f, %.2f)"),
+            UE_LOG(LogTemp, Log, TEXT("  [Ring Settings]"));
+            UE_LOG(LogTemp, Log, TEXT("    - Bone position (bind pose): (%.2f, %.2f, %.2f)"),
                 RingData.RingCenter.X, RingData.RingCenter.Y, RingData.RingCenter.Z);
-            UE_LOG(LogTemp, Log, TEXT("    - 본 축 방향: (%.2f, %.2f, %.2f)"),
+            UE_LOG(LogTemp, Log, TEXT("    - Bone axis direction: (%.2f, %.2f, %.2f)"),
                 RingData.RingAxis.X, RingData.RingAxis.Y, RingData.RingAxis.Z);
-            UE_LOG(LogTemp, Log, TEXT("    - Ring 반지름: %.2f"), RingData.RingRadius);
-            UE_LOG(LogTemp, Log, TEXT("    - Ring 너비: %.2f"), RingData.RingHeight);
-            UE_LOG(LogTemp, Log, TEXT("    - 영향 범위 (Radius+Width): %.2f"), RingData.RingRadius + RingData.RingHeight);
-            UE_LOG(LogTemp, Log, TEXT("    - 조이기 강도: %.2f"), RingData.TightnessStrength);
-            UE_LOG(LogTemp, Log, TEXT("    - 감쇠 타입: %s"), *FalloffTypeStr);
+            UE_LOG(LogTemp, Log, TEXT("    - Ring radius: %.2f"), RingData.RingRadius);
+            UE_LOG(LogTemp, Log, TEXT("    - Ring width: %.2f"), RingData.RingHeight);
+            UE_LOG(LogTemp, Log, TEXT("    - Influence range (Radius+Width): %.2f"), RingData.RingRadius + RingData.RingHeight);
+            UE_LOG(LogTemp, Log, TEXT("    - Tightness strength: %.2f"), RingData.TightnessStrength);
+            UE_LOG(LogTemp, Log, TEXT("    - Falloff type: %s"), *FalloffTypeStr);
 
             UE_LOG(LogTemp, Log, TEXT(""));
-            UE_LOG(LogTemp, Log, TEXT("  [영향 버텍스]"));
-            UE_LOG(LogTemp, Log, TEXT("    - 선택된 버텍스 수: %d개"), RingData.Vertices.Num());
+            UE_LOG(LogTemp, Log, TEXT("  [Affected Vertices]"));
+            UE_LOG(LogTemp, Log, TEXT("    - Selected vertex count: %d"), RingData.Vertices.Num());
 
             if (RingData.Vertices.Num() == 0)
             {
-                UE_LOG(LogTemp, Warning, TEXT("    ⚠ 영향 버텍스 없음 - 이 Ring 테스트 스킵"));
-                UE_LOG(LogTemp, Warning, TEXT("    → Ring 위치/크기를 확인하거나 Radius/Width 값을 늘려보세요"));
+                UE_LOG(LogTemp, Warning, TEXT("    ! No affected vertices - skipping this Ring test"));
+                UE_LOG(LogTemp, Warning, TEXT("    -> Check Ring position/size or increase Radius/Width values"));
                 continue;
             }
 
-            // 샘플 버텍스 정보 출력
-            UE_LOG(LogTemp, Log, TEXT("    - 샘플 버텍스 (최대 5개):"));
+            // Output sample vertex info
+            UE_LOG(LogTemp, Log, TEXT("    - Sample vertices (up to 5):"));
             int32 SampleCount = FMath::Min(5, RingData.Vertices.Num());
             for (int32 i = 0; i < SampleCount; ++i)
             {
                 const FAffectedVertex& V = RingData.Vertices[i];
                 uint32 BaseIdx = V.VertexIndex * 3;
-                UE_LOG(LogTemp, Log, TEXT("      [%d] 버텍스#%d: 반경거리=%.2f, 영향도=%.3f, 위치=(%.2f, %.2f, %.2f)"),
+                UE_LOG(LogTemp, Log, TEXT("      [%d] Vertex#%d: RadialDist=%.2f, Influence=%.3f, Position=(%.2f, %.2f, %.2f)"),
                     i, V.VertexIndex, V.RadialDistance, V.Influence,
                     SourcePositions[BaseIdx], SourcePositions[BaseIdx + 1], SourcePositions[BaseIdx + 2]);
             }
 
-            // GPU Dispatch 준비
+            // GPU Dispatch preparation
             TSharedPtr<TArray<uint32>> IndicesPtr = MakeShared<TArray<uint32>>(RingData.PackedIndices);
             TSharedPtr<TArray<float>> InfluencesPtr = MakeShared<TArray<float>>(RingData.PackedInfluences);
             TSharedPtr<FRHIGPUBufferReadback> Readback = MakeShared<FRHIGPUBufferReadback>(
@@ -536,15 +512,15 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
 
             UE_LOG(LogTemp, Log, TEXT(""));
             UE_LOG(LogTemp, Log, TEXT("  [GPU Dispatch]"));
-            UE_LOG(LogTemp, Log, TEXT("    - 버퍼 생성 중..."));
+            UE_LOG(LogTemp, Log, TEXT("    - Creating buffers..."));
 
             // ================================================================
-            // 렌더 스레드에서 RDG(Render Dependency Graph) Dispatch
+            // RDG (Render Dependency Graph) Dispatch on render thread
             // ================================================================
-            // RDG는 "지연 실행" 방식:
-            //   1. CreateBuffer / QueueBufferUpload / CreateSRV 등은 "예약"만 함
-            //   2. GraphBuilder.Execute() 호출 시 의존성 순서대로 실제 실행
-            //   3. 따라서 Dispatch 함수에 버퍼를 넘길 때 이미 데이터가 "예약"된 상태
+            // RDG uses "deferred execution" approach:
+            //   1. CreateBuffer / QueueBufferUpload / CreateSRV etc. only "schedule" operations
+            //   2. Actual execution happens in dependency order when GraphBuilder.Execute() is called
+            //   3. Therefore, when passing buffers to Dispatch function, data is already "scheduled"
             // ================================================================
             ENQUEUE_RENDER_COMMAND(FleshRingTightnessTest_Dispatch)(
                 [SourceDataPtr, IndicesPtr, InfluencesPtr, Params, Readback, TotalVertexCount, RingIdx, BoneName]
@@ -553,83 +529,82 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
                     FRDGBuilder GraphBuilder(RHICmdList);
 
                     // ========================================
-                    // [1단계] 버퍼 생성 + 데이터 업로드 "예약"
+                    // [Step 1] Buffer creation + data upload "scheduling"
                     // ========================================
 
-                    // Source positions 버퍼 (입력: 원본 버텍스 위치)
+                    // Source positions buffer (input: original vertex positions)
                     FRDGBufferRef SourceBuffer = GraphBuilder.CreateBuffer(
                         FRDGBufferDesc::CreateBufferDesc(sizeof(float), TotalVertexCount * 3),
                         TEXT("TightnessTest_SourcePositions")
                     );
-                    GraphBuilder.QueueBufferUpload(  // 데이터 업로드 "예약"
+                    GraphBuilder.QueueBufferUpload(  // "Schedule" data upload
                         SourceBuffer,
                         SourceDataPtr->GetData(),
                         SourceDataPtr->Num() * sizeof(float),
                         ERDGInitialDataFlags::None
                     );
 
-                    // Affected indices 버퍼 (입력: 영향받는 버텍스 인덱스)
+                    // Affected indices buffer (input: affected vertex indices)
                     FRDGBufferRef IndicesBuffer = GraphBuilder.CreateBuffer(
                         FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), Params.NumAffectedVertices),
                         TEXT("TightnessTest_AffectedIndices")
                     );
-                    GraphBuilder.QueueBufferUpload(  // 데이터 업로드 "예약"
+                    GraphBuilder.QueueBufferUpload(  // "Schedule" data upload
                         IndicesBuffer,
                         IndicesPtr->GetData(),
                         IndicesPtr->Num() * sizeof(uint32),
                         ERDGInitialDataFlags::None
                     );
 
-                    // Influence는 GPU에서 직접 계산
+                    // Influence is calculated directly on GPU
 
-                    // Output 버퍼 (출력: 변형된 버텍스 위치)
+                    // Output buffer (output: deformed vertex positions)
                     FRDGBufferRef OutputBuffer = GraphBuilder.CreateBuffer(
                         FRDGBufferDesc::CreateBufferDesc(sizeof(float), TotalVertexCount * 3),
                         TEXT("TightnessTest_OutputPositions")
                     );
 
-                    // Source를 Output에 복사 (영향 안 받는 버텍스 보존)
                     // Copy source to output (preserve unaffected vertices)
                     AddCopyBufferPass(GraphBuilder, OutputBuffer, SourceBuffer);
 
                     // ========================================
-                    // [2단계] Dispatch 호출 "예약"
+                    // [Step 2] "Schedule" Dispatch call
                     // ========================================
-                    // 이 시점에서:
-                    //   - 버퍼들은 아직 GPU 메모리에 실제 생성되지 않음
-                    //   - 데이터도 아직 업로드되지 않음
-                    //   - DispatchFleshRingTightnessCS 내부에서:
-                    //     1. CreateSRV/CreateUAV = View 생성 "예약"
-                    //     2. AddPass = 셰이더 실행 "예약"
-                    //   - 모든 것은 GraphBuilder에 "예약"만 된 상태
+                    // At this point:
+                    //   - Buffers are not yet actually created in GPU memory
+                    //   - Data is not yet uploaded
+                    //   - Inside DispatchFleshRingTightnessCS:
+                    //     1. CreateSRV/CreateUAV = "Schedule" View creation
+                    //     2. AddPass = "Schedule" shader execution
+                    //   - Everything is only "scheduled" in GraphBuilder
                     // ========================================
                     DispatchFleshRingTightnessCS_WithReadback(
                         GraphBuilder,
                         Params,
                         SourceBuffer,
                         IndicesBuffer,
-                        // Influence는 GPU에서 직접 계산
-                        nullptr,  // RepresentativeIndicesBuffer - 테스트에서는 사용하지 않음
+                        // Influence is calculated directly on GPU
+                        nullptr,  // RepresentativeIndicesBuffer - not used in test
                         OutputBuffer,
                         Readback.Get()
                     );
 
                     // ========================================
-                    // [3단계] Execute() = 실제 실행
+                    // [Step 3] Execute() = actual execution
                     // ========================================
-                    // Execute() 호출 시 발생하는 일:
-                    //   1. RDG가 모든 리소스 의존성 분석
-                    //   2. 최적의 실행 순서 결정
-                    //   3. GPU 버퍼 실제 생성
-                    //   4. QueueBufferUpload로 예약된 데이터 실제 업로드
-                    //   5. AddPass로 예약된 셰이더 실제 실행
-                    //   6. Readback 패스 실행 (GPU→CPU 복사)
+                    // What happens when Execute() is called:
+                    //   1. RDG analyzes all resource dependencies
+                    //   2. Determines optimal execution order
+                    //   3. Actually creates GPU buffers
+                    //   4. Actually uploads data scheduled by QueueBufferUpload
+                    //   5. Actually executes shaders scheduled by AddPass
+                    //   6. Executes Readback pass (GPU to CPU copy)
                     // ========================================
                     GraphBuilder.Execute();
-                    UE_LOG(LogTemp, Log, TEXT("    - Ring[%d] '%s' GPU Dispatch 완료"), RingIdx, *BoneName.ToString());
+                    UE_LOG(LogTemp, Log, TEXT("    - Ring[%d] '%s' GPU Dispatch complete"), RingIdx, *BoneName.ToString());
                 });
 
-            // 결과 검증
+            // Result validation
             ENQUEUE_RENDER_COMMAND(FleshRingTightnessTest_Validate)(
                 [SourceDataPtr, IndicesPtr, InfluencesPtr, Readback, Params, TotalVertexCount, RingIdx, BoneName]
                 (FRHICommandListImmediate& RHICmdList)
@@ -640,7 +615,7 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
                     }
 
                     UE_LOG(LogTemp, Log, TEXT(""));
-                    UE_LOG(LogTemp, Log, TEXT("  [Ring[%d] '%s' 검증 결과]"), RingIdx, *BoneName.ToString());
+                    UE_LOG(LogTemp, Log, TEXT("  [Ring[%d] '%s' Validation Result]"), RingIdx, *BoneName.ToString());
 
                     if (Readback->IsReady())
                     {
@@ -649,7 +624,7 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
 
                         if (OutputData)
                         {
-                            // CPU에서 GPU 결과 검증
+                            // Validate GPU results on CPU
                             uint32 PassCount = 0;
                             uint32 FailCount = 0;
 
@@ -670,7 +645,7 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
                                     OutputData[BaseIndex + 2]
                                 );
 
-                                // 예상 결과 계산 (셰이더와 동일한 로직)
+                                // Calculate expected result (same logic as shader)
                                 FVector3f ToVertex = SourcePos - Params.RingCenter;
                                 float AxisDist = FVector3f::DotProduct(ToVertex, Params.RingAxis);
                                 FVector3f RadialVec = ToVertex - Params.RingAxis * AxisDist;
@@ -691,23 +666,23 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
 
                             if (FailCount == 0)
                             {
-                                UE_LOG(LogTemp, Log, TEXT("    ✓ 검증 성공: %d개 버텍스 모두 정상 변형됨"), PassCount);
+                                UE_LOG(LogTemp, Log, TEXT("    O Validation passed: all %d vertices deformed correctly"), PassCount);
                             }
                             else
                             {
-                                UE_LOG(LogTemp, Error, TEXT("    ✗ 검증 실패: 성공=%d, 실패=%d"), PassCount, FailCount);
+                                UE_LOG(LogTemp, Error, TEXT("    X Validation failed: passed=%d, failed=%d"), PassCount, FailCount);
                             }
 
                             Readback->Unlock();
                         }
                         else
                         {
-                            UE_LOG(LogTemp, Error, TEXT("    ✗ Readback Lock 실패"));
+                            UE_LOG(LogTemp, Error, TEXT("    X Readback Lock failed"));
                         }
                     }
                     else
                     {
-                        UE_LOG(LogTemp, Error, TEXT("    ✗ Readback 준비 안됨"));
+                        UE_LOG(LogTemp, Error, TEXT("    X Readback not ready"));
                     }
                 });
 
@@ -715,14 +690,14 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
         }
 
         UE_LOG(LogTemp, Log, TEXT(""));
-        UE_LOG(LogTemp, Log, TEXT("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"));
-        UE_LOG(LogTemp, Log, TEXT("【 테스트 완료 】"));
-        UE_LOG(LogTemp, Log, TEXT("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"));
-        UE_LOG(LogTemp, Log, TEXT("  총 Ring 수: %d개"), AllRingData.Num());
-        UE_LOG(LogTemp, Log, TEXT("  테스트된 Ring 수: %d개"), TestedRingCount);
-        UE_LOG(LogTemp, Log, TEXT("  (영향 버텍스가 있는 Ring만 테스트됨)"));
+        UE_LOG(LogTemp, Log, TEXT("----------------------------------------"));
+        UE_LOG(LogTemp, Log, TEXT("[ Test Complete ]"));
+        UE_LOG(LogTemp, Log, TEXT("----------------------------------------"));
+        UE_LOG(LogTemp, Log, TEXT("  Total Ring count: %d"), AllRingData.Num());
+        UE_LOG(LogTemp, Log, TEXT("  Tested Ring count: %d"), TestedRingCount);
+        UE_LOG(LogTemp, Log, TEXT("  (Only Rings with affected vertices are tested)"));
         UE_LOG(LogTemp, Log, TEXT(""));
-        UE_LOG(LogTemp, Log, TEXT("  ※ 검증 결과는 렌더 스레드에서 출력됩니다"));
+        UE_LOG(LogTemp, Log, TEXT("  * Validation results are output from render thread"));
         UE_LOG(LogTemp, Log, TEXT("========================================="));
     })
 );

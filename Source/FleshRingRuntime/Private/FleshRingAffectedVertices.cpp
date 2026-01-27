@@ -2,12 +2,9 @@
 
 // ============================================================================
 // FleshRing Affected Vertices System - Implementation
-// FleshRing 영향받는 버텍스 시스템 - 구현부
 // ============================================================================
 // Purpose: Track and manage vertices affected by each Ring
-// 목적: 각 링에 영향받는 버텍스 추적 및 관리
 // Role B: Deformation Algorithm (Week 2)
-// 역할 B: 변형 알고리즘 (Week 2)
 
 #include "FleshRingAffectedVertices.h"
 #include "FleshRingComponent.h"
@@ -23,14 +20,12 @@ DEFINE_LOG_CATEGORY_STATIC(LogFleshRingVertices, Log, All);
 
 // ============================================================================
 // Layer Type Detection from Material Name
-// 머티리얼 이름에서 레이어 타입 감지
 // ============================================================================
 
 namespace FleshRingLayerUtils
 {
     /**
      * Detect layer type from material name using keyword matching
-     * 키워드 매칭으로 머티리얼 이름에서 레이어 타입 감지
      *
      * Supported keywords (case-insensitive):
      * - Skin: "skin", "body", "flesh", "face", "hand", "leg", "arm"
@@ -72,7 +67,6 @@ namespace FleshRingLayerUtils
         };
 
         // Check in order of specificity (more specific layers first)
-        // 특정성 순서로 체크 (더 구체적인 레이어 먼저)
 
         for (const FString& Keyword : StockingKeywords)
         {
@@ -112,7 +106,6 @@ namespace FleshRingLayerUtils
 
     /**
      * Build per-vertex layer type array from skeletal mesh sections
-     * 스켈레탈 메시 섹션에서 버텍스별 레이어 타입 배열 빌드
      *
      * @param SkeletalMesh - Source skeletal mesh component
      * @param LODIndex - LOD index to use
@@ -199,8 +192,7 @@ namespace FleshRingLayerUtils
 } // namespace FleshRingLayerUtils
 
 // ============================================================================
-// FVertexSpatialHash Implementation
-// 버텍스 공간 해시 구현 (O(n) → O(1) 쿼리 최적화)
+// FVertexSpatialHash Implementation (O(n) → O(1) query optimization)
 // ============================================================================
 
 void FVertexSpatialHash::Build(const TArray<FVector3f>& Vertices, float InCellSize)
@@ -305,7 +297,6 @@ void FVertexSpatialHash::QueryOBB(const FTransform& LocalToWorld, const FVector&
 
 // ============================================================================
 // Distance-Based Vertex Selector Implementation
-// 거리 기반 버텍스 선택기 구현
 // ============================================================================
 
 void FDistanceBasedVertexSelector::SelectVertices(
@@ -314,12 +305,12 @@ void FDistanceBasedVertexSelector::SelectVertices(
 {
     OutAffected.Reset();
 
-    // Context에서 필요한 데이터 추출
+    // Extract required data from Context
     const FFleshRingSettings& Ring = Context.RingSettings;
     const FTransform& BoneTransform = Context.BoneTransform;
     const TArray<FVector3f>& AllVertices = Context.AllVertices;
 
-    // ★ InfluenceMode 기반 분기: Auto 모드일 때만 SDFCache 유효성 체크
+    // InfluenceMode-based branching: Check SDFCache validity only in Auto mode
     bool bUseOBB = false;
     if (Ring.InfluenceMode == EFleshRingInfluenceMode::Auto)
     {
@@ -331,14 +322,14 @@ void FDistanceBasedVertexSelector::SelectVertices(
 
     if (bUseOBB)
     {
-        // ===== OBB 기반 버텍스 선택 (GPU SDF와 정확히 일치) =====
-        // 비균등 스케일 + 회전 조합에서 InverseTransformPosition 사용 필수!
-        // Inverse().TransformPosition()은 스케일과 회전 순서가 잘못됨
+        // ===== OBB-based vertex selection (exactly matches GPU SDF) =====
+        // Must use InverseTransformPosition for non-uniform scale + rotation combination!
+        // Inverse().TransformPosition() has incorrect scale and rotation order
         const FTransform& LocalToComponent = Context.SDFCache->LocalToComponent;
         const FVector BoundsMin = FVector(Context.SDFCache->BoundsMin);
         const FVector BoundsMax = FVector(Context.SDFCache->BoundsMax);
 
-        // [디버그] OBB 변환 정보 로그 (스케일 확인용)
+        // [Debug] OBB transform info log (for scale verification)
         UE_LOG(LogFleshRingVertices, Log,
             TEXT("OBB SelectVertices: Ring[%d] LocalToComponent Scale=%s, Rot=%s, Trans=%s"),
             Context.RingIndex,
@@ -352,16 +343,16 @@ void FDistanceBasedVertexSelector::SelectVertices(
             *BoundsMax.ToString(),
             *(BoundsMax - BoundsMin).ToString());
 
-        // Influence 계산용 파라미터 (로컬 스페이스 기준, 스케일 미적용)
+        // Parameters for Influence calculation (local space, no scale applied)
         const float RingRadius = Ring.RingRadius;
         const float RingThickness = Ring.RingThickness;
         const float HalfWidth = Ring.RingHeight / 2.0f;
 
-        // ===== Spatial Hash 사용 시 O(1) 쿼리, 없으면 브루트포스 O(n) =====
+        // ===== O(1) query with Spatial Hash, brute-force O(n) without =====
         TArray<int32> CandidateIndices;
         if (Context.SpatialHash && Context.SpatialHash->IsBuilt())
         {
-            // Spatial Hash로 OBB 내 후보 추출 (O(1))
+            // Extract OBB candidates via Spatial Hash (O(1))
             Context.SpatialHash->QueryOBB(LocalToComponent, BoundsMin, BoundsMax, CandidateIndices);
             UE_LOG(LogFleshRingVertices, Verbose,
                 TEXT("Ring[%d]: SpatialHash query returned %d candidates (from %d total)"),
@@ -369,7 +360,7 @@ void FDistanceBasedVertexSelector::SelectVertices(
         }
         else
         {
-            // 브루트포스 폴백: 모든 버텍스 순회
+            // Brute-force fallback: iterate all vertices
             CandidateIndices.Reserve(AllVertices.Num());
             for (int32 i = 0; i < AllVertices.Num(); ++i)
             {
@@ -385,34 +376,34 @@ void FDistanceBasedVertexSelector::SelectVertices(
                 const EFleshRingLayerType LayerType = (*Context.VertexLayerTypes)[VertexIdx];
                 if (!Context.RingSettings.IsLayerAffected(LayerType))
                 {
-                    continue; // 지정된 레이어가 아니면 스킵
+                    continue; // Skip if not in specified layer
                 }
             }
 
             const FVector VertexPos = FVector(AllVertices[VertexIdx]);
 
-            // Component Space → Local Space 변환
-            // InverseTransformPosition: (Rot^-1 * (V - Trans)) / Scale (올바른 순서)
+            // Component Space → Local Space transform
+            // InverseTransformPosition: (Rot^-1 * (V - Trans)) / Scale (correct order)
             const FVector LocalPos = LocalToComponent.InverseTransformPosition(VertexPos);
 
-            // OBB 경계 체크 (SpatialHash 미사용 시에만 필요, QueryOBB는 이미 체크함)
+            // OBB bounds check (only needed when SpatialHash not used, QueryOBB already checks)
             if (!Context.SpatialHash || !Context.SpatialHash->IsBuilt())
             {
                 if (LocalPos.X < BoundsMin.X || LocalPos.X > BoundsMax.X ||
                     LocalPos.Y < BoundsMin.Y || LocalPos.Y > BoundsMax.Y ||
                     LocalPos.Z < BoundsMin.Z || LocalPos.Z > BoundsMax.Z)
                 {
-                    continue; // OBB 밖 - 스킵
+                    continue; // Outside OBB - skip
                 }
             }
 
-            // 로컬 스페이스에서 Ring 기하에 대한 거리 계산
-            // 링 축 = Z축 (로컬 스페이스), 링 중심 = 원점
+            // Calculate distance to Ring geometry in local space
+            // Ring axis = Z-axis (local space), Ring center = origin
             const float AxisDistance = LocalPos.Z;
             const FVector2D RadialVec(LocalPos.X, LocalPos.Y);
             const float RadialDistance = RadialVec.Size();
 
-            // Influence 계산 (Ring 표면으로부터의 거리 기반)
+            // Influence calculation (based on distance from Ring surface)
             const float DistFromRingSurface = FMath::Abs(RadialDistance - RingRadius);
             const float RadialInfluence = CalculateFalloff(DistFromRingSurface, RingThickness, Ring.FalloffType);
             const float AxialInfluence = CalculateFalloff(FMath::Abs(AxisDistance), HalfWidth, Ring.FalloffType);
@@ -430,23 +421,23 @@ void FDistanceBasedVertexSelector::SelectVertices(
     }
     else
     {
-        // ===== Fallback: 원통형 모델 (VirtualRing 모드, SDFCache 없을 때) =====
-        // VirtualRing 모드 전용 RingOffset/RingRotation 사용 (MeshOffset/MeshRotation 아님!)
+        // ===== Fallback: Cylindrical model (VirtualRing mode, when SDFCache unavailable) =====
+        // Use RingOffset/RingRotation for VirtualRing mode (not MeshOffset/MeshRotation!)
         const FQuat BoneRotation = BoneTransform.GetRotation();
         const FVector WorldRingOffset = BoneRotation.RotateVector(Ring.RingOffset);
         const FVector RingCenter = BoneTransform.GetLocation() + WorldRingOffset;
         const FQuat WorldRingRotation = BoneRotation * Ring.RingRotation;
         const FVector RingAxis = WorldRingRotation.RotateVector(FVector::ZAxisVector);
 
-        // VirtualRing 모드는 스케일 없음 (RingRadius/RingThickness/RingHeight가 직접 단위)
+        // VirtualRing mode has no scale (RingRadius/RingThickness/RingHeight are direct units)
         const float MaxDistance = Ring.RingRadius + Ring.RingThickness;
         const float HalfWidth = Ring.RingHeight / 2.0f;
 
-        // ===== Spatial Hash OBB 쿼리로 후보 축소 (O(N) → O(K)) =====
+        // ===== Reduce candidates via Spatial Hash OBB query (O(N) → O(K)) =====
         TArray<int32> CandidateIndices;
         if (Context.SpatialHash && Context.SpatialHash->IsBuilt())
         {
-            // Ring 회전을 반영한 OBB 트랜스폼
+            // OBB transform reflecting Ring rotation
             FTransform RingLocalToComponent;
             RingLocalToComponent.SetLocation(RingCenter);
             RingLocalToComponent.SetRotation(WorldRingRotation);
@@ -462,7 +453,7 @@ void FDistanceBasedVertexSelector::SelectVertices(
         }
         else
         {
-            // 폴백: 전체 순회
+            // Fallback: iterate all
             CandidateIndices.Reserve(AllVertices.Num());
             for (int32 i = 0; i < AllVertices.Num(); ++i)
             {
@@ -470,7 +461,7 @@ void FDistanceBasedVertexSelector::SelectVertices(
             }
         }
 
-        // 후보만 순회 (기존: 전체 순회)
+        // Iterate only candidates (previously: all vertices)
         for (int32 VertexIdx : CandidateIndices)
         {
             // === Layer Type Filtering ===
@@ -479,7 +470,7 @@ void FDistanceBasedVertexSelector::SelectVertices(
                 const EFleshRingLayerType LayerType = (*Context.VertexLayerTypes)[VertexIdx];
                 if (!Context.RingSettings.IsLayerAffected(LayerType))
                 {
-                    continue; // 지정된 레이어가 아니면 스킵
+                    continue; // Skip if not in specified layer
                 }
             }
 
@@ -491,12 +482,12 @@ void FDistanceBasedVertexSelector::SelectVertices(
 
             if (RadialDistance <= MaxDistance && FMath::Abs(AxisDistance) <= HalfWidth)
             {
-                // GPU가 Influence를 재계산하므로 CPU에서는 1.0으로 고정 (placeholder)
+                // CPU uses 1.0 as placeholder since GPU recalculates Influence
                 // GPU: CalculateVirtualRingInfluence() in FleshRingTightnessCS.usf
                 OutAffected.Add(FAffectedVertex(
                     static_cast<uint32>(VertexIdx),
                     RadialDistance,
-                    1.0f  // GPU가 재계산
+                    1.0f  // GPU recalculates
                 ));
             }
         }
@@ -509,7 +500,7 @@ void FDistanceBasedVertexSelector::SelectVertices(
 }
 
 // ============================================================================
-// CalculateFalloff - 감쇠 곡선 계산
+// CalculateFalloff - Falloff curve calculation
 // ============================================================================
 float FDistanceBasedVertexSelector::CalculateFalloff(
     float Distance,
@@ -517,35 +508,30 @@ float FDistanceBasedVertexSelector::CalculateFalloff(
     EFalloffType InFalloffType) const
 {
     // Normalize distance to 0-1 range
-    // 거리를 0~1 범위로 정규화
     const float NormalizedDist = FMath::Clamp(Distance / MaxDistance, 0.0f, 1.0f);
 
     // Inverted: closer = higher influence
-    // 반전: 가까울수록 영향도 높음
     const float T = 1.0f - NormalizedDist;
 
     switch (InFalloffType)
     {
     case EFalloffType::Quadratic:
         // Smoother falloff near center
-        // 중심 근처에서 더 부드러운 감쇠
         return T * T;
 
     case EFalloffType::Hermite:
         // Hermite S-curve (smooth in, smooth out)
-        // Hermite S-커브 (시작과 끝 모두 부드러움)
         return T * T * (3.0f - 2.0f * T);
 
     case EFalloffType::Linear:
     default:
         // Simple linear falloff
-        // 단순 선형 감쇠
         return T;
     }
 }
 
 // ============================================================================
-// SelectSmoothingRegionVertices - VirtualRing 모드용 후처리 버텍스 선택
+// SelectSmoothingRegionVertices - Post-processing vertex selection for VirtualRing mode
 // ============================================================================
 void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
     const FVertexSelectionContext& Context,
@@ -556,7 +542,7 @@ void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
     OutRingData.SmoothingRegionInfluences.Reset();
     OutRingData.SmoothingRegionIsAnchor.Reset();
 
-    // 원본 Affected Vertices를 빠르게 조회하기 위한 Set (앵커 판정용)
+    // Set for fast lookup of original Affected Vertices (for anchor determination)
     TSet<uint32> AffectedSet;
     AffectedSet.Reserve(AffectedVertices.Num());
     for (const FAffectedVertex& V : AffectedVertices)
@@ -564,7 +550,7 @@ void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
         AffectedSet.Add(V.VertexIndex);
     }
 
-    // ★ 모든 Smoothing이 꺼져있으면 원본 Affected Vertices만 복사
+    // Copy only original Affected Vertices if all Smoothing is disabled
     const bool bAnySmoothingEnabled =
         Context.RingSettings.bEnableRadialSmoothing ||
         Context.RingSettings.bEnableLaplacianSmoothing ||
@@ -580,7 +566,7 @@ void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
         {
             OutRingData.SmoothingRegionIndices.Add(V.VertexIndex);
             OutRingData.SmoothingRegionInfluences.Add(1.0f);
-            OutRingData.SmoothingRegionIsAnchor.Add(1);  // 원본 Affected = 앵커
+            OutRingData.SmoothingRegionIsAnchor.Add(1);  // Original Affected = anchor
         }
 
         UE_LOG(LogFleshRingVertices, Log,
@@ -594,7 +580,7 @@ void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
     const FFleshRingSettings& Ring = Context.RingSettings;
     const TArray<FVector3f>& AllVertices = Context.AllVertices;
 
-    // Z 확장이 없으면 원본 Affected Vertices를 그대로 사용
+    // Use original Affected Vertices as-is if no Z extension
     if (BoundsZTop < 0.01f && BoundsZBottom < 0.01f)
     {
         OutRingData.SmoothingRegionIndices.Reserve(AffectedVertices.Num());
@@ -605,7 +591,7 @@ void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
         {
             OutRingData.SmoothingRegionIndices.Add(V.VertexIndex);
             OutRingData.SmoothingRegionInfluences.Add(1.0f);
-            OutRingData.SmoothingRegionIsAnchor.Add(1);  // 원본 Affected = 앵커
+            OutRingData.SmoothingRegionIsAnchor.Add(1);  // Original Affected = anchor
         }
 
         UE_LOG(LogFleshRingVertices, Log,
@@ -614,7 +600,7 @@ void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
         return;
     }
 
-    // VirtualRing 모드: Ring 파라미터로 직접 계산 (Component Space)
+    // VirtualRing mode: Calculate directly from Ring parameters (Component Space)
     const FQuat BoneRotation = Context.BoneTransform.GetRotation();
     const FVector WorldRingOffset = BoneRotation.RotateVector(Ring.RingOffset);
     const FVector RingCenter = Context.BoneTransform.GetLocation() + WorldRingOffset;
@@ -624,7 +610,7 @@ void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
     const float HalfWidth = Ring.RingHeight / 2.0f;
     const float MaxRadialDistance = Ring.RingRadius + Ring.RingThickness;
 
-    // Z 확장된 축 방향 범위
+    // Z-extended axial range
     const float OriginalZMin = -HalfWidth;
     const float OriginalZMax = HalfWidth;
     const float ExtendedZMin = OriginalZMin - BoundsZBottom;
@@ -646,16 +632,16 @@ void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
         const FVector RadialVec = ToVertex - RingAxis * AxisDistance;
         const float RadialDistance = RadialVec.Size();
 
-        // 반경 방향은 원본 범위, 축 방향은 확장 범위
+        // Radial is original range, axial is extended range
         if (RadialDistance <= MaxRadialDistance &&
             AxisDistance >= ExtendedZMin && AxisDistance <= ExtendedZMax)
         {
-            // Influence 계산: 원본 Z 범위 내 = 1.0, 확장 영역 = falloff
+            // Influence calculation: within original Z range = 1.0, extended region = falloff
             float Influence = 1.0f;
 
             if (AxisDistance < OriginalZMin)
             {
-                // 하단 확장 영역: 거리에 따라 falloff
+                // Bottom extended region: falloff by distance
                 float Dist = OriginalZMin - AxisDistance;
                 Influence = 1.0f - FMath::Clamp(Dist / BoundsZBottom, 0.0f, 1.0f);
                 Influence = FMath::InterpEaseInOut(0.0f, 1.0f, Influence, 2.0f);
@@ -663,7 +649,7 @@ void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
             }
             else if (AxisDistance > OriginalZMax)
             {
-                // 상단 확장 영역: 거리에 따라 falloff
+                // Top extended region: falloff by distance
                 float Dist = AxisDistance - OriginalZMax;
                 Influence = 1.0f - FMath::Clamp(Dist / BoundsZTop, 0.0f, 1.0f);
                 Influence = FMath::InterpEaseInOut(0.0f, 1.0f, Influence, 2.0f);
@@ -674,7 +660,7 @@ void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
                 CoreCount++;
             }
 
-            // 앵커 판정: 원본 AffectedVertices에 포함된 버텍스만 앵커
+            // Anchor determination: only vertices in original AffectedVertices are anchors
             const bool bIsAnchor = AffectedSet.Contains(static_cast<uint32>(VertexIdx));
             if (bIsAnchor) AnchorCount++;
 
@@ -692,7 +678,6 @@ void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
 
 // ============================================================================
 // SDF Bounds-Based Vertex Selector Implementation
-// SDF 바운드 기반 버텍스 선택기 구현
 // ============================================================================
 
 void FSDFBoundsBasedVertexSelector::SelectVertices(
@@ -701,8 +686,8 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
 {
     OutAffected.Reset();
 
-    // Context에서 SDF 캐시 확인
-    // SDFCache가 nullptr이거나 유효하지 않으면 선택 안 함
+    // Check SDF cache from Context
+    // Skip selection if SDFCache is nullptr or invalid
     if (!Context.SDFCache || !Context.SDFCache->IsValid())
     {
         UE_LOG(LogFleshRingVertices, Warning,
@@ -711,20 +696,20 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
         return;
     }
 
-    // OBB 변환: Component Space → Local Space
-    // 비균등 스케일 + 회전 조합에서 InverseTransformPosition 사용 필수!
-    // Inverse().TransformPosition()은 스케일과 회전 순서가 잘못됨
+    // OBB transform: Component Space → Local Space
+    // Must use InverseTransformPosition for non-uniform scale + rotation combination!
+    // Inverse().TransformPosition() has incorrect scale and rotation order
     const FTransform& LocalToComponent = Context.SDFCache->LocalToComponent;
 
-    // 버텍스 필터링 바운드 (SDFBoundsExpandX/Y 적용)
-    // NOTE: SDF 텍스처 바운드는 원래 크기 유지, 버텍스 필터링만 확장
+    // Vertex filtering bounds (with SDFBoundsExpandX/Y applied)
+    // NOTE: SDF texture bounds stay original size, only vertex filtering is expanded
     const float ExpandX = Context.RingSettings.SDFBoundsExpandX;
     const float ExpandY = Context.RingSettings.SDFBoundsExpandY;
 
     FVector BoundsMin = FVector(Context.SDFCache->BoundsMin);
     FVector BoundsMax = FVector(Context.SDFCache->BoundsMax);
 
-    // Ring 로컬 스페이스에서 X, Y 방향 확장 (Z는 Ring 축이므로 유지)
+    // Expand in X, Y directions in Ring local space (Z is Ring axis, keep unchanged)
     BoundsMin.X -= ExpandX;
     BoundsMin.Y -= ExpandY;
     BoundsMax.X += ExpandX;
@@ -732,7 +717,7 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
 
     const TArray<FVector3f>& AllVertices = Context.AllVertices;
 
-    // [디버그] LocalToComponent 변환 정보 로그 (스케일 확인용)
+    // [Debug] LocalToComponent transform info log (for scale verification)
     UE_LOG(LogFleshRingVertices, Log,
         TEXT("SDFBoundsSelector: Ring[%d] LocalToComponent Scale=%s, Rot=%s, Trans=%s"),
         Context.RingIndex,
@@ -741,22 +726,22 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
         *LocalToComponent.GetLocation().ToString());
 
     // ================================================================
-    // UV Seam Welding: Position Group 기반 선택
+    // UV Seam Welding: Position Group based selection
     // ================================================================
-    // 목적: UV seam에서 분리된 버텍스들이 모두 함께 선택되도록 보장
-    // 방법: 위치 기반으로 버텍스 그룹화 → 그룹 내 하나라도 선택되면 전체 선택
+    // Purpose: Ensure all vertices split at UV seams are selected together
+    // Method: Group vertices by position → if any in group is selected, select all
     // ================================================================
 
-    constexpr float WeldPrecision = 0.001f;  // 위치 양자화 정밀도
+    constexpr float WeldPrecision = 0.001f;  // Position quantization precision
 
-    // Step 1: 캐시된 맵 사용 또는 폴백으로 로컬 맵 빌드
+    // Step 1: Use cached map or fallback to local map build
     // Use cached map if available, otherwise fallback to local build (slow)
     TMap<FIntVector, TArray<uint32>> LocalPositionToVertices;
     const TMap<FIntVector, TArray<uint32>>* PositionToVerticesPtr = Context.CachedPositionToVertices;
 
     if (!PositionToVerticesPtr || PositionToVerticesPtr->Num() == 0)
     {
-        // 폴백: 캐시 없음, 로컬 맵 빌드 (O(N) - 느림!)
+        // Fallback: no cache, local map build (O(N) - slow!)
         UE_LOG(LogFleshRingVertices, Warning,
             TEXT("SDFBoundsBasedSelector Ring[%d]: CachedPositionToVertices not available, falling back to O(N) local build"),
             Context.RingIndex);
@@ -776,11 +761,11 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
 
     const TMap<FIntVector, TArray<uint32>>& PositionToVertices = *PositionToVerticesPtr;
 
-    // ===== Spatial Hash 사용 시 O(1) 쿼리, 없으면 브루트포스 O(n) =====
+    // ===== O(1) query with Spatial Hash, brute-force O(n) without =====
     TArray<int32> CandidateIndices;
     if (Context.SpatialHash && Context.SpatialHash->IsBuilt())
     {
-        // Spatial Hash로 OBB 내 후보 추출 (O(1))
+        // Extract OBB candidates via Spatial Hash (O(1))
         Context.SpatialHash->QueryOBB(LocalToComponent, BoundsMin, BoundsMax, CandidateIndices);
         UE_LOG(LogFleshRingVertices, Verbose,
             TEXT("SDFBoundsSelector Ring[%d]: SpatialHash query returned %d candidates (from %d total)"),
@@ -788,7 +773,7 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
     }
     else
     {
-        // 브루트포스 폴백: 모든 버텍스 순회
+        // Brute-force fallback: iterate all vertices
         CandidateIndices.Reserve(AllVertices.Num());
         for (int32 i = 0; i < AllVertices.Num(); ++i)
         {
@@ -796,8 +781,8 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
         }
     }
 
-    // Step 2: 선택된 위치들 수집 (Position Group 단위)
-    // 어느 버텍스라도 선택되면 해당 위치의 모든 버텍스가 선택됨
+    // Step 2: Collect selected positions (by Position Group)
+    // If any vertex is selected, all vertices at that position are selected
     TSet<FIntVector> SelectedPositions;
 
     for (int32 VertexIdx : CandidateIndices)
@@ -808,27 +793,27 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
             const EFleshRingLayerType LayerType = (*Context.VertexLayerTypes)[VertexIdx];
             if (!Context.RingSettings.IsLayerAffected(LayerType))
             {
-                continue; // 지정된 레이어가 아니면 스킵
+                continue; // Skip if not in specified layer
             }
         }
 
         const FVector VertexPos = FVector(AllVertices[VertexIdx]);
 
-        // Component Space → Local Space 변환
+        // Component Space → Local Space transform
         const FVector LocalPos = LocalToComponent.InverseTransformPosition(VertexPos);
 
-        // Local Space에서 AABB 포함 테스트 (SpatialHash 미사용 시에만 필요)
+        // AABB containment test in Local Space (only needed when SpatialHash not used)
         if (!Context.SpatialHash || !Context.SpatialHash->IsBuilt())
         {
             if (LocalPos.X < BoundsMin.X || LocalPos.X > BoundsMax.X ||
                 LocalPos.Y < BoundsMin.Y || LocalPos.Y > BoundsMax.Y ||
                 LocalPos.Z < BoundsMin.Z || LocalPos.Z > BoundsMax.Z)
             {
-                continue; // OBB 밖 - 스킵
+                continue; // Outside OBB - skip
             }
         }
 
-        // 이 버텍스의 위치 키 추가 (그룹 전체가 선택됨)
+        // Add this vertex's position key (entire group gets selected)
         const FVector3f& Pos = AllVertices[VertexIdx];
         FIntVector PosKey(
             FMath::RoundToInt(Pos.X / WeldPrecision),
@@ -838,8 +823,8 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
         SelectedPositions.Add(PosKey);
     }
 
-    // Step 3: 선택된 위치의 모든 버텍스 추가 (UV 중복 포함)
-    OutAffected.Reserve(SelectedPositions.Num() * 2);  // 평균 2개의 UV 중복 가정
+    // Step 3: Add all vertices at selected positions (including UV duplicates)
+    OutAffected.Reserve(SelectedPositions.Num() * 2);  // Assume average 2 UV duplicates
 
     int32 UVDuplicatesAdded = 0;
     for (const FIntVector& PosKey : SelectedPositions)
@@ -851,8 +836,8 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
             {
                 OutAffected.Add(FAffectedVertex(
                     VertIdx,
-                    0.0f,  // RadialDistance: SDF 모드에서는 미사용
-                    1.0f   // Influence: 최대값, GPU 셰이더가 CalculateInfluenceFromSDF()로 정제
+                    0.0f,  // RadialDistance: unused in SDF mode
+                    1.0f   // Influence: max value, GPU shader refines via CalculateInfluenceFromSDF()
                 ));
             }
             if (VerticesAtPos->Num() > 1)
@@ -882,7 +867,7 @@ void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
         return;
     }
 
-    // 원본 Affected Vertices를 빠르게 조회하기 위한 Set (앵커 판정용)
+    // Set for fast lookup of original Affected Vertices (for anchor determination)
     TSet<uint32> AffectedSet;
     AffectedSet.Reserve(AffectedVertices.Num());
     for (const FAffectedVertex& V : AffectedVertices)
@@ -890,9 +875,9 @@ void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
         AffectedSet.Add(V.VertexIndex);
     }
 
-    // ★ 모든 Smoothing이 꺼져있으면 Z 확장 없이 원본 Affected Vertices만 복사
-    // ANY Smoothing ON → Z 확장 / Hop 기반 확장 가능
-    // ALL Smoothing OFF → 확장 영역 불필요 (기본 SDF 볼륨만 사용, Tightness/Bulge만 동작)
+    // Copy only original Affected Vertices without Z extension if all Smoothing is disabled
+    // ANY Smoothing ON → Z extension / Hop-based extension possible
+    // ALL Smoothing OFF → no extended region needed (use basic SDF volume, Tightness/Bulge only)
     const bool bAnySmoothingEnabled =
         Context.RingSettings.bEnableRadialSmoothing ||
         Context.RingSettings.bEnableLaplacianSmoothing ||
@@ -908,7 +893,7 @@ void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
         {
             OutRingData.SmoothingRegionIndices.Add(V.VertexIndex);
             OutRingData.SmoothingRegionInfluences.Add(1.0f);
-            OutRingData.SmoothingRegionIsAnchor.Add(1);  // 원본 Affected = 앵커
+            OutRingData.SmoothingRegionIsAnchor.Add(1);  // Original Affected = anchor
         }
 
         UE_LOG(LogFleshRingVertices, Log,
@@ -920,10 +905,10 @@ void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
     const float BoundsZTop = Context.RingSettings.SmoothingBoundsZTop;
     const float BoundsZBottom = Context.RingSettings.SmoothingBoundsZBottom;
 
-    // Z 확장이 없으면 원본 Affected Vertices를 그대로 사용
+    // Use original Affected Vertices as-is if no Z extension
     if (BoundsZTop < 0.01f && BoundsZBottom < 0.01f)
     {
-        // 원본 복사
+        // Copy original
         OutRingData.SmoothingRegionIndices.Reserve(AffectedVertices.Num());
         OutRingData.SmoothingRegionInfluences.Reserve(AffectedVertices.Num());
         OutRingData.SmoothingRegionIsAnchor.Reserve(AffectedVertices.Num());
@@ -931,8 +916,8 @@ void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
         for (const FAffectedVertex& V : AffectedVertices)
         {
             OutRingData.SmoothingRegionIndices.Add(V.VertexIndex);
-            OutRingData.SmoothingRegionInfluences.Add(1.0f);  // 코어 버텍스는 1.0
-            OutRingData.SmoothingRegionIsAnchor.Add(1);  // 원본 Affected = 앵커
+            OutRingData.SmoothingRegionInfluences.Add(1.0f);  // Core vertices = 1.0
+            OutRingData.SmoothingRegionIsAnchor.Add(1);  // Original Affected = anchor
         }
 
         UE_LOG(LogFleshRingVertices, Log,
@@ -941,7 +926,7 @@ void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
         return;
     }
 
-    // Z 확장 범위 계산
+    // Calculate Z extension range
     const FTransform& LocalToComponent = Context.SDFCache->LocalToComponent;
     const FTransform ComponentToLocal = LocalToComponent.Inverse();
 
@@ -949,7 +934,7 @@ void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
     const FVector OriginalBoundsMax = FVector(Context.SDFCache->BoundsMax);
     const TArray<FVector3f>& AllVertices = Context.AllVertices;
 
-    // XY는 원본 유지, Z만 확장 (SmoothingBoundsZTop/Bottom)
+    // Keep XY original, extend Z only (SmoothingBoundsZTop/Bottom)
     FVector ExtendedBoundsMin = OriginalBoundsMin;
     FVector ExtendedBoundsMax = OriginalBoundsMax;
     ExtendedBoundsMin.Z -= BoundsZBottom;
@@ -971,17 +956,17 @@ void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
         const FVector VertexPos = FVector(AllVertices[VertexIdx]);
         const FVector LocalPos = ComponentToLocal.TransformPosition(VertexPos);
 
-        // 확장된 Z 범위 내에 있는지 체크 (XY는 원본 범위)
+        // Check if within extended Z range (XY uses original range)
         if (LocalPos.X >= OriginalBoundsMin.X && LocalPos.X <= OriginalBoundsMax.X &&
             LocalPos.Y >= OriginalBoundsMin.Y && LocalPos.Y <= OriginalBoundsMax.Y &&
             LocalPos.Z >= ExtendedBoundsMin.Z && LocalPos.Z <= ExtendedBoundsMax.Z)
         {
-            // Influence 계산: 코어(원본 범위) = 1.0, Z 확장 영역 = falloff
+            // Influence calculation: core(original range) = 1.0, Z extended region = falloff
             float Influence = 1.0f;
 
             if (LocalPos.Z < OriginalBoundsMin.Z)
             {
-                // 하단 확장 영역: 거리에 따라 falloff
+                // Bottom extended region: falloff by distance
                 float Dist = OriginalBoundsMin.Z - LocalPos.Z;
                 Influence = 1.0f - FMath::Clamp(Dist / BoundsZBottom, 0.0f, 1.0f);
                 Influence = FMath::InterpEaseInOut(0.0f, 1.0f, Influence, 2.0f);  // Smooth falloff
@@ -989,7 +974,7 @@ void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
             }
             else if (LocalPos.Z > OriginalBoundsMax.Z)
             {
-                // 상단 확장 영역: 거리에 따라 falloff
+                // Top extended region: falloff by distance
                 float Dist = LocalPos.Z - OriginalBoundsMax.Z;
                 Influence = 1.0f - FMath::Clamp(Dist / BoundsZTop, 0.0f, 1.0f);
                 Influence = FMath::InterpEaseInOut(0.0f, 1.0f, Influence, 2.0f);  // Smooth falloff
@@ -1000,14 +985,14 @@ void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
                 CoreCount++;
             }
 
-            // 앵커 판정: 원본 AffectedVertices에 포함된 버텍스만 앵커
+            // Anchor determination: only vertices in original AffectedVertices are anchors
             const bool bIsAnchor = AffectedSet.Contains(static_cast<uint32>(VertexIdx));
             if (bIsAnchor) AnchorCount++;
 
             OutRingData.SmoothingRegionIndices.Add(static_cast<uint32>(VertexIdx));
             OutRingData.SmoothingRegionInfluences.Add(Influence);
             OutRingData.SmoothingRegionIsAnchor.Add(bIsAnchor ? 1 : 0);
-            // Note: LayerTypes는 FullMeshLayerTypes에서 GPU가 직접 조회
+            // Note: LayerTypes is looked up directly by GPU from FullMeshLayerTypes
         }
     }
 
@@ -1019,7 +1004,7 @@ void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
 
 // ============================================================================
 // FVirtualBandVertexSelector Implementation
-// Virtual Band(VirtualBand) 모드용 버텍스 선택 구현
+// Vertex selection implementation for Virtual Band mode
 // ============================================================================
 
 float FVirtualBandVertexSelector::GetRadiusAtHeight(float LocalZ, const FVirtualBandSettings& BandSettings) const
@@ -1059,10 +1044,10 @@ void FVirtualBandVertexSelector::SelectVertices(
     const FFleshRingSettings& Ring = Context.RingSettings;
     const TArray<FVector3f>& AllVertices = Context.AllVertices;
 
-    // VirtualBand 설정 가져오기
+    // Get VirtualBand settings
     const FVirtualBandSettings& BandSettings = Ring.VirtualBand;
 
-    // 밴드 트랜스폼 계산 (Virtual Band 전용 BandOffset/BandRotation 사용)
+    // Calculate band transform (use Virtual Band specific BandOffset/BandRotation)
     const FTransform& BoneTransform = Context.BoneTransform;
     const FQuat BoneRotation = BoneTransform.GetRotation();
     const FVector WorldBandOffset = BoneRotation.RotateVector(BandSettings.BandOffset);
@@ -1070,22 +1055,22 @@ void FVirtualBandVertexSelector::SelectVertices(
     const FQuat WorldBandRotation = BoneRotation * BandSettings.BandRotation;
     const FVector BandAxis = WorldBandRotation.RotateVector(FVector::ZAxisVector);
 
-    // 높이 파라미터
+    // Height parameters
     const float LowerHeight = BandSettings.Lower.Height;
     const float BandHeight = BandSettings.BandHeight;
     const float UpperHeight = BandSettings.Upper.Height;
     const float TotalHeight = LowerHeight + BandHeight + UpperHeight;
 
-    // Tightness 영역: Band Section만 (-BandHeight/2 ~ +BandHeight/2)
-    // 새 좌표계: Z=0이 Mid Band 중심
+    // Tightness region: Band Section only (-BandHeight/2 ~ +BandHeight/2)
+    // New coordinate system: Z=0 is Mid Band center
     const float TightnessZMin = -BandHeight * 0.5f;
     const float TightnessZMax = BandHeight * 0.5f;
 
-    // Tightness Falloff 범위: 밴드가 조이면서 밀어내는 거리
-    // Upper/Lower 반경 차이 = 불룩한 정도 = 조여야 할 거리
+    // Tightness Falloff range: distance band pushes while tightening
+    // Upper/Lower radius difference = bulge amount = distance to tighten
     const float UpperBulge = BandSettings.Upper.Radius - BandSettings.MidUpperRadius;
     const float LowerBulge = BandSettings.Lower.Radius - BandSettings.MidLowerRadius;
-    const float TightnessFalloffRange = FMath::Max(FMath::Max(UpperBulge, LowerBulge), 1.0f);  // 최소 1.0 보장
+    const float TightnessFalloffRange = FMath::Max(FMath::Max(UpperBulge, LowerBulge), 1.0f);  // Ensure minimum 1.0
 
     OutAffected.Reserve(AllVertices.Num() / 4);
 
@@ -1097,49 +1082,49 @@ void FVirtualBandVertexSelector::SelectVertices(
             const EFleshRingLayerType LayerType = (*Context.VertexLayerTypes)[VertexIdx];
             if (!Context.RingSettings.IsLayerAffected(LayerType))
             {
-                continue; // 지정된 레이어가 아니면 스킵
+                continue; // Skip if not in specified layer
             }
         }
 
         const FVector VertexPos = FVector(AllVertices[VertexIdx]);
         const FVector ToVertex = VertexPos - BandCenter;
 
-        // 축 방향 거리
+        // Axial distance
         const float AxisDistance = FVector::DotProduct(ToVertex, BandAxis);
         const float LocalZ = AxisDistance;
 
-        // Band Section 범위 체크 (Tightness 영역)
+        // Band Section range check (Tightness region)
         if (LocalZ < TightnessZMin || LocalZ > TightnessZMax)
         {
             continue;
         }
 
-        // 반경 방향 거리
+        // Radial distance
         const FVector RadialVec = ToVertex - BandAxis * AxisDistance;
         const float RadialDistance = RadialVec.Size();
 
-        // 해당 높이에서의 밴드 반경 (가변 반경)
+        // Band radius at this height (variable radius)
         const float BandRadius = GetRadiusAtHeight(LocalZ, BandSettings);
 
-        // 밴드 표면보다 바깥에 있어야 Tightness 영향
+        // Must be outside band surface for Tightness effect
         if (RadialDistance <= BandRadius)
         {
             continue;
         }
 
-        // 밴드 표면과의 거리
+        // Distance from band surface
         const float DistanceOutside = RadialDistance - BandRadius;
 
-        // Falloff 범위 체크
+        // Falloff range check
         if (DistanceOutside > TightnessFalloffRange)
         {
             continue;
         }
 
-        // Radial Influence (표면에 가까울수록 높음)
+        // Radial Influence (higher when closer to surface)
         const float RadialInfluence = CalculateFalloff(DistanceOutside, TightnessFalloffRange, Ring.FalloffType);
 
-        // Axial Influence (Band 경계에서 거리에 따른 falloff)
+        // Axial Influence (falloff by distance from Band boundary)
         float AxialInfluence = 1.0f;
         const float AxialFalloffRange = BandHeight * 0.2f;
         if (LocalZ < TightnessZMin + AxialFalloffRange)
@@ -1179,7 +1164,7 @@ void FVirtualBandVertexSelector::SelectSmoothingRegionVertices(
     OutRingData.SmoothingRegionInfluences.Reset();
     OutRingData.SmoothingRegionIsAnchor.Reset();
 
-    // 원본 Affected Vertices를 빠르게 조회하기 위한 Set (앵커 판정용)
+    // Set for fast lookup of original Affected Vertices (for anchor determination)
     TSet<uint32> AffectedSet;
     AffectedSet.Reserve(AffectedVertices.Num());
     for (const FAffectedVertex& V : AffectedVertices)
@@ -1187,7 +1172,7 @@ void FVirtualBandVertexSelector::SelectSmoothingRegionVertices(
         AffectedSet.Add(V.VertexIndex);
     }
 
-    // Smoothing이 꺼져있으면 원본 Affected Vertices만 복사
+    // Copy only original Affected Vertices if Smoothing is disabled
     const bool bAnySmoothingEnabled =
         Context.RingSettings.bEnableRadialSmoothing ||
         Context.RingSettings.bEnableLaplacianSmoothing ||
@@ -1203,7 +1188,7 @@ void FVirtualBandVertexSelector::SelectSmoothingRegionVertices(
         {
             OutRingData.SmoothingRegionIndices.Add(V.VertexIndex);
             OutRingData.SmoothingRegionInfluences.Add(1.0f);
-            OutRingData.SmoothingRegionIsAnchor.Add(1);  // 원본 Affected = 앵커
+            OutRingData.SmoothingRegionIsAnchor.Add(1);  // Original Affected = anchor
         }
 
         UE_LOG(LogFleshRingVertices, Log,
@@ -1218,7 +1203,7 @@ void FVirtualBandVertexSelector::SelectSmoothingRegionVertices(
     const TArray<FVector3f>& AllVertices = Context.AllVertices;
     const FVirtualBandSettings& BandSettings = Ring.VirtualBand;
 
-    // Z 확장이 없으면 원본 Affected Vertices를 그대로 사용
+    // Use original Affected Vertices as-is if no Z extension
     if (BoundsZTop < 0.01f && BoundsZBottom < 0.01f)
     {
         OutRingData.SmoothingRegionIndices.Reserve(AffectedVertices.Num());
@@ -1229,7 +1214,7 @@ void FVirtualBandVertexSelector::SelectSmoothingRegionVertices(
         {
             OutRingData.SmoothingRegionIndices.Add(V.VertexIndex);
             OutRingData.SmoothingRegionInfluences.Add(1.0f);
-            OutRingData.SmoothingRegionIsAnchor.Add(1);  // 원본 Affected = 앵커
+            OutRingData.SmoothingRegionIsAnchor.Add(1);  // Original Affected = anchor
         }
 
         UE_LOG(LogFleshRingVertices, Log,
@@ -1238,29 +1223,29 @@ void FVirtualBandVertexSelector::SelectSmoothingRegionVertices(
         return;
     }
 
-    // 밴드 트랜스폼 계산 (Virtual Band 전용 BandOffset/BandRotation 사용)
+    // Calculate band transform (use Virtual Band specific BandOffset/BandRotation)
     const FQuat BoneRotation = Context.BoneTransform.GetRotation();
     const FVector WorldBandOffset = BoneRotation.RotateVector(BandSettings.BandOffset);
     const FVector BandCenter = Context.BoneTransform.GetLocation() + WorldBandOffset;
     const FQuat WorldBandRotation = BoneRotation * BandSettings.BandRotation;
     const FVector BandAxis = WorldBandRotation.RotateVector(FVector::ZAxisVector);
 
-    // Virtual Band 전체 높이
+    // Virtual Band total height
     const float LowerHeight = BandSettings.Lower.Height;
     const float BandHeight = BandSettings.BandHeight;
     const float UpperHeight = BandSettings.Upper.Height;
     const float TotalHeight = LowerHeight + BandHeight + UpperHeight;
 
-    // 새 좌표계: Z=0이 Mid Band 중심
+    // New coordinate system: Z=0 is Mid Band center
     const float MidOffset = LowerHeight + BandHeight * 0.5f;
     const float ZMin = -MidOffset;
     const float ZMax = TotalHeight - MidOffset;
 
-    // 확장된 Z 범위 (전체 Virtual Band + Z 확장)
+    // Extended Z range (entire Virtual Band + Z extension)
     const float ExtendedZMin = ZMin - BoundsZBottom;
     const float ExtendedZMax = ZMax + BoundsZTop;
 
-    // 최대 반경 계산 (AABB 쿼리용)
+    // Calculate max radius (for AABB query)
     const float MaxRadius = FMath::Max(
         FMath::Max(BandSettings.Lower.Radius, BandSettings.Upper.Radius),
         FMath::Max(BandSettings.MidLowerRadius, BandSettings.MidUpperRadius)
@@ -1278,25 +1263,25 @@ void FVirtualBandVertexSelector::SelectSmoothingRegionVertices(
         const FVector VertexPos = FVector(AllVertices[VertexIdx]);
         const FVector ToVertex = VertexPos - BandCenter;
 
-        // 축 방향 거리
+        // Axial distance
         const float AxisDistance = FVector::DotProduct(ToVertex, BandAxis);
         const float LocalZ = AxisDistance;
 
-        // 확장된 Z 범위 체크
+        // Extended Z range check
         if (LocalZ < ExtendedZMin || LocalZ > ExtendedZMax)
         {
             continue;
         }
 
-        // 반경 방향 거리
+        // Radial distance
         const FVector RadialVec = ToVertex - BandAxis * AxisDistance;
         const float RadialDistance = RadialVec.Size();
 
-        // 해당 높이에서의 밴드 반경 (가변 반경, Z 범위 클램프)
+        // Band radius at this height (variable radius, Z range clamped)
         const float ClampedZ = FMath::Clamp(LocalZ, ZMin, ZMax);
         const float BandRadius = GetRadiusAtHeight(ClampedZ, BandSettings);
 
-        // 반경 범위 체크 (밴드 근처)
+        // Radial range check (near band)
         if (RadialDistance > BandRadius + Ring.RingThickness)
         {
             continue;
@@ -1304,20 +1289,20 @@ void FVirtualBandVertexSelector::SelectSmoothingRegionVertices(
 
         OutRingData.SmoothingRegionIndices.Add(static_cast<uint32>(VertexIdx));
 
-        // 앵커 판정: 원본 Affected Vertices에 포함되면 앵커
+        // Anchor determination: anchor if included in original Affected Vertices
         const bool bIsAnchor = AffectedSet.Contains(static_cast<uint32>(VertexIdx));
 
-        // Influence 계산: 코어(Band Section 내) = 1.0, Z 확장 영역 = falloff
+        // Influence calculation: core(within Band Section) = 1.0, Z extended region = falloff
         float Influence = 1.0f;
 
-        // 코어 영역: Band Section (-BandHeight/2 ~ +BandHeight/2)
-        // 새 좌표계: Z=0이 Mid Band 중심
+        // Core region: Band Section (-BandHeight/2 ~ +BandHeight/2)
+        // New coordinate system: Z=0 is Mid Band center
         const float CoreZMin = -BandHeight * 0.5f;
         const float CoreZMax = BandHeight * 0.5f;
 
         if (LocalZ < CoreZMin)
         {
-            // 하단 확장 영역 (Lower Section + Z 확장)
+            // Bottom extended region (Lower Section + Z extension)
             const float DistFromCore = CoreZMin - LocalZ;
             const float MaxExtension = LowerHeight + BoundsZBottom;
             Influence = 1.0f - FMath::Clamp(DistFromCore / FMath::Max(MaxExtension, 0.01f), 0.0f, 1.0f);
@@ -1326,7 +1311,7 @@ void FVirtualBandVertexSelector::SelectSmoothingRegionVertices(
         }
         else if (LocalZ > CoreZMax)
         {
-            // 상단 확장 영역 (Upper Section + Z 확장)
+            // Top extended region (Upper Section + Z extension)
             const float DistFromCore = LocalZ - CoreZMax;
             const float MaxExtension = UpperHeight + BoundsZTop;
             Influence = 1.0f - FMath::Clamp(DistFromCore / FMath::Max(MaxExtension, 0.01f), 0.0f, 1.0f);
@@ -1349,13 +1334,11 @@ void FVirtualBandVertexSelector::SelectSmoothingRegionVertices(
 
 // ============================================================================
 // Affected Vertices Manager Implementation
-// 영향받는 버텍스 관리자 구현
 // ============================================================================
 
 FFleshRingAffectedVerticesManager::FFleshRingAffectedVerticesManager()
 {
     // Default to distance-based selector
-    // 기본값: 거리 기반 선택기
     VertexSelector = MakeShared<FDistanceBasedVertexSelector>();
 }
 
@@ -1376,7 +1359,7 @@ void FFleshRingAffectedVerticesManager::SetVertexSelector(TSharedPtr<IVertexSele
 }
 
 // ============================================================================
-// RegisterAffectedVertices - 영향받는 버텍스 등록
+// RegisterAffectedVertices - Register affected vertices
 // ============================================================================
 bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
     const UFleshRingComponent* Component,
@@ -1384,7 +1367,6 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
     int32 LODIndex)
 {
     // Validate input parameters
-    // 입력 파라미터 유효성 검사
     if (!Component || !SkeletalMesh || !VertexSelector)
     {
         UE_LOG(LogFleshRingVertices, Warning,
@@ -1392,11 +1374,10 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         return false;
     }
 
-    // RingDataArray 크기 조정은 아래 SetNum() 로직에서 처리
-    // (Dirty Flag 시스템으로 clean한 Ring의 캐시된 데이터 보존)
+    // RingDataArray resizing handled in SetNum() logic below
+    // (Dirty Flag system preserves cached data for clean Rings)
 
     // FleshRingAsset null check
-    // FleshRingAsset null 체크
     if (!Component->FleshRingAsset)
     {
         UE_LOG(LogFleshRingVertices, Warning,
@@ -1407,13 +1388,11 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
     const TArray<FFleshRingSettings>& Rings = Component->FleshRingAsset->Rings;
 
     // ================================================================
-    // 메시 데이터 캐싱: 바인드 포즈는 불변이므로 한 번만 추출
     // Mesh data caching: bind pose is immutable, extract only once
     // ================================================================
     if (!bMeshDataCached)
     {
-        // Extract mesh vertices from skeletal mesh at specified LOD
-        // 스켈레탈 메시의 지정된 LOD에서 버텍스 추출 (바인드 포즈 컴포넌트 스페이스)
+        // Extract mesh vertices from skeletal mesh at specified LOD (bind pose component space)
         if (!ExtractMeshVertices(SkeletalMesh, CachedMeshVertices, LODIndex))
         {
             UE_LOG(LogFleshRingVertices, Error,
@@ -1422,11 +1401,9 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         }
 
         // Build Spatial Hash for O(1) vertex queries
-        // O(1) 버텍스 쿼리를 위한 Spatial Hash 빌드
         VertexSpatialHash.Build(CachedMeshVertices);
 
-        // Extract mesh indices for adjacency data (Normal recomputation)
-        // 인접 데이터용 메시 인덱스 추출 (노멀 재계산용)
+        // Extract mesh indices for adjacency data (for Normal recomputation)
         CachedMeshIndices.Reset();
         if (!ExtractMeshIndices(SkeletalMesh, CachedMeshIndices, LODIndex))
         {
@@ -1434,10 +1411,10 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
                 TEXT("RegisterAffectedVertices: Failed to extract mesh indices, Normal recomputation will be disabled"));
         }
 
-        // 토폴로지 캐시 빌드 (메시 데이터 캐싱과 함께)
-        // 라플라시안 스무딩 여부와 무관하게 항상 빌드하여 모든 함수에서 캐시 활용
-        // 이전에는 BuildLaplacianAdjacencyData() 내부에서만 빌드되어
-        // BuildRepresentativeIndices(), BuildAdjacencyData() 등이 캐시를 활용하지 못했음
+        // Build topology cache (along with mesh data caching)
+        // Always build regardless of Laplacian smoothing to leverage cache in all functions
+        // Previously only built inside BuildLaplacianAdjacencyData(), so
+        // BuildRepresentativeIndices(), BuildAdjacencyData() etc. couldn't use the cache
         if (CachedMeshIndices.Num() > 0 && !bTopologyCacheBuilt)
         {
             BuildTopologyCache(CachedMeshVertices, CachedMeshIndices);
@@ -1450,33 +1427,31 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
     }
 
     // ================================================================
-    // Layer Types 재빌드 (매번 호출 - MaterialLayerMappings 변경 즉시 반영)
     // Rebuild layer types every time to reflect MaterialLayerMappings changes
     // ================================================================
     RebuildVertexLayerTypes(Component, SkeletalMesh, LODIndex);
 
-    // 로컬 참조용 (이후 코드와 호환)
+    // Local references (for compatibility with subsequent code)
     const TArray<FVector3f>& MeshVertices = CachedMeshVertices;
     const TArray<EFleshRingLayerType>& VertexLayerTypes = CachedVertexLayerTypes;
 
     // ================================================================
-    // Dirty Flag 시스템 초기화
     // Initialize dirty flag system
     // ================================================================
     const int32 NumRings = Rings.Num();
 
-    // RingDataArray 크기 조정
+    // Resize RingDataArray
     if (RingDataArray.Num() != NumRings)
     {
         RingDataArray.SetNum(NumRings);
     }
 
-    // RingDirtyFlags 크기 조정 (기존 dirty 상태 유지, 새 요소만 dirty로 설정)
+    // Resize RingDirtyFlags (preserve existing dirty state, only mark new elements as dirty)
     if (RingDirtyFlags.Num() != NumRings)
     {
         const int32 OldNum = RingDirtyFlags.Num();
         RingDirtyFlags.SetNum(NumRings);
-        // 새로 추가된 Ring만 dirty로 설정 (기존 상태는 유지)
+        // Only mark newly added Rings as dirty (preserve existing state)
         for (int32 i = OldNum; i < NumRings; ++i)
         {
             RingDirtyFlags[i] = true;
@@ -1485,60 +1460,54 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
     }
 
     // Process each Ring
-    // 각 링 처리
     for (int32 RingIdx = 0; RingIdx < NumRings; ++RingIdx)
     {
         const FFleshRingSettings& RingSettings = Rings[RingIdx];
 
-        // ===== Dirty Flag 체크: Clean한 링은 스킵 =====
+        // ===== Dirty Flag check: Skip clean Rings =====
         if (!RingDirtyFlags[RingIdx])
         {
-            // 이미 유효한 데이터가 있고 변경되지 않음 - 스킵
+            // Already has valid data and not changed - skip
             UE_LOG(LogFleshRingVertices, Log, TEXT("Ring[%d]: SKIPPED (not dirty)"), RingIdx);
             continue;
         }
         UE_LOG(LogFleshRingVertices, Log, TEXT("Ring[%d]: PROCESSING (dirty)"), RingIdx);
 
         // Skip Rings without valid bone
-        // 유효한 본이 없는 링은 건너뜀
         if (RingSettings.BoneName == NAME_None)
         {
             UE_LOG(LogFleshRingVertices, Warning,
                 TEXT("Ring[%d]: Skipping - no bone assigned"), RingIdx);
-            RingDirtyFlags[RingIdx] = false;  // 처리 완료로 표시
+            RingDirtyFlags[RingIdx] = false;  // Mark as processed
             continue;
         }
 
         // Get bone index from skeletal mesh
-        // 스켈레탈 메시에서 본 인덱스 가져오기
         const int32 BoneIndex = SkeletalMesh->GetBoneIndex(RingSettings.BoneName);
         if (BoneIndex == INDEX_NONE)
         {
             UE_LOG(LogFleshRingVertices, Warning,
                 TEXT("Ring[%d]: Bone '%s' not found"), RingIdx, *RingSettings.BoneName.ToString());
-            RingDirtyFlags[RingIdx] = false;  // 에러지만 처리 완료로 표시
+            RingDirtyFlags[RingIdx] = false;  // Error but mark as processed
             continue;
         }
 
         // Get skeletal mesh asset for reference skeleton
-        // 레퍼런스 스켈레톤을 위한 스켈레탈 메시 에셋 가져오기
         USkeletalMesh* SkelMeshAsset = SkeletalMesh->GetSkeletalMeshAsset();
         if (!SkelMeshAsset)
         {
             UE_LOG(LogFleshRingVertices, Warning,
                 TEXT("Ring[%d]: SkeletalMesh asset is null"), RingIdx);
-            RingDirtyFlags[RingIdx] = false;  // 에러지만 처리 완료로 표시
+            RingDirtyFlags[RingIdx] = false;  // Error but mark as processed
             continue;
         }
 
         // Calculate bind pose component space transform
-        // 바인드 포즈 컴포넌트 스페이스 트랜스폼 계산
-        // (MeshVertices가 바인드 포즈 로컬 좌표이므로 동일한 좌표계 사용 필요)
+        // (MeshVertices are in bind pose local coordinates, so need same coordinate system)
         const FReferenceSkeleton& RefSkeleton = SkelMeshAsset->GetRefSkeleton();
         const TArray<FTransform>& RefBonePose = RefSkeleton.GetRefBonePose();
 
         // Accumulate transforms through parent chain
-        // 부모 체인을 따라가며 트랜스폼 누적
         FTransform BoneTransform = FTransform::Identity;
         int32 CurrentBoneIdx = BoneIndex;
         while (CurrentBoneIdx != INDEX_NONE)
@@ -1554,34 +1523,32 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
 
         // ================================================================
         // Create Ring data (FFleshRingSettings → FRingAffectedData)
-        // 링 데이터 생성 (FFleshRingSettings → FRingAffectedData 복사)
         // ================================================================
         FRingAffectedData RingData;
 
         // Ring Information (from bone transform)
-        // 링 정보 (본 트랜스폼에서 계산)
         RingData.BoneName = RingSettings.BoneName;
 
         const FQuat BoneRotation = BoneTransform.GetRotation();
 
-        // InfluenceMode에 따라 RingCenter/RingAxis/Geometry 계산 분기
+        // Branch RingCenter/RingAxis/Geometry calculation based on InfluenceMode
         if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualRing)
         {
-            // ===== VirtualRing 모드: RingOffset/RingRotation 사용 =====
+            // ===== VirtualRing mode: Use RingOffset/RingRotation =====
             const FVector WorldRingOffset = BoneRotation.RotateVector(RingSettings.RingOffset);
             RingData.RingCenter = BoneTransform.GetLocation() + WorldRingOffset;
 
             const FQuat WorldRingRotation = BoneRotation * RingSettings.RingRotation;
             RingData.RingAxis = WorldRingRotation.RotateVector(FVector::ZAxisVector);
 
-            // VirtualRing 모드는 스케일 없이 직접 값 사용
+            // VirtualRing mode uses values directly without scale
             RingData.RingRadius = RingSettings.RingRadius;
             RingData.RingThickness = RingSettings.RingThickness;
             RingData.RingHeight = RingSettings.RingHeight;
         }
         else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
         {
-            // ===== Virtual Band 모드: 전용 BandOffset/BandRotation 사용 =====
+            // ===== Virtual Band mode: Use dedicated BandOffset/BandRotation =====
             const FVirtualBandSettings& BandSettings = RingSettings.VirtualBand;
             const FVector WorldBandOffset = BoneRotation.RotateVector(BandSettings.BandOffset);
             RingData.RingCenter = BoneTransform.GetLocation() + WorldBandOffset;
@@ -1589,21 +1556,21 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             const FQuat WorldBandRotation = BoneRotation * BandSettings.BandRotation;
             RingData.RingAxis = WorldBandRotation.RotateVector(FVector::ZAxisVector);
 
-            // VirtualBand는 밴드 설정에서 반경 사용
+            // VirtualBand uses radius from band settings
             RingData.RingRadius = BandSettings.MidUpperRadius;
             RingData.RingThickness = BandSettings.BandThickness;
             RingData.RingHeight = BandSettings.BandHeight;
         }
         else
         {
-            // ===== Auto 모드: MeshOffset/MeshRotation + MeshScale 적용 (SDF 기반) =====
+            // ===== Auto mode: Apply MeshOffset/MeshRotation + MeshScale (SDF-based) =====
             const FVector WorldMeshOffset = BoneRotation.RotateVector(RingSettings.MeshOffset);
             RingData.RingCenter = BoneTransform.GetLocation() + WorldMeshOffset;
 
             const FQuat WorldMeshRotation = BoneRotation * RingSettings.MeshRotation;
             RingData.RingAxis = WorldMeshRotation.RotateVector(FVector::ZAxisVector);
 
-            // MeshScale 반영: 반경 방향 (X, Y 평균) 과 축 방향 (Z) 분리
+            // Apply MeshScale: separate radial (X, Y average) and axial (Z) directions
             const float RadialScale = (RingSettings.MeshScale.X + RingSettings.MeshScale.Y) * 0.5f;
             const float AxialScale = RingSettings.MeshScale.Z;
 
@@ -1613,12 +1580,10 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         }
 
         // Deformation Parameters (copy from asset)
-        // 변형 파라미터 (에셋에서 복사)
         RingData.TightnessStrength = RingSettings.TightnessStrength;
         RingData.FalloffType = RingSettings.FalloffType;
 
         // ================================================================
-        // Context 생성 및 버텍스 선택
         // Build Context and select affected vertices
         // ================================================================
         const FRingSDFCache* SDFCache = Component->GetRingSDFCache(RingIdx);
@@ -1628,15 +1593,15 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             RingIdx,
             BoneTransform,
             MeshVertices,
-            SDFCache,  // nullptr이면 SDF 미사용 (Distance 기반 Selector는 무시)
-            &VertexSpatialHash,  // O(1) 버텍스 쿼리용 Spatial Hash
-            bTopologyCacheBuilt ? &CachedPositionToVertices : nullptr,  // UV seam 용접용 캐시 (빌드됨 시에만)
-            &CachedVertexLayerTypes  // 레이어 기반 버텍스 필터링용
+            SDFCache,  // nullptr means SDF not used (Distance-based Selector ignores)
+            &VertexSpatialHash,  // Spatial Hash for O(1) vertex queries
+            bTopologyCacheBuilt ? &CachedPositionToVertices : nullptr,  // UV seam welding cache (only if built)
+            &CachedVertexLayerTypes  // For layer-based vertex filtering
         );
 
-        // Ring별 InfluenceMode에 따라 Selector 결정
-        // Auto 모드 + SDF 유효 → SDFBoundsBasedSelector
-        // VirtualRing/VirtualBand 모드 또는 SDF 무효 → DistanceBasedSelector/VirtualBandVertexSelector
+        // Determine Selector based on per-Ring InfluenceMode
+        // Auto mode + SDF valid → SDFBoundsBasedSelector
+        // VirtualRing/VirtualBand mode or SDF invalid → DistanceBasedSelector/VirtualBandVertexSelector
         TSharedPtr<IVertexSelector> RingSelector;
         const bool bUseSDFForThisRing =
             (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto) &&
@@ -1648,7 +1613,7 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         }
         else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
         {
-            // VirtualBand 모드 + SDF 무효 → VirtualBandVertexSelector (거리 기반 가변 반경)
+            // VirtualBand mode + SDF invalid → VirtualBandVertexSelector (distance-based variable radius)
             RingSelector = MakeShared<FVirtualBandVertexSelector>();
         }
         else
@@ -1656,7 +1621,7 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             RingSelector = MakeShared<FDistanceBasedVertexSelector>();
         }
 
-        // InfluenceMode 이름 결정
+        // Determine InfluenceMode name
         const TCHAR* InfluenceModeStr = TEXT("VirtualRing");
         if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto)
         {
@@ -1667,7 +1632,7 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             InfluenceModeStr = TEXT("VirtualBand");
         }
 
-        // Selector 이름 결정
+        // Determine Selector name
         const TCHAR* SelectorStr = TEXT("DistanceBasedSelector");
         if (bUseSDFForThisRing)
         {
@@ -1685,104 +1650,96 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             InfluenceModeStr,
             (SDFCache && SDFCache->IsValid()) ? TEXT("Yes") : TEXT("No"));
 
-        // Ring별 Selector로 영향받는 버텍스 선택
+        // Select affected vertices using per-Ring Selector
         RingSelector->SelectVertices(Context, RingData.Vertices);
 
         // ================================================================
-        // 후처리용 버텍스 선택 (Z 확장 범위)
         // Select post-processing vertices (Z-extended range)
         // ================================================================
-        // 설계:
-        // - Affected Vertices (PackedIndices) = 원본 AABB → Tightness 변형 대상
-        // - Post-Processing Vertices = 원본 AABB + SmoothingBoundsZTop/Bottom → 스무딩/침투해결 등
+        // Design:
+        // - Affected Vertices (PackedIndices) = original AABB → Tightness deformation target
+        // - Post-Processing Vertices = original AABB + SmoothingBoundsZTop/Bottom → smoothing/penetration resolution etc.
         if (bUseSDFForThisRing)
         {
-            // SDF 모드: SDF 바운드 기반 Z 확장
+            // SDF mode: Z extension based on SDF bounds
             FSDFBoundsBasedVertexSelector* SDFSelector = static_cast<FSDFBoundsBasedVertexSelector*>(RingSelector.Get());
             SDFSelector->SelectSmoothingRegionVertices(Context, RingData.Vertices, RingData);
-            // Note: LayerTypes는 FullMeshLayerTypes에서 GPU가 직접 조회
+            // Note: LayerTypes are queried directly by GPU from FullMeshLayerTypes
         }
         else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
         {
-            // VirtualBand 모드 (SDF 무효): VirtualBand 기반 Z 확장
+            // VirtualBand mode (SDF invalid): Z extension based on VirtualBand
             FVirtualBandVertexSelector* VBSelector = static_cast<FVirtualBandVertexSelector*>(RingSelector.Get());
             VBSelector->SelectSmoothingRegionVertices(Context, RingData.Vertices, RingData);
-            // Note: LayerTypes는 FullMeshLayerTypes에서 GPU가 직접 조회
+            // Note: LayerTypes are queried directly by GPU from FullMeshLayerTypes
         }
         else
         {
-            // VirtualRing 모드: Ring 파라미터 기반 Z 확장
+            // VirtualRing mode: Z extension based on Ring parameters
             FDistanceBasedVertexSelector* DistSelector = static_cast<FDistanceBasedVertexSelector*>(RingSelector.Get());
             DistSelector->SelectSmoothingRegionVertices(Context, RingData.Vertices, RingData);
-            // Note: LayerTypes는 FullMeshLayerTypes에서 GPU가 직접 조회
+            // Note: LayerTypes are queried directly by GPU from FullMeshLayerTypes
         }
 
         // Pack for GPU (convert to flat arrays)
-        // GPU용 패킹 (평면 배열로 변환)
         RingData.PackForGPU();
 
         // Build representative indices for UV seam welding
-        // UV seam 용접을 위한 대표 버텍스 인덱스 빌드
-        // 이 데이터는 모든 변형 패스에서 사용되어 UV 중복이 동일하게 움직이도록 보장
+        // This data is used in all deformation passes to ensure UV duplicates move identically
         BuildRepresentativeIndices(RingData, MeshVertices);
 
         // Build adjacency data for Normal recomputation
-        // 노멀 재계산용 인접 데이터 빌드
         if (CachedMeshIndices.Num() > 0)
         {
             BuildAdjacencyData(RingData, CachedMeshIndices);
 
-            // PostProcessing 버텍스용 노멀 인접 데이터도 빌드 (Z 확장 범위)
+            // Also build normal adjacency data for post-processing vertices (Z-extended range)
             if (RingData.SmoothingRegionIndices.Num() > 0)
             {
                 BuildSmoothingRegionNormalAdjacency(RingData, CachedMeshIndices);
             }
 
-            // Build Laplacian adjacency data for smoothing (조건부: 스무딩 활성화 시에만)
-            // 스무딩용 라플라시안 인접 데이터 빌드
-            // 개선: 같은 레이어의 이웃만 포함하여 레이어 경계 혼합 방지
+            // Build Laplacian adjacency data for smoothing (conditional: only when smoothing is enabled)
+            // Improvement: includes only neighbors of the same layer to prevent layer boundary mixing
             if (RingSettings.bEnableLaplacianSmoothing)
             {
                 BuildLaplacianAdjacencyData(RingData, CachedMeshIndices, MeshVertices, VertexLayerTypes);
 
-                // PostProcessing 버텍스용 라플라시안 인접 데이터도 빌드 (Z 확장 범위)
+                // Also build Laplacian adjacency data for post-processing vertices (Z-extended range)
                 if (RingData.SmoothingRegionIndices.Num() > 0)
                 {
                     BuildSmoothingRegionLaplacianAdjacency(RingData, CachedMeshIndices, MeshVertices, VertexLayerTypes);
                 }
             }
 
-            // Build PBD adjacency data (조건부: PBD 활성화 시에만)
-            // PBD 에지 제약용 인접 데이터 빌드
+            // Build PBD adjacency data (conditional: only when PBD is enabled)
             if (RingSettings.bEnablePBDEdgeConstraint)
             {
                 BuildPBDAdjacencyData(RingData, CachedMeshIndices, MeshVertices, MeshVertices.Num());
 
-                // PostProcessing 버텍스용 PBD 인접 데이터도 빌드 (Z 확장 범위)
+                // Also build PBD adjacency data for post-processing vertices (Z-extended range)
                 if (RingData.SmoothingRegionIndices.Num() > 0)
                 {
                     BuildSmoothingRegionPBDAdjacency(RingData, CachedMeshIndices, MeshVertices, MeshVertices.Num());
                 }
             }
 
-            // Build slice data for bone ratio preservation (Radial Smoothing용)
-            // 본 거리 비율 보존용 슬라이스 데이터 빌드
-            // GPU 디스패치에서 bEnableRadialSmoothing 체크하므로 여기선 무조건 빌드
+            // Build slice data for bone ratio preservation (for Radial Smoothing)
+            // GPU dispatch checks bEnableRadialSmoothing so always build here
             BuildSliceData(RingData, MeshVertices, RingSettings.RadialSliceHeight);
 
-            // Build hop distance data for topology-based smoothing (HopBased 모드 전용)
-            // 홉 기반 스무딩용 확장 영역 데이터 빌드
-            // 중요: HopBased 모드에서만 호출 - BoundsExpand 모드는 SelectSmoothingRegionVertices 데이터 유지
+            // Build hop distance data for topology-based smoothing (HopBased mode only)
+            // Important: only called in HopBased mode - BoundsExpand mode preserves SelectSmoothingRegionVertices data
             const bool bUseHopBased = (RingSettings.SmoothingVolumeMode == ESmoothingVolumeMode::HopBased);
             const bool bAnySmoothingEnabled =
                 RingSettings.bEnableRadialSmoothing ||
                 RingSettings.bEnableLaplacianSmoothing ||
                 RingSettings.bEnablePBDEdgeConstraint ||
-                RingSettings.bEnableHeatPropagation;  // Heat Propagation도 Extended 데이터 필요
+                RingSettings.bEnableHeatPropagation;  // Heat Propagation also needs Extended data
 
             if (bUseHopBased && bAnySmoothingEnabled)
             {
-                // HopBased 모드: BFS로 확장된 영역 빌드 (SmoothingRegion* 덮어씀)
+                // HopBased mode: build expanded region via BFS (overwrites SmoothingRegion*)
                 BuildHopDistanceData(
                     RingData,
                     CachedMeshIndices,
@@ -1791,7 +1748,7 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
                     RingSettings.HopFalloffType
                 );
             }
-            // BoundsExpand 모드: SelectSmoothingRegionVertices에서 설정한 데이터 유지
+            // BoundsExpand mode: preserve data set by SelectSmoothingRegionVertices
         }
 
         UE_LOG(LogFleshRingVertices, Log,
@@ -1799,12 +1756,12 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             RingIdx, *RingSettings.BoneName.ToString(),
             RingData.Vertices.Num(), RingData.SlicePackedData.Num() / 33, RingData.SmoothingRegionIndices.Num());
 
-        // 인덱스 기반 할당 (Add 대신) + dirty flag 클리어
+        // Index-based assignment (instead of Add) + clear dirty flag
         RingDataArray[RingIdx] = MoveTemp(RingData);
         RingDirtyFlags[RingIdx] = false;
     }
 
-    // 실제 처리된 ring 수 계산
+    // Calculate actual processed ring count
     int32 ProcessedCount = 0;
     for (int32 i = 0; i < NumRings; ++i)
     {
@@ -1832,22 +1789,22 @@ const FRingAffectedData* FFleshRingAffectedVerticesManager::GetRingData(int32 Ri
 
 void FFleshRingAffectedVerticesManager::ClearAll()
 {
-    // Empty()로 메모리 완전 해제 (Reset()은 메모리 유지)
+    // Empty() releases memory completely (Reset() keeps memory)
     RingDataArray.Empty();
 
-    // 토폴로지 캐시 무효화
+    // Invalidate topology cache
     InvalidateTopologyCache();
 
-    // ★ 캐시된 메시 데이터도 해제 (메모리 누수 방지)
+    // Also release cached mesh data (prevent memory leak)
     CachedMeshIndices.Empty();
     CachedMeshVertices.Empty();
     CachedVertexLayerTypes.Empty();
     bMeshDataCached = false;
 
-    // ★ Spatial Hash 해제
+    // Release Spatial Hash
     VertexSpatialHash.Clear();
 
-    // ★ Dirty Flags 해제
+    // Release Dirty Flags
     RingDirtyFlags.Empty();
 }
 
@@ -1862,7 +1819,7 @@ int32 FFleshRingAffectedVerticesManager::GetTotalAffectedCount() const
 }
 
 // ============================================================================
-// Per-Ring Dirty Flag System - Ring별 재빌드 필요 여부 관리
+// Per-Ring Dirty Flag System - manages per-Ring rebuild requirements
 // ============================================================================
 
 void FFleshRingAffectedVerticesManager::MarkRingDirty(int32 RingIndex)
@@ -1887,25 +1844,25 @@ bool FFleshRingAffectedVerticesManager::IsRingDirty(int32 RingIndex) const
     {
         return RingDirtyFlags[RingIndex];
     }
-    // 플래그가 없으면 dirty로 간주 (첫 빌드)
+    // Consider dirty if flag doesn't exist (first build)
     return true;
 }
 
 // ============================================================================
-// BuildTopologyCache - 토폴로지 캐시 빌드 (메시당 한 번만)
+// BuildTopologyCache - build topology cache (once per mesh)
 // ============================================================================
-// 메시의 토폴로지 데이터는 바인드 포즈에서 결정되며 런타임에 변하지 않음.
-// - 위치 기반 버텍스 그룹 (UV seam 용접용)
-// - 버텍스 이웃 맵 (직접 메시 연결)
-// - 용접된 이웃 위치 맵 (UV seam 인식)
-// - 전체 메시 인접 맵 (BFS/홉 계산용)
-// 이 함수를 한 번 호출하면 이후 모든 Ring 업데이트에서 O(1) 조회 가능.
+// Mesh topology data is determined at bind pose and does not change at runtime.
+// - Position-based vertex groups (for UV seam welding)
+// - Vertex neighbor map (direct mesh connectivity)
+// - Welded neighbor position map (UV seam aware)
+// - Full mesh adjacency map (for BFS/hop calculation)
+// After calling this function once, all subsequent Ring updates can use O(1) lookups.
 
 void FFleshRingAffectedVerticesManager::BuildTopologyCache(
     const TArray<FVector3f>& AllVertices,
     const TArray<uint32>& MeshIndices)
 {
-    // 이미 캐시가 빌드되어 있으면 스킵
+    // Skip if cache is already built
     if (bTopologyCacheBuilt)
     {
         return;
@@ -1919,7 +1876,6 @@ void FFleshRingAffectedVerticesManager::BuildTopologyCache(
 
     // ================================================================
     // Step 1: Build position-based vertex groups for UV seam welding
-    // 1단계: UV seam 용접을 위한 위치 기반 버텍스 그룹 구축
     // ================================================================
     constexpr float WeldPrecision = 0.001f;  // 0.001 units tolerance
 
@@ -1943,10 +1899,9 @@ void FFleshRingAffectedVerticesManager::BuildTopologyCache(
 
     // ================================================================
     // Step 1.5: Build representative vertex map for UV seam welding
-    // 1.5단계: UV seam 용접용 대표 버텍스 맵 구축
     // ================================================================
-    // 각 위치의 대표 버텍스 = 해당 위치 버텍스들 중 최소 인덱스
-    // BuildRepresentativeIndices()에서 O(A) 맵 빌드 제거하여 O(1) 조회로 최적화
+    // Representative vertex for each position = minimum index among vertices at that position
+    // Removed O(A) map building from BuildRepresentativeIndices() for O(1) lookup optimization
     CachedPositionToRepresentative.Reset();
     CachedPositionToRepresentative.Reserve(CachedPositionToVertices.Num());
 
@@ -1962,7 +1917,6 @@ void FFleshRingAffectedVerticesManager::BuildTopologyCache(
 
     // ================================================================
     // Step 2: Build global vertex neighbor map from mesh triangles
-    // 2단계: 메시 삼각형에서 전역 버텍스 이웃 맵 구축
     // ================================================================
     CachedVertexNeighbors.Reset();
 
@@ -1983,7 +1937,6 @@ void FFleshRingAffectedVerticesManager::BuildTopologyCache(
 
     // ================================================================
     // Step 3: Build welded neighbor map (merge neighbors across UV duplicates)
-    // 3단계: 용접된 이웃 맵 구축 (UV 중복 버텍스들의 이웃 병합)
     // ================================================================
     CachedWeldedNeighborPositions.Reset();
 
@@ -2020,7 +1973,6 @@ void FFleshRingAffectedVerticesManager::BuildTopologyCache(
 
     // ================================================================
     // Step 4: Build full mesh adjacency map for BFS/hop distance
-    // 4단계: BFS/홉 거리 계산용 전체 메시 인접 맵 구축
     // ================================================================
     CachedFullAdjacencyMap.Reset();
     CachedFullAdjacencyMap.Reserve(AllVertices.Num());
@@ -2031,7 +1983,7 @@ void FFleshRingAffectedVerticesManager::BuildTopologyCache(
         const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
         const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
 
-        // 각 에지에 대해 양방향 인접 추가
+        // Add bidirectional adjacency for each edge
         auto AddEdge = [this](uint32 A, uint32 B)
         {
             TArray<uint32>& NeighborsA = CachedFullAdjacencyMap.FindOrAdd(A);
@@ -2054,22 +2006,21 @@ void FFleshRingAffectedVerticesManager::BuildTopologyCache(
 
     // ================================================================
     // Step 4.5: Add UV duplicate connections to adjacency map
-    // 4.5단계: UV duplicate 간 연결 추가 (BFS가 UV seam을 넘을 수 있도록)
     // ================================================================
-    // 문제: BFS가 mesh topology만 따라가면 UV seam을 넘지 못함
-    // 해결: 같은 위치의 UV duplicate들을 서로 연결
-    //       A --+-- A' 처럼 seam에서 A와 A'를 직접 연결하면
-    //       BFS가 A → A' → E, F 로 seam 반대쪽도 탐색 가능
+    // Problem: BFS following mesh topology only cannot cross UV seam
+    // Solution: Connect UV duplicates at the same position
+    //           By directly connecting A and A' at seam like A --+-- A'
+    //           BFS can explore the other side of seam via A → A' → E, F
     int32 NumUVDuplicateEdges = 0;
     for (const auto& PosEntry : CachedPositionToVertices)
     {
         const TArray<uint32>& VerticesAtPos = PosEntry.Value;
         const int32 NumAtPos = VerticesAtPos.Num();
 
-        // UV duplicate가 2개 이상인 경우만 처리
+        // Only process if there are 2 or more UV duplicates
         if (NumAtPos >= 2)
         {
-            // 모든 UV duplicate 쌍을 연결
+            // Connect all UV duplicate pairs
             for (int32 i = 0; i < NumAtPos; ++i)
             {
                 for (int32 j = i + 1; j < NumAtPos; ++j)
@@ -2104,9 +2055,8 @@ void FFleshRingAffectedVerticesManager::BuildTopologyCache(
 
     // ================================================================
     // Step 5: Build per-vertex triangle list for adjacency lookup
-    // 5단계: 인접 조회용 버텍스별 삼각형 리스트 구축
     // ================================================================
-    // BuildAdjacencyData()에서 O(T) → O(avg_triangles_per_vertex) 최적화에 사용
+    // Used for O(T) → O(avg_triangles_per_vertex) optimization in BuildAdjacencyData()
     CachedVertexTriangles.Reset();
     CachedVertexTriangles.Reserve(AllVertices.Num());
 
@@ -2121,7 +2071,7 @@ void FFleshRingAffectedVerticesManager::BuildTopologyCache(
         CachedVertexTriangles.FindOrAdd(I2).Add(TriIdx);
     }
 
-    // 캐시 빌드 완료 표시
+    // Mark cache build complete
     bTopologyCacheBuilt = true;
 
     const double ElapsedMs = (FPlatformTime::Seconds() - StartTime) * 1000.0;
@@ -2132,7 +2082,7 @@ void FFleshRingAffectedVerticesManager::BuildTopologyCache(
 }
 
 // ============================================================================
-// InvalidateTopologyCache - 토폴로지 캐시 무효화
+// InvalidateTopologyCache - invalidate topology cache
 // ============================================================================
 
 void FFleshRingAffectedVerticesManager::InvalidateTopologyCache()
@@ -2161,12 +2111,12 @@ void FFleshRingAffectedVerticesManager::RebuildVertexLayerTypes(const UFleshRing
 
     bool bUsedAssetMapping = false;
 
-    // 에셋에서 매핑 가져오기
+    // Get mapping from asset
     if (Component->FleshRingAsset->MaterialLayerMappings.Num() > 0)
     {
         const UFleshRingAsset* Asset = Component->FleshRingAsset;
 
-        // 섹션별로 레이어 타입 할당
+        // Assign layer type per section
         USkeletalMesh* Mesh = SkeletalMesh->GetSkeletalMeshAsset();
         if (Mesh)
         {
@@ -2182,16 +2132,16 @@ void FFleshRingAffectedVerticesManager::RebuildVertexLayerTypes(const UFleshRing
                     CachedVertexLayerTypes[i] = EFleshRingLayerType::Other;
                 }
 
-                // 각 섹션의 머티리얼 슬롯에서 레이어 타입 가져오기
+                // Get layer type from each section's material slot
                 for (int32 SectionIdx = 0; SectionIdx < LODData.RenderSections.Num(); ++SectionIdx)
                 {
                     const FSkelMeshRenderSection& Section = LODData.RenderSections[SectionIdx];
                     const int32 MaterialSlotIndex = static_cast<int32>(Section.MaterialIndex);
 
-                    // 에셋에서 이 머티리얼 슬롯의 레이어 타입 조회
+                    // Look up layer type for this material slot from asset
                     EFleshRingLayerType LayerType = Asset->GetLayerTypeForMaterialSlot(MaterialSlotIndex);
 
-                    // 섹션의 모든 버텍스에 할당
+                    // Assign to all vertices in section
                     const int32 BaseVertexIndex = static_cast<int32>(Section.BaseVertexIndex);
                     const int32 NumSectionVertices = static_cast<int32>(Section.NumVertices);
 
@@ -2213,7 +2163,7 @@ void FFleshRingAffectedVerticesManager::RebuildVertexLayerTypes(const UFleshRing
         }
     }
 
-    // 에셋 매핑이 없으면 키워드 기반 자동 감지 폴백
+    // Fallback to keyword-based auto-detection if no asset mapping
     if (!bUsedAssetMapping)
     {
         if (!FleshRingLayerUtils::BuildVertexLayerTypes(SkeletalMesh, LODIndex, CachedVertexLayerTypes))
@@ -2230,7 +2180,7 @@ void FFleshRingAffectedVerticesManager::RebuildVertexLayerTypes(const UFleshRing
 }
 
 // ============================================================================
-// ExtractMeshVertices - 메시에서 버텍스 추출 (바인드 포즈 컴포넌트 스페이스)
+// ExtractMeshVertices - extract vertices from mesh (bind pose component space)
 // ============================================================================
 bool FFleshRingAffectedVerticesManager::ExtractMeshVertices(
     const USkeletalMeshComponent* SkeletalMesh,
@@ -2243,7 +2193,6 @@ bool FFleshRingAffectedVerticesManager::ExtractMeshVertices(
     }
 
     // Get skeletal mesh asset
-    // 스켈레탈 메시 에셋 가져오기
     USkeletalMesh* Mesh = SkeletalMesh->GetSkeletalMeshAsset();
     if (!Mesh)
     {
@@ -2251,7 +2200,6 @@ bool FFleshRingAffectedVerticesManager::ExtractMeshVertices(
     }
 
     // Get render data
-    // 렌더 데이터 가져오기
     const FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
     if (!RenderData || RenderData->LODRenderData.Num() == 0)
     {
@@ -2259,7 +2207,6 @@ bool FFleshRingAffectedVerticesManager::ExtractMeshVertices(
     }
 
     // Validate LOD index
-    // LOD 인덱스 유효성 검사
     if (LODIndex < 0 || LODIndex >= RenderData->LODRenderData.Num())
     {
         UE_LOG(LogFleshRingVertices, Warning,
@@ -2269,7 +2216,6 @@ bool FFleshRingAffectedVerticesManager::ExtractMeshVertices(
     }
 
     // Use specified LOD for vertex data
-    // 지정된 LOD에서 버텍스 데이터 사용
     const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[LODIndex];
     const uint32 NumVertices = LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
 
@@ -2278,8 +2224,7 @@ bool FFleshRingAffectedVerticesManager::ExtractMeshVertices(
         return false;
     }
 
-    // Extract vertex positions (bind pose local space)
-    // 버텍스 위치 추출 (바인드 포즈 컴포넌트 스페이스)
+    // Extract vertex positions (bind pose component space)
     OutVertices.Reset(NumVertices);
 
     for (uint32 VertexIdx = 0; VertexIdx < NumVertices; ++VertexIdx)
@@ -2292,7 +2237,7 @@ bool FFleshRingAffectedVerticesManager::ExtractMeshVertices(
 }
 
 // ============================================================================
-// ExtractMeshIndices - 메시에서 인덱스 버퍼 추출
+// ExtractMeshIndices - extract index buffer from mesh
 // ============================================================================
 bool FFleshRingAffectedVerticesManager::ExtractMeshIndices(
     const USkeletalMeshComponent* SkeletalMesh,
@@ -2341,9 +2286,9 @@ bool FFleshRingAffectedVerticesManager::ExtractMeshIndices(
 }
 
 // ============================================================================
-// BuildAdjacencyData - 인접 삼각형 데이터 빌드 (캐시 사용 최적화)
+// BuildAdjacencyData - build adjacent triangle data (optimized with cache)
 // ============================================================================
-// 최적화: CachedVertexTriangles 사용으로 O(T) → O(A × avg_triangles_per_vertex)
+// Optimization: O(T) → O(A × avg_triangles_per_vertex) using CachedVertexTriangles
 void FFleshRingAffectedVerticesManager::BuildAdjacencyData(
     FRingAffectedData& RingData,
     const TArray<uint32>& MeshIndices)
@@ -2356,13 +2301,13 @@ void FFleshRingAffectedVerticesManager::BuildAdjacencyData(
         return;
     }
 
-    // 캐시가 없으면 폴백 (발생하면 안 되지만 안전 장치)
+    // Fallback if no cache (shouldn't happen but safety measure)
     if (!bTopologyCacheBuilt || CachedVertexTriangles.Num() == 0)
     {
         UE_LOG(LogFleshRingVertices, Warning,
             TEXT("BuildAdjacencyData: Topology cache not built, falling back to brute force"));
 
-        // 폴백: 전체 삼각형 순회 (기존 방식)
+        // Fallback: iterate all triangles (legacy method)
         TMap<uint32, int32> VertexToAffectedIndex;
         VertexToAffectedIndex.Reserve(NumAffected);
         for (int32 AffIdx = 0; AffIdx < NumAffected; ++AffIdx)
@@ -2416,10 +2361,10 @@ void FFleshRingAffectedVerticesManager::BuildAdjacencyData(
     }
 
     // ================================================================
-    // 캐시 사용 최적화 경로: O(A × avg_triangles_per_vertex)
+    // Optimized path using cache: O(A × avg_triangles_per_vertex)
     // ================================================================
 
-    // Step 1: 각 영향받는 버텍스의 삼각형 수 계산 (캐시에서 O(1) 조회)
+    // Step 1: Count triangles for each affected vertex (O(1) lookup from cache)
     TArray<int32> AdjCounts;
     AdjCounts.SetNumZeroed(NumAffected);
 
@@ -2433,7 +2378,7 @@ void FFleshRingAffectedVerticesManager::BuildAdjacencyData(
         }
     }
 
-    // Step 2: 오프셋 배열 빌드 (누적합)
+    // Step 2: Build offset array (cumulative sum)
     RingData.AdjacencyOffsets.SetNum(NumAffected + 1);
     RingData.AdjacencyOffsets[0] = 0;
 
@@ -2444,7 +2389,7 @@ void FFleshRingAffectedVerticesManager::BuildAdjacencyData(
 
     const uint32 TotalAdjacencies = RingData.AdjacencyOffsets[NumAffected];
 
-    // Step 3: 삼각형 배열 채우기 (캐시에서 직접 복사)
+    // Step 3: Fill triangle array (direct copy from cache)
     RingData.AdjacencyTriangles.SetNum(TotalAdjacencies);
 
     for (int32 AffIdx = 0; AffIdx < NumAffected; ++AffIdx)
@@ -2470,11 +2415,11 @@ void FFleshRingAffectedVerticesManager::BuildAdjacencyData(
 }
 
 // ============================================================================
-// BuildLaplacianAdjacencyData - 라플라시안 스무딩용 이웃 데이터 빌드
+// BuildLaplacianAdjacencyData - build neighbor data for Laplacian smoothing
 // ============================================================================
-// 개선: 같은 레이어의 이웃만 포함 (스타킹-살 경계에서 섞이지 않음)
-// 개선: UV seam 용접 - 동일 위치의 분리된 버텍스들이 같은 이웃을 공유하여 크랙 방지
-// 최적화: 토폴로지 캐시 사용 - 매 프레임 O(V*T) 재빌드 제거
+// Improvement: includes only neighbors of same layer (no mixing at stocking-skin boundary)
+// Improvement: UV seam welding - separated vertices at same position share same neighbors to prevent cracks
+// Optimization: uses topology cache - eliminates per-frame O(V*T) rebuild
 void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
     FRingAffectedData& RingData,
     const TArray<uint32>& MeshIndices,
@@ -2494,12 +2439,11 @@ void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
 
     // ================================================================
     // Step 1: Build affected vertex lookup set
-    // 1단계: Affected 버텍스 조회용 Set 빌드
     // ================================================================
-    // 참고: 토폴로지 캐시는 RegisterAffectedVertices() 초기 단계에서 이미 빌드됨
-    // 이웃 선택 시 Affected 버텍스를 우선하기 위해 필요.
-    // Affected가 아닌 버텍스는 스무딩되지 않으므로 위치가 변하지 않음.
-    // -> 일관성을 위해 Affected 버텍스를 이웃으로 선택해야 함.
+    // Note: topology cache is already built in RegisterAffectedVertices() early stage.
+    // Needed to prioritize affected vertices when selecting neighbors.
+    // Non-affected vertices don't get smoothed so their positions don't change.
+    // -> Must select affected vertices as neighbors for consistency.
     TSet<uint32> AffectedVertexSet;
     AffectedVertexSet.Reserve(NumAffected);
     for (int32 i = 0; i < NumAffected; ++i)
@@ -2509,10 +2453,9 @@ void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
 
     // ================================================================
     // Step 2: Pack adjacency data for affected vertices using cached topology
-    // 2단계: 캐시된 토폴로지를 사용하여 영향받는 버텍스의 인접 데이터 패킹
     //
-    // 핵심: 같은 위치의 모든 버텍스가 동일한 이웃 위치 집합을 사용
-    //       -> 동일한 Laplacian 계산 -> 동일한 이동 -> 크랙 없음!
+    // Key: All vertices at same position use identical neighbor position set
+    //      -> Same Laplacian calculation -> Same movement -> No cracks!
     // ================================================================
     RingData.LaplacianAdjacencyData.Reset();
     RingData.LaplacianAdjacencyData.Reserve(NumAffected * PACKED_SIZE);
@@ -2546,18 +2489,18 @@ void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
                     }
 
                     // ============================================================
-                    // 핵심 수정: Representative 버텍스 우선 선택 (UV Seam Welding)
+                    // Key fix: Prioritize representative vertex selection (UV Seam Welding)
                     // ============================================================
-                    // UV seam에서 동일 위치의 모든 duplicate vertex가 같은 이웃 인덱스를 참조해야
-                    // Laplacian 계산 결과가 동일해지고 크랙이 방지됨.
+                    // All duplicate vertices at same position in UV seam must reference same neighbor index
+                    // so Laplacian calculation results are identical and cracks are prevented.
                     //
-                    // 선택 우선순위:
-                    // 1. Representative 인덱스 (같은 위치의 대표 버텍스)
-                    // 2. Affected 버텍스 중 하나 (스무딩 대상)
-                    // 3. 해당 위치의 첫 번째 버텍스 (fallback)
+                    // Selection priority:
+                    // 1. Representative index (representative vertex at same position)
+                    // 2. One of the affected vertices (smoothing target)
+                    // 3. First vertex at that position (fallback)
                     uint32 NeighborIdx = UINT32_MAX;
 
-                    // 1순위: Representative 인덱스 확인
+                    // Priority 1: Check representative index
                     const uint32* RepresentativeIdx = CachedPositionToRepresentative.Find(NeighborPosKey);
                     if (RepresentativeIdx && AffectedVertexSet.Contains(*RepresentativeIdx))
                     {
@@ -2565,9 +2508,9 @@ void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
                     }
                     else
                     {
-                        // 2순위: Affected 버텍스 중 가장 작은 인덱스 선택 (일관성)
-                        // 중요: "첫 번째 발견"이 아닌 "최소 인덱스" 사용
-                        // 그래야 같은 위치의 모든 UV duplicate가 동일한 이웃 인덱스를 참조
+                        // Priority 2: Select minimum index among affected vertices (for consistency)
+                        // Important: use "minimum index" not "first found"
+                        // So all UV duplicates at same position reference identical neighbor index
                         uint32 MinAffectedIdx = UINT32_MAX;
                         for (uint32 CandidateIdx : *VerticesAtNeighborPos)
                         {
@@ -2582,7 +2525,7 @@ void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
                         }
                     }
 
-                    // 3순위: Fallback - 가장 작은 인덱스 (일관성)
+                    // Priority 3: Fallback - minimum index (for consistency)
                     if (NeighborIdx == UINT32_MAX)
                     {
                         uint32 MinIdx = UINT32_MAX;
@@ -2633,11 +2576,11 @@ void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
 }
 
 // ============================================================================
-// BuildSmoothingRegionLaplacianAdjacency - 후처리 버텍스용 라플라시안 인접 데이터 빌드
+// BuildSmoothingRegionLaplacianAdjacency - build Laplacian adjacency data for post-processing vertices
 // ============================================================================
-// SmoothingRegionIndices 기반으로 라플라시안 인접 데이터를 구축합니다.
-// Z 확장 범위의 버텍스들이 스무딩될 수 있도록 인접 정보 제공.
-// 최적화: 토폴로지 캐시 사용 - 매 프레임 O(V*T) 재빌드 제거
+// Builds Laplacian adjacency data based on SmoothingRegionIndices.
+// Provides adjacency info so vertices in Z-extended range can be smoothed.
+// Optimization: uses topology cache - eliminates per-frame O(V*T) rebuild
 
 void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency(
     FRingAffectedData& RingData,
@@ -2657,9 +2600,8 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency(
 
     // ================================================================
     // Step 1: Build PostProcessing vertex lookup set
-    // 1단계: PostProcessing 버텍스 조회용 Set 빌드
     // ================================================================
-    // 참고: 토폴로지 캐시는 RegisterAffectedVertices() 초기 단계에서 이미 빌드됨
+    // Note: topology cache is already built in RegisterAffectedVertices() early stage
     TSet<uint32> PostProcessingVertexSet;
     PostProcessingVertexSet.Reserve(NumPostProcessing);
     for (int32 i = 0; i < NumPostProcessing; ++i)
@@ -2669,7 +2611,6 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency(
 
     // ================================================================
     // Step 2: Build adjacency for each post-processing vertex using cached topology
-    // 2단계: 캐시된 토폴로지를 사용하여 후처리 버텍스의 인접 데이터 빌드
     // ================================================================
     RingData.SmoothingRegionLaplacianAdjacency.Reset(NumPostProcessing * PACKED_SIZE);
     RingData.SmoothingRegionLaplacianAdjacency.AddZeroed(NumPostProcessing * PACKED_SIZE);
@@ -2681,8 +2622,8 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency(
         const uint32 VertIdx = RingData.SmoothingRegionIndices[PPIdx];
         const int32 BaseOffset = PPIdx * PACKED_SIZE;
 
-        // Get my layer type (전역 캐시에서 직접 조회 - Extended와 동일)
-        // [최적화] PostProcessingLayerTypes 대신 전역 캐시 사용
+        // Get my layer type (direct lookup from global cache - same as Extended)
+        // [Optimization] Use global cache instead of PostProcessingLayerTypes
         EFleshRingLayerType MyLayerType = EFleshRingLayerType::Other;
         if (VertexLayerTypes.IsValidIndex(static_cast<int32>(VertIdx)))
         {
@@ -2717,23 +2658,23 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency(
             if (!VerticesAtNeighborPos || VerticesAtNeighborPos->Num() == 0) continue;
 
             // ================================================================
-            // [UV Seam Welding] 이웃 인덱스도 Representative 우선 사용
+            // [UV Seam Welding] Prioritize representative index for neighbors too
             // ================================================================
-            // 같은 위치의 모든 버텍스가 동일한 이웃 인덱스를 참조하도록
-            // Representative 인덱스를 우선 사용하여 Laplacian 계산 일관성 보장
+            // Use representative index first so all vertices at same position
+            // reference identical neighbor index, ensuring Laplacian calculation consistency
             // ================================================================
             uint32 NeighborIdx = UINT32_MAX;
 
-            // 1순위: Representative 인덱스 사용 (PostProcessing 내부면 더 좋음)
+            // Priority 1: Use representative index (better if inside PostProcessing)
             const uint32* RepresentativeIdx = CachedPositionToRepresentative.Find(NeighborPosKey);
             if (RepresentativeIdx)
             {
                 NeighborIdx = *RepresentativeIdx;
             }
 
-            // 2순위: Representative가 없거나 PostProcessing에 없으면, PostProcessing 내 가장 작은 인덱스 선택
-            // 중요: 일관성을 위해 "첫 번째 발견"이 아닌 "최소 인덱스" 사용
-            // 그래야 같은 위치의 모든 UV duplicate가 동일한 이웃 인덱스를 참조
+            // Priority 2: If no representative or not in PostProcessing, select minimum index within PostProcessing
+            // Important: use "minimum index" not "first found" for consistency
+            // So all UV duplicates at same position reference identical neighbor index
             if (NeighborIdx == UINT32_MAX || !PostProcessingVertexSet.Contains(NeighborIdx))
             {
                 uint32 MinPostProcIdx = UINT32_MAX;
@@ -2750,7 +2691,7 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency(
                 }
             }
 
-            // 3순위: 여전히 없으면 가장 작은 인덱스 사용 (일관성)
+            // Priority 3: If still none, use minimum index (for consistency)
             if (NeighborIdx == UINT32_MAX)
             {
                 uint32 MinIdx = UINT32_MAX;
@@ -2796,10 +2737,10 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency(
 }
 
 // ============================================================================
-// BuildSmoothingRegionPBDAdjacency - 후처리 버텍스용 PBD 인접 데이터 빌드
+// BuildSmoothingRegionPBDAdjacency - build PBD adjacency data for post-processing vertices
 // ============================================================================
-// SmoothingRegionIndices 기반으로 PBD 인접 데이터를 구축합니다.
-// BuildPBDAdjacencyData와 동일하지만 확장된 범위 사용.
+// Builds PBD adjacency data based on SmoothingRegionIndices.
+// Same as BuildPBDAdjacencyData but uses extended range.
 
 void FFleshRingAffectedVerticesManager::BuildSmoothingRegionPBDAdjacency(
     FRingAffectedData& RingData,
@@ -2822,13 +2763,13 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionPBDAdjacency(
     }
 
     // Step 2: Build per-vertex neighbor set with rest lengths
-    // 캐시 사용 최적화: CachedVertexNeighbors에서 이웃 조회, rest length는 on-demand 계산
+    // Cache optimization: look up neighbors from CachedVertexNeighbors, calculate rest length on-demand
     TArray<TMap<uint32, float>> VertexNeighborsWithRestLen;
     VertexNeighborsWithRestLen.SetNum(NumPostProcessing);
 
     if (bTopologyCacheBuilt && CachedVertexNeighbors.Num() > 0)
     {
-        // 캐시 사용 경로: O(PP × avg_neighbors_per_vertex)
+        // Cached path: O(PP × avg_neighbors_per_vertex)
         for (int32 ThreadIdx = 0; ThreadIdx < NumPostProcessing; ++ThreadIdx)
         {
             const uint32 VertexIndex = RingData.SmoothingRegionIndices[ThreadIdx];
@@ -2852,7 +2793,7 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionPBDAdjacency(
     }
     else
     {
-        // 폴백: 전체 삼각형 순회 (기존 방식)
+        // Fallback: iterate all triangles (legacy method)
         UE_LOG(LogFleshRingVertices, Warning,
             TEXT("BuildSmoothingRegionPBDAdjacency: Topology cache not built, falling back to brute force"));
 
@@ -2928,10 +2869,10 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionPBDAdjacency(
 }
 
 // ============================================================================
-// BuildSmoothingRegionPBDAdjacency_HopBased - 확장 스무딩 영역용 PBD 인접 데이터 빌드
+// BuildSmoothingRegionPBDAdjacency_HopBased - build PBD adjacency data for extended smoothing region
 // ============================================================================
-// SmoothingRegionIndices 기반으로 PBD 인접 데이터를 구축합니다.
-// HopBased 모드에서 사용됩니다.
+// Builds PBD adjacency data based on SmoothingRegionIndices.
+// Used in HopBased mode.
 
 void FFleshRingAffectedVerticesManager::BuildSmoothingRegionPBDAdjacency_HopBased(
     FRingAffectedData& RingData,
@@ -2944,7 +2885,7 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionPBDAdjacency_HopBase
         return;
     }
 
-    // 토폴로지 캐시 검증
+    // Verify topology cache
     if (!bTopologyCacheBuilt || CachedVertexNeighbors.Num() == 0)
     {
         UE_LOG(LogFleshRingVertices, Warning,
@@ -2953,7 +2894,7 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionPBDAdjacency_HopBase
         return;
     }
 
-    // Single-pass: CachedVertexNeighbors에서 직접 Pack (중간 TMap 제거)
+    // Single-pass: pack directly from CachedVertexNeighbors (remove intermediate TMap)
     const int32 PackedSizePerVertex = FRingAffectedData::PBD_ADJACENCY_PACKED_SIZE;
     RingData.SmoothingRegionPBDAdjacency.Reset(NumExtended * PackedSizePerVertex);
     RingData.SmoothingRegionPBDAdjacency.AddZeroed(NumExtended * PackedSizePerVertex);
@@ -2966,7 +2907,7 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionPBDAdjacency_HopBase
         const TSet<uint32>* NeighborsPtr = CachedVertexNeighbors.Find(VertexIndex);
         if (!NeighborsPtr)
         {
-            // 이웃 없음
+            // No neighbors
             RingData.SmoothingRegionPBDAdjacency[BaseOffset] = 0;
             continue;
         }
@@ -2996,7 +2937,7 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionPBDAdjacency_HopBase
             }
         }
 
-        // 실제 기록된 이웃 개수
+        // Actual recorded neighbor count
         RingData.SmoothingRegionPBDAdjacency[BaseOffset] = static_cast<uint32>(SlotIdx);
     }
 
@@ -3006,10 +2947,10 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionPBDAdjacency_HopBase
 }
 
 // ============================================================================
-// BuildSmoothingRegionNormalAdjacency - 후처리 버텍스용 노멀 인접 데이터 빌드
+// BuildSmoothingRegionNormalAdjacency - build normal adjacency data for post-processing vertices
 // ============================================================================
-// SmoothingRegionIndices 기반으로 노멀 재계산용 인접 데이터를 구축합니다.
-// BuildAdjacencyData와 동일하지만 확장된 범위 사용.
+// Builds adjacency data for normal recomputation based on SmoothingRegionIndices.
+// Same as BuildAdjacencyData but uses extended range.
 
 void FFleshRingAffectedVerticesManager::BuildSmoothingRegionNormalAdjacency(
     FRingAffectedData& RingData,
@@ -3023,13 +2964,13 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionNormalAdjacency(
         return;
     }
 
-    // 캐시가 없으면 폴백 (발생하면 안 되지만 안전 장치)
+    // Fallback if no cache (shouldn't happen but safety measure)
     if (!bTopologyCacheBuilt || CachedVertexTriangles.Num() == 0)
     {
         UE_LOG(LogFleshRingVertices, Warning,
             TEXT("BuildSmoothingRegionNormalAdjacency: Topology cache not built, falling back to brute force"));
 
-        // 폴백: 전체 삼각형 순회 (기존 방식)
+        // Fallback: iterate all triangles (legacy method)
         TMap<uint32, int32> VertexToIndex;
         VertexToIndex.Reserve(NumPostProcessing);
         for (int32 PPIdx = 0; PPIdx < NumPostProcessing; ++PPIdx)
@@ -3083,10 +3024,10 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionNormalAdjacency(
     }
 
     // ================================================================
-    // 캐시 사용 최적화 경로: O(PP × avg_triangles_per_vertex)
+    // Optimized path using cache: O(PP × avg_triangles_per_vertex)
     // ================================================================
 
-    // Step 1: 각 후처리 버텍스의 삼각형 수 계산 (캐시에서 O(1) 조회)
+    // Step 1: Count triangles for each post-processing vertex (O(1) lookup from cache)
     TArray<int32> AdjCounts;
     AdjCounts.SetNumZeroed(NumPostProcessing);
 
@@ -3100,7 +3041,7 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionNormalAdjacency(
         }
     }
 
-    // Step 2: 오프셋 배열 빌드 (누적합)
+    // Step 2: Build offset array (cumulative sum)
     RingData.SmoothingRegionAdjacencyOffsets.SetNum(NumPostProcessing + 1);
     RingData.SmoothingRegionAdjacencyOffsets[0] = 0;
 
@@ -3111,7 +3052,7 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionNormalAdjacency(
 
     const uint32 TotalAdjacencies = RingData.SmoothingRegionAdjacencyOffsets[NumPostProcessing];
 
-    // Step 3: 삼각형 배열 채우기 (캐시에서 직접 복사)
+    // Step 3: Fill triangle array (direct copy from cache)
     RingData.SmoothingRegionAdjacencyTriangles.SetNum(TotalAdjacencies);
 
     for (int32 PPIdx = 0; PPIdx < NumPostProcessing; ++PPIdx)
@@ -3136,7 +3077,7 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionNormalAdjacency(
 }
 
 // ============================================================================
-// BuildSliceData - 슬라이스 기반 본 거리 비율 보존 데이터 빌드
+// BuildSliceData - build slice-based bone distance ratio preservation data
 // ============================================================================
 
 void FFleshRingAffectedVerticesManager::BuildSliceData(
@@ -3153,14 +3094,13 @@ void FFleshRingAffectedVerticesManager::BuildSliceData(
 
     // ================================================================
     // Step 1: Calculate axis distance (height) and bone distance for each vertex
-    // 1단계: 각 버텍스의 축 거리(높이)와 본 거리 계산
     // ================================================================
 
-    // Ring 축과 중심 (바인드 포즈 기준)
+    // Ring axis and center (bind pose basis)
     const FVector3f Axis = FVector3f(RingData.RingAxis.GetSafeNormal());
     const FVector3f Center = FVector3f(RingData.RingCenter);
 
-    // 높이 데이터 저장 (GPU 전송용)
+    // Store height data (for GPU transfer)
     RingData.AxisHeights.Reset();
     RingData.AxisHeights.SetNum(NumAffected);
 
@@ -3172,14 +3112,14 @@ void FFleshRingAffectedVerticesManager::BuildSliceData(
         const uint32 VertexIndex = RingData.Vertices[AffIdx].VertexIndex;
         const FVector3f& VertexPos = AllVertices[VertexIndex];
 
-        // 중심에서 버텍스까지의 벡터
+        // Vector from center to vertex
         const FVector3f ToVertex = VertexPos - Center;
 
-        // 축 방향 높이 (dot product)
+        // Height along axis direction (dot product)
         const float Height = FVector3f::DotProduct(ToVertex, Axis);
         RingData.AxisHeights[AffIdx] = Height;
 
-        // 축에 수직인 거리 (본 거리 = 반경)
+        // Distance perpendicular to axis (bone distance = radius)
         const FVector3f AxisComponent = Axis * Height;
         const FVector3f RadialComponent = ToVertex - AxisComponent;
         const float BoneDistance = RadialComponent.Size();
@@ -3189,10 +3129,9 @@ void FFleshRingAffectedVerticesManager::BuildSliceData(
 
     // ================================================================
     // Step 2: Group vertices by height bucket (slice)
-    // 2단계: 높이 버킷으로 버텍스 그룹핑 (슬라이스)
     // ================================================================
 
-    // 버킷 인덱스 → 해당 버킷의 영향받는 버텍스 인덱스 리스트
+    // Bucket index → list of affected vertex indices in that bucket
     TMap<int32, TArray<int32>> BucketToVertices;
 
     for (int32 AffIdx = 0; AffIdx < NumAffected; ++AffIdx)
@@ -3203,21 +3142,20 @@ void FFleshRingAffectedVerticesManager::BuildSliceData(
 
     // ================================================================
     // Step 3: Pack slice data for GPU (with adjacent buckets)
-    // 3단계: GPU용 슬라이스 데이터 패킹 (인접 버킷 포함)
     // ================================================================
     // Format: [SliceVertexCount, V0, V1, ..., V31] per affected vertex
-    // 개선: 현재 버킷 + 인접 버킷(±1)을 포함하여 부드러운 전환
+    // Improvement: includes current bucket + adjacent buckets (±1) for smooth transitions
 
     RingData.SlicePackedData.Reset();
     RingData.SlicePackedData.Reserve(NumAffected * FRingAffectedData::SLICE_PACKED_SIZE);
 
     for (int32 AffIdx = 0; AffIdx < NumAffected; ++AffIdx)
     {
-        // 이 버텍스가 속한 버킷 찾기
+        // Find the bucket this vertex belongs to
         const int32 BucketIdx = FMath::FloorToInt(RingData.AxisHeights[AffIdx] / BucketSize);
 
-        // 인접 버킷(±1) 포함하여 버텍스 수집
-        // 순서: 현재 버킷(0) 우선 → 오버플로우 시에도 자신의 슬라이스 버텍스 보장
+        // Collect vertices including adjacent buckets (±1)
+        // Order: current bucket (0) first → guarantees own slice vertices even on overflow
         TArray<int32> AdjacentVertices;
         AdjacentVertices.Reserve(FRingAffectedData::MAX_SLICE_VERTICES);
 
@@ -3246,7 +3184,7 @@ void FFleshRingAffectedVerticesManager::BuildSliceData(
             RingData.SlicePackedData.Add(static_cast<uint32>(AdjacentVertices[i]));
         }
 
-        // 나머지 슬롯은 0으로 채움
+        // Fill remaining slots with 0
         for (int32 i = SliceCount; i < FRingAffectedData::MAX_SLICE_VERTICES; ++i)
         {
             RingData.SlicePackedData.Add(0);
@@ -3259,9 +3197,9 @@ void FFleshRingAffectedVerticesManager::BuildSliceData(
 }
 
 // ============================================================================
-// BuildPBDAdjacencyData - PBD 에지 제약용 인접 데이터 빌드 (캐시 사용 최적화)
+// BuildPBDAdjacencyData - build PBD edge constraint adjacency data (cache optimized)
 // ============================================================================
-// 최적화: CachedVertexNeighbors 사용으로 O(T) → O(A × avg_neighbors_per_vertex)
+// Optimization: O(T) → O(A × avg_neighbors_per_vertex) using CachedVertexNeighbors
 
 void FFleshRingAffectedVerticesManager::BuildPBDAdjacencyData(
     FRingAffectedData& RingData,
@@ -3276,7 +3214,6 @@ void FFleshRingAffectedVerticesManager::BuildPBDAdjacencyData(
     }
 
     // Step 1: Build VertexIndex → ThreadIndex lookup
-    // 버텍스 인덱스 → 스레드 인덱스 룩업 빌드
     TMap<uint32, int32> VertexToThreadIndex;
     for (int32 ThreadIdx = 0; ThreadIdx < NumAffected; ++ThreadIdx)
     {
@@ -3284,13 +3221,13 @@ void FFleshRingAffectedVerticesManager::BuildPBDAdjacencyData(
     }
 
     // Step 2: Build per-vertex neighbor set with rest lengths
-    // 캐시 사용 최적화: CachedVertexNeighbors에서 이웃 조회, rest length는 on-demand 계산
+    // Cache optimization: look up neighbors from CachedVertexNeighbors, calculate rest length on-demand
     TArray<TMap<uint32, float>> VertexNeighborsWithRestLen;
     VertexNeighborsWithRestLen.SetNum(NumAffected);
 
     if (bTopologyCacheBuilt && CachedVertexNeighbors.Num() > 0)
     {
-        // 캐시 사용 경로: O(A × avg_neighbors_per_vertex)
+        // Cached path: O(A × avg_neighbors_per_vertex)
         for (int32 ThreadIdx = 0; ThreadIdx < NumAffected; ++ThreadIdx)
         {
             const uint32 VertexIndex = RingData.Vertices[ThreadIdx].VertexIndex;
@@ -3314,7 +3251,7 @@ void FFleshRingAffectedVerticesManager::BuildPBDAdjacencyData(
     }
     else
     {
-        // 폴백: 전체 삼각형 순회 (기존 방식)
+        // Fallback: iterate all triangles (legacy method)
         UE_LOG(LogFleshRingVertices, Warning,
             TEXT("BuildPBDAdjacencyData: Topology cache not built, falling back to brute force"));
 
@@ -3351,7 +3288,6 @@ void FFleshRingAffectedVerticesManager::BuildPBDAdjacencyData(
     }
 
     // Step 3: Pack adjacency data with rest lengths
-    // 인접 데이터 패킹 (rest length 포함)
     // Format: [Count, N0, RL0, N1, RL1, ...] per vertex (1 + MAX_NEIGHBORS*2 uints)
     const int32 PackedSizePerVertex = FRingAffectedData::PBD_ADJACENCY_PACKED_SIZE;
     RingData.PBDAdjacencyWithRestLengths.Reset(NumAffected * PackedSizePerVertex);
@@ -3390,7 +3326,7 @@ void FFleshRingAffectedVerticesManager::BuildPBDAdjacencyData(
         }
     }
 
-    // Step 4: Build full influence map (전체 버텍스에 대한 influence)
+    // Step 4: Build full influence map (influence for all vertices)
     RingData.FullInfluenceMap.Reset(TotalVertexCount);
     RingData.FullInfluenceMap.AddZeroed(TotalVertexCount);
 
@@ -3404,13 +3340,13 @@ void FFleshRingAffectedVerticesManager::BuildPBDAdjacencyData(
     }
 
     // Step 5: Build full deform amount map
-    // Note: DeformAmount는 FleshRingDeformerInstance에서 계산되므로
-    // 여기서는 AxisHeight 기반으로 대략적인 값 설정
-    // 실제 값은 DispatchData.DeformAmounts에서 사용
+    // Note: DeformAmount is calculated in FleshRingDeformerInstance so
+    // here we set approximate values based on AxisHeight
+    // Actual values are used from DispatchData.DeformAmounts
     RingData.FullDeformAmountMap.Reset(TotalVertexCount);
     RingData.FullDeformAmountMap.AddZeroed(TotalVertexCount);
 
-    // Ring 높이의 절반을 threshold로 사용
+    // Use half of Ring height as threshold
     const float RingHalfWidth = RingData.RingHeight * 0.5f;
 
     for (int32 ThreadIdx = 0; ThreadIdx < NumAffected; ++ThreadIdx)
@@ -3418,19 +3354,19 @@ void FFleshRingAffectedVerticesManager::BuildPBDAdjacencyData(
         const FAffectedVertex& Vert = RingData.Vertices[ThreadIdx];
         if (Vert.VertexIndex < static_cast<uint32>(TotalVertexCount))
         {
-            // AxisHeight 기반 DeformAmount 계산
+            // Calculate DeformAmount based on AxisHeight
             const float AxisHeight = RingData.AxisHeights.IsValidIndex(ThreadIdx)
                 ? RingData.AxisHeights[ThreadIdx] : 0.0f;
             const float EdgeRatio = FMath::Clamp(
                 FMath::Abs(AxisHeight) / FMath::Max(RingHalfWidth, 0.01f), 0.0f, 2.0f);
 
-            // EdgeRatio > 1: Bulge 영역 (양수), EdgeRatio < 1: Tightness 영역 (음수)
+            // EdgeRatio > 1: Bulge region (positive), EdgeRatio < 1: Tightness region (negative)
             RingData.FullDeformAmountMap[Vert.VertexIndex] = (EdgeRatio - 1.0f) * Vert.Influence;
         }
     }
 
-    // Step 6: Build full IsAnchor map (전체 버텍스에 대한 IsAnchor 플래그)
-    // Tolerance-based PBD에서 이웃의 앵커 여부를 조회하여 가중치 분배 결정
+    // Step 6: Build full IsAnchor map (IsAnchor flags for all vertices)
+    // In Tolerance-based PBD, query neighbor's anchor status to determine weight distribution
     // Affected Vertices = Anchor (1), Non-Affected = Free (0)
     RingData.FullVertexAnchorFlags.Reset(TotalVertexCount);
     RingData.FullVertexAnchorFlags.AddZeroed(TotalVertexCount);
@@ -3440,7 +3376,7 @@ void FFleshRingAffectedVerticesManager::BuildPBDAdjacencyData(
         const FAffectedVertex& Vert = RingData.Vertices[ThreadIdx];
         if (Vert.VertexIndex < static_cast<uint32>(TotalVertexCount))
         {
-            // Affected Vertex = Anchor (고정)
+            // Affected Vertex = Anchor (fixed)
             RingData.FullVertexAnchorFlags[Vert.VertexIndex] = 1;
         }
     }
@@ -3451,7 +3387,7 @@ void FFleshRingAffectedVerticesManager::BuildPBDAdjacencyData(
 }
 
 // ============================================================================
-// BuildFullMeshAdjacency - 전체 메시 인접 맵 구축
+// BuildFullMeshAdjacency - build full mesh adjacency map
 // ============================================================================
 
 void FFleshRingAffectedVerticesManager::BuildFullMeshAdjacency(
@@ -3470,7 +3406,7 @@ void FFleshRingAffectedVerticesManager::BuildFullMeshAdjacency(
         const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
         const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
 
-        // 각 에지에 대해 양방향 인접 추가
+        // Add bidirectional adjacency for each edge
         auto AddEdge = [&OutAdjacencyMap](uint32 A, uint32 B)
         {
             TArray<uint32>& NeighborsA = OutAdjacencyMap.FindOrAdd(A);
@@ -3493,14 +3429,14 @@ void FFleshRingAffectedVerticesManager::BuildFullMeshAdjacency(
 }
 
 // ============================================================================
-// BuildSmoothingRegionLaplacianAdjacency_HopBased - HopBased 스무딩 영역용 인접 데이터 구축
+// BuildSmoothingRegionLaplacianAdjacency_HopBased - build adjacency data for HopBased smoothing region
 // ============================================================================
-// [수정] BuildSmoothingRegionLaplacianAdjacency와 동일한 welding 로직 사용
-// 기존: CachedFullAdjacencyMap 사용 (UV welding 안됨)
-// 수정: CachedWeldedNeighborPositions 사용 (UV welding 적용)
+// [Fix] Uses same welding logic as BuildSmoothingRegionLaplacianAdjacency
+// Before: Used CachedFullAdjacencyMap (no UV welding)
+// After: Uses CachedWeldedNeighborPositions (UV welding applied)
 //
-// 핵심: 같은 위치의 모든 버텍스가 동일한 이웃 위치 집합을 사용
-//       -> 동일한 Laplacian 계산 -> 동일한 이동 -> UV seam crack 방지
+// Key: All vertices at same position use identical neighbor position set
+//      -> Same Laplacian calculation -> Same movement -> UV seam crack prevention
 
 void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency_HopBased(
     FRingAffectedData& RingData,
@@ -3518,7 +3454,6 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency_H
 
     // ================================================================
     // Step 1: Build Extended vertex lookup set
-    // 1단계: Extended 버텍스 조회용 Set 빌드
     // ================================================================
     TSet<uint32> ExtendedVertexSet;
     ExtendedVertexSet.Reserve(NumExtended);
@@ -3529,9 +3464,8 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency_H
 
     // ================================================================
     // Step 2: Build adjacency for each extended vertex using cached topology
-    // 2단계: 캐시된 토폴로지를 사용하여 확장 버텍스의 인접 데이터 빌드
     //
-    // 핵심: CachedWeldedNeighborPositions 사용 (UV duplicate 이웃 병합)
+    // Key: Uses CachedWeldedNeighborPositions (UV duplicate neighbors merged)
     // ================================================================
     RingData.SmoothingRegionLaplacianAdjacency.Reset(NumExtended * PACKED_SIZE);
     RingData.SmoothingRegionLaplacianAdjacency.AddZeroed(NumExtended * PACKED_SIZE);
@@ -3543,7 +3477,7 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency_H
         const uint32 VertIdx = RingData.SmoothingRegionIndices[ExtIdx];
         const int32 BaseOffset = ExtIdx * PACKED_SIZE;
 
-        // Get my layer type (Extended는 별도 LayerTypes 배열이 없으므로 전역 사용)
+        // Get my layer type (Extended has no separate LayerTypes array, use global)
         EFleshRingLayerType MyLayerType = EFleshRingLayerType::Other;
         if (VertexLayerTypes.IsValidIndex(static_cast<int32>(VertIdx)))
         {
@@ -3558,7 +3492,7 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency_H
             continue;
         }
 
-        // Get welded neighbors from cache (UV duplicate들의 이웃 병합됨!)
+        // Get welded neighbors from cache (neighbors of UV duplicates merged!)
         const TSet<FIntVector>* WeldedNeighborPositions = CachedWeldedNeighborPositions.Find(*MyPosKey);
         if (!WeldedNeighborPositions)
         {
@@ -3579,21 +3513,21 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency_H
 
             // ================================================================
             // [UV Seam Welding + Heat Propagation]
-            // 항상 전역 Representative 인덱스 사용
+            // Always use global representative index
             // ================================================================
-            // 문제: 기존 로직은 Representative가 Extended 밖에 있으면
-            //       Extended 내 다른 인덱스를 선택했음
-            //       → InitPass에서 delta는 Representative에 저장
-            //       → DiffusePass에서 Adjacency의 다른 인덱스로 읽음
-            //       → 불일치로 delta=0 읽음!
+            // Problem: Previous logic selected a different index within Extended
+            //          when Representative was outside Extended
+            //          → InitPass stores delta at Representative
+            //          → DiffusePass reads from different index in Adjacency
+            //          → Mismatch causes reading delta=0!
             //
-            // 해결: 이웃 위치에 Extended 버텍스가 있으면
-            //       항상 전역 Representative 인덱스 저장
-            //       delta 버퍼는 전체 메시 크기이므로 Extended 밖도 접근 가능
+            // Solution: When neighbor position has Extended vertex,
+            //           always store global Representative index
+            //           delta buffer is full mesh size so can access outside Extended
             // ================================================================
             uint32 NeighborIdx = UINT32_MAX;  // Invalid sentinel
 
-            // 먼저 이 위치에 Extended 버텍스가 있는지 확인
+            // First check if there's an Extended vertex at this position
             bool bHasExtendedNeighbor = false;
             for (uint32 CandidateIdx : *VerticesAtNeighborPos)
             {
@@ -3604,7 +3538,7 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency_H
                 }
             }
 
-            // Extended 이웃이 있으면, 전역 Representative 인덱스 사용
+            // If Extended neighbor exists, use global Representative index
             if (bHasExtendedNeighbor)
             {
                 const uint32* RepresentativeIdx = CachedPositionToRepresentative.Find(NeighborPosKey);
@@ -3614,7 +3548,7 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency_H
                 }
                 else
                 {
-                    // Representative 캐시 미스 - 해당 위치의 첫 번째 버텍스 사용
+                    // Representative cache miss - use first vertex at that position
                     NeighborIdx = (*VerticesAtNeighborPos)[0];
                 }
             }
@@ -3661,31 +3595,31 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency_H
 }
 
 // ============================================================================
-// BuildRepresentativeIndices - UV seam 용접을 위한 대표 버텍스 인덱스 빌드
+// BuildRepresentativeIndices - build representative vertex indices for UV seam welding
 // ============================================================================
-// [설계]
-// UV seam에서 분리된 버텍스들(같은 위치, 다른 인덱스)이 동일한 변형을 받도록 보장.
-// 모든 변형 패스(TightnessCS, BulgeCS, LaplacianCS 등)에서:
-//   1. 대표 버텍스 위치 읽기
-//   2. 변형 계산
-//   3. 자기 인덱스에 기록
-// 이로써 UV 중복이 항상 동일하게 움직여 크랙 방지.
+// [Design]
+// Ensures separated vertices at UV seam (same position, different indices) receive identical deformation.
+// In all deformation passes (TightnessCS, BulgeCS, LaplacianCS, etc.):
+//   1. Read representative vertex position
+//   2. Calculate deformation
+//   3. Write to own index
+// This ensures UV duplicates always move identically, preventing cracks.
 //
-// [최적화 - 2024.01]
-// 토폴로지 캐시 활용: CachedPositionToRepresentative, CachedVertexToPosition
-// 기존: 매 프레임 O(A) TMap 빌드 + O(A) PosKey 재계산 = ~30-50ms
-// 최적화: O(A) 캐시 조회 = ~1-2ms
+// [Optimization - 2024.01]
+// Utilizes topology cache: CachedPositionToRepresentative, CachedVertexToPosition
+// Before: per-frame O(A) TMap build + O(A) PosKey recalculation = ~30-50ms
+// After: O(A) cache lookup = ~1-2ms
 
 void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
     FRingAffectedData& RingData,
     const TArray<FVector3f>& AllVertices)
 {
     // ================================================================
-    // 캐시가 있으면 O(1) 조회로 최적화된 경로 사용
+    // Use optimized path with O(1) lookups if cache exists
     // ================================================================
     if (bTopologyCacheBuilt && CachedPositionToRepresentative.Num() > 0)
     {
-        // ===== Affected Vertices용 RepresentativeIndices (캐시 사용) =====
+        // ===== RepresentativeIndices for Affected Vertices (using cache) =====
         const int32 NumAffected = RingData.Vertices.Num();
         RingData.RepresentativeIndices.Reset(NumAffected);
         RingData.RepresentativeIndices.AddUninitialized(NumAffected);
@@ -3695,11 +3629,11 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
         {
             const uint32 VertIdx = RingData.Vertices[i].VertexIndex;
 
-            // O(1) 조회 - CachedVertexToPosition에서 PosKey 가져오기
+            // O(1) lookup - get PosKey from CachedVertexToPosition
             const FIntVector* PosKey = CachedVertexToPosition.Find(VertIdx);
             if (PosKey)
             {
-                // O(1) 조회 - CachedPositionToRepresentative에서 대표 가져오기
+                // O(1) lookup - get representative from CachedPositionToRepresentative
                 const uint32* Representative = CachedPositionToRepresentative.Find(*PosKey);
                 const uint32 RepIdx = Representative ? *Representative : VertIdx;
                 RingData.RepresentativeIndices[i] = RepIdx;
@@ -3711,7 +3645,7 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
             }
             else
             {
-                // 캐시 미스 - 자기 자신을 대표로
+                // Cache miss - use self as representative
                 RingData.RepresentativeIndices[i] = VertIdx;
             }
         }
@@ -3719,7 +3653,7 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
         // Set UV duplicate flag for optimization (skip UV Sync if no duplicates)
         RingData.bHasUVDuplicates = (NumWelded > 0);
 
-        // ===== PostProcessing Vertices용 RepresentativeIndices (캐시 사용) =====
+        // ===== RepresentativeIndices for PostProcessing Vertices (using cache) =====
         const int32 NumPostProcessing = RingData.SmoothingRegionIndices.Num();
         if (NumPostProcessing > 0)
         {
@@ -3731,7 +3665,7 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
             {
                 const uint32 VertIdx = RingData.SmoothingRegionIndices[i];
 
-                // O(1) 조회 - 동일 패턴
+                // O(1) lookup - same pattern
                 const FIntVector* PosKey = CachedVertexToPosition.Find(VertIdx);
                 if (PosKey)
                 {
@@ -3766,15 +3700,15 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
                 NumAffected, NumWelded);
         }
 
-        return;  // 최적화된 경로 완료
+        return;  // Optimized path complete
     }
 
     // ================================================================
-    // 폴백: 캐시가 없으면 기존 로직 사용 (첫 호출 시)
+    // Fallback: use legacy logic if no cache (first call)
     // ================================================================
-    constexpr float WeldPrecision = 0.001f;  // SelectVertices와 동일한 정밀도
+    constexpr float WeldPrecision = 0.001f;  // Same precision as SelectVertices
 
-    // Step 1: 위치 기반 그룹화 및 대표 선택
+    // Step 1: Position-based grouping and representative selection
     TMap<FIntVector, uint32> PositionToRepresentative;
 
     for (const FAffectedVertex& Vert : RingData.Vertices)
@@ -3799,7 +3733,7 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
         }
     }
 
-    // Step 2: Affected Vertices용 RepresentativeIndices 빌드
+    // Step 2: Build RepresentativeIndices for Affected Vertices
     const int32 NumAffected = RingData.Vertices.Num();
     RingData.RepresentativeIndices.Reset(NumAffected);
     RingData.RepresentativeIndices.AddUninitialized(NumAffected);
@@ -3828,7 +3762,7 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
     // Set UV duplicate flag for optimization (skip UV Sync if no duplicates)
     RingData.bHasUVDuplicates = (NumWelded > 0);
 
-    // Step 3: PostProcessing Vertices용 RepresentativeIndices 빌드
+    // Step 3: Build RepresentativeIndices for PostProcessing Vertices
     const int32 NumPostProcessing = RingData.SmoothingRegionIndices.Num();
     if (NumPostProcessing > 0)
     {
@@ -3897,9 +3831,9 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
 }
 
 // ============================================================================
-// BuildHopDistanceData - 홉 기반 스무딩용 확장 영역 구축 (전체 메시 BFS)
+// BuildHopDistanceData - Build extended region for hop-based smoothing (full mesh BFS)
 // ============================================================================
-// 최적화: 토폴로지 캐시 사용 - 매 프레임 O(T) 인접 맵 재빌드 제거
+// Optimization: Uses topology cache - eliminates per-frame O(T) adjacency map rebuild
 
 void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
     FRingAffectedData& RingData,
@@ -3918,9 +3852,9 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
         return;
     }
 
-    // ===== Step 1: Seeds = 모든 Affected Vertices =====
-    // 참고: 토폴로지 캐시는 RegisterAffectedVertices() 초기 단계에서 이미 빌드됨
-    // Seeds는 전체 메시 버텍스 인덱스
+    // ===== Step 1: Seeds = all Affected Vertices =====
+    // Note: Topology cache is already built during RegisterAffectedVertices() initial phase
+    // Seeds are full mesh vertex indices
     TSet<uint32> SeedSet;
     SeedSet.Reserve(NumAffected);
     for (const FAffectedVertex& AffVert : RingData.Vertices)
@@ -3928,13 +3862,13 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
         SeedSet.Add(AffVert.VertexIndex);
     }
 
-    // ===== Step 2: 전체 메시에서 BFS (N-hop 도달 버텍스 수집) =====
-    // 캐시된 인접 맵 사용 - 매 프레임 재빌드 제거
-    // HopDistanceMap: 전체 버텍스 인덱스 → 홉 거리
+    // ===== Step 2: BFS on full mesh (collect vertices within N-hops) =====
+    // Uses cached adjacency map - eliminates per-frame rebuild
+    // HopDistanceMap: full vertex index -> hop distance
     TMap<uint32, int32> HopDistanceMap;
     HopDistanceMap.Reserve(NumAffected * (MaxHops + 1));
 
-    // Seeds 초기화 (Hop 0)
+    // Initialize seeds (Hop 0)
     TQueue<uint32> BfsQueue;
     for (uint32 SeedVertIdx : SeedSet)
     {
@@ -3942,7 +3876,7 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
         BfsQueue.Enqueue(SeedVertIdx);
     }
 
-    // BFS 전파 (캐시된 인접 맵 사용)
+    // BFS propagation (uses cached adjacency map)
     while (!BfsQueue.IsEmpty())
     {
         uint32 CurrentVertIdx;
@@ -3950,13 +3884,13 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
 
         const int32 CurrentHop = HopDistanceMap[CurrentVertIdx];
 
-        // MaxHops에 도달하면 더 이상 전파 안 함
+        // Stop propagation when MaxHops is reached
         if (CurrentHop >= MaxHops)
         {
             continue;
         }
 
-        // 이웃들 확인 (캐시에서 조회)
+        // Check neighbors (lookup from cache)
         const TArray<uint32>* NeighborsPtr = CachedFullAdjacencyMap.Find(CurrentVertIdx);
         if (!NeighborsPtr)
         {
@@ -3965,7 +3899,7 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
 
         for (uint32 NeighborVertIdx : *NeighborsPtr)
         {
-            // 아직 방문 안 한 이웃에게 전파
+            // Propagate to unvisited neighbors
             if (!HopDistanceMap.Contains(NeighborVertIdx))
             {
                 HopDistanceMap.Add(NeighborVertIdx, CurrentHop + 1);
@@ -3974,11 +3908,11 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
         }
     }
 
-    // ===== Step 2.5: UV Duplicate 확장 (UV Seam Welding) =====
-    // HopDistanceMap에 포함된 모든 버텍스의 UV duplicate들도 포함시킴
-    // 이렇게 해야 UV seam의 모든 duplicate가 함께 스무딩되어 크랙 방지
+    // ===== Step 2.5: UV Duplicate expansion (UV Seam Welding) =====
+    // Include UV duplicates of all vertices in HopDistanceMap
+    // This ensures all duplicates at UV seam are smoothed together to prevent cracks
     {
-        // 현재 HopDistanceMap의 복사본을 만들어 순회 (순회 중 수정 방지)
+        // Create copy of current HopDistanceMap for iteration (prevent modification during iteration)
         TArray<TPair<uint32, int32>> CurrentEntries;
         CurrentEntries.Reserve(HopDistanceMap.Num());
         for (const auto& Pair : HopDistanceMap)
@@ -3992,21 +3926,21 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
             const uint32 VertIdx = Entry.Key;
             const int32 Hop = Entry.Value;
 
-            // 이 버텍스의 position key 찾기
+            // Find position key of this vertex
             const FIntVector* PosKey = CachedVertexToPosition.Find(VertIdx);
             if (!PosKey)
             {
                 continue;
             }
 
-            // 같은 position의 모든 버텍스 찾기
+            // Find all vertices at the same position
             const TArray<uint32>* VerticesAtPos = CachedPositionToVertices.Find(*PosKey);
             if (!VerticesAtPos)
             {
                 continue;
             }
 
-            // UV duplicate들을 같은 hop distance로 추가
+            // Add UV duplicates with the same hop distance
             for (uint32 DuplicateIdx : *VerticesAtPos)
             {
                 if (!HopDistanceMap.Contains(DuplicateIdx))
@@ -4025,32 +3959,32 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
         }
     }
 
-    // ===== Step 3: ExtendedSmoothing* 배열 구축 =====
+    // ===== Step 3: Build ExtendedSmoothing* arrays =====
     const int32 NumExtended = HopDistanceMap.Num();
     RingData.SmoothingRegionIndices.Reset(NumExtended);
     RingData.SmoothingRegionHopDistances.Reset(NumExtended);
     RingData.SmoothingRegionInfluences.Reset(NumExtended);
     RingData.SmoothingRegionIsAnchor.Reset(NumExtended);
-    RingData.MaxSmoothingHops = MaxHops;  // 블렌딩 계수 계산용
+    RingData.MaxSmoothingHops = MaxHops;  // For blending coefficient calculation
 
     const float MaxHopsFloat = static_cast<float>(MaxHops);
 
-    // Seeds 먼저 추가 (Hop 0)
+    // Add seeds first (Hop 0)
     for (const FAffectedVertex& AffVert : RingData.Vertices)
     {
         RingData.SmoothingRegionIndices.Add(AffVert.VertexIndex);
         RingData.SmoothingRegionHopDistances.Add(0);
-        RingData.SmoothingRegionInfluences.Add(1.0f);  // Seeds는 influence 1.0
-        RingData.SmoothingRegionIsAnchor.Add(1);       // Seeds는 앵커 (스무딩 건너뜀)
+        RingData.SmoothingRegionInfluences.Add(1.0f);  // Seeds have influence 1.0
+        RingData.SmoothingRegionIsAnchor.Add(1);       // Seeds are anchors (skip smoothing)
     }
 
-    // Seeds가 아닌 도달 버텍스 추가 (Hop 1+)
+    // Add reached vertices that are not seeds (Hop 1+)
     for (const auto& Pair : HopDistanceMap)
     {
         const uint32 VertIdx = Pair.Key;
         const int32 Hop = Pair.Value;
 
-        // Seeds는 이미 추가됨
+        // Seeds are already added
         if (Hop == 0)
         {
             continue;
@@ -4058,9 +3992,9 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
 
         RingData.SmoothingRegionIndices.Add(VertIdx);
         RingData.SmoothingRegionHopDistances.Add(Hop);
-        RingData.SmoothingRegionIsAnchor.Add(0);  // Extended 버텍스는 스무딩 적용
+        RingData.SmoothingRegionIsAnchor.Add(0);  // Extended vertices receive smoothing
 
-        // t = 정규화된 홉 거리 (0 = seed, 1 = maxHops)
+        // t = normalized hop distance (0 = seed, 1 = maxHops)
         const float t = static_cast<float>(Hop) / MaxHopsFloat;
 
         float Influence = 0.0f;
@@ -4086,17 +4020,17 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
         RingData.SmoothingRegionInfluences.Add(FMath::Clamp(Influence, 0.0f, 1.0f));
     }
 
-    // ===== Step 4: 확장된 영역의 Laplacian 인접 데이터 구축 (캐시 사용) =====
-    // [수정] CachedFullAdjacencyMap 대신 CachedVertexLayerTypes 전달
-    // BuildSmoothingRegionLaplacianAdjacency가 내부적으로 CachedWeldedNeighborPositions 사용
+    // ===== Step 4: Build Laplacian adjacency data for extended region (using cache) =====
+    // [Modified] Pass CachedVertexLayerTypes instead of CachedFullAdjacencyMap
+    // BuildSmoothingRegionLaplacianAdjacency internally uses CachedWeldedNeighborPositions
     BuildSmoothingRegionLaplacianAdjacency_HopBased(RingData, CachedVertexLayerTypes);
 
-    // ===== Step 4.5: 확장된 영역의 PBD 인접 데이터 구축 (Tolerance 기반 PBD용) =====
-    // HopBased 모드에서 PBD Edge Constraint 사용 시 필요
+    // ===== Step 4.5: Build PBD adjacency data for extended region (for Tolerance-based PBD) =====
+    // Required when using PBD Edge Constraint in HopBased mode
     BuildSmoothingRegionPBDAdjacency_HopBased(RingData, AllVertices);
 
-    // ===== Step 5: 확장된 영역의 RepresentativeIndices 구축 (UV seam welding) =====
-    // Heat Propagation에서 UV seam vertex들이 동일한 delta를 받도록 보장
+    // ===== Step 5: Build RepresentativeIndices for extended region (UV seam welding) =====
+    // Ensures UV seam vertices receive identical delta in Heat Propagation
     {
         RingData.SmoothingRegionRepresentativeIndices.Reset(NumExtended);
         RingData.SmoothingRegionRepresentativeIndices.AddUninitialized(NumExtended);
@@ -4106,7 +4040,7 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
         {
             const uint32 VertIdx = RingData.SmoothingRegionIndices[i];
 
-            // 캐시에서 O(1) 조회
+            // O(1) lookup from cache
             const FIntVector* PosKey = CachedVertexToPosition.Find(VertIdx);
             if (PosKey)
             {
@@ -4121,7 +4055,7 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
             }
             else
             {
-                // 캐시 미스 - 자기 자신을 대표로
+                // Cache miss - use self as representative
                 RingData.SmoothingRegionRepresentativeIndices[i] = VertIdx;
             }
         }
@@ -4134,17 +4068,17 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
             NumExtended, NumWelded);
     }
 
-    // ===== Step 6: HopBasedInfluences 업데이트 (Affected 영역용) =====
+    // ===== Step 6: Update HopBasedInfluences (for Affected region) =====
     RingData.HopBasedInfluences.Reset(NumAffected);
     RingData.HopBasedInfluences.AddUninitialized(NumAffected);
     for (int32 i = 0; i < NumAffected; ++i)
     {
-        RingData.HopBasedInfluences[i] = 1.0f;  // Seeds는 모두 1.0
+        RingData.HopBasedInfluences[i] = 1.0f;  // All seeds have 1.0
     }
 
-    // ===== Step 7: Extended 영역 삼각형 인접 데이터 구축 (NormalRecomputeCS용) =====
-    // SmoothingRegionIndices에 대한 삼각형 인접 정보 구축
-    // 로드리게스 기반 노말 재계산에서 사용
+    // ===== Step 7: Build triangle adjacency data for Extended region (for NormalRecomputeCS) =====
+    // Build triangle adjacency info for SmoothingRegionIndices
+    // Used in Rodrigues-based normal recomputation
     {
         RingData.SmoothingRegionAdjacencyOffsets.Reset();
         RingData.SmoothingRegionAdjacencyTriangles.Reset();
@@ -4156,7 +4090,7 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
         }
         else
         {
-            // Step 7-1: 각 Extended 버텍스의 삼각형 수 계산
+            // Step 7-1: Count triangles for each Extended vertex
             TArray<int32> AdjCounts;
             AdjCounts.SetNumZeroed(NumExtended);
 
@@ -4170,7 +4104,7 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
                 }
             }
 
-            // Step 7-2: 오프셋 배열 빌드 (누적합)
+            // Step 7-2: Build offset array (prefix sum)
             RingData.SmoothingRegionAdjacencyOffsets.SetNum(NumExtended + 1);
             RingData.SmoothingRegionAdjacencyOffsets[0] = 0;
 
@@ -4181,7 +4115,7 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
 
             const uint32 TotalAdjacencies = RingData.SmoothingRegionAdjacencyOffsets[NumExtended];
 
-            // Step 7-3: 삼각형 배열 채우기 (캐시에서 직접 복사)
+            // Step 7-3: Fill triangle array (direct copy from cache)
             RingData.SmoothingRegionAdjacencyTriangles.SetNum(TotalAdjacencies);
 
             for (int32 ExtIdx = 0; ExtIdx < NumExtended; ++ExtIdx)
@@ -4207,7 +4141,7 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
         }
     }
 
-    // 통계 로그
+    // Statistics log
     const int32 NumNewVertices = NumExtended - NumAffected;
     UE_LOG(LogFleshRingVertices, Log,
         TEXT("BuildHopDistanceData: %d seeds → %d smoothing (%d-hop, +%d extended)"),

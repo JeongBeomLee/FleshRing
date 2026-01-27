@@ -6,35 +6,35 @@
 #include "FleshRingFalloff.generated.h"
 
 /**
- * Falloff 커브 타입 (Tightness + Bulge 공용)
+ * Falloff curve type (shared by Tightness + Bulge)
  *
- * 모든 거리 기반 감쇠에 사용되는 통합 enum
- * Single Source of Truth - 계산과 시각화가 동일 함수 사용
+ * Unified enum used for all distance-based attenuation
+ * Single Source of Truth - computation and visualization use same function
  */
 UENUM(BlueprintType)
 enum class EFleshRingFalloffType : uint8
 {
-	/** 선형 감쇠: f(t) = t */
+	/** Linear attenuation: f(t) = t */
 	Linear			UMETA(DisplayName = "Linear"),
 
-	/** 2차 곡선 감쇠: f(t) = t^2 */
+	/** Quadratic curve attenuation: f(t) = t^2 */
 	Quadratic		UMETA(DisplayName = "Quadratic"),
 
-	/** Hermite S-커브: f(t) = t^2 * (3 - 2t) - C1 연속 */
+	/** Hermite S-curve: f(t) = t^2 * (3 - 2t) - C1 continuous */
 	Hermite			UMETA(DisplayName = "Hermite (S-Curve)"),
 
-	/** Wendland C2 커널: f(t) = (1-q)^4 * (4q+1) - SPH/PBD 물리 표준, C2 연속 */
+	/** Wendland C2 kernel: f(t) = (1-q)^4 * (4q+1) - SPH/PBD physics standard, C2 continuous */
 	WendlandC2		UMETA(DisplayName = "Wendland C2 (Physics)"),
 
-	/** Perlin smootherstep: f(t) = t^3 * (t*(6t-15)+10) - C2 연속 */
+	/** Perlin smootherstep: f(t) = t^3 * (t*(6t-15)+10) - C2 continuous */
 	Smootherstep	UMETA(DisplayName = "Smootherstep (C2)")
 };
 
 /**
- * Falloff 함수 유틸리티
+ * Falloff function utility
  *
- * 모든 Falloff 계산의 Single Source of Truth
- * Tightness, Bulge, 시각화 전부 이 함수 하나만 호출
+ * Single Source of Truth for all Falloff calculations
+ * Tightness, Bulge, and visualization all call this single function
  *
  * ARCHITECTURE NOTE:
  * All falloff calculations MUST use FFleshRingFalloff::Evaluate()
@@ -44,18 +44,18 @@ enum class EFleshRingFalloffType : uint8
 struct FLESHRINGRUNTIME_API FFleshRingFalloff
 {
 	/**
-	 * 정규화된 거리(0~1)에 대한 Falloff 값 계산
+	 * Calculate Falloff value for normalized distance (0~1)
 	 *
-	 * @param NormalizedDistance 0.0 = 중심(최대 영향), 1.0 = 경계(영향 없음)
-	 * @param Type Falloff 커브 타입
-	 * @return 0.0 ~ 1.0 사이의 영향도 (1 = 최대, 0 = 없음)
+	 * @param NormalizedDistance 0.0 = center (max influence), 1.0 = boundary (no influence)
+	 * @param Type Falloff curve type
+	 * @return Influence between 0.0 ~ 1.0 (1 = max, 0 = none)
 	 *
-	 * 주의: 입력이 [0,1] 범위 밖이면 클램프됨
+	 * Note: Input outside [0,1] range is clamped
 	 */
 	static float Evaluate(float NormalizedDistance, EFleshRingFalloffType Type)
 	{
-		// NormalizedDistance: 0 = 가까움(최대 영향), 1 = 멂(영향 없음)
-		// t: 영향도 (1 = 최대, 0 = 없음)
+		// NormalizedDistance: 0 = close (max influence), 1 = far (no influence)
+		// t: influence (1 = max, 0 = none)
 		const float t = FMath::Clamp(1.0f - NormalizedDistance, 0.0f, 1.0f);
 		const float q = FMath::Clamp(NormalizedDistance, 0.0f, 1.0f);
 
@@ -74,15 +74,15 @@ struct FLESHRINGRUNTIME_API FFleshRingFalloff
 		case EFleshRingFalloffType::WendlandC2:
 			{
 				// Wendland C2 Kernel: (1-q)^4 * (4q+1)
-				// q = NormalizedDistance (0 = 중심, 1 = 경계)
-				// 수학적 근거: SPH/PBD 물리 시뮬레이션 표준 커널
+				// q = NormalizedDistance (0 = center, 1 = boundary)
+				// Mathematical basis: SPH/PBD physics simulation standard kernel
 				const float OneMinusQ = 1.0f - q;
 				return OneMinusQ * OneMinusQ * OneMinusQ * OneMinusQ * (4.0f * q + 1.0f);
 			}
 
 		case EFleshRingFalloffType::Smootherstep:
 			// Perlin's smootherstep: t^3 * (t*(6t-15)+10)
-			// C2 연속 (2차 미분까지 연속)
+			// C2 continuous (continuous up to second derivative)
 			return t * t * t * (t * (6.0f * t - 15.0f) + 10.0f);
 
 		default:
@@ -91,7 +91,7 @@ struct FLESHRINGRUNTIME_API FFleshRingFalloff
 	}
 
 	/**
-	 * Falloff 타입 이름 반환 (디버그/로깅용)
+	 * Return Falloff type name (for debug/logging)
 	 */
 	static const TCHAR* GetTypeName(EFleshRingFalloffType Type)
 	{

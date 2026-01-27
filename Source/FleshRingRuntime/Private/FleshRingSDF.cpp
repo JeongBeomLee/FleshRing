@@ -7,7 +7,7 @@
 #include "ShaderParameterStruct.h"
 #include "RHIStaticStates.h"
 
-// 메시 SDF 생성 셰이더 등록
+// Register mesh SDF generation shader
 IMPLEMENT_GLOBAL_SHADER(
     FMeshSDFGenerateCS,
     "/Plugin/FleshRingPlugin/FleshRingSDFGenerate.usf",
@@ -15,7 +15,7 @@ IMPLEMENT_GLOBAL_SHADER(
     SF_Compute
 );
 
-// SDF 슬라이스 시각화 셰이더 등록
+// Register SDF slice visualization shader
 IMPLEMENT_GLOBAL_SHADER(
     FSDFSliceVisualizeCS,
     "/Plugin/FleshRingPlugin/SDFSliceVisualize.usf",
@@ -23,7 +23,7 @@ IMPLEMENT_GLOBAL_SHADER(
     SF_Compute
 );
 
-// 2D Slice Flood Fill 셰이더 등록
+// Register 2D Slice Flood Fill shader
 IMPLEMENT_GLOBAL_SHADER(
     F2DFloodInitializeCS,
     "/Plugin/FleshRingPlugin/FleshRing2DSliceFlood.usf",
@@ -70,12 +70,12 @@ void GenerateMeshSDF(
         return;
     }
 
-    // 1. 버텍스 버퍼 생성 및 업로드
+    // 1. Create and upload vertex buffer
     FRDGBufferDesc VertexBufferDesc = FRDGBufferDesc::CreateStructuredDesc(sizeof(FVector3f), VertexCount);
     FRDGBufferRef VertexBuffer = GraphBuilder.CreateBuffer(VertexBufferDesc, TEXT("MeshSDFVertices"));
     GraphBuilder.QueueBufferUpload(VertexBuffer, Vertices.GetData(), VertexCount * sizeof(FVector3f));
 
-    // 2. 인덱스 버퍼 생성 및 업로드 (uint3 = 3 * uint32 per triangle)
+    // 2. Create and upload index buffer (uint3 = 3 * uint32 per triangle)
     TArray<FIntVector> PackedIndices;
     PackedIndices.SetNum(TriangleCount);
     for (int32 i = 0; i < TriangleCount; i++)
@@ -91,10 +91,10 @@ void GenerateMeshSDF(
     FRDGBufferRef IndexBuffer = GraphBuilder.CreateBuffer(IndexBufferDesc, TEXT("MeshSDFIndices"));
     GraphBuilder.QueueBufferUpload(IndexBuffer, PackedIndices.GetData(), TriangleCount * sizeof(FIntVector));
 
-    // 3. 셰이더 가져오기
+    // 3. Get shader
     TShaderMapRef<FMeshSDFGenerateCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
 
-    // 4. 파라미터 설정
+    // 4. Set parameters
     FMeshSDFGenerateCS::FParameters* Parameters = GraphBuilder.AllocParameters<FMeshSDFGenerateCS::FParameters>();
     Parameters->MeshVertices = GraphBuilder.CreateSRV(VertexBuffer);
     Parameters->MeshIndices = GraphBuilder.CreateSRV(IndexBuffer);
@@ -104,14 +104,14 @@ void GenerateMeshSDF(
     Parameters->SDFResolution = Resolution;
     Parameters->OutputSDF = GraphBuilder.CreateUAV(OutputTexture);
 
-    // 6. 스레드 그룹 계산 (8x8x8 per group)
+    // 6. Calculate thread groups (8x8x8 per group)
     FIntVector GroupCount(
         FMath::DivideAndRoundUp(Resolution.X, 8),
         FMath::DivideAndRoundUp(Resolution.Y, 8),
         FMath::DivideAndRoundUp(Resolution.Z, 8)
     );
 
-    // 7. Compute Shader 디스패치
+    // 7. Dispatch Compute Shader
     FComputeShaderUtils::AddPass(
         GraphBuilder,
         RDG_EVENT_NAME("MeshSDFGenerate (Triangles=%d, Resolution=%dx%dx%d)", TriangleCount, Resolution.X, Resolution.Y, Resolution.Z),
@@ -132,10 +132,10 @@ void GenerateSDFSlice(
     int32 SliceZ,
     float MaxDisplayDist)
 {
-    // 셰이더 가져오기
+    // Get shader
     TShaderMapRef<FSDFSliceVisualizeCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
 
-    // 파라미터 설정
+    // Set parameters
     FSDFSliceVisualizeCS::FParameters* Parameters = GraphBuilder.AllocParameters<FSDFSliceVisualizeCS::FParameters>();
     Parameters->SDFTexture = GraphBuilder.CreateSRV(SDFTexture);
     Parameters->SDFSampler = TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
@@ -144,14 +144,14 @@ void GenerateSDFSlice(
     Parameters->SliceZ = SliceZ;
     Parameters->MaxDisplayDist = MaxDisplayDist;
 
-    // 스레드 그룹 계산 (8x8 per group, Z=1)
+    // Calculate thread groups (8x8 per group, Z=1)
     FIntVector GroupCount(
         FMath::DivideAndRoundUp(SDFResolution.X, 8),
         FMath::DivideAndRoundUp(SDFResolution.Y, 8),
         1
     );
 
-    // Compute Shader 디스패치
+    // Dispatch Compute Shader
     FComputeShaderUtils::AddPass(
         GraphBuilder,
         RDG_EVENT_NAME("SDFSliceVisualize (Z=%d)", SliceZ),
@@ -167,14 +167,14 @@ void Apply2DSliceFloodFill(
     FRDGTextureRef OutputSDF,
     FIntVector Resolution)
 {
-    // 스레드 그룹 계산 (8x8x8 per group)
+    // Calculate thread groups (8x8x8 per group)
     FIntVector GroupCount(
         FMath::DivideAndRoundUp(Resolution.X, 8),
         FMath::DivideAndRoundUp(Resolution.Y, 8),
         FMath::DivideAndRoundUp(Resolution.Z, 8)
     );
 
-    // Flood 마스크 텍스처 2개 생성 (핑퐁 버퍼)
+    // Create 2 flood mask textures (ping-pong buffers)
     FRDGTextureDesc MaskDesc = FRDGTextureDesc::Create3D(
         Resolution,
         PF_R32_UINT,
@@ -184,7 +184,7 @@ void Apply2DSliceFloodFill(
     FRDGTextureRef FloodMaskA = GraphBuilder.CreateTexture(MaskDesc, TEXT("2DFloodMaskA"));
     FRDGTextureRef FloodMaskB = GraphBuilder.CreateTexture(MaskDesc, TEXT("2DFloodMaskB"));
 
-    // Pass 1: 초기화 - XY 경계를 외부 시드로 마킹
+    // Pass 1: Initialize - mark XY boundaries as exterior seeds
     {
         TShaderMapRef<F2DFloodInitializeCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
         F2DFloodInitializeCS::FParameters* Parameters = GraphBuilder.AllocParameters<F2DFloodInitializeCS::FParameters>();
@@ -201,8 +201,8 @@ void Apply2DSliceFloodFill(
         );
     }
 
-    // Pass 2-N: 2D Flood 전파 (최대 해상도만큼 반복)
-    // 2D에서는 대각선 없이 4방향만 전파하므로, max(X,Y) 번 반복
+    // Pass 2-N: 2D Flood propagation (iterate up to max resolution times)
+    // In 2D, propagate only 4 directions without diagonals, so iterate max(X,Y) times
     TShaderMapRef<F2DFloodPassCS> FloodPassShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
 
     int32 MaxIterations = FMath::Max(Resolution.X, Resolution.Y);
@@ -225,16 +225,16 @@ void Apply2DSliceFloodFill(
             GroupCount
         );
 
-        // 핑퐁 스왑
+        // Ping-pong swap
         Swap(CurrentInput, CurrentOutput);
     }
 
-    // 마지막 결과는 CurrentInput에 있음 (스왑 후)
+    // Final result is in CurrentInput (after swap)
     FRDGTextureRef FloodResult = CurrentInput;
-    FRDGTextureRef VoteOutput = CurrentOutput;  // 핑퐁 버퍼 재사용
+    FRDGTextureRef VoteOutput = CurrentOutput;  // Reuse ping-pong buffer
 
-    // Pass Z-Vote: Z축 투표로 도넛홀 전파
-    // 각 XY 좌표에서 과반수가 "내부"면 모든 Z를 "내부"로 설정
+    // Pass Z-Vote: Propagate donut hole via Z-axis voting
+    // If majority at each XY coordinate is "interior", set all Z to "interior"
     {
         TShaderMapRef<FZAxisVoteCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
         FZAxisVoteCS::FParameters* Parameters = GraphBuilder.AllocParameters<FZAxisVoteCS::FParameters>();
@@ -243,11 +243,11 @@ void Apply2DSliceFloodFill(
         Parameters->SDFForVote = GraphBuilder.CreateSRV(InputSDF);
         Parameters->GridResolution = Resolution;
 
-        // XY만 디스패치 (Z는 셰이더 내부에서 순회)
+        // Dispatch XY only (Z is iterated inside shader)
         FIntVector VoteGroupCount(
             FMath::DivideAndRoundUp(Resolution.X, 8),
             FMath::DivideAndRoundUp(Resolution.Y, 8),
-            1  // Z는 1
+            1  // Z is 1
         );
 
         FComputeShaderUtils::AddPass(
@@ -259,10 +259,10 @@ void Apply2DSliceFloodFill(
         );
     }
 
-    // Z축 투표 결과를 최종 마스크로 사용
+    // Use Z-axis vote result as final mask
     FRDGTextureRef FinalMask = VoteOutput;
 
-    // Pass Final: 도넛홀 부호 반전
+    // Pass Final: Invert donut hole sign
     {
         TShaderMapRef<F2DFloodFinalizeCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
         F2DFloodFinalizeCS::FParameters* Parameters = GraphBuilder.AllocParameters<F2DFloodFinalizeCS::FParameters>();

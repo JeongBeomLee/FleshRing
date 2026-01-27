@@ -17,7 +17,7 @@ public class FleshRingRuntime : ModuleRules
 
 		PrivateIncludePaths.AddRange(
 			new string[] {
-				// SkeletalMeshUpdater.h 접근을 위한 Engine Internal 경로
+				// Engine Internal path for SkeletalMeshUpdater.h access
 				System.IO.Path.Combine(EngineDirectory, "Source/Runtime/Engine/Internal"),
 			}
 			);
@@ -52,7 +52,7 @@ public class FleshRingRuntime : ModuleRules
 			}
             );
 
-		// 에디터 빌드에서만 UnrealEd 종속성 추가 (GEditor 사용을 위해)
+		// Add UnrealEd dependency only in editor builds (for GEditor usage)
 		if (Target.bBuildEditor)
 		{
 			PrivateDependencyModuleNames.Add("UnrealEd");

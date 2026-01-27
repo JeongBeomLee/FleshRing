@@ -32,19 +32,19 @@
 
 void FFleshRingEditorModule::StartupModule()
 {
-	// 커스텀 스타일 셋 등록
+	// Register custom style set
 	StyleSet = MakeShareable(new FSlateStyleSet(GetStyleSetName()));
 	StyleSet->SetContentRoot(FPaths::EngineContentDir() / TEXT("Editor/Slate"));
 	StyleSet->Set("FleshRing.RingIcon", new FSlateVectorImageBrush(
 		StyleSet->RootToContentDir(TEXT("Icons/AssetIcons/ModelingTorus_16"), TEXT(".svg")),
 		FVector2D(16.0f, 16.0f)));
 
-	// FleshRingAsset 클래스 아이콘 등록
+	// Register FleshRingAsset class icon
 	const FString PluginResourcesPath = FPaths::ProjectPluginsDir() / TEXT("FleshRingPlugin/Resources");
 	const FString ClassIconPath = PluginResourcesPath / TEXT("FleshRingAssetIcon.png");
 	StyleSet->Set("ClassIcon.FleshRingAsset", new FSlateImageBrush(ClassIconPath, FVector2D(16.0f, 16.0f)));
 
-	// FleshRingComponent 클래스 아이콘 등록
+	// Register FleshRingComponent class icon
 	const FString ComponentIconPath = PluginResourcesPath / TEXT("FleshRingAssetComponentIcon.png");
 	StyleSet->Set("ClassIcon.FleshRingComponent", new FSlateImageBrush(ComponentIconPath, FVector2D(16.0f, 16.0f)));
 	StyleSet->Set("ClassThumbnail.FleshRingComponent", new FSlateImageBrush(ComponentIconPath, FVector2D(64.0f, 64.0f)));
@@ -55,53 +55,53 @@ void FFleshRingEditorModule::StartupModule()
 	// Register asset type actions
 	IAssetTools& AssetTools = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools").Get();
 
-	// FleshRing Asset type actions 등록
+	// Register FleshRing Asset type actions
 	FleshRingAssetTypeActions = MakeShared<FFleshRingAssetTypeActions>();
 	AssetTools.RegisterAssetTypeActions(FleshRingAssetTypeActions.ToSharedRef());
 
-	// PropertyEditor 모듈 가져오기
+	// Get PropertyEditor module
 	FPropertyEditorModule& PropertyModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
 
-	// UFleshRingComponentDetail Customization 등록
+	// Register UFleshRingComponentDetail Customization
 	PropertyModule.RegisterCustomClassLayout(
 		UFleshRingComponent::StaticClass()->GetFName(),
 		FOnGetDetailCustomizationInstance::CreateStatic(&FFleshRingDetailCustomization::MakeInstance)
 	);
 
-	// UFleshRingAsset Detail Customization 등록
+	// Register UFleshRingAsset Detail Customization
 	PropertyModule.RegisterCustomClassLayout(
 		UFleshRingAsset::StaticClass()->GetFName(),
 		FOnGetDetailCustomizationInstance::CreateStatic(&FFleshRingAssetDetailCustomization::MakeInstance)
 	);
 
-	// FFleshRingSettings Property Type Customization 등록
+	// Register FFleshRingSettings Property Type Customization
 	PropertyModule.RegisterCustomPropertyTypeLayout(
 		FFleshRingSettings::StaticStruct()->GetFName(),
 		FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FFleshRingSettingsCustomization::MakeInstance)
 	);
 
-	// FSubdivisionSettings Property Type Customization 등록
+	// Register FSubdivisionSettings Property Type Customization
 	PropertyModule.RegisterCustomPropertyTypeLayout(
 		FSubdivisionSettings::StaticStruct()->GetFName(),
 		FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FSubdivisionSettingsCustomization::MakeInstance)
 	);
 
-	// FMaterialLayerMapping Property Type Customization 등록 (머티리얼 썸네일 표시)
+	// Register FMaterialLayerMapping Property Type Customization (display material thumbnail)
 	PropertyModule.RegisterCustomPropertyTypeLayout(
 		FMaterialLayerMapping::StaticStruct()->GetFName(),
 		FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FMaterialLayerMappingCustomization::MakeInstance)
 	);
 
-	// 등록 Detail View 갱신
+	// Refresh registered Detail View
 	PropertyModule.NotifyCustomizationModuleChanged();
 
-	// FleshRingAsset 썸네일 렌더러 등록
+	// Register FleshRingAsset thumbnail renderer
 	UThumbnailManager::Get().RegisterCustomRenderer(UFleshRingAsset::StaticClass(), UFleshRingAssetThumbnailRenderer::StaticClass());
 
-	// ToolMenus 확장 - FleshRing 뷰포트에만 커스텀 좌표계 버튼 추가
+	// ToolMenus extension - Add custom coordinate system button only to FleshRing viewport
 	UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateLambda([]()
 	{
-		// Transform 서브메뉴의 TransformTools 섹션에 좌표계 버튼 추가
+		// Add coordinate system button to TransformTools section of Transform submenu
 		UToolMenu* TransformSubmenu = UToolMenus::Get()->ExtendMenu("UnrealEd.ViewportToolbar.Transform");
 		if (TransformSubmenu)
 		{
@@ -127,17 +127,17 @@ void FFleshRingEditorModule::StartupModule()
 
 				TWeakPtr<FEditorViewportClient> WeakClient = BaseClient;
 
-				// 기존 Transform 툴들과 동일한 ToolBarData 설정
+				// Set ToolBarData same as existing Transform tools
 				FToolMenuEntryToolBarData ToolBarData;
 				ToolBarData.StyleNameOverride = "ViewportToolbar.TransformTools";
 
-				// TransformTools 섹션 찾기
+				// Find TransformTools section
 				FToolMenuSection& TransformToolsSection = InMenu->FindOrAddSection("TransformTools");
 
-				// 구분선 추가
+				// Add separator
 				TransformToolsSection.AddSeparator("FleshRingCoordSeparator");
 
-				// 서브메뉴를 사용한 좌표계 버튼
+				// Coordinate system button using submenu
 				FToolMenuEntry& CoordSystemSubmenu = TransformToolsSection.AddSubMenu(
 					"FleshRingCoordSystem",
 					LOCTEXT("FleshRingCoordSystemLabel", "Coordinate System"),
@@ -146,7 +146,7 @@ void FFleshRingEditorModule::StartupModule()
 					{
 						FToolMenuSection& Section = InSubmenu->FindOrAddSection(NAME_None);
 
-						// Local 옵션
+						// Local option
 						Section.AddMenuEntry(
 							"FleshRingCoordLocal",
 							LOCTEXT("FleshRingCoordLocalMenu", "Local"),
@@ -175,7 +175,7 @@ void FFleshRingEditorModule::StartupModule()
 							EUserInterfaceActionType::RadioButton
 						);
 
-						// World 옵션
+						// World option
 						Section.AddMenuEntry(
 							"FleshRingCoordWorld",
 							LOCTEXT("FleshRingCoordWorldMenu", "World"),
@@ -206,7 +206,7 @@ void FFleshRingEditorModule::StartupModule()
 					})
 				);
 
-				// 동적 아이콘 설정
+				// Dynamic icon setup
 				CoordSystemSubmenu.Icon = TAttribute<FSlateIcon>::CreateLambda([WeakClient]() -> FSlateIcon
 				{
 					if (TSharedPtr<FEditorViewportClient> C = WeakClient.Pin())
@@ -220,7 +220,7 @@ void FFleshRingEditorModule::StartupModule()
 					return FSlateIcon(FAppStyle::GetAppStyleSetName(), "EditorViewport.RelativeCoordinateSystem_World");
 				});
 
-				// 메인 버튼 클릭 시 토글 액션
+				// Toggle action when main button is clicked
 				FToolUIAction ToggleAction;
 				ToggleAction.ExecuteAction = FToolMenuExecuteAction::CreateLambda([WeakClient](const FToolMenuContext&)
 				{
@@ -231,7 +231,7 @@ void FFleshRingEditorModule::StartupModule()
 					}
 				});
 
-				// 기존 Transform 툴들과 동일한 스타일 적용
+				// Apply same style as existing Transform tools
 				CoordSystemSubmenu.ToolBarData = ToolBarData;
 				CoordSystemSubmenu.ToolBarData.LabelOverride = FText::GetEmpty();
 				CoordSystemSubmenu.ToolBarData.ActionOverride = ToggleAction;
@@ -239,7 +239,7 @@ void FFleshRingEditorModule::StartupModule()
 			}));
 		}
 
-		// Transform 메뉴에서 FleshRing 뷰포트일 때 기본 좌표계 컨트롤 숨기기
+		// Hide default coordinate system controls when in FleshRing viewport from Transform menu
 		UToolMenu* TransformMenu = UToolMenus::Get()->ExtendMenu("UnrealEd.ViewportToolbar.Transform");
 		if (TransformMenu)
 		{
@@ -263,16 +263,16 @@ void FFleshRingEditorModule::StartupModule()
 					return;
 				}
 
-				// 기본 좌표계 컨트롤 숨기기 (우리 커스텀 버튼 사용)
+				// Hide default coordinate system controls (use our custom button)
 				Context->bShowCoordinateSystemControls = false;
 			}));
 		}
 	}));
-} 
+}
 
 void FFleshRingEditorModule::ShutdownModule()
 {
-	// 커스텀 스타일 셋 해제
+	// Unregister custom style set
 	if (StyleSet.IsValid())
 	{
 		FSlateStyleRegistry::UnRegisterSlateStyle(*StyleSet);
@@ -300,7 +300,7 @@ void FFleshRingEditorModule::ShutdownModule()
 		PropertyModule.UnregisterCustomPropertyTypeLayout(FSubdivisionSettings::StaticStruct()->GetFName());
 	}
 
-	// FleshRingAsset 썸네일 렌더러 해제
+	// Unregister FleshRingAsset thumbnail renderer
 	if (UObjectInitialized())
 	{
 		UThumbnailManager::Get().UnregisterCustomRenderer(UFleshRingAsset::StaticClass());

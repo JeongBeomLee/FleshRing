@@ -34,7 +34,7 @@ void DispatchFleshRingDebugPointOutputCS(
 	// Input (SRV)
 	PassParameters->FinalPositions = GraphBuilder.CreateSRV(FinalPositionsBuffer, PF_R32_FLOAT);
 	PassParameters->VertexIndices = GraphBuilder.CreateSRV(VertexIndicesBuffer);
-	PassParameters->Influences = GraphBuilder.CreateSRV(InfluencesBuffer, PF_R32_FLOAT);  // GPU에서 계산된 Influence
+	PassParameters->Influences = GraphBuilder.CreateSRV(InfluencesBuffer, PF_R32_FLOAT);  // Influence computed on GPU
 
 	// Output (UAV)
 	PassParameters->DebugPointBuffer = GraphBuilder.CreateUAV(DebugPointBuffer);
@@ -44,7 +44,7 @@ void DispatchFleshRingDebugPointOutputCS(
 	PassParameters->NumTotalVertices = Params.NumTotalVertices;
 	PassParameters->RingIndex = Params.RingIndex;
 	PassParameters->BaseOffset = Params.BaseOffset;
-	PassParameters->InfluenceBaseOffset = Params.InfluenceBaseOffset;  // 다중 Ring 지원용 오프셋
+	PassParameters->InfluenceBaseOffset = Params.InfluenceBaseOffset;  // Offset for multi-Ring support
 	PassParameters->LocalToWorld = Params.LocalToWorld;
 
 	TShaderMapRef<FFleshRingDebugPointOutputCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));

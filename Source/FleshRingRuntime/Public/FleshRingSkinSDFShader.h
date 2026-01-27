@@ -10,46 +10,46 @@
 
 // ============================================================================
 // Skin SDF Layer Separation Shader Parameters
-// 스킨 SDF 기반 레이어 분리 셰이더 파라미터
+// Skin SDF-based layer separation shader parameters
 // ============================================================================
-// 스킨 버텍스들의 위치/노멀로 implicit surface를 정의하고,
-// 스타킹 버텍스가 스킨 안쪽에 있으면 바깥으로 밀어냄
+// Define an implicit surface using skin vertex positions/normals,
+// and push stocking vertices outward if they are inside the skin
 //
-// 핵심 알고리즘:
-// 1. 가장 가까운 스킨 버텍스 찾기
+// Core algorithm:
+// 1. Find the closest skin vertex
 // 2. SignedDist = dot(stocking_pos - skin_pos, skin_normal)
-// 3. SignedDist < MinSeparation이면 바깥으로 밀어냄
+// 3. Push outward if SignedDist < MinSeparation
 
 struct FSkinSDFDispatchParams
 {
-	// 처리할 스타킹 버텍스 수
+	// Number of stocking vertices to process
 	uint32 NumStockingVertices = 0;
 
-	// 스킨 버텍스 수
+	// Number of skin vertices
 	uint32 NumSkinVertices = 0;
 
-	// 전체 메시 버텍스 수
+	// Total mesh vertex count
 	uint32 NumTotalVertices = 0;
 
-	// 최소 분리 거리 (cm) - 이 아래로 침투 시 밀어냄
+	// Minimum separation distance (cm) - push out when penetration below this
 	float MinSeparation = 0.01f;  // 0.1mm
 
-	// 목표 분리 거리 (cm) - 접촉 유지를 위한 목표 거리
-	float TargetSeparation = 0.02f;  // 0.2mm (시각적 접촉)
+	// Target separation distance (cm) - target distance to maintain contact
+	float TargetSeparation = 0.02f;  // 0.2mm (visual contact)
 
-	// 최대 밀어내기 거리 (iteration당, cm)
+	// Maximum push distance (per iteration, cm)
 	float MaxPushDistance = 1.0f;  // 1cm
 
-	// 최대 당기기 거리 (iteration당, cm) - 부유 방지
-	float MaxPullDistance = 0.0f;  // 비활성화
+	// Maximum pull distance (per iteration, cm) - prevents floating
+	float MaxPullDistance = 0.0f;  // disabled
 
-	// 최대 반복 횟수 (침투 해결 시 조기 종료)
+	// Maximum iteration count (early exit when penetration resolved)
 	uint32 MaxIterations = 20;
 
-	// Ring 축 (노멀 방향 폴백용)
+	// Ring axis (fallback for normal direction)
 	FVector3f RingAxis = FVector3f(0, 0, 1);
 
-	// Ring 중심
+	// Ring center
 	FVector3f RingCenter = FVector3f::ZeroVector;
 };
 
@@ -63,19 +63,19 @@ class FSkinSDFLayerSeparationCS : public FGlobalShader
 	SHADER_USE_PARAMETER_STRUCT(FSkinSDFLayerSeparationCS, FGlobalShader);
 
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
-		// 버텍스 위치 (읽기/쓰기)
+		// Vertex positions (read/write)
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float>, PositionsRW)
 
-		// 스킨 버텍스 인덱스
+		// Skin vertex indices
 		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<uint>, SkinVertexIndices)
 
-		// 스킨 버텍스 노멀 (변형 후)
+		// Skin vertex normals (post-deformation)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float>, SkinNormals)
 
-		// 스타킹 버텍스 인덱스
+		// Stocking vertex indices
 		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<uint>, StockingVertexIndices)
 
-		// 파라미터
+		// Parameters
 		SHADER_PARAMETER(uint32, NumStockingVertices)
 		SHADER_PARAMETER(uint32, NumSkinVertices)
 		SHADER_PARAMETER(uint32, NumTotalVertices)

@@ -20,55 +20,55 @@ class UFleshRingMeshComponent;
 struct IPooledRenderTarget;
 
 // =====================================
-// SDF 캐시 구조체 (Ring별 영구 저장)
+// SDF Cache Struct (Persistent per-Ring storage)
 // =====================================
 
 /**
- * Ring별 SDF 텍스처 캐시
- * RDG 텍스처를 Pooled 텍스처로 변환하여 영구 저장
- * Deformer에서 매 프레임 RegisterExternalTexture()로 사용
+ * Per-Ring SDF texture cache
+ * Converts RDG texture to Pooled texture for persistent storage
+ * Used by Deformer via RegisterExternalTexture() every frame
  */
 struct FRingSDFCache
 {
 	/**
-	 * Pooled 렌더 타겟 (GPU에 영구 저장)
+	 * Pooled render target (persistent on GPU)
 	 *
-	 * IPooledRenderTarget이란?
-	 * - RDG(Render Dependency Graph) 외부에서 렌더 타겟을 영구 보관하기 위한 인터페이스
-	 * - RDG 텍스처는 GraphBuilder.Execute() 후 소멸되지만,
-	 *   ConvertToExternalTexture()로 Pooled 텍스처로 변환하면 프레임 간 유지됨
-	 * - 이후 프레임에서 RegisterExternalTexture()로 RDG에 다시 등록하여 사용
-	 * - TRefCountPtr로 참조 카운트 관리 (SafeRelease()로 해제)
+	 * What is IPooledRenderTarget?
+	 * - Interface for persistent render target storage outside RDG (Render Dependency Graph)
+	 * - RDG textures are destroyed after GraphBuilder.Execute(),
+	 *   but ConvertToExternalTexture() converts to Pooled texture for cross-frame persistence
+	 * - In subsequent frames, RegisterExternalTexture() re-registers to RDG for use
+	 * - TRefCountPtr manages reference count (release via SafeRelease())
 	 */
 	TRefCountPtr<IPooledRenderTarget> PooledTexture;
 
-	/** SDF 볼륨 최소 바운드 (Ring 로컬 스페이스) */
+	/** SDF volume minimum bounds (Ring local space) */
 	FVector3f BoundsMin = FVector3f::ZeroVector;
 
-	/** SDF 볼륨 최대 바운드 (Ring 로컬 스페이스) */
+	/** SDF volume maximum bounds (Ring local space) */
 	FVector3f BoundsMax = FVector3f::ZeroVector;
 
-	/** SDF 해상도 */
+	/** SDF resolution */
 	FIntVector Resolution = FIntVector(64, 64, 64);
 
 	/**
-	 * Ring 로컬 → 컴포넌트 스페이스 트랜스폼 (OBB용)
-	 * SDF는 로컬 스페이스에서 생성, 샘플링 시 역변환 사용
+	 * Ring local -> Component space transform (for OBB)
+	 * SDF is generated in local space, inverse transform used for sampling
 	 */
 	FTransform LocalToComponent = FTransform::Identity;
 
 	/**
-	 * 자동 감지된 Bulge 방향
-	 * +1 = 위쪽 (경계 버텍스 평균 Z > SDF 중심 Z)
-	 * -1 = 아래쪽 (경계 버텍스 평균 Z < SDF 중심 Z)
-	 *  0 = 감지 실패 (폐쇄 메시 또는 버텍스 없음)
+	 * Auto-detected Bulge direction
+	 * +1 = Upward (boundary vertex average Z > SDF center Z)
+	 * -1 = Downward (boundary vertex average Z < SDF center Z)
+	 *  0 = Detection failed (closed mesh or no vertices)
 	 */
 	int32 DetectedBulgeDirection = 0;
 
-	/** 캐싱 완료 여부 */
+	/** Caching complete flag */
 	bool bCached = false;
 
-	/** 캐시 초기화 */
+	/** Reset cache */
 	void Reset()
 	{
 		PooledTexture.SafeRelease();
@@ -80,7 +80,7 @@ struct FRingSDFCache
 		bCached = false;
 	}
 
-	/** 유효성 검사 */
+	/** Validity check */
 	bool IsValid() const
 	{
 		return bCached && PooledTexture.IsValid();
@@ -88,14 +88,14 @@ struct FRingSDFCache
 };
 
 // =====================================
-// 컴포넌트 클래스
+// Component Class
 // =====================================
 
 class UFleshRingDeformerInstance;
 
 /**
- * FleshRing 메쉬 변형 컴포넌트
- * SDF 기반으로 스켈레탈 메쉬의 살(Flesh) 표현을 처리
+ * FleshRing mesh deformation component
+ * Handles flesh representation of skeletal mesh using SDF
  */
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent), DisplayName="Flesh Ring")
 class FLESHRINGRUNTIME_API UFleshRingComponent : public UActorComponent
@@ -115,14 +115,14 @@ protected:
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 
-	/** 에셋 변경 델리게이트 핸들 */
+	/** Asset change delegate handle */
 	FDelegateHandle AssetChangedDelegateHandle;
 
-	/** 에셋 변경 델리게이트 구독/해제 */
+	/** Subscribe/unsubscribe to asset change delegate */
 	void BindToAssetDelegate();
 	void UnbindFromAssetDelegate();
 
-	/** 에셋 변경 콜백 */
+	/** Asset change callback */
 	void OnFleshRingAssetChanged(UFleshRingAsset* ChangedAsset);
 #endif
 
@@ -133,19 +133,19 @@ public:
 	// FleshRing Asset (Primary Data Source)
 	// =====================================
 
-	/** FleshRing 데이터 에셋 (Ring 설정 포함) */
+	/** FleshRing data asset (contains Ring settings) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FleshRing Asset")
 	TObjectPtr<UFleshRingAsset> FleshRingAsset;
 
-	/** Asset 변경 시 호출 */
+	/** Called when asset is changed */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing")
 	void ApplyAsset();
 
 	/**
-	 * 런타임에서 FleshRingAsset 교체
-	 * 베이크된 에셋 간 전환 시 애니메이션 끊김 없이 즉시 교체
+	 * Swap FleshRingAsset at runtime
+	 * Instant swap between baked assets without animation interruption
 	 */
-	/** 런타임 링 에셋 교체 (기존 API, 하위 호환성 유지) */
+	/** Runtime ring asset swap (legacy API, maintained for backward compatibility) */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing")
 	void SwapFleshRingAsset(UFleshRingAsset* NewAsset);
 
@@ -181,63 +181,63 @@ public:
 	// =====================================
 
 	/**
-	 * 타겟 메시 수동 설정 (프리뷰, 머지 메시 등 특수 케이스용)
-	 * 설정하지 않으면 Owner에서 FleshRingAsset->TargetSkeletalMesh와 일치하는 컴포넌트를 자동 탐색
+	 * Manual target mesh setting (for special cases like preview, merged mesh)
+	 * If not set, auto-searches Owner for component matching FleshRingAsset->TargetSkeletalMesh
 	 */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing")
 	void SetTargetMesh(USkeletalMeshComponent* InTargetMesh);
 
 	// =====================================
-	// General (런타임 설정)
+	// General (Runtime Settings)
 	// =====================================
 
-	/** 전체 기능 활성화 */
+	/** Enable all features */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General")
 	bool bEnableFleshRing = true;
 
-	/** Ring 메시 표시 (SDF 소스 메시) */
+	/** Show Ring mesh (SDF source mesh) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General")
 	bool bShowRingMesh = true;
 
-	/** Bounds 확장 배율 (VSM 캐싱을 위해 Deformer 변형량에 맞게 조정) */
+	/** Bounds scale multiplier (adjust for Deformer deformation to enable VSM caching) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General", meta = (ClampMin = "1.0", ClampMax = "3.0"))
 	float BoundsScale = 2.0f;
 
 	// =====================================
-	// Debug / Visualization (에디터 전용)
+	// Debug / Visualization (Editor Only)
 	// =====================================
 
 #if WITH_EDITORONLY_DATA
-	/** 디버그 시각화 전체 활성화 (마스터 스위치) */
+	/** Enable debug visualization (master switch) */
 	UPROPERTY(EditAnywhere, Category = "Debug")
 	bool bShowDebugVisualization = false;
 
-	/** SDF 볼륨 바운드 박스 표시 */
+	/** Show SDF volume bounding box */
 	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
 	bool bShowSdfVolume = false;
 
-	/** 영향받는 버텍스 표시 (색상 = Influence 강도) */
+	/** Show affected vertices (color = influence strength) */
 	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
 	bool bShowAffectedVertices = false;
 
-	/** SDF 슬라이스 평면 표시 */
+	/** Show SDF slice plane */
 	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
 	bool bShowSDFSlice = false;
 
-	/** 표시할 SDF 슬라이스 Z 인덱스 (0 ~ Resolution-1) */
+	/** SDF slice Z index to display (0 ~ Resolution-1) */
 	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization && bShowSDFSlice", ClampMin = "0", ClampMax = "63", UIMin = "0", UIMax = "63"))
 	int32 DebugSliceZ = 32;
 
-	// TODO: Bulge 히트맵 시각화 구현
-	/** Bulge 히트맵 표시 */
+	// TODO: Implement Bulge heatmap visualization
+	/** Show Bulge heatmap */
 	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
 	bool bShowBulgeHeatmap = false;
 
-	/** Bulge 방향 화살표 표시 */
+	/** Show Bulge direction arrows */
 	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization && bShowBulgeHeatmap"))
 	bool bShowBulgeArrows = true;
 
-	/** Bulge 영향 범위 원기둥 표시 */
+	/** Show Bulge influence range cylinder */
 	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
 	bool bShowBulgeRange = false;
 #endif
@@ -246,22 +246,22 @@ public:
 	// Blueprint Callable Functions
 	// =====================================
 
-	/** SDF 수동 업데이트 */
+	/** Manual SDF update */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing")
 	void UpdateSDF();
 
-	/** 실제 적용될 SkeletalMeshComponent 반환 */
+	/** Get resolved SkeletalMeshComponent to apply deformation */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing")
 	USkeletalMeshComponent* GetResolvedTargetMesh() const { return ResolvedTargetMesh.Get(); }
 
-	/** 내부 Deformer 반환 */
+	/** Get internal Deformer */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing")
 	UFleshRingDeformer* GetDeformer() const { return InternalDeformer; }
 
 	/**
-	 * Deformer 재초기화 (메시 교체 시 GPU 버퍼 재할당)
-	 * 베이킹 등 메시가 변경될 때 호출하여 Deformer의 GPU 버퍼를
-	 * 새 메시 크기에 맞게 재할당합니다.
+	 * Reinitialize Deformer (reallocate GPU buffers when mesh changes)
+	 * Call when mesh is changed (e.g., baking) to reallocate Deformer's GPU buffers
+	 * to match the new mesh size.
 	 */
 #if WITH_EDITOR
 	UFUNCTION(BlueprintCallable, Category = "FleshRing|Editor")
@@ -269,47 +269,47 @@ public:
 #endif
 
 	/**
-	 * 에디터 프리뷰 환경에서 Deformer를 초기화합니다.
-	 * BeginPlay()가 호출되지 않는 에디터 환경에서 사용합니다.
+	 * Initialize Deformer for editor preview environment.
+	 * Used in editor environment where BeginPlay() is not called.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing|Editor")
 	void InitializeForEditorPreview();
 
 	/**
-	 * 에디터 프리뷰 강제 재초기화 (이미 초기화된 상태여도 다시 수행)
-	 * 서브디비전 OFF 상태에서 베이크 시 Deformer 설정을 위해 사용
+	 * Force reinitialize editor preview (even if already initialized)
+	 * Used for Deformer setup when baking with subdivision OFF
 	 */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing|Editor")
 	void ForceInitializeForEditorPreview();
 
 	/**
-	 * Ring 트랜스폼만 업데이트 (Deformer 유지, SDF 텍스처 유지)
-	 * 기즈모 드래그나 프로퍼티 변경 시 깜빡임 없이 실시간 갱신용
-	 * @param DirtyRingIndex - 특정 Ring만 업데이트 (-1이면 전체 업데이트)
+	 * Update Ring transforms only (keep Deformer, keep SDF textures)
+	 * For real-time update without flickering during gizmo drag or property changes
+	 * @param DirtyRingIndex - Update specific Ring only (-1 for all)
 	 */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing|Editor")
 	void UpdateRingTransforms(int32 DirtyRingIndex = -1);
 
 	/**
-	 * Ring 메시 컴포넌트 재생성 (RingMesh 변경 시 호출)
-	 * 에디터에서 RingMesh 프로퍼티 변경 시 사용
+	 * Recreate Ring mesh components (call when RingMesh changes)
+	 * Used when RingMesh property is changed in editor
 	 */
 	void RefreshRingMeshes();
 
-	/** 디버그 슬라이스 평면 숨기기/보이기 */
+	/** Show/hide debug slice planes */
 	void SetDebugSlicePlanesVisible(bool bVisible);
 
-	/** Ring 메시 컴포넌트 배열 반환 (에디터 피킹용) */
+	/** Get Ring mesh component array (for editor picking) */
 	const TArray<TObjectPtr<UFleshRingMeshComponent>>& GetRingMeshComponents() const { return RingMeshComponents; }
 
 	// =====================================
-	// SDF 캐시 접근 (Deformer에서 사용)
+	// SDF Cache Access (Used by Deformer)
 	// =====================================
 
-	/** Ring 개수 반환 */
+	/** Get Ring count */
 	int32 GetNumRingSDFCaches() const { return RingSDFCaches.Num(); }
-	
-	/** 특정 Ring의 SDF 캐시 반환 (읽기 전용) */
+
+	/** Get SDF cache for specific Ring (read-only) */
 	const FRingSDFCache* GetRingSDFCache(int32 RingIndex) const
 	{
 		if (RingSDFCaches.IsValidIndex(RingIndex))
@@ -319,7 +319,7 @@ public:
 		return nullptr;
 	}
 
-	/** 모든 Ring의 SDF 캐시가 유효한지 확인 */
+	/** Check if all Ring SDF caches are valid */
 	bool AreAllSDFCachesValid() const
 	{
 		for (const FRingSDFCache& Cache : RingSDFCaches)
@@ -332,7 +332,7 @@ public:
 		return RingSDFCaches.Num() > 0;
 	}
 
-	/** 하나 이상의 유효한 SDF 캐시가 있는지 확인 (부분 동작 허용) */
+	/** Check if at least one valid SDF cache exists (allows partial operation) */
 	bool HasAnyValidSDFCaches() const
 	{
 		for (const FRingSDFCache& Cache : RingSDFCaches)
@@ -345,14 +345,14 @@ public:
 		return false;
 	}
 
-	/** SDF 없이 동작하는 Ring이 있는지 확인 (VirtualRing/VirtualBand - 거리 기반 로직) */
+	/** Check if any Rings operate without SDF (VirtualRing/VirtualBand - distance-based logic) */
 	bool HasAnyNonSDFRings() const;
 
-	/** SDF 재생성 (에디터에서 VirtualBand 실시간 갱신용) */
+	/** Regenerate SDF (for real-time VirtualBand updates in editor) */
 	void RefreshSDF() { GenerateSDF(); }
 
 private:
-	/** 에디터 프리뷰 초기화 완료 여부 */
+	/** Editor preview initialization complete flag */
 	bool bEditorPreviewInitialized = false;
 
 	/** True when using BakedMesh at runtime (Deformer disabled) */
@@ -367,156 +367,156 @@ private:
 	bool bCreatedForMergedMesh = false;
 
 	/**
-	 * SetTargetMesh()로 수동 설정되었는지 여부
-	 * true면 FindTargetMeshOnly()에서 자동 탐색 스킵 (ManualTargetMesh에서 복원)
-	 * true면 ResolveTargetMesh()에서 메시 변경 스킵
+	 * Whether manually set via SetTargetMesh()
+	 * If true, skip auto-search in FindTargetMeshOnly() (restore from ManualTargetMesh)
+	 * If true, skip mesh change in ResolveTargetMesh()
 	 */
 	bool bManualTargetSet = false;
 
 	/**
-	 * SetTargetMesh()로 설정된 대상 메시 (캐싱용)
-	 * CleanupDeformer()에서 ResolvedTargetMesh가 리셋되어도 복원 가능
+	 * Target mesh set via SetTargetMesh() (for caching)
+	 * Can be restored even when ResolvedTargetMesh is reset in CleanupDeformer()
 	 */
 	TWeakObjectPtr<USkeletalMeshComponent> ManualTargetMesh;
 
-	/** 자동/수동 검색된 실제 대상 */
+	/** Auto/manually resolved actual target */
 	UPROPERTY(Transient)
 	TWeakObjectPtr<USkeletalMeshComponent> ResolvedTargetMesh;
 
-	/** 컴포넌트 제거 시 복원할 원본 SkeletalMesh (SubdividedMesh 적용 전 저장) */
+	/** Original SkeletalMesh to restore when component is removed (saved before SubdividedMesh application) */
 	UPROPERTY(Transient)
 	TWeakObjectPtr<USkeletalMesh> CachedOriginalMesh;
 
-	/** 내부에 생성된 Deformer */
+	/** Internally created Deformer */
 	UPROPERTY(Transient)
 	TObjectPtr<UFleshRingDeformer> InternalDeformer;
 
 	/**
-	 * Ring별 SDF 캐시 배열
-	 * - GenerateSDF()에서 Pooled 텍스처로 변환하여 저장
-	 * - Deformer에서 GetRingSDFCache()로 접근
-	 * - UPROPERTY 불가 (IPooledRenderTarget은 UObject가 아님)
-	 * - CleanupDeformer()에서 수동 해제 필요
+	 * Per-Ring SDF cache array
+	 * - Converted to Pooled texture and stored in GenerateSDF()
+	 * - Accessed by Deformer via GetRingSDFCache()
+	 * - Cannot be UPROPERTY (IPooledRenderTarget is not a UObject)
+	 * - Must be manually released in CleanupDeformer()
 	 */
 	TArray<FRingSDFCache> RingSDFCaches;
 
 	/**
-	 * Ring별 렌더링용 StaticMeshComponent 배열
-	 * - SetupRingMeshes()에서 생성하여 본에 부착
-	 * - CleanupRingMeshes()에서 제거
+	 * Per-Ring rendering StaticMeshComponent array
+	 * - Created and attached to bone in SetupRingMeshes()
+	 * - Removed in CleanupRingMeshes()
 	 */
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UFleshRingMeshComponent>> RingMeshComponents;
 
-	/** 대상 SkeletalMeshComponent 검색만 수행 (메시 변경 없음) */
+	/** Search for target SkeletalMeshComponent only (no mesh change) */
 	void FindTargetMeshOnly();
 
-	/** 대상 SkeletalMeshComponent 검색 및 메시 설정 (SubdividedMesh 적용 등) */
+	/** Search for target SkeletalMeshComponent and set mesh (SubdividedMesh application, etc.) */
 	void ResolveTargetMesh();
 
-	/** Deformer 생성 및 등록 */
+	/** Create and register Deformer */
 	void SetupDeformer();
 
-	/** Deformer 제거 */
+	/** Remove Deformer */
 	void CleanupDeformer();
 
 	/**
-	 * Deformer를 유지한 채 SDF와 Ring 메시만 갱신
-	 * Undo/Redo 시 GPU 메모리 누수 방지를 위해 Deformer 재생성 대신 이 함수 사용
+	 * Refresh SDF and Ring meshes while keeping Deformer
+	 * Use this instead of Deformer recreation to prevent GPU memory leaks during Undo/Redo
 	 * @return true if refresh succeeded, false if full recreation needed
 	 */
 	bool RefreshWithDeformerReuse();
 
-	/** SDF 생성 (각 Ring의 RingMesh 기반) */
+	/** Generate SDF (based on each Ring's RingMesh) */
 	void GenerateSDF();
 
-	/** Ring 메시 컴포넌트 생성 및 본에 부착 */
+	/** Create Ring mesh components and attach to bone */
 	void SetupRingMeshes();
 
-	/** Ring 메시 컴포넌트 제거 */
+	/** Remove Ring mesh components */
 	void CleanupRingMeshes();
 
-	/** Ring 메시 가시성 업데이트 */
+	/** Update Ring mesh visibility */
 	void UpdateRingMeshVisibility();
 
-	/** 베이크된 메시 적용 (BakedMesh + BakedRingTransforms) */
+	/** Apply baked mesh (BakedMesh + BakedRingTransforms) */
 	void ApplyBakedMesh();
 
-	/** 베이크된 Ring 트랜스폼 적용 (Ring 메시 위치 복원) */
+	/** Apply baked Ring transforms (restore Ring mesh positions) */
 	void ApplyBakedRingTransforms();
 
 	// =====================================
-	// Debug Drawing (에디터 전용)
+	// Debug Drawing (Editor Only)
 	// =====================================
 
 #if WITH_EDITORONLY_DATA
-	/** SDF 슬라이스 시각화용 평면 액터 (Ring별) */
+	/** SDF slice visualization plane actors (per-Ring) */
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<AActor>> DebugSlicePlaneActors;
 
-	/** SDF 슬라이스 시각화용 렌더 타겟 (Ring별) */
+	/** SDF slice visualization render targets (per-Ring) */
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UTextureRenderTarget2D>> DebugSliceRenderTargets;
 
 	/**
-	 * 디버그 시각화용 영향받는 버텍스 데이터 (Ring별)
-	 * GenerateSDF() 완료 후 CacheAffectedVerticesForDebug()에서 계산
+	 * Affected vertex data for debug visualization (per-Ring)
+	 * Calculated in CacheAffectedVerticesForDebug() after GenerateSDF() completes
 	 */
 	TArray<FRingAffectedData> DebugAffectedData;
 
-	/** 바인드 포즈 버텍스 위치 (컴포넌트 스페이스) */
+	/** Bind pose vertex positions (component space) */
 	TArray<FVector3f> DebugBindPoseVertices;
 
-	/** 디버그용 Spatial Hash (O(1) 버텍스 쿼리용) */
+	/** Spatial Hash for debug (O(1) vertex query) */
 	FVertexSpatialHash DebugSpatialHash;
 
-	/** 디버그 데이터 캐싱 완료 여부 */
+	/** Debug data caching complete flag */
 	bool bDebugAffectedVerticesCached = false;
 
 	/**
-	 * 디버그 시각화용 Bulge 버텍스 데이터 (Ring별)
-	 * Smoothstep 거리 기반 필터링 + 방향 필터링 적용된 결과
+	 * Bulge vertex data for debug visualization (per-Ring)
+	 * Result after smoothstep distance-based filtering + direction filtering
 	 */
 	TArray<FRingAffectedData> DebugBulgeData;
 
-	/** Bulge 디버그 데이터 캐싱 완료 여부 */
+	/** Bulge debug data caching complete flag */
 	bool bDebugBulgeVerticesCached = false;
 
-	// ===== GPU Influence Readback 캐시 =====
-	// TightnessCS에서 계산된 Influence 값을 CPU로 Readback하여 시각화용 캐싱
-	// DrawAffectedVertices에서 사용
+	// ===== GPU Influence Readback Cache =====
+	// Readback Influence values calculated in TightnessCS from GPU to CPU for visualization caching
+	// Used in DrawAffectedVertices
 
-	/** GPU에서 계산된 Influence 캐시 (Ring별) */
+	/** GPU-computed Influence cache (per-Ring) */
 	TArray<TArray<float>> CachedGPUInfluences;
 
-	/** GPU Influence Readback 준비 완료 플래그 (Ring별) */
+	/** GPU Influence Readback ready flag (per-Ring) */
 	TArray<bool> bGPUInfluenceReady;
 
-	/** GPU Influence Readback 객체 (Ring별) */
+	/** GPU Influence Readback objects (per-Ring) */
 	TArray<TSharedPtr<class FRHIGPUBufferReadback>> GPUInfluenceReadbacks;
 
-	// ===== GPU 디버그 렌더링 =====
+	// ===== GPU Debug Rendering =====
 
-	/** GPU 디버그 렌더링 활성화 (DrawDebugPoint 대체) */
+	/** Enable GPU debug rendering (replaces DrawDebugPoint) */
 	bool bUseGPUDebugRendering = true;
 
-	/** 통합 디버그 포인트 컴포넌트 (Scene Proxy 사용, Tightness + Bulge 공유 depth buffer) */
+	/** Unified debug point component (uses Scene Proxy, shared depth buffer for Tightness + Bulge) */
 	UPROPERTY()
 	TObjectPtr<UFleshRingDebugPointComponent> DebugPointComponent;
 
 public:
-	/** GPU 디버그 렌더링 활성화 여부 반환 */
+	/** Get GPU debug rendering enabled state */
 	bool IsGPUDebugRenderingEnabled() const { return bUseGPUDebugRendering; }
 
 	/**
-	 * 가시 Ring 비트마스크 배열 반환 (무제한 Ring 지원)
-	 * 각 uint32 요소는 32개 Ring의 가시성 비트마스크
-	 * 요소[0] = Ring 0-31, 요소[1] = Ring 32-63, ...
-	 * N개 Ring → ceil(N/32)개 요소
+	 * Get visible Ring bitmask array (supports unlimited Rings)
+	 * Each uint32 element is a visibility bitmask for 32 Rings
+	 * Element[0] = Ring 0-31, Element[1] = Ring 32-63, ...
+	 * N Rings -> ceil(N/32) elements
 	 */
 	TArray<uint32> GetVisibilityMaskArray() const;
 
-	/** 디버그 포인트 수 반환 (첫 번째 Ring의 AffectedVertices 수) */
+	/** Get debug point count (AffectedVertices count of first Ring) */
 	uint32 GetDebugPointCount() const
 	{
 		if (DebugAffectedData.Num() > 0)
@@ -527,25 +527,25 @@ public:
 	}
 
 	/**
-	 * CPU 디버그 캐시 무효화 (Ring 이동 시 다른 클래스에서 호출)
-	 * @param DirtyRingIndex - 특정 Ring만 무효화 (INDEX_NONE이면 전체 무효화)
+	 * Invalidate CPU debug cache (called from other classes when Ring moves)
+	 * @param DirtyRingIndex - Invalidate specific Ring only (INDEX_NONE for all)
 	 */
 	void InvalidateDebugCaches(int32 DirtyRingIndex = INDEX_NONE)
 	{
-		// Ring 이동 시 디버그 캐시 무효화
-		// 캐시 플래그와 실제 데이터 모두 리셋하여 다음 프레임에서 재계산 보장
+		// Invalidate debug cache when Ring moves
+		// Reset both cache flags and actual data to ensure recalculation next frame
 		bDebugAffectedVerticesCached = false;
 		bDebugBulgeVerticesCached = false;
 
 		if (DirtyRingIndex == INDEX_NONE)
 		{
-			// 전체 무효화: 모든 데이터 리셋
+			// Full invalidation: reset all data
 			DebugAffectedData.Reset();
 			DebugBulgeData.Reset();
 		}
 		else
 		{
-			// 특정 Ring만 무효화: 해당 Ring 데이터만 Reset
+			// Specific Ring invalidation: reset only that Ring's data
 			if (DebugAffectedData.IsValidIndex(DirtyRingIndex))
 			{
 				DebugAffectedData[DirtyRingIndex].Vertices.Reset();
@@ -558,51 +558,51 @@ public:
 	}
 
 private:
-	/** 디버그 포인트 컴포넌트 초기화 */
+	/** Initialize debug point components */
 	void InitializeDebugPointComponents();
 
-	/** Tightness 포인트 버퍼 업데이트 */
+	/** Update Tightness point buffer */
 	void UpdateTightnessDebugPointComponent();
 
-	/** Bulge 포인트 버퍼 업데이트 */
+	/** Update Bulge point buffer */
 	void UpdateBulgeDebugPointComponent();
 #endif
 
 #if WITH_EDITOR
-	/** 디버그 시각화 메인 함수 (TickComponent에서 호출) */
+	/** Debug visualization main function (called from TickComponent) */
 	void DrawDebugVisualization();
 
-	/** SDF 볼륨 바운드 박스 그리기 */
+	/** Draw SDF volume bounding box */
 	void DrawSdfVolume(int32 RingIndex);
 
-	/** 영향받는 버텍스 그리기 */
+	/** Draw affected vertices */
 	void DrawAffectedVertices(int32 RingIndex);
 
-	/** SDF 슬라이스 평면 그리기 */
+	/** Draw SDF slice plane */
 	void DrawSDFSlice(int32 RingIndex);
 
-	/** 슬라이스 평면 액터 생성 */
+	/** Create slice plane actor */
 	AActor* CreateDebugSlicePlane(int32 RingIndex);
 
-	/** 슬라이스 텍스처 업데이트 */
+	/** Update slice texture */
 	void UpdateSliceTexture(int32 RingIndex, int32 SliceZ);
 
-	/** 디버그 리소스 정리 */
+	/** Cleanup debug resources */
 	void CleanupDebugResources();
 
-	/** 디버그용 영향받는 버텍스 데이터 캐싱 */
+	/** Cache affected vertex data for debug */
 	void CacheAffectedVerticesForDebug();
 
-	/** Bulge 히트맵 그리기 (Smoothstep 거리 기반 필터링 + 방향 필터링 적용) */
+	/** Draw Bulge heatmap (with smoothstep distance-based filtering + direction filtering) */
 	void DrawBulgeHeatmap(int32 RingIndex);
 
-	/** 디버그용 Bulge 버텍스 데이터 캐싱 */
+	/** Cache Bulge vertex data for debug */
 	void CacheBulgeVerticesForDebug();
 
-	/** 감지된 Bulge 방향 화살표 그리기 */
+	/** Draw detected Bulge direction arrow */
 	void DrawBulgeDirectionArrow(int32 RingIndex);
 
-	/** Bulge 영향 범위 원기둥 그리기 */
+	/** Draw Bulge influence range cylinder */
 	void DrawBulgeRange(int32 RingIndex);
 #endif
 };

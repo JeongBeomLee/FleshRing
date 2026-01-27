@@ -48,17 +48,17 @@ void UFleshRingAsset::PostLoad()
 	Super::PostLoad();
 
 	// ================================================================
-	// AffectedLayerMask에 Other 비트 마이그레이션
+	// AffectedLayerMask Other bit migration
 	//
-	// NOTE [마이그레이션]: 새 레이어 비트 추가 시 이 패턴 참고
-	//   1. 기존 에셋은 새 비트가 없음 (0)
-	//   2. 하나 이상의 레이어가 활성화된 경우에만 새 비트 추가
-	//   3. 전부 0인 경우는 의도적 비활성화일 수 있으므로 건드리지 않음
+	// NOTE [Migration]: Reference this pattern when adding new layer bits
+	//   1. Existing assets won't have new bits (0)
+	//   2. Only add new bit if at least one layer is active
+	//   3. Don't touch if all are 0 (may be intentionally disabled)
 	//
-	// 향후 새 레이어 추가 시:
-	//   - 새 비트 정의 (예: EFleshRingLayerMask::NewLayer = 1 << 5)
-	//   - 아래와 유사한 마이그레이션 코드 추가
-	//   - KnownBits에 기존 비트들 포함 (Other 포함)
+	// When adding new layers in the future:
+	//   - Define new bit (e.g., EFleshRingLayerMask::NewLayer = 1 << 5)
+	//   - Add migration code similar to below
+	//   - Include existing bits in KnownBits (including Other)
 	// ================================================================
 	constexpr int32 OtherBit = static_cast<int32>(EFleshRingLayerMask::Other);
 	constexpr int32 KnownBitsBeforeOther =
@@ -71,7 +71,7 @@ void UFleshRingAsset::PostLoad()
 	{
 		FFleshRingSettings& Ring = Rings[RingIndex];
 
-		// Other 비트가 없고, 기존 레이어 중 하나라도 활성화되어 있으면 Other 추가
+		// Add Other bit if missing and at least one existing layer is active
 		const bool bHasOtherBit = (Ring.AffectedLayerMask & OtherBit) != 0;
 		const bool bHasAnyKnownLayer = (Ring.AffectedLayerMask & KnownBitsBeforeOther) != 0;
 
@@ -86,8 +86,8 @@ void UFleshRingAsset::PostLoad()
 		}
 	}
 
-	// 에셋 로드 시 에디터 선택 상태 초기화
-	// (UPROPERTY()로 직렬화되지만, 로드 후에는 항상 초기화)
+	// Reset editor selection state when asset is loaded
+	// (Serialized via UPROPERTY(), but always reset after load)
 	EditorSelectedRingIndex = -1;
 	EditorSelectionType = EFleshRingSelectionType::None;
 }
@@ -96,7 +96,7 @@ void UFleshRingAsset::PostLoad()
 void UFleshRingAsset::PreSave(FObjectPreSaveContext SaveContext)
 {
 	Super::PreSave(SaveContext);
-	// TODO: 자동 베이크 로직 구현 예정. 불필요 시 이 오버라이드 삭제할 것.
+	// TODO: Auto-bake logic to be implemented. Delete this override if not needed.
 }
 #endif
 
@@ -129,13 +129,13 @@ bool UFleshRingAsset::IsRingNameUnique(FName Name, int32 ExcludeIndex) const
 
 FName UFleshRingAsset::MakeUniqueRingName(FName BaseName, int32 ExcludeIndex) const
 {
-	// 이미 고유하면 그대로 반환
+	// Return as-is if already unique
 	if (IsRingNameUnique(BaseName, ExcludeIndex))
 	{
 		return BaseName;
 	}
 
-	// FName의 내장 넘버링 시스템 사용 (언리얼 소켓과 동일한 방식)
+	// Use FName's built-in numbering system (same as Unreal sockets)
 	int32 NewNumber = BaseName.GetNumber();
 	while (!IsRingNameUnique(FName(BaseName, NewNumber), ExcludeIndex))
 	{
@@ -147,19 +147,19 @@ FName UFleshRingAsset::MakeUniqueRingName(FName BaseName, int32 ExcludeIndex) co
 
 bool UFleshRingAsset::IsValid() const
 {
-	// 타겟 메시가 설정되어 있어야 함
+	// Target mesh must be set
 	if (TargetSkeletalMesh.IsNull())
 	{
 		return false;
 	}
 
-	// Ring이 최소 1개 이상 있어야 함
+	// At least one Ring required
 	if (Rings.Num() == 0)
 	{
 		return false;
 	}
 
-	// 모든 Ring이 유효한 본 이름을 가져야 함
+	// All Rings must have valid bone names
 	for (const FFleshRingSettings& Ring : Rings)
 	{
 		if (Ring.BoneName == NAME_None)
@@ -189,7 +189,7 @@ EFleshRingLayerType UFleshRingAsset::GetLayerTypeForMaterialSlot(int32 MaterialS
 
 void UFleshRingAsset::SyncMaterialLayerMappings()
 {
-	// 타겟 메시 없으면 배열 비움
+	// Clear array if no target mesh
 	if (TargetSkeletalMesh.IsNull())
 	{
 		MaterialLayerMappings.Empty();
@@ -206,15 +206,15 @@ void UFleshRingAsset::SyncMaterialLayerMappings()
 	const TArray<FSkeletalMaterial>& Materials = Mesh->GetMaterials();
 	const int32 NumSlots = Materials.Num();
 
-	// 기존 매핑에서 LayerType 보존용 맵 생성
+	// Create map to preserve LayerType from existing mappings
 	TMap<int32, EFleshRingLayerType> ExistingLayerTypes;
 	for (const FMaterialLayerMapping& Mapping : MaterialLayerMappings)
 	{
 		ExistingLayerTypes.Add(Mapping.MaterialSlotIndex, Mapping.LayerType);
 	}
 
-	// 배열 완전히 새로 구성 (SetNum 대신 Empty + Add)
-	// SetNum은 크기가 같으면 기존 요소 재사용 → 에디터 UI가 변경 감지 못함
+	// Rebuild array completely (Empty + Add instead of SetNum)
+	// SetNum reuses existing elements if size matches → editor UI won't detect changes
 	MaterialLayerMappings.Empty();
 	MaterialLayerMappings.Reserve(NumSlots);
 
@@ -222,7 +222,7 @@ void UFleshRingAsset::SyncMaterialLayerMappings()
 	{
 		const FSkeletalMaterial& SkeletalMaterial = Materials[SlotIndex];
 
-		// 기존 LayerType 보존, 없으면 자동 감지
+		// Preserve existing LayerType, auto-detect if not found
 		EFleshRingLayerType LayerType;
 		if (const EFleshRingLayerType* ExistingType = ExistingLayerTypes.Find(SlotIndex))
 		{
@@ -254,7 +254,7 @@ EFleshRingLayerType UFleshRingAsset::DetectLayerTypeFromMaterialName(const FSkel
 	}
 	FString LowerName = MaterialName.ToLower();
 
-	// Stocking 키워드 (우선)
+	// Stocking keywords (priority)
 	static const TArray<FString> StockingKeywords = {
 		TEXT("stocking"), TEXT("tight"), TEXT("pantyhose"),
 		TEXT("hosiery"), TEXT("nylon"), TEXT("sock"), TEXT("legging")
@@ -267,7 +267,7 @@ EFleshRingLayerType UFleshRingAsset::DetectLayerTypeFromMaterialName(const FSkel
 		}
 	}
 
-	// Underwear 키워드
+	// Underwear keywords
 	static const TArray<FString> UnderwearKeywords = {
 		TEXT("underwear"), TEXT("bra"), TEXT("panty"), TEXT("panties"),
 		TEXT("lingerie"), TEXT("bikini"), TEXT("brief"), TEXT("thong")
@@ -283,7 +283,7 @@ EFleshRingLayerType UFleshRingAsset::DetectLayerTypeFromMaterialName(const FSkel
 		}
 	}
 
-	// Outerwear 키워드
+	// Outerwear keywords
 	static const TArray<FString> OuterwearKeywords = {
 		TEXT("cloth"), TEXT("dress"), TEXT("shirt"), TEXT("skirt"),
 		TEXT("jacket"), TEXT("coat"), TEXT("pants"), TEXT("jeans")
@@ -296,7 +296,7 @@ EFleshRingLayerType UFleshRingAsset::DetectLayerTypeFromMaterialName(const FSkel
 		}
 	}
 
-	// Skin 키워드
+	// Skin keywords
 	static const TArray<FString> SkinKeywords = {
 		TEXT("skin"), TEXT("body"), TEXT("flesh"), TEXT("face"),
 		TEXT("hand"), TEXT("leg"), TEXT("arm"), TEXT("foot"), TEXT("head")
@@ -342,16 +342,16 @@ uint32 UFleshRingAsset::CalculateSubdivisionParamsHash() const
 	Hash = HashCombine(Hash, GetTypeHash(SubdivisionSettings.MaxSubdivisionLevel));
 	Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(SubdivisionSettings.MinEdgeLength * 100)));
 
-	// Ring settings (영향 영역 관련 - 서브디비전 대상 삼각형 선택에 영향)
+	// Ring settings (influence region related - affects subdivision target triangle selection)
 	for (const FFleshRingSettings& Ring : Rings)
 	{
-		// 기본 Ring 식별
+		// Basic Ring identification
 		Hash = HashCombine(Hash, GetTypeHash(Ring.BoneName.ToString()));
 
 		// InfluenceMode (Auto vs VirtualRing)
 		Hash = HashCombine(Hash, GetTypeHash(static_cast<uint8>(Ring.InfluenceMode)));
 
-		// Auto 모드: RingMesh 바운드 + 트랜스폼이 영역에 영향
+		// Auto mode: RingMesh bounds + transform affect region
 		if (!Ring.RingMesh.IsNull())
 		{
 			Hash = HashCombine(Hash, GetTypeHash(Ring.RingMesh.ToSoftObjectPath().ToString()));
@@ -360,13 +360,13 @@ uint32 UFleshRingAsset::CalculateSubdivisionParamsHash() const
 		Hash = HashCombine(Hash, GetTypeHash(Ring.MeshRotation.ToString()));
 		Hash = HashCombine(Hash, GetTypeHash(Ring.MeshScale.ToString()));
 
-		// VirtualRing 모드: Torus 파라미터가 영역에 영향
+		// VirtualRing mode: Torus parameters affect region
 		Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(Ring.RingRadius * 10)));
 		Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(Ring.RingHeight * 10)));
 		Hash = HashCombine(Hash, GetTypeHash(Ring.RingOffset.ToString()));
 		Hash = HashCombine(Hash, GetTypeHash(Ring.RingRotation.ToString()));
 
-		// 영역 확장 파라미터 (PostProcess, Smoothing Volume)
+		// Region expansion parameters (PostProcess, Smoothing Volume)
 		Hash = HashCombine(Hash, GetTypeHash(Ring.bEnablePostProcess));
 		Hash = HashCombine(Hash, GetTypeHash(static_cast<uint8>(Ring.SmoothingVolumeMode)));
 		Hash = HashCombine(Hash, GetTypeHash(Ring.MaxSmoothingHops));
@@ -378,12 +378,12 @@ uint32 UFleshRingAsset::CalculateSubdivisionParamsHash() const
 #if WITH_EDITOR
 
 // ============================================
-// Subdivision 영역 계산용 헬퍼 함수들
+// Subdivision Region Calculation Helper Functions
 // ============================================
 
 namespace SubdivisionHelpers
 {
-	/** 위치를 정수 셀로 양자화 (UV Seam 용접용) */
+	/** Quantize position to integer cells (for UV Seam welding) */
 	FORCEINLINE FIntVector QuantizePosition(const FVector& Position, float CellSize = 0.01f)
 	{
 		return FIntVector(
@@ -394,11 +394,11 @@ namespace SubdivisionHelpers
 	}
 
 	/**
-	 * 위치 기반 버텍스 그룹화 (UV Seam 용접)
-	 * 같은 3D 위치의 버텍스들을 그룹화하여 함께 처리
-	 * @param Positions - 버텍스 위치 배열
-	 * @param CellSize - 양자화 셀 크기 (cm), 이 범위 내의 버텍스는 같은 위치로 간주
-	 * @return 양자화된 위치 → 버텍스 인덱스 배열 맵
+	 * Position-based vertex grouping (UV Seam welding)
+	 * Groups vertices at the same 3D position to process together
+	 * @param Positions - Vertex position array
+	 * @param CellSize - Quantization cell size (cm), vertices within this range are considered same position
+	 * @return Quantized position → vertex index array map
 	 */
 	TMap<FIntVector, TArray<uint32>> BuildPositionGroups(const TArray<FVector>& Positions, float CellSize = 0.01f)
 	{
@@ -415,10 +415,10 @@ namespace SubdivisionHelpers
 	}
 
 	/**
-	 * 버텍스 인접성 맵 빌드 (HopBased 확장용)
-	 * 삼각형 인덱스에서 각 버텍스의 이웃 버텍스 목록 생성
-	 * @param Indices - 삼각형 인덱스 배열 (3개씩 한 삼각형)
-	 * @return 버텍스 인덱스 → 이웃 버텍스 인덱스 집합 맵
+	 * Build vertex adjacency map (for HopBased expansion)
+	 * Creates neighbor vertex list for each vertex from triangle indices
+	 * @param Indices - Triangle index array (3 indices per triangle)
+	 * @return Vertex index → neighbor vertex index set map
 	 */
 	TMap<uint32, TSet<uint32>> BuildAdjacencyMap(const TArray<uint32>& Indices)
 	{
@@ -431,7 +431,7 @@ namespace SubdivisionHelpers
 			const uint32 V1 = Indices[TriIdx * 3 + 1];
 			const uint32 V2 = Indices[TriIdx * 3 + 2];
 
-			// 양방향 연결
+			// Bidirectional connection
 			AdjacencyMap.FindOrAdd(V0).Add(V1);
 			AdjacencyMap.FindOrAdd(V0).Add(V2);
 			AdjacencyMap.FindOrAdd(V1).Add(V0);
@@ -444,10 +444,10 @@ namespace SubdivisionHelpers
 	}
 
 	/**
-	 * 위치 기반 인접성 맵 확장 (UV Seam 처리)
-	 * 같은 위치의 버텍스들이 서로의 이웃을 공유하도록 확장
-	 * @param AdjacencyMap - 원본 인접성 맵 (수정됨)
-	 * @param PositionGroups - 위치 기반 버텍스 그룹
+	 * Position-based adjacency map expansion (UV Seam handling)
+	 * Expands so vertices at same position share each other's neighbors
+	 * @param AdjacencyMap - Original adjacency map (modified)
+	 * @param PositionGroups - Position-based vertex groups
 	 */
 	void ExpandAdjacencyForUVSeams(
 		TMap<uint32, TSet<uint32>>& AdjacencyMap,
@@ -461,7 +461,7 @@ namespace SubdivisionHelpers
 				continue;
 			}
 
-			// 그룹 내 모든 버텍스의 이웃을 합집합으로 수집
+			// Collect all neighbors of vertices in group as union
 			TSet<uint32> CombinedNeighbors;
 			for (uint32 V : Vertices)
 			{
@@ -471,13 +471,13 @@ namespace SubdivisionHelpers
 				}
 			}
 
-			// 그룹 내 버텍스들은 이웃에서 제외
+			// Exclude vertices within group from neighbors
 			for (uint32 V : Vertices)
 			{
 				CombinedNeighbors.Remove(V);
 			}
 
-			// 그룹 내 모든 버텍스에 합집합 이웃 적용
+			// Apply union neighbors to all vertices in group
 			for (uint32 V : Vertices)
 			{
 				AdjacencyMap.FindOrAdd(V) = CombinedNeighbors;
@@ -486,10 +486,10 @@ namespace SubdivisionHelpers
 	}
 
 	/**
-	 * 선택된 버텍스에 UV Seam 중복 버텍스 추가
-	 * @param SelectedVertices - 선택된 버텍스 집합 (수정됨)
-	 * @param Positions - 버텍스 위치 배열
-	 * @param PositionGroups - 위치 기반 버텍스 그룹
+	 * Add UV Seam duplicate vertices to selection
+	 * @param SelectedVertices - Selected vertex set (modified)
+	 * @param Positions - Vertex position array
+	 * @param PositionGroups - Position-based vertex groups
 	 */
 	void AddPositionDuplicates(
 		TSet<uint32>& SelectedVertices,
@@ -518,11 +518,11 @@ namespace SubdivisionHelpers
 	}
 
 	/**
-	 * 본 체인을 따라 컴포넌트 스페이스 트랜스폼 계산
-	 * @param BoneIndex - 본 인덱스
-	 * @param RefSkeleton - 레퍼런스 스켈레톤
-	 * @param RefBonePose - 레퍼런스 본 포즈
-	 * @return 컴포넌트 스페이스 본 트랜스폼
+	 * Calculate component space transform along bone chain
+	 * @param BoneIndex - Bone index
+	 * @param RefSkeleton - Reference skeleton
+	 * @param RefBonePose - Reference bone pose
+	 * @return Component space bone transform
 	 */
 	FTransform CalculateBoneTransform(
 		int32 BoneIndex,
@@ -547,14 +547,14 @@ namespace SubdivisionHelpers
 	}
 
 	/**
-	 * 기본 Affected 버텍스 선택 (Auto/VirtualRing 모드)
-	 * @param Ring - Ring 설정
-	 * @param Positions - 버텍스 위치 배열
-	 * @param BoneTransform - 본의 컴포넌트 스페이스 트랜스폼
-	 * @param OutAffectedVertices - 출력: 영향받는 버텍스 인덱스 집합
-	 * @param OutRingBounds - 출력: Ring 영역의 로컬 바운드 (Auto 모드에서만 유효)
-	 * @param OutRingTransform - 출력: Ring 로컬 → 컴포넌트 트랜스폼
-	 * @return 성공 여부
+	 * Select base affected vertices (Auto/VirtualRing mode)
+	 * @param Ring - Ring settings
+	 * @param Positions - Vertex position array
+	 * @param BoneTransform - Bone's component space transform
+	 * @param OutAffectedVertices - Output: affected vertex index set
+	 * @param OutRingBounds - Output: Ring region's local bounds (valid only in Auto mode)
+	 * @param OutRingTransform - Output: Ring local → component transform
+	 * @return Success status
 	 */
 	bool SelectAffectedVertices(
 		const FFleshRingSettings& Ring,
@@ -568,15 +568,15 @@ namespace SubdivisionHelpers
 		OutRingBounds = FBox(EForceInit::ForceInit);
 		OutRingTransform = FTransform::Identity;
 
-		// 기본 마진: PostProcess OFF일 때도 최소한의 여유 확보
-		// 변형 경계 영역의 polygon이 너무 거칠어지는 것 방지
+		// Default margin: ensure minimum slack even when PostProcess is OFF
+		// Prevents deformation boundary region polygons from being too coarse
 		constexpr float DefaultZMargin = 3.0f;  // cm
-		constexpr float DefaultRadialMargin = 1.5f;  // cm (VirtualRing 모드용)
+		constexpr float DefaultRadialMargin = 1.5f;  // cm (for VirtualRing mode)
 
 		if (Ring.InfluenceMode == EFleshRingInfluenceMode::Auto && !Ring.RingMesh.IsNull())
 		{
 			// =====================================
-			// Auto 모드: SDF 바운드 기반
+			// Auto mode: SDF bounds-based
 			// =====================================
 			UStaticMesh* RingMesh = Ring.RingMesh.LoadSynchronous();
 			if (!RingMesh)
@@ -584,26 +584,26 @@ namespace SubdivisionHelpers
 				return false;
 			}
 
-			// RingMesh의 로컬 바운드
+			// RingMesh's local bounds
 			FBox MeshBounds = RingMesh->GetBoundingBox();
 
-			// Ring 로컬 → 컴포넌트 스페이스 트랜스폼
+			// Ring local → component space transform
 			FTransform MeshTransform(Ring.MeshRotation, Ring.MeshOffset);
 			MeshTransform.SetScale3D(Ring.MeshScale);
 			OutRingTransform = MeshTransform * BoneTransform;
 
-			// SDFBoundsExpandX/Y + 기본 Z 마진 적용
-			// Z 방향에도 기본 마진을 추가하여 상하 경계 영역 포함
+			// SDFBoundsExpandX/Y + default Z margin applied
+			// Add default margin in Z direction to include upper/lower boundary regions
 			FVector Expand(Ring.SDFBoundsExpandX, Ring.SDFBoundsExpandY, DefaultZMargin);
 			MeshBounds.Min -= Expand;
 			MeshBounds.Max += Expand;
 
 			OutRingBounds = MeshBounds;
 
-			// 컴포넌트 → Ring 로컬 역변환
+			// Component → Ring local inverse transform
 			FTransform ComponentToLocal = OutRingTransform.Inverse();
 
-			// 바운드 내부 버텍스 선택
+			// Select vertices inside bounds
 			for (int32 i = 0; i < Positions.Num(); ++i)
 			{
 				FVector LocalPos = ComponentToLocal.TransformPosition(Positions[i]);
@@ -616,7 +616,7 @@ namespace SubdivisionHelpers
 		else
 		{
 			// =====================================
-			// VirtualRing 모드: Torus 영역 기반
+			// VirtualRing mode: Torus region-based
 			// =====================================
 			FVector LocalOffset = Ring.RingRotation.RotateVector(Ring.RingOffset);
 			FVector Center = BoneTransform.GetLocation() + LocalOffset;
@@ -624,34 +624,34 @@ namespace SubdivisionHelpers
 				Ring.RingRotation.RotateVector(FVector::UpVector));
 			Axis.Normalize();
 
-			// Ring 트랜스폼 설정 (BoundsExpand에서 사용)
+			// Set Ring transform (used in BoundsExpand)
 			OutRingTransform = FTransform(Ring.RingRotation, LocalOffset) * BoneTransform;
 
-			// Torus 파라미터 + 기본 마진
-			// 마진을 추가하여 경계 영역의 버텍스도 포함
+			// Torus parameters + default margin
+			// Add margin to include boundary region vertices
 			const float InnerRadius = FMath::Max(0.0f, Ring.RingRadius - DefaultRadialMargin);
 			const float OuterRadius = Ring.RingRadius + Ring.RingThickness + DefaultRadialMargin;
 			const float HalfHeight = Ring.RingHeight * 0.5f + DefaultZMargin;
 
-			// Torus 바운드 (마진 포함)
+			// Torus bounds (margin included)
 			OutRingBounds = FBox(
 				FVector(-OuterRadius, -OuterRadius, -HalfHeight),
 				FVector(OuterRadius, OuterRadius, HalfHeight)
 			);
 
-			// Torus 영역 내부 버텍스 선택
+			// Select vertices inside Torus region
 			for (int32 i = 0; i < Positions.Num(); ++i)
 			{
 				FVector ToVertex = Positions[i] - Center;
 
-				// 축 방향 거리 (높이)
+				// Axial distance (height)
 				float AxisDist = FVector::DotProduct(ToVertex, Axis);
 
-				// 반경 방향 거리
+				// Radial distance
 				FVector RadialVec = ToVertex - Axis * AxisDist;
 				float RadialDist = RadialVec.Size();
 
-				// Torus 영역 내부인지 확인 (마진 포함)
+				// Check if inside Torus region (margin included)
 				if (FMath::Abs(AxisDist) <= HalfHeight &&
 					RadialDist >= InnerRadius &&
 					RadialDist <= OuterRadius)
@@ -665,13 +665,13 @@ namespace SubdivisionHelpers
 	}
 
 	/**
-	 * BoundsExpand 모드: Z축 바운드 확장으로 추가 버텍스 선택
-	 * @param Ring - Ring 설정
-	 * @param Positions - 버텍스 위치 배열
-	 * @param RingTransform - Ring 로컬 → 컴포넌트 트랜스폼
-	 * @param OriginalBounds - 기존 Ring 바운드 (로컬 스페이스)
-	 * @param SeedVertices - 기본 Affected 버텍스
-	 * @param OutExpandedVertices - 출력: 확장된 버텍스 집합
+	 * BoundsExpand mode: Select additional vertices by expanding Z-axis bounds
+	 * @param Ring - Ring settings
+	 * @param Positions - Vertex position array
+	 * @param RingTransform - Ring local → component transform
+	 * @param OriginalBounds - Original Ring bounds (local space)
+	 * @param SeedVertices - Base affected vertices
+	 * @param OutExpandedVertices - Output: expanded vertex set
 	 */
 	void ExpandByBounds(
 		const FFleshRingSettings& Ring,
@@ -683,21 +683,21 @@ namespace SubdivisionHelpers
 	{
 		OutExpandedVertices = SeedVertices;
 
-		// Z축으로 바운드 확장
+		// Expand bounds in Z-axis
 		FBox ExpandedBounds = OriginalBounds;
 		ExpandedBounds.Min.Z -= Ring.SmoothingBoundsZBottom;
 		ExpandedBounds.Max.Z += Ring.SmoothingBoundsZTop;
 
-		// 컴포넌트 → Ring 로컬 역변환
+		// Component → Ring local inverse transform
 		FTransform ComponentToLocal = RingTransform.Inverse();
 
-		// 확장된 바운드 내부 버텍스 추가 선택
+		// Select additional vertices inside expanded bounds
 		for (int32 i = 0; i < Positions.Num(); ++i)
 		{
 			uint32 VertexIdx = static_cast<uint32>(i);
 			if (SeedVertices.Contains(VertexIdx))
 			{
-				continue; // 이미 선택됨
+				continue; // Already selected
 			}
 
 			FVector LocalPos = ComponentToLocal.TransformPosition(Positions[i]);
@@ -709,11 +709,11 @@ namespace SubdivisionHelpers
 	}
 
 	/**
-	 * HopBased 모드: BFS N-hop으로 버텍스 확장
-	 * @param SeedVertices - 시드 버텍스 (기본 Affected)
-	 * @param AdjacencyMap - 버텍스 인접성 맵
-	 * @param MaxHops - 최대 홉 수
-	 * @param OutExpandedVertices - 출력: 확장된 버텍스 집합
+	 * HopBased mode: Expand vertices using BFS N-hop
+	 * @param SeedVertices - Seed vertices (base affected)
+	 * @param AdjacencyMap - Vertex adjacency map
+	 * @param MaxHops - Maximum hop count
+	 * @param OutExpandedVertices - Output: expanded vertex set
 	 */
 	void ExpandByHops(
 		const TSet<uint32>& SeedVertices,
@@ -748,20 +748,20 @@ namespace SubdivisionHelpers
 
 			if (CurrentFrontier.Num() == 0)
 			{
-				break; // 더 이상 확장할 버텍스 없음
+				break; // No more vertices to expand
 			}
 		}
 	}
 
 	/**
-	 * DI의 AffectedVertices를 위치 기반 매칭으로 원본 메시 인덱스로 변환
+	 * Convert DI's AffectedVertices to original mesh indices via position-based matching
 	 *
-	 * PreviewComponent의 DeformerInstance는 SubdivisionSettings.PreviewSubdividedMesh(토폴로지가 다름)를 사용하므로
-	 * 버텍스 인덱스가 원본 메시와 다름. 하지만 위치는 거의 동일하므로 위치 기반 매칭으로 변환.
+	 * PreviewComponent's DeformerInstance uses SubdivisionSettings.PreviewSubdividedMesh (different topology),
+	 * so vertex indices differ from original mesh. However, positions are nearly identical, so we use position-based matching.
 	 *
-	 * @param SourceComponent - DeformerInstance를 가진 FleshRingComponent (에디터 프리뷰)
-	 * @param SourceMesh - 원본 SkeletalMesh (subdivision 전)
-	 * @param OutVertexIndices - 출력: 원본 메시의 버텍스 인덱스 집합
+	 * @param SourceComponent - FleshRingComponent with DeformerInstance (editor preview)
+	 * @param SourceMesh - Original SkeletalMesh (before subdivision)
+	 * @param OutVertexIndices - Output: vertex index set of original mesh
 	 * @return true if matching succeeded, false if fallback needed
 	 */
 	bool ExtractAffectedVerticesFromDI(
@@ -776,7 +776,7 @@ namespace SubdivisionHelpers
 			return false;
 		}
 
-		// SkeletalMeshComponent 가져오기 (DI가 바인딩된 메시)
+		// Get SkeletalMeshComponent (mesh that DI is bound to)
 		USkeletalMeshComponent* SMC = const_cast<UFleshRingComponent*>(SourceComponent)->GetResolvedTargetMesh();
 		if (!SMC)
 		{
@@ -784,7 +784,7 @@ namespace SubdivisionHelpers
 			return false;
 		}
 
-		// DeformerInstance 가져오기 (SkeletalMeshComponent에 바인딩됨)
+		// Get DeformerInstance (bound to SkeletalMeshComponent)
 		UMeshDeformerInstance* BaseDI = SMC->GetMeshDeformerInstance();
 		if (!BaseDI)
 		{
@@ -792,7 +792,7 @@ namespace SubdivisionHelpers
 			return false;
 		}
 
-		// FleshRingDeformerInstance로 캐스트
+		// Cast to FleshRingDeformerInstance
 		const UFleshRingDeformerInstance* DI = Cast<UFleshRingDeformerInstance>(BaseDI);
 		if (!DI)
 		{
@@ -800,7 +800,7 @@ namespace SubdivisionHelpers
 			return false;
 		}
 
-		// LOD 0의 AffectedVertices 데이터 가져오기
+		// Get AffectedVertices data for LOD 0
 		const TArray<FRingAffectedData>* AllRingData = DI->GetAffectedRingDataForDebug(0);
 		if (!AllRingData || AllRingData->Num() == 0)
 		{
@@ -808,7 +808,7 @@ namespace SubdivisionHelpers
 			return false;
 		}
 
-		// DI가 사용 중인 메시 (PreviewSubdividedMesh일 수 있음)
+		// Mesh used by DI (may be PreviewSubdividedMesh)
 		USkeletalMesh* DIMesh = SMC->GetSkeletalMeshAsset();
 		if (!DIMesh)
 		{
@@ -816,10 +816,10 @@ namespace SubdivisionHelpers
 			return false;
 		}
 
-		// DI 메시가 원본 메시와 같으면 인덱스를 그대로 사용
+		// If DI mesh is same as source mesh, use indices directly
 		bool bSameMesh = (DIMesh == SourceMesh);
 
-		// DI 메시의 버텍스 위치 추출 (위치 매칭용)
+		// Extract DI mesh vertex positions (for position matching)
 		FSkeletalMeshRenderData* DIRenderData = DIMesh->GetResourceForRendering();
 		if (!DIRenderData || DIRenderData->LODRenderData.Num() == 0)
 		{
@@ -830,7 +830,7 @@ namespace SubdivisionHelpers
 		const FSkeletalMeshLODRenderData& DILODData = DIRenderData->LODRenderData[0];
 		const uint32 DIVertexCount = DILODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
 
-		// 원본 메시의 버텍스 위치 추출
+		// Extract source mesh vertex positions
 		FSkeletalMeshRenderData* SourceRenderData = SourceMesh->GetResourceForRendering();
 		if (!SourceRenderData || SourceRenderData->LODRenderData.Num() == 0)
 		{
@@ -841,11 +841,11 @@ namespace SubdivisionHelpers
 		const FSkeletalMeshLODRenderData& SourceLODData = SourceRenderData->LODRenderData[0];
 		const uint32 SourceVertexCount = SourceLODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
 
-		// DI의 모든 Ring에서 영향받는 버텍스 인덱스 수집
+		// Collect affected vertex indices from all Rings in DI
 		TSet<uint32> DIAffectedIndices;
 		for (const FRingAffectedData& RingData : *AllRingData)
 		{
-			// Tightness 영역 (PackedIndices)
+			// Tightness region (PackedIndices)
 			for (uint32 Idx : RingData.PackedIndices)
 			{
 				if (Idx < DIVertexCount)
@@ -854,7 +854,7 @@ namespace SubdivisionHelpers
 				}
 			}
 
-			// 스무딩 영역 (통합된 SmoothingRegionIndices)
+			// Smoothing region (unified SmoothingRegionIndices)
 			for (uint32 Idx : RingData.SmoothingRegionIndices)
 			{
 				if (Idx < DIVertexCount)
@@ -869,16 +869,16 @@ namespace SubdivisionHelpers
 			return false;
 		}
 
-		// 메시가 같으면 인덱스 그대로 사용
+		// If meshes are same, use indices directly
 		if (bSameMesh)
 		{
 			OutVertexIndices = MoveTemp(DIAffectedIndices);
 			return true;
 		}
 
-		// 메시가 다르면 위치 기반 매칭 수행
+		// If meshes differ, perform position-based matching
 
-		// 1. DI 영향 버텍스들의 위치 추출
+		// 1. Extract positions of DI affected vertices
 		TArray<FVector> DIAffectedPositions;
 		DIAffectedPositions.Reserve(DIAffectedIndices.Num());
 		for (uint32 DIIdx : DIAffectedIndices)
@@ -887,10 +887,10 @@ namespace SubdivisionHelpers
 			DIAffectedPositions.Add(Pos);
 		}
 
-		// 2. 원본 메시 버텍스들의 공간 해시 빌드 (위치 → 인덱스 매핑)
-		// Grid 크기: 0.1cm (매우 정밀)
+		// 2. Build spatial hash for source mesh vertices (position → index mapping)
+		// Grid size: 0.1cm (very precise)
 		constexpr float GridSize = 0.1f;
-		constexpr float MatchTolerance = 0.5f;  // 0.5cm 이내면 매칭
+		constexpr float MatchTolerance = 0.5f;  // Match if within 0.5cm
 
 		TMap<FIntVector, TArray<uint32>> SourcePositionHash;
 		for (uint32 i = 0; i < SourceVertexCount; ++i)
@@ -904,7 +904,7 @@ namespace SubdivisionHelpers
 			SourcePositionHash.FindOrAdd(GridKey).Add(i);
 		}
 
-		// 3. 각 DI 영향 위치에 대해 원본 메시에서 가장 가까운 버텍스 찾기
+		// 3. Find closest vertex in source mesh for each DI affected position
 		int32 MatchedCount = 0;
 		for (const FVector& DIPos : DIAffectedPositions)
 		{
@@ -917,7 +917,7 @@ namespace SubdivisionHelpers
 			float BestDistSq = MatchTolerance * MatchTolerance;
 			int32 BestSourceIdx = INDEX_NONE;
 
-			// 27-cell 이웃 탐색 (3x3x3)
+			// 27-cell neighbor search (3x3x3)
 			for (int32 dx = -1; dx <= 1; ++dx)
 			{
 				for (int32 dy = -1; dy <= 1; ++dy)
@@ -953,14 +953,14 @@ namespace SubdivisionHelpers
 	}
 
 	/**
-	 * 점에서 삼각형까지의 최단 거리 제곱 계산
-	 * @param Point - 검사할 점
-	 * @param V0, V1, V2 - 삼각형 버텍스들
-	 * @return 최단 거리 제곱
+	 * Calculate squared shortest distance from point to triangle
+	 * @param Point - Point to check
+	 * @param V0, V1, V2 - Triangle vertices
+	 * @return Squared shortest distance
 	 */
 	float PointToTriangleDistSq(const FVector& Point, const FVector& V0, const FVector& V1, const FVector& V2)
 	{
-		// 삼각형 평면에 점 투영
+		// Project point onto triangle plane
 		FVector Edge0 = V1 - V0;
 		FVector Edge1 = V2 - V0;
 		FVector Normal = FVector::CrossProduct(Edge0, Edge1);
@@ -968,18 +968,18 @@ namespace SubdivisionHelpers
 
 		if (NormalLenSq < SMALL_NUMBER)
 		{
-			// Degenerate 삼각형
+			// Degenerate triangle
 			return FLT_MAX;
 		}
 
 		Normal /= FMath::Sqrt(NormalLenSq);
 
-		// 평면까지 거리
+		// Distance to plane
 		FVector ToPoint = Point - V0;
 		float PlaneDist = FVector::DotProduct(ToPoint, Normal);
 		FVector Projected = Point - Normal * PlaneDist;
 
-		// Barycentric 좌표 계산
+		// Calculate Barycentric coordinates
 		FVector V0ToP = Projected - V0;
 		float D00 = FVector::DotProduct(Edge0, Edge0);
 		float D01 = FVector::DotProduct(Edge0, Edge1);
@@ -997,14 +997,14 @@ namespace SubdivisionHelpers
 		float W = (D00 * D21 - D01 * D20) / Denom;
 		float U = 1.0f - V - W;
 
-		// 삼각형 내부인지 확인
+		// Check if inside triangle
 		if (U >= 0.0f && V >= 0.0f && W >= 0.0f)
 		{
-			// 내부: 평면까지 거리만 반환
+			// Inside: return only distance to plane
 			return PlaneDist * PlaneDist;
 		}
 
-		// 외부: 가장 가까운 엣지/버텍스까지 거리
+		// Outside: distance to closest edge/vertex
 		auto PointToSegmentDistSq = [](const FVector& P, const FVector& A, const FVector& B) -> float
 		{
 			FVector AB = B - A;
@@ -1023,16 +1023,16 @@ namespace SubdivisionHelpers
 	}
 
 	/**
-	 * DI의 AffectedVertices 위치들이 속한 원본 메시 삼각형 찾기
+	 * Find source mesh triangles containing DI's AffectedVertices positions
 	 *
-	 * PreviewSubdividedMesh의 AffectedVertices 위치들이
-	 * 원본 메시의 어느 삼각형 내부/근처에 있는지 찾아서 반환
+	 * Find which triangles in the original mesh the PreviewSubdividedMesh's
+	 * AffectedVertices positions are inside/near
 	 *
-	 * @param SourceComponent - DeformerInstance를 가진 FleshRingComponent
-	 * @param SourceMesh - 원본 SkeletalMesh (subdivision 전)
-	 * @param SourcePositions - 원본 메시 버텍스 위치 배열
-	 * @param SourceIndices - 원본 메시 인덱스 배열
-	 * @param OutTriangleIndices - 출력: 영향받는 삼각형 인덱스 집합
+	 * @param SourceComponent - FleshRingComponent with DeformerInstance
+	 * @param SourceMesh - Original SkeletalMesh (before subdivision)
+	 * @param SourcePositions - Source mesh vertex position array
+	 * @param SourceIndices - Source mesh index array
+	 * @param OutTriangleIndices - Output: affected triangle index set
 	 * @return true if succeeded
 	 */
 	bool ExtractAffectedTrianglesFromDI(
@@ -1049,7 +1049,7 @@ namespace SubdivisionHelpers
 			return false;
 		}
 
-		// SkeletalMeshComponent 가져오기
+		// Get SkeletalMeshComponent
 		USkeletalMeshComponent* SMC = const_cast<UFleshRingComponent*>(SourceComponent)->GetResolvedTargetMesh();
 		if (!SMC)
 		{
@@ -1057,7 +1057,7 @@ namespace SubdivisionHelpers
 			return false;
 		}
 
-		// DeformerInstance 가져오기
+		// Get DeformerInstance
 		UMeshDeformerInstance* BaseDI = SMC->GetMeshDeformerInstance();
 		if (!BaseDI)
 		{
@@ -1072,7 +1072,7 @@ namespace SubdivisionHelpers
 			return false;
 		}
 
-		// LOD 0의 AffectedVertices 데이터
+		// AffectedVertices data for LOD 0
 		const TArray<FRingAffectedData>* AllRingData = DI->GetAffectedRingDataForDebug(0);
 		if (!AllRingData || AllRingData->Num() == 0)
 		{
@@ -1080,7 +1080,7 @@ namespace SubdivisionHelpers
 			return false;
 		}
 
-		// DI가 사용 중인 메시 (SubdivisionSettings.PreviewSubdividedMesh)
+		// Mesh used by DI (SubdivisionSettings.PreviewSubdividedMesh)
 		USkeletalMesh* DIMesh = SMC->GetSkeletalMeshAsset();
 		if (!DIMesh)
 		{
@@ -1096,7 +1096,7 @@ namespace SubdivisionHelpers
 		const FSkeletalMeshLODRenderData& DILODData = DIRenderData->LODRenderData[0];
 		const uint32 DIVertexCount = DILODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
 
-		// FleshRingAsset에서 Ring 설정 가져오기
+		// Get Ring settings from FleshRingAsset
 		const UFleshRingAsset* Asset = SourceComponent->FleshRingAsset;
 		if (!Asset)
 		{
@@ -1104,10 +1104,10 @@ namespace SubdivisionHelpers
 			return false;
 		}
 
-		// DI의 AffectedVertices 인덱스 수집
-		// Ring 설정에 따라 조건부 수집:
-		// - bEnablePostProcess == false → PackedIndices만
-		// - bEnablePostProcess == true → PackedIndices + SmoothingRegionIndices (통합)
+		// Collect DI's AffectedVertices indices
+		// Conditional collection based on Ring settings:
+		// - bEnablePostProcess == false → PackedIndices only
+		// - bEnablePostProcess == true → PackedIndices + SmoothingRegionIndices (unified)
 		TSet<uint32> DIAffectedIndices;
 		const int32 NumRings = FMath::Min(AllRingData->Num(), Asset->Rings.Num());
 
@@ -1116,13 +1116,13 @@ namespace SubdivisionHelpers
 			const FRingAffectedData& RingData = (*AllRingData)[RingIdx];
 			const FFleshRingSettings& RingSettings = Asset->Rings[RingIdx];
 
-			// 1. 기본 영역 (Tightness 대상) - 항상 수집
+			// 1. Base region (Tightness target) - always collect
 			for (uint32 Idx : RingData.PackedIndices)
 			{
 				if (Idx < DIVertexCount) DIAffectedIndices.Add(Idx);
 			}
 
-			// 2. PostProcess가 켜져있을 때만 스무딩 영역 수집 (통합된 SmoothingRegionIndices)
+			// 2. Collect smoothing region only when PostProcess is enabled (unified SmoothingRegionIndices)
 			if (RingSettings.bEnablePostProcess)
 			{
 				for (uint32 Idx : RingData.SmoothingRegionIndices)
@@ -1137,7 +1137,7 @@ namespace SubdivisionHelpers
 			return false;
 		}
 
-		// AffectedVertices의 위치들 추출
+		// Extract positions of AffectedVertices
 		TArray<FVector> AffectedPositions;
 		AffectedPositions.Reserve(DIAffectedIndices.Num());
 		for (uint32 DIIdx : DIAffectedIndices)
@@ -1147,12 +1147,12 @@ namespace SubdivisionHelpers
 		}
 
 		// ============================================
-		// 원본 메시 삼각형 공간 해시 빌드
+		// Build source mesh triangle spatial hash
 		// ============================================
 		const int32 NumTriangles = SourceIndices.Num() / 3;
-		constexpr float GridSize = 5.0f;  // 5cm 그리드
+		constexpr float GridSize = 5.0f;  // 5cm grid
 
-		// 삼각형 AABB → 그리드 셀 매핑
+		// Triangle AABB → grid cell mapping
 		TMap<FIntVector, TArray<int32>> TriangleSpatialHash;
 
 		for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
@@ -1161,11 +1161,11 @@ namespace SubdivisionHelpers
 			const FVector& V1 = SourcePositions[SourceIndices[TriIdx * 3 + 1]];
 			const FVector& V2 = SourcePositions[SourceIndices[TriIdx * 3 + 2]];
 
-			// 삼각형 AABB
+			// Triangle AABB
 			FVector MinBound = V0.ComponentMin(V1.ComponentMin(V2));
 			FVector MaxBound = V0.ComponentMax(V1.ComponentMax(V2));
 
-			// AABB가 걸치는 모든 그리드 셀에 등록
+			// Register in all grid cells that AABB overlaps
 			FIntVector MinCell(
 				FMath::FloorToInt(MinBound.X / GridSize),
 				FMath::FloorToInt(MinBound.Y / GridSize),
@@ -1190,9 +1190,9 @@ namespace SubdivisionHelpers
 		}
 
 		// ============================================
-		// 각 AffectedPosition이 속한 삼각형 찾기
+		// Find triangle containing each AffectedPosition
 		// ============================================
-		constexpr float MaxDistSq = 2.0f * 2.0f;  // 2cm 이내
+		constexpr float MaxDistSq = 2.0f * 2.0f;  // Within 2cm
 
 		for (const FVector& Pos : AffectedPositions)
 		{
@@ -1205,7 +1205,7 @@ namespace SubdivisionHelpers
 			float BestDistSq = MaxDistSq;
 			int32 BestTriIdx = INDEX_NONE;
 
-			// 현재 셀 + 이웃 셀 탐색 (3x3x3)
+			// Search current cell + neighbor cells (3x3x3)
 			for (int32 dx = -1; dx <= 1; ++dx)
 			{
 				for (int32 dy = -1; dy <= 1; ++dy)
@@ -1245,14 +1245,14 @@ namespace SubdivisionHelpers
 } // namespace SubdivisionHelpers
 
 // ============================================
-// UFleshRingAsset 에디터 전용 함수들
+// UFleshRingAsset Editor-Only Functions
 // ============================================
 
 void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 
-	// EulerRotation 변경 시 FQuat 동기화
+	// Sync FQuat when EulerRotation changes
 	for (FFleshRingSettings& Ring : Rings)
 	{
 		Ring.RingRotation = Ring.RingEulerRotation.Quaternion();
@@ -1260,18 +1260,18 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 		Ring.VirtualBand.BandRotation = Ring.VirtualBand.BandEulerRotation.Quaternion();
 	}
 
-	// RingName 고유성 보장 (빈 이름 및 중복 이름 처리)
+	// Ensure RingName uniqueness (handle empty and duplicate names)
 	for (int32 i = 0; i < Rings.Num(); ++i)
 	{
 		FName& CurrentName = Rings[i].RingName;
 
-		// 1. 빈 이름이면 고유한 이름 생성
+		// 1. Generate unique name if empty
 		if (CurrentName.IsNone())
 		{
 			CurrentName = MakeUniqueRingName(FName(TEXT("FleshRing")), i);
 		}
 
-		// 2. 중복 이름 확인 (이전 인덱스들과 비교)
+		// 2. Check for duplicates (compare with previous indices)
 		bool bIsDuplicate = false;
 		for (int32 j = 0; j < i; ++j)
 		{
@@ -1282,20 +1282,20 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 			}
 		}
 
-		// 3. 중복이면 MakeUniqueRingName 사용하여 고유한 이름 생성
+		// 3. Generate unique name using MakeUniqueRingName if duplicate
 		if (bIsDuplicate)
 		{
 			CurrentName = MakeUniqueRingName(CurrentName, i);
 		}
 	}
 
-	// 에셋이 수정되었음을 표시
+	// Mark asset as modified
 	MarkPackageDirty();
 
-	// 전체 리프레시가 필요한 변경인지 확인
+	// Check if change requires full refresh
 	bool bNeedsFullRefresh = false;
 
-	// 배열 구조 변경 시 전체 갱신
+	// Full update on array structure changes
 	if (PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayAdd ||
 		PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayRemove ||
 		PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayClear ||
@@ -1305,7 +1305,7 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 		bNeedsFullRefresh = true;
 	}
 
-	// 특정 프로퍼티 변경 시 전체 갱신
+	// Full update on specific property changes
 	if (PropertyChangedEvent.Property)
 	{
 		FName PropName = PropertyChangedEvent.Property->GetFName();
@@ -1318,7 +1318,7 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 		{
 			bNeedsFullRefresh = true;
 
-			// ★ TargetSkeletalMesh 변경 시 Material Layer Mappings 동기화
+			// Sync Material Layer Mappings when TargetSkeletalMesh changes
 			if (PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, TargetSkeletalMesh))
 			{
 				SyncMaterialLayerMappings();
@@ -1326,8 +1326,8 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 
 		}
 
-		// ★ VirtualRing 모드 Ring 파라미터 변경 시 디버그 시각화 갱신
-		// ★ AffectedLayerMask 변경 시 Affected Vertices 재수집 필요
+		// Update debug visualization when VirtualRing mode Ring parameters change
+		// Recollect Affected Vertices when AffectedLayerMask changes
 		if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingRadius) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingThickness) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingHeight) ||
@@ -1336,23 +1336,23 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 			bNeedsFullRefresh = true;
 		}
 
-		// ★ Material Layer Mappings의 LayerType 변경 시 CachedVertexLayerTypes 재빌드 필요
+		// Rebuild CachedVertexLayerTypes when Material Layer Mappings LayerType changes
 		if (PropName == GET_MEMBER_NAME_CHECKED(FMaterialLayerMapping, LayerType) ||
 			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, MaterialLayerMappings))
 		{
 			bNeedsFullRefresh = true;
 		}
 
-		// ★ Hop 기반 스무딩 파라미터 변경 시 AffectedVertices 재빌드 필요
+		// Rebuild AffectedVertices when hop-based smoothing parameters change
 		if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MaxSmoothingHops) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingVolumeMode))
 		{
 			bNeedsFullRefresh = true;
 		}
 
-		// ★ 스무딩 활성화 플래그 변경 시 SmoothingRegion 재빌드 필요
-		// BuildHopDistanceData()가 bAnySmoothingEnabled 조건으로 호출되므로
-		// 이 플래그들이 변경되면 캐시 무효화 필요
+		// Rebuild SmoothingRegion when smoothing enable flags change
+		// BuildHopDistanceData() is called conditionally on bAnySmoothingEnabled
+		// so cache invalidation is needed when these flags change
 		if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnablePostProcess) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableLaplacianSmoothing) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnablePBDEdgeConstraint) ||
@@ -1361,7 +1361,7 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 			bNeedsFullRefresh = true;
 		}
 
-		// ★ Preview subdivision 파라미터 변경 시 전체 갱신 (PreviewScene에서 해시 비교로 캐시 무효화됨)
+		// Full update when preview subdivision parameters change (cache invalidated via hash comparison in PreviewScene)
 		if (PropName == GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, PreviewSubdivisionLevel) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, PreviewBoneHopCount) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, PreviewBoneWeightThreshold) ||
@@ -1370,8 +1370,8 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 			bNeedsFullRefresh = true;
 		}
 
-		// ★ Normal/Tangent Recompute 파라미터 변경 시 캐시 무효화 필요
-		// 이 프로퍼티들이 변경되면 GPU 노멀/탄젠트 캐시를 무효화해야 함
+		// Cache invalidation needed when Normal/Tangent Recompute parameters change
+		// GPU normal/tangent cache must be invalidated when these properties change
 		if (PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, bEnableNormalRecompute) ||
 			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, NormalRecomputeMethod) ||
 			PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, bEnableNormalHopBlending) ||
@@ -1383,11 +1383,11 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 			bNeedsFullRefresh = true;
 		}
 
-		// VirtualBand 관련 프로퍼티 변경 감지
-		// MemberProperty 체인을 확인하여 VirtualBand 하위 프로퍼티인지 검사
+		// Detect VirtualBand-related property changes
+		// Check MemberProperty chain to determine if it's a VirtualBand sub-property
 		bool bIsVirtualBandProperty = false;
 
-		// 직접 프로퍼티 이름 체크 (VirtualBand 관련)
+		// Direct property name check (VirtualBand related)
 		if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, VirtualBand) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FVirtualBandSettings, MidUpperRadius) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FVirtualBandSettings, MidLowerRadius) ||
@@ -1401,7 +1401,7 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 			bIsVirtualBandProperty = true;
 		}
 
-		// MemberProperty 체인에서 VirtualBand 찾기
+		// Find VirtualBand in MemberProperty chain
 		if (!bIsVirtualBandProperty && PropertyChangedEvent.MemberProperty)
 		{
 			FName MemberName = PropertyChangedEvent.MemberProperty->GetFName();
@@ -1416,45 +1416,45 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 			bNeedsFullRefresh = true;
 		}
 
-		// TargetSkeletalMesh 변경 시 Subdivision 메시들 클리어 (새 메시로 재생성 필요)
-		// (PreviewSubdividedMesh는 FleshRingPreviewScene에서 관리됨 - OnAssetChanged에서 재생성됨)
+		// Clear Subdivision meshes when TargetSkeletalMesh changes (needs regeneration with new mesh)
+		// (PreviewSubdividedMesh is managed in FleshRingPreviewScene - regenerated in OnAssetChanged)
 		if (PropName == GET_MEMBER_NAME_CHECKED(UFleshRingAsset, TargetSkeletalMesh))
 		{
-			// SubdividedMesh도 클리어 (소스 메시가 변경되었으므로 재생성 필요)
+			// Also clear SubdividedMesh (needs regeneration since source mesh changed)
 			if (SubdivisionSettings.SubdividedMesh)
 			{
 				ClearSubdividedMesh();
-				// ClearSubdividedMesh()가 OnAssetChanged.Broadcast()를 호출하므로 중복 방지
+				// Prevent duplicate broadcast since ClearSubdividedMesh() calls OnAssetChanged.Broadcast()
 				bNeedsFullRefresh = false;
 			}
 		}
 
-		// bEnableSubdivision이 false로 변경되면 SubdividedMesh도 정리
-		// (상태 불일치로 인한 크래시 방지)
+		// Clean up SubdividedMesh when bEnableSubdivision is set to false
+		// (Prevents crashes from state inconsistency)
 		if (PropName == GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, bEnableSubdivision))
 		{
 			if (!SubdivisionSettings.bEnableSubdivision && SubdivisionSettings.SubdividedMesh)
 			{
-				// ClearSubdividedMesh() 내부에서 OnAssetChanged.Broadcast() 호출함
+				// ClearSubdividedMesh() internally calls OnAssetChanged.Broadcast()
 				ClearSubdividedMesh();
-				// 중복 브로드캐스트 방지
+				// Prevent duplicate broadcast
 				bNeedsFullRefresh = false;
 			}
 		}
 
-		// 트랜스폼 관련 프로퍼티 (Offset, Rotation, Scale, Radius, Strength, Falloff 등)는
-		// 전체 갱신 불필요 - 경량 업데이트로 처리
+		// Transform-related properties (Offset, Rotation, Scale, Radius, Strength, Falloff, etc.)
+		// don't need full update - handled via lightweight update
 	}
 
-	// 구조적 변경 시에만 전체 리프레시 브로드캐스트
-	// VirtualBand 프로퍼티는 드래그 끝날 때(ValueSet)만 갱신 (Interactive 제외)
+	// Broadcast full refresh only for structural changes
+	// VirtualBand properties only update on drag end (ValueSet), excluding Interactive
 	if (bNeedsFullRefresh && PropertyChangedEvent.ChangeType != EPropertyChangeType::Interactive)
 	{
 		OnAssetChanged.Broadcast(this);
 	}
 }
 
-// Helper: 스켈레탈 메시 유효성 검사 (공통 유틸리티 래퍼)
+// Helper: Skeletal mesh validity check (common utility wrapper)
 static bool IsSkeletalMeshValidForUse(USkeletalMesh* Mesh)
 {
 	return FleshRingUtils::IsSkeletalMeshValid(Mesh, /*bLogWarnings=*/ false);
@@ -1464,67 +1464,67 @@ void UFleshRingAsset::PostTransacted(const FTransactionObjectEvent& TransactionE
 {
 	Super::PostTransacted(TransactionEvent);
 
-	// Undo/Redo 이벤트만 처리
+	// Only process Undo/Redo events
 	if (TransactionEvent.GetEventType() != ETransactionObjectEventType::UndoRedo)
 	{
 		return;
 	}
 
-	// ★ Ring 개수 변경 감지 (Undo/Redo 시 Hash 비교가 실패하는 문제 해결)
-	// LastKnownRingCount는 UPROPERTY가 아니므로 트랜잭션에 포함되지 않음
-	// → Undo/Redo 시 복원되지 않아 Ring 추가/삭제 감지 가능
+	// Detect Ring count changes (fixes hash comparison failure on Undo/Redo)
+	// LastKnownRingCount is not UPROPERTY so it's not included in transaction
+	// -> Not restored on Undo/Redo, enabling Ring add/delete detection
 	const int32 CurrentRingCount = Rings.Num();
 	LastKnownRingCount = CurrentRingCount;
 
-	// ★ PreviewSubdividedMesh는 이제 FleshRingPreviewScene에서 관리됨
-	// Undo/Redo 시 에셋 변경 알림만 보내면 PreviewScene이 해시 비교로 재생성 처리
+	// PreviewSubdividedMesh is now managed by FleshRingPreviewScene
+	// On Undo/Redo, just send asset change notification and PreviewScene handles regeneration via hash comparison
 
-	// 에셋 변경 알림 (Deformer 파라미터 갱신 등)
+	// Asset change notification (for Deformer parameter update, etc.)
 	OnAssetChanged.Broadcast(this);
 }
 
 void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponent)
 {
-	// ★ 트랜잭션 비활성화 - 메시 생성/정리가 Undo 히스토리에 포함되지 않도록
-	// GUndo를 nullptr로 설정하면 Modify() 호출이 무시되어 트랜잭션에 기록 안 됨
+	// Disable transaction - prevent mesh creation/cleanup from being included in Undo history
+	// Setting GUndo to nullptr causes Modify() calls to be ignored, not recorded in transaction
 	ITransaction* PreviousGUndo = GUndo;
 	GUndo = nullptr;
 	ON_SCOPE_EXIT { GUndo = PreviousGUndo; };
 
-	// SourceComponent가 있으면 DeformerInstance의 AffectedVertices 데이터를 활용
-	// DI가 이미 정확하게 계산한 영역을 위치 기반 매칭으로 원본 메시 인덱스로 변환
-	// SourceComponent가 없으면 폴백으로 원본 메시 기반 직접 계산
+	// If SourceComponent exists, utilize DeformerInstance's AffectedVertices data
+	// Convert accurately calculated region from DI to original mesh indices via position-based matching
+	// If SourceComponent is null, fallback to direct calculation based on original mesh
 
-	// 이전 SubdividedMesh가 있으면 먼저 제거 (같은 이름 충돌 방지)
+	// Remove previous SubdividedMesh first if exists (prevent name collision)
 	if (SubdivisionSettings.SubdividedMesh)
 	{
-		// ★ 메모리 누수 방지: 완전한 정리 수행
+		// Prevent memory leak: perform complete cleanup
 		USkeletalMesh* OldMesh = SubdivisionSettings.SubdividedMesh;
 
-		// 1. 포인터 해제
+		// 1. Release pointer
 		SubdivisionSettings.SubdividedMesh = nullptr;
 
-		// 2. 렌더 리소스 완전 해제
+		// 2. Fully release render resources
 		OldMesh->ReleaseResources();
 		OldMesh->ReleaseResourcesFence.Wait();
 		FlushRenderingCommands();
 
-		// 3. Outer를 TransientPackage로 변경
+		// 3. Change Outer to TransientPackage
 		OldMesh->Rename(nullptr, GetTransientPackage(),
 			REN_DontCreateRedirectors | REN_NonTransactional);
 
-		// 4. 플래그 정리
+		// 4. Clear flags
 		OldMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
 		OldMesh->SetFlags(RF_Transient);
 
-		// 5. GC 대상으로 표시
+		// 5. Mark as garbage collection target
 		OldMesh->MarkAsGarbage();
 
-		// Note: OnAssetChanged.Broadcast() 호출 안 함
-		// SubdividedMesh는 런타임용이고, 프리뷰는 PreviewSubdividedMesh를 사용
-		// 브로드캐스트 시 프리뷰 DeformerInstance가 재초기화되어 변형 데이터 손실됨
+		// Note: Don't call OnAssetChanged.Broadcast()
+		// SubdividedMesh is for runtime, preview uses PreviewSubdividedMesh
+		// Broadcasting would reinitialize preview DeformerInstance causing deformation data loss
 
-		// 월드의 FleshRingComponent들만 직접 업데이트 (프리뷰 제외)
+		// Only directly update world FleshRingComponents (exclude preview)
 		if (GEngine)
 		{
 			for (const FWorldContext& Context : GEngine->GetWorldContexts())
@@ -1537,7 +1537,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 						{
 							if (Comp->FleshRingAsset == this)
 							{
-								// ApplyAsset()이 SubdivisionSettings.SubdividedMesh == nullptr을 보고 원본 메시로 전환
+								// ApplyAsset() sees SubdivisionSettings.SubdividedMesh == nullptr and switches to original mesh
 								Comp->ApplyAsset();
 							}
 						}
@@ -1549,36 +1549,36 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 
 	if (!SubdivisionSettings.bEnableSubdivision)
 	{
-		UE_LOG(LogFleshRingAsset, Warning, TEXT("GenerateSubdividedMesh: Subdivision이 비활성화됨"));
+		UE_LOG(LogFleshRingAsset, Warning, TEXT("GenerateSubdividedMesh: Subdivision is disabled"));
 		return;
 	}
 
 	if (TargetSkeletalMesh.IsNull())
 	{
-		UE_LOG(LogFleshRingAsset, Error, TEXT("GenerateSubdividedMesh: TargetSkeletalMesh가 설정되지 않음"));
+		UE_LOG(LogFleshRingAsset, Error, TEXT("GenerateSubdividedMesh: TargetSkeletalMesh is not set"));
 		return;
 	}
 
 	USkeletalMesh* SourceMesh = TargetSkeletalMesh.LoadSynchronous();
 	if (!SourceMesh)
 	{
-		UE_LOG(LogFleshRingAsset, Error, TEXT("GenerateSubdividedMesh: SourceMesh 로드 실패"));
+		UE_LOG(LogFleshRingAsset, Error, TEXT("GenerateSubdividedMesh: Failed to load SourceMesh"));
 		return;
 	}
 
 	if (Rings.Num() == 0)
 	{
-		UE_LOG(LogFleshRingAsset, Error, TEXT("GenerateSubdividedMesh: Ring이 설정되지 않음"));
+		UE_LOG(LogFleshRingAsset, Error, TEXT("GenerateSubdividedMesh: Ring is not configured"));
 		return;
 	}
 
 	// ============================================
-	// 1. 소스 메시 렌더 데이터 획득
+	// 1. Acquire source mesh render data
 	// ============================================
 	FSkeletalMeshRenderData* RenderData = SourceMesh->GetResourceForRendering();
 	if (!RenderData || RenderData->LODRenderData.Num() == 0)
 	{
-		UE_LOG(LogFleshRingAsset, Error, TEXT("GenerateSubdividedMesh: RenderData 없음"));
+		UE_LOG(LogFleshRingAsset, Error, TEXT("GenerateSubdividedMesh: No RenderData"));
 		return;
 	}
 
@@ -1586,7 +1586,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 	const uint32 SourceVertexCount = SourceLODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
 
 	// ============================================
-	// 2. 소스 버텍스 데이터 추출
+	// 2. Extract source vertex data
 	// ============================================
 	TArray<FVector> SourcePositions;
 	TArray<FVector> SourceNormals;
@@ -1607,7 +1607,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		SourceUVs[i] = FVector2D(SourceLODData.StaticVertexBuffers.StaticMeshVertexBuffer.GetVertexUV(i, 0));
 	}
 
-	// 인덱스 추출
+	// Extract indices
 	TArray<uint32> SourceIndices;
 	const FRawStaticIndexBuffer16or32Interface* IndexBuffer = SourceLODData.MultiSizeIndexContainer.GetIndexBuffer();
 	if (IndexBuffer)
@@ -1620,13 +1620,13 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		}
 	}
 
-	// 섹션별 머티리얼 인덱스 추출 (삼각형별)
+	// Extract material indices per section (per triangle)
 	TArray<int32> SourceTriangleMaterialIndices;
 	{
 		const int32 NumTriangles = SourceIndices.Num() / 3;
 		SourceTriangleMaterialIndices.SetNum(NumTriangles);
 
-		// 각 섹션의 삼각형 범위를 기반으로 머티리얼 인덱스 할당
+		// Assign material indices based on triangle range of each section
 		for (const FSkelMeshRenderSection& Section : SourceLODData.RenderSections)
 		{
 			const int32 StartTriangle = Section.BaseIndex / 3;
@@ -1640,15 +1640,15 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 
 	}
 
-	// 본 웨이트 추출
+	// Extract bone weights
 	const int32 MaxBoneInfluences = SourceLODData.GetVertexBufferMaxBoneInfluences();
-	TArray<TArray<uint16>> SourceBoneIndices;  // 실제 스켈레톤 본 인덱스로 변환됨
+	TArray<TArray<uint16>> SourceBoneIndices;  // Converted to actual skeleton bone indices
 	TArray<TArray<uint8>> SourceBoneWeights;
 
 	SourceBoneIndices.SetNum(SourceVertexCount);
 	SourceBoneWeights.SetNum(SourceVertexCount);
 
-	// ★ 버텍스별 섹션 인덱스 맵 생성 (BoneMap 변환용)
+	// Create per-vertex section index map (for BoneMap conversion)
 	TArray<int32> VertexToSectionIndex;
 	VertexToSectionIndex.SetNum(SourceVertexCount);
 	for (int32& SectionIdx : VertexToSectionIndex)
@@ -1656,7 +1656,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		SectionIdx = INDEX_NONE;
 	}
 
-	// 인덱스 버퍼를 순회하여 각 버텍스가 속한 섹션 파악
+	// Iterate index buffer to determine which section each vertex belongs to
 	for (int32 SectionIdx = 0; SectionIdx < SourceLODData.RenderSections.Num(); ++SectionIdx)
 	{
 		const FSkelMeshRenderSection& Section = SourceLODData.RenderSections[SectionIdx];
@@ -1681,7 +1681,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 			SourceBoneIndices[i].SetNum(MaxBoneInfluences);
 			SourceBoneWeights[i].SetNum(MaxBoneInfluences);
 
-			// 버텍스가 속한 섹션 찾기
+			// Find section the vertex belongs to
 			int32 SectionIdx = VertexToSectionIndex[i];
 			const TArray<FBoneIndexType>* BoneMap = nullptr;
 			if (SectionIdx != INDEX_NONE && SectionIdx < SourceLODData.RenderSections.Num())
@@ -1694,7 +1694,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 				uint16 LocalBoneIdx = SkinWeightBuffer->GetBoneIndex(i, j);
 				uint8 Weight = SkinWeightBuffer->GetBoneWeight(i, j);
 
-				// ★ BoneMap을 사용하여 실제 스켈레톤 본 인덱스로 변환
+				// Convert to actual skeleton bone index using BoneMap
 				uint16 GlobalBoneIdx = LocalBoneIdx;
 				if (BoneMap && LocalBoneIdx < BoneMap->Num())
 				{
@@ -1708,23 +1708,23 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 	}
 
 	// ============================================
-	// 3. Subdivision 프로세서로 토폴로지 계산
+	// 3. Calculate topology with Subdivision processor
 	// ============================================
 	FFleshRingSubdivisionProcessor Processor;
 
 	if (!Processor.SetSourceMesh(SourcePositions, SourceIndices, SourceUVs, SourceTriangleMaterialIndices))
 	{
-		UE_LOG(LogFleshRingAsset, Error, TEXT("GenerateSubdividedMesh: SetSourceMesh 실패"));
+		UE_LOG(LogFleshRingAsset, Error, TEXT("GenerateSubdividedMesh: SetSourceMesh failed"));
 		return;
 	}
 
-	// 프로세서 설정
+	// Processor settings
 	FSubdivisionProcessorSettings Settings;
 	Settings.MaxSubdivisionLevel = SubdivisionSettings.MaxSubdivisionLevel;
 	Settings.MinEdgeLength = SubdivisionSettings.MinEdgeLength;
 	Processor.SetSettings(Settings);
 
-	// ★ 모든 Ring에 대해 파라미터 설정
+	// Set parameters for all Rings
 	const USkeleton* Skeleton = SourceMesh->GetSkeleton();
 	const FReferenceSkeleton& RefSkeleton = SourceMesh->GetRefSkeleton();
 	const TArray<FTransform>& RefBonePose = RefSkeleton.GetRefBonePose();
@@ -1740,7 +1740,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 
 		if (BoneIndex != INDEX_NONE)
 		{
-			// 컴포넌트 스페이스 트랜스폼 계산 (부모 본 체인을 따라 누적)
+			// Calculate component space transform (accumulate along parent bone chain)
 			FTransform BoneTransform = RefBonePose[BoneIndex];
 			int32 ParentIndex = RefSkeleton.GetParentIndex(BoneIndex);
 			while (ParentIndex != INDEX_NONE)
@@ -1749,7 +1749,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 				ParentIndex = RefSkeleton.GetParentIndex(ParentIndex);
 			}
 
-			// Auto 모드: RingMesh의 바운드 사용
+			// Auto mode: Use RingMesh bounds
 			if (Ring.InfluenceMode == EFleshRingInfluenceMode::Auto && !Ring.RingMesh.IsNull())
 			{
 				UStaticMesh* RingMesh = Ring.RingMesh.LoadSynchronous();
@@ -1757,10 +1757,10 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 				{
 					RingParams.bUseSDFBounds = true;
 
-					// RingMesh의 로컬 바운드 획득
+					// Get local bounds of RingMesh
 					FBox MeshBounds = RingMesh->GetBoundingBox();
 
-					// FleshRingComponent::GenerateSDF와 동일한 방식으로 트랜스폼 계산
+					// Calculate transform same way as FleshRingComponent::GenerateSDF
 					FTransform MeshTransform = FTransform(Ring.MeshRotation, Ring.MeshOffset);
 					MeshTransform.SetScale3D(Ring.MeshScale);
 					FTransform LocalToComponent = MeshTransform * BoneTransform;
@@ -1776,7 +1776,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 			}
 			else
 			{
-				// VirtualRing 모드: Torus 파라미터 사용
+				// VirtualRing mode: Use Torus parameters
 				RingParams.bUseSDFBounds = false;
 
 				FVector LocalOffset = Ring.RingRotation.RotateVector(Ring.RingOffset);
@@ -1801,20 +1801,20 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 	}
 
 	// ============================================
-	// 3-1. Affected 영역 계산 (삼각형 기반)
+	// 3-1. Calculate Affected region (triangle-based)
 	// ============================================
-	// 우선순위:
-	// 1. SourceComponent의 DI에서 AffectedVertices 위치 추출 → 해당 위치를 포함하는 삼각형 찾기
-	//    - PreviewMesh의 subdivision된 버텍스 위치를 사용하여 원본 메시의 삼각형을 정확히 선택
-	//    - 새 버텍스(subdivision으로 생성된)도 포함하여 누락 영역 없음
-	// 2. 폴백: 원본 메시 기반 버텍스 계산 → 삼각형으로 변환
+	// Priority:
+	// 1. Extract AffectedVertices positions from SourceComponent's DI -> Find triangles containing those positions
+	//    - Use PreviewMesh's subdivided vertex positions to accurately select original mesh triangles
+	//    - Includes new vertices (created by subdivision) so no region is missed
+	// 2. Fallback: Calculate based on original mesh vertices -> Convert to triangles
 	{
 		using namespace SubdivisionHelpers;
 
 		TSet<int32> CombinedTriangleIndices;
 		bool bUsedDIData = false;
 
-		// ★ 방법 1: SourceComponent의 DI에서 삼각형 추출 시도 (Point-in-Triangle)
+		// Method 1: Try extracting triangles from SourceComponent's DI (Point-in-Triangle)
 		if (SourceComponent)
 		{
 			if (ExtractAffectedTrianglesFromDI(SourceComponent, SourceMesh, SourcePositions, SourceIndices, CombinedTriangleIndices))
@@ -1823,30 +1823,30 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 			}
 		}
 
-		// ★ 방법 2: 폴백 - 원본 메시 기반 버텍스 계산 후 삼각형으로 변환
+		// Method 2: Fallback - Calculate vertices based on original mesh then convert to triangles
 		if (!bUsedDIData)
 		{
 
 			TSet<uint32> CombinedVertexIndices;
 
-			// UV Seam 용접을 위한 위치 그룹화
+			// Position grouping for UV Seam welding
 			TMap<FIntVector, TArray<uint32>> PositionGroups = BuildPositionGroups(SourcePositions);
 
-			// 인접성 맵 빌드 (HopBased용)
+			// Build adjacency map (for HopBased)
 			TMap<uint32, TSet<uint32>> AdjacencyMap = BuildAdjacencyMap(SourceIndices);
 
-			// UV Seam 처리: 같은 위치 버텍스들이 이웃을 공유하도록 확장
+			// UV Seam handling: Expand so same-position vertices share neighbors
 			ExpandAdjacencyForUVSeams(AdjacencyMap, PositionGroups);
 
 			for (int32 RingIdx = 0; RingIdx < Rings.Num(); ++RingIdx)
 			{
 				const FFleshRingSettings& Ring = Rings[RingIdx];
 
-				// 본 트랜스폼 계산
+				// Calculate bone transform
 				int32 BoneIndex = RefSkeleton.FindBoneIndex(Ring.BoneName);
 				FTransform BoneTransform = CalculateBoneTransform(BoneIndex, RefSkeleton, RefBonePose);
 
-				// 1. 기본 Affected 버텍스 선택
+				// 1. Select base Affected vertices
 				TSet<uint32> AffectedVertices;
 				FBox RingBounds;
 				FTransform RingTransform;
@@ -1857,7 +1857,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 					continue;
 				}
 
-				// 2. SmoothingVolumeMode에 따른 확장
+				// 2. Expansion based on SmoothingVolumeMode
 				TSet<uint32> ExtendedVertices;
 
 				if (!Ring.bEnablePostProcess)
@@ -1874,14 +1874,14 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 					ExpandByHops(AffectedVertices, AdjacencyMap, Ring.MaxSmoothingHops, ExtendedVertices);
 				}
 
-				// 3. UV Seam 처리: 선택된 버텍스들의 같은 위치 버텍스도 추가
+				// 3. UV Seam handling: Also add same-position vertices of selected vertices
 				AddPositionDuplicates(ExtendedVertices, SourcePositions, PositionGroups);
 
-				// 합집합에 추가
+				// Add to union set
 				CombinedVertexIndices.Append(ExtendedVertices);
 			}
 
-			// 버텍스 → 삼각형 변환 (폴백의 경우)
+			// Vertex -> Triangle conversion (for fallback case)
 			const int32 NumTriangles = SourceIndices.Num() / 3;
 			for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
 			{
@@ -1898,7 +1898,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 			}
 		}
 
-		// 삼각형 기반 모드 설정
+		// Set triangle-based mode
 		if (CombinedTriangleIndices.Num() > 0)
 		{
 			Processor.SetTargetTriangleIndices(CombinedTriangleIndices);
@@ -1909,11 +1909,11 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		}
 	}
 
-	// Subdivision 실행
+	// Execute Subdivision
 	FSubdivisionTopologyResult TopologyResult;
 	if (!Processor.Process(TopologyResult))
 	{
-		UE_LOG(LogFleshRingAsset, Error, TEXT("GenerateSubdividedMesh: Subdivision 프로세스 실패"));
+		UE_LOG(LogFleshRingAsset, Error, TEXT("GenerateSubdividedMesh: Subdivision process failed"));
 		return;
 	}
 
@@ -1922,7 +1922,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		TopologyResult.OriginalTriangleCount, TopologyResult.SubdividedTriangleCount);
 
 	// ============================================
-	// 4. Barycentric 보간으로 새 버텍스 데이터 생성
+	// 4. Generate new vertex data via Barycentric interpolation
 	// ============================================
 	const int32 NewVertexCount = TopologyResult.VertexData.Num();
 	TArray<FVector> NewPositions;
@@ -1939,7 +1939,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 	NewBoneIndices.SetNum(NewVertexCount);
 	NewBoneWeights.SetNum(NewVertexCount);
 
-	// ★ 루프 밖에서 선언하여 메모리 재사용 (힙 할당 최소화)
+	// Declare outside loop for memory reuse (minimize heap allocations)
 	TMap<uint16, float> BoneWeightMap;
 	TArray<TPair<uint16, float>> SortedWeights;
 
@@ -1954,26 +1954,26 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		const uint32 P1 = FMath::Min(VD.ParentV1, (uint32)(SourceVertexCount - 1));
 		const uint32 P2 = FMath::Min(VD.ParentV2, (uint32)(SourceVertexCount - 1));
 
-		// Position 보간
+		// Position interpolation
 		NewPositions[i] = SourcePositions[P0] * U + SourcePositions[P1] * V + SourcePositions[P2] * W;
 
-		// Normal 보간 및 정규화
+		// Normal interpolation and normalization
 		FVector InterpolatedNormal = SourceNormals[P0] * U + SourceNormals[P1] * V + SourceNormals[P2] * W;
 		NewNormals[i] = InterpolatedNormal.GetSafeNormal();
 
-		// Tangent 보간
+		// Tangent interpolation
 		FVector4 InterpTangent = SourceTangents[P0] * U + SourceTangents[P1] * V + SourceTangents[P2] * W;
 		FVector TangentDir = FVector(InterpTangent.X, InterpTangent.Y, InterpTangent.Z).GetSafeNormal();
 		NewTangents[i] = FVector4(TangentDir.X, TangentDir.Y, TangentDir.Z, SourceTangents[P0].W);
 
-		// UV 보간
+		// UV interpolation
 		NewUVs[i] = SourceUVs[P0] * U + SourceUVs[P1] * V + SourceUVs[P2] * W;
 
-		// Bone Weight 보간 (바이트 정밀도로 barycentric 보간)
+		// Bone Weight interpolation (barycentric interpolation at byte precision)
 		NewBoneIndices[i].SetNum(MaxBoneInfluences);
 		NewBoneWeights[i].SetNum(MaxBoneInfluences);
 
-		// ★ Reset()으로 내용만 비움 (메모리 유지)
+		// Clear contents only with Reset() (keep memory)
 		BoneWeightMap.Reset();
 		SortedWeights.Reset();
 
@@ -2009,12 +2009,12 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 	}
 
 	// ============================================
-	// 5. 새 USkeletalMesh 생성 (소스 메시 복제 방식)
+	// 5. Create new USkeletalMesh (source mesh duplication approach)
 	// ============================================
-	// (이전 SubdividedMesh는 함수 시작 부분에서 정리됨)
+	// (Previous SubdividedMesh was cleaned up at function start)
 
-	// 소스 메시를 복제하여 모든 내부 구조 상속 (MorphTarget, LOD 데이터 등)
-	// ★ 고유한 이름 사용 (기존 메시가 GC 대기 중일 수 있으므로 이름 충돌 방지)
+	// Duplicate source mesh to inherit all internal structures (MorphTarget, LOD data, etc.)
+	// Use unique name (prevent name collision since old mesh may be pending GC)
 	FString MeshName = FString::Printf(TEXT("%s_Subdivided_%s"),
 		*SourceMesh->GetName(),
 		*FGuid::NewGuid().ToString(EGuidFormats::Short));
@@ -2022,34 +2022,34 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 
 	if (!SubdivisionSettings.SubdividedMesh)
 	{
-		UE_LOG(LogFleshRingAsset, Error, TEXT("GenerateSubdividedMesh: 소스 메시 복제 실패"));
+		UE_LOG(LogFleshRingAsset, Error, TEXT("GenerateSubdividedMesh: Source mesh duplication failed"));
 		return;
 	}
 
-	// ★ RF_Transactional 제거 - Undo/Redo 시스템에서 참조하지 않도록
-	// TransBuffer가 이 메시를 참조하면 ClearSubdividedMesh() 후에도 GC가 안 됨
+	// Remove RF_Transactional - prevent Undo/Redo system from referencing it
+	// If TransBuffer references this mesh, it won't be GC'd even after ClearSubdividedMesh()
 	SubdivisionSettings.SubdividedMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
 
-	// 복제된 메시의 기존 MeshDescription 제거
+	// Remove existing MeshDescription from duplicated mesh
 	if (SubdivisionSettings.SubdividedMesh->HasMeshDescription(0))
 	{
 		SubdivisionSettings.SubdividedMesh->ClearMeshDescription(0);
 	}
 
 	// ============================================
-	// 6. Import Data 설정 및 빌드
+	// 6. Setup Import Data and build
 	// ============================================
-	// FSkeletalMeshImportData를 사용하여 메시 데이터 설정
+	// Set mesh data using FSkeletalMeshImportData
 	FSkeletalMeshImportData ImportData;
 
-	// Points (버텍스 위치)
+	// Points (vertex positions)
 	ImportData.Points.SetNum(NewVertexCount);
 	for (int32 i = 0; i < NewVertexCount; ++i)
 	{
 		ImportData.Points[i] = FVector3f(NewPositions[i]);
 	}
 
-	// Wedges (버텍스 속성)
+	// Wedges (vertex attributes)
 	const int32 NumWedges = TopologyResult.Indices.Num();
 	ImportData.Wedges.SetNum(NumWedges);
 	for (int32 i = 0; i < NumWedges; ++i)
@@ -2071,7 +2071,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		Face.WedgeIndex[1] = i * 3 + 1;
 		Face.WedgeIndex[2] = i * 3 + 2;
 
-		// 각 wedge의 TangentZ (Normal) 설정
+		// Set TangentZ (Normal) for each wedge
 		for (int32 j = 0; j < 3; ++j)
 		{
 			int32 VertexIndex = TopologyResult.Indices[i * 3 + j];
@@ -2084,7 +2084,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		Face.MatIndex = 0;
 	}
 
-	// Influences (본 웨이트)
+	// Influences (bone weights)
 	ImportData.Influences.Empty();
 	for (int32 i = 0; i < NewVertexCount; ++i)
 	{
@@ -2101,7 +2101,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		}
 	}
 
-	// RefBonesBinary (원본과 동일하게 사용)
+	// RefBonesBinary (use same as original)
 	const FReferenceSkeleton& RefSkel = SourceMesh->GetRefSkeleton();
 	ImportData.RefBonesBinary.SetNum(RefSkel.GetRawBoneNum());
 	for (int32 i = 0; i < RefSkel.GetRawBoneNum(); ++i)
@@ -2109,7 +2109,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		SkeletalMeshImportData::FBone& Bone = ImportData.RefBonesBinary[i];
 		Bone.Name = RefSkel.GetBoneName(i).ToString();
 		Bone.ParentIndex = RefSkel.GetParentIndex(i);
-		Bone.NumChildren = 0;  // 빌드 시 계산됨
+		Bone.NumChildren = 0;  // Calculated during build
 		Bone.Flags = 0;
 		const FTransform& BonePose = RefSkel.GetRefBonePose()[i];
 		Bone.BonePos.Transform.SetLocation(FVector3f(BonePose.GetLocation()));
@@ -2133,18 +2133,18 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 	ImportData.bHasVertexColors = false;
 
 	// ============================================
-	// 7. SkeletalMesh 빌드
+	// 7. Build SkeletalMesh
 	// ============================================
-	// 복제된 메시는 이미 LODInfo와 머티리얼이 있으므로 별도 설정 불필요
+	// Duplicated mesh already has LODInfo and materials, no separate setup needed
 
 	// ============================================
-	// MeshDescription 생성 및 커밋
+	// Create and commit MeshDescription
 	// ============================================
 	FMeshDescription MeshDescription;
 	FSkeletalMeshAttributes MeshAttributes(MeshDescription);
 	MeshAttributes.Register();
 
-	// 버텍스 등록
+	// Register vertices
 	MeshDescription.ReserveNewVertices(NewVertexCount);
 	for (int32 i = 0; i < NewVertexCount; ++i)
 	{
@@ -2152,23 +2152,23 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		MeshDescription.GetVertexPositions()[VertexID] = FVector3f(NewPositions[i]);
 	}
 
-	// 폴리곤 그룹 (머티리얼 섹션) 생성 - MaterialIndex별로 그룹 생성
+	// Create polygon groups (material sections) - create group per MaterialIndex
 	MeshDescription.PolygonGroupAttributes().RegisterAttribute<FName>(
 		MeshAttribute::PolygonGroup::ImportedMaterialSlotName);
 
-	// 사용 중인 MaterialIndex 수집 및 유효성 검사
+	// Collect used MaterialIndices and validate
 	const int32 NumMaterials = SourceMesh ? SourceMesh->GetMaterials().Num() : 1;
 	TSet<int32> UsedMaterialIndices;
 	for (int32 TriIdx = 0; TriIdx < NumFaces; ++TriIdx)
 	{
 		int32 MatIdx = TopologyResult.TriangleMaterialIndices.IsValidIndex(TriIdx)
 			? TopologyResult.TriangleMaterialIndices[TriIdx] : 0;
-		// 유효한 범위로 클램핑
+		// Clamp to valid range
 		MatIdx = FMath::Clamp(MatIdx, 0, NumMaterials - 1);
 		UsedMaterialIndices.Add(MatIdx);
 	}
 
-	// MaterialIndex 순서대로 PolygonGroup 생성 (섹션 순서 보장)
+	// Create PolygonGroups in MaterialIndex order (ensure section order)
 	TMap<int32, FPolygonGroupID> MaterialIndexToPolygonGroup;
 	TArray<int32> SortedMaterialIndices = UsedMaterialIndices.Array();
 	SortedMaterialIndices.Sort();
@@ -2178,7 +2178,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		FPolygonGroupID GroupID = MeshDescription.CreatePolygonGroup();
 		MaterialIndexToPolygonGroup.Add(MatIdx, GroupID);
 
-		// 원본 메시의 정확한 머티리얼 슬롯 이름 사용
+		// Use exact material slot name from original mesh
 		FName MaterialSlotName = NAME_None;
 		if (SourceMesh && SourceMesh->GetMaterials().IsValidIndex(MatIdx))
 		{
@@ -2193,7 +2193,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 			GroupID, MeshAttribute::PolygonGroup::ImportedMaterialSlotName, 0, MaterialSlotName);
 	}
 
-	// 삼각형 등록
+	// Register triangles
 	TArray<FVertexInstanceID> VertexInstanceIDs;
 	VertexInstanceIDs.Reserve(TopologyResult.Indices.Num());
 
@@ -2216,7 +2216,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		MeshAttributes.GetVertexInstanceBinormalSigns().Set(VertexInstanceID, NewTangents[VertexIndex].W);
 	}
 
-	// 삼각형을 폴리곤으로 등록 (각 삼각형의 MaterialIndex에 맞는 PolygonGroup에 할당)
+	// Register triangles as polygons (assign to PolygonGroup matching each triangle's MaterialIndex)
 	for (int32 i = 0; i < NumFaces; ++i)
 	{
 		TArray<FVertexInstanceID> TriangleVertexInstances;
@@ -2226,7 +2226,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 
 		int32 MatIdx = TopologyResult.TriangleMaterialIndices.IsValidIndex(i)
 			? TopologyResult.TriangleMaterialIndices[i] : 0;
-		MatIdx = FMath::Clamp(MatIdx, 0, NumMaterials - 1);  // 유효 범위로 클램핑
+		MatIdx = FMath::Clamp(MatIdx, 0, NumMaterials - 1);  // Clamp to valid range
 		FPolygonGroupID* GroupID = MaterialIndexToPolygonGroup.Find(MatIdx);
 		if (GroupID)
 		{
@@ -2234,7 +2234,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		}
 	}
 
-	// SkinWeight 설정
+	// Set SkinWeights
 	FSkinWeightsVertexAttributesRef SkinWeights = MeshAttributes.GetVertexSkinWeights();
 	for (int32 i = 0; i < NewVertexCount; ++i)
 	{
@@ -2255,30 +2255,30 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		SkinWeights.Set(VertexID, BoneWeightArray);
 	}
 
-	// MeshDescription을 SkeletalMesh에 저장
+	// Save MeshDescription to SkeletalMesh
 	SubdivisionSettings.SubdividedMesh->CreateMeshDescription(0, MoveTemp(MeshDescription));
 
-	// 기존 렌더 리소스 해제 (DuplicateObject로 복제된 데이터 제거)
+	// Release existing render resources (remove data duplicated by DuplicateObject)
 	SubdivisionSettings.SubdividedMesh->ReleaseResources();
 	SubdivisionSettings.SubdividedMesh->ReleaseResourcesFence.Wait();
 
-	// MeshDescription을 실제 LOD 모델 데이터로 커밋
+	// Commit MeshDescription to actual LOD model data
 	USkeletalMesh::FCommitMeshDescriptionParams CommitParams;
 	CommitParams.bMarkPackageDirty = false;
 	SubdivisionSettings.SubdividedMesh->CommitMeshDescription(0, CommitParams);
 
-	// ★ Build() 전에 Normal/Tangent 재계산 비활성화 (깍두기 현상 방지)
-	// 원본 메시의 BuildSettings에 bRecomputeNormals=true가 있으면 우리가 설정한 Normal이 무시됨
+	// Disable Normal/Tangent recomputation before Build() (prevent blocky artifacts)
+	// If source mesh's BuildSettings has bRecomputeNormals=true, our set Normals get ignored
 	if (FSkeletalMeshLODInfo* LODInfo = SubdivisionSettings.SubdividedMesh->GetLODInfo(0))
 	{
 		LODInfo->BuildSettings.bRecomputeNormals = false;
 		LODInfo->BuildSettings.bRecomputeTangents = false;
 	}
 
-	// 메시 빌드 (LOD 모델 → 렌더 데이터)
+	// Build mesh (LOD model -> render data)
 	SubdivisionSettings.SubdividedMesh->Build();
 
-	// Build 결과 검증
+	// Verify Build result
 	FSkeletalMeshRenderData* NewRenderData = SubdivisionSettings.SubdividedMesh->GetResourceForRendering();
 	if (!NewRenderData || NewRenderData->LODRenderData.Num() == 0)
 	{
@@ -2288,11 +2288,11 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		return;
 	}
 
-	// 렌더 리소스 초기화
+	// Initialize render resources
 	SubdivisionSettings.SubdividedMesh->InitResources();
 	FlushRenderingCommands();
 
-	// 바운딩 박스 재계산
+	// Recalculate bounding box
 	FBox BoundingBox(ForceInit);
 	for (int32 i = 0; i < NewVertexCount; ++i)
 	{
@@ -2301,15 +2301,15 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 	SubdivisionSettings.SubdividedMesh->SetImportedBounds(FBoxSphereBounds(BoundingBox));
 	SubdivisionSettings.SubdividedMesh->CalculateExtendedBounds();
 
-	// 파라미터 해시 저장 (재생성 판단용)
+	// Save parameter hash (for regeneration decision)
 	SubdivisionSettings.SubdivisionParamsHash = CalculateSubdivisionParamsHash();
 	MarkPackageDirty();
 
-	// Note: OnAssetChanged.Broadcast() 호출 안 함
-	// SubdividedMesh는 런타임용이고, 프리뷰는 PreviewSubdividedMesh를 사용
-	// 브로드캐스트 시 프리뷰 DeformerInstance가 재초기화되어 변형 데이터 손실됨
+	// Note: Don't call OnAssetChanged.Broadcast()
+	// SubdividedMesh is for runtime, preview uses PreviewSubdividedMesh
+	// Broadcasting would reinitialize preview DeformerInstance causing deformation data loss
 
-	// 월드의 FleshRingComponent들만 직접 업데이트 (프리뷰 제외)
+	// Only directly update world FleshRingComponents (exclude preview)
 	if (GEngine)
 	{
 		for (const FWorldContext& Context : GEngine->GetWorldContexts())
@@ -2333,46 +2333,46 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 
 void UFleshRingAsset::ClearSubdividedMesh()
 {
-	// ★ 트랜잭션 비활성화 - 메시 정리가 Undo 히스토리에 포함되지 않도록
-	// GUndo를 nullptr로 설정하면 Modify() 호출이 무시되어 트랜잭션에 기록 안 됨
+	// Disable transaction - prevent mesh cleanup from being included in Undo history
+	// Setting GUndo to nullptr causes Modify() calls to be ignored, not recorded in transaction
 	ITransaction* PreviousGUndo = GUndo;
 	GUndo = nullptr;
 	ON_SCOPE_EXIT { GUndo = PreviousGUndo; };
 
 	if (SubdivisionSettings.SubdividedMesh)
 	{
-		// 이전 메시를 Transient 패키지로 이동시켜 GC가 정리하도록 함
-		// 이렇게 하지 않으면 에셋 내에 Subdivided_1, Subdivided_2... 가 계속 누적됨
+		// Move previous mesh to Transient package so GC can clean it up
+		// Without this, Subdivided_1, Subdivided_2... accumulate in asset
 		USkeletalMesh* OldMesh = SubdivisionSettings.SubdividedMesh;
 
-		// 1. 포인터 해제 (Asset의 UPROPERTY 참조 끊기)
+		// 1. Release pointer (disconnect Asset's UPROPERTY reference)
 		SubdivisionSettings.SubdividedMesh = nullptr;
 		SubdivisionSettings.SubdivisionParamsHash = 0;
 
-		// 2. 렌더 리소스 완전 해제 (ReleaseResourcesFence.Wait() 필수!)
+		// 2. Fully release render resources (ReleaseResourcesFence.Wait() required!)
 		OldMesh->ReleaseResources();
 		OldMesh->ReleaseResourcesFence.Wait();
 		FlushRenderingCommands();
 
-		// 3. Outer를 TransientPackage로 변경 (Asset 서브오브젝트에서 분리)
+		// 3. Change Outer to TransientPackage (detach from Asset sub-objects)
 		OldMesh->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);
 
-		// 4. RF_Transactional 플래그 제거 - Undo/Redo 시스템에서 참조하지 않도록
+		// 4. Remove RF_Transactional flag - prevent Undo/Redo system from referencing it
 		OldMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
 		OldMesh->SetFlags(RF_Transient);
 
-		// 5. GC 대상으로 표시
+		// 5. Mark as garbage collection target
 		OldMesh->MarkAsGarbage();
 
 		UE_LOG(LogFleshRingAsset, Log, TEXT("ClearSubdividedMesh: Cleanup complete"));
 
-		// Note: PreviewSubdividedMesh는 FleshRingPreviewScene에서 관리됨
-		// OnAssetChanged.Broadcast()로 PreviewScene이 자동으로 프리뷰 메시를 재생성함
+		// Note: PreviewSubdividedMesh is managed by FleshRingPreviewScene
+		// OnAssetChanged.Broadcast() causes PreviewScene to automatically regenerate preview mesh
 
-		// 이 에셋을 사용하는 컴포넌트들에게 변경 알림 (원본 메시로 복원)
+		// Notify components using this asset about the change (restore to original mesh)
 		OnAssetChanged.Broadcast(this);
 
-		// 델리게이트 바인딩이 안 된 컴포넌트들도 업데이트하기 위해 직접 검색
+		// Search directly to update components without delegate bindings
 		if (GEngine)
 		{
 			for (const FWorldContext& Context : GEngine->GetWorldContexts())
@@ -2402,19 +2402,19 @@ void UFleshRingAsset::SetEditorSelectedRingIndex(int32 RingIndex, EFleshRingSele
 	EditorSelectedRingIndex = RingIndex;
 	EditorSelectionType = SelectionType;
 
-	// 델리게이트 브로드캐스트 (디테일 패널 → 뷰포트/트리 동기화)
+	// Delegate broadcast (detail panel -> viewport/tree sync)
 	OnRingSelectionChanged.Broadcast(RingIndex);
 }
 
 // =====================================
-// Baked Mesh 관련 함수
+// Baked Mesh related functions
 // =====================================
 
 bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 {
-	// ★ 트랜잭션 비활성화 - 메시 생성/정리가 Undo 히스토리에 포함되지 않도록
-	// TransBuffer가 메시를 참조하면 GC가 안 됨
-	// GUndo를 nullptr로 설정하면 Modify() 호출이 무시되어 트랜잭션에 기록 안 됨
+	// Disable transaction - prevent mesh creation/cleanup from being included in Undo history
+	// If TransBuffer references mesh, it won't be GC'd
+	// Setting GUndo to nullptr causes Modify() calls to be ignored, not recorded in transaction
 	ITransaction* PreviousGUndo = GUndo;
 	GUndo = nullptr;
 	ON_SCOPE_EXIT { GUndo = PreviousGUndo; };
@@ -2433,13 +2433,13 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 	}
 
 	// =====================================
-	// 소스 메시 결정: Subdivision ON → SubdividedMesh, OFF → 원본 메시
+	// Determine source mesh: Subdivision ON -> SubdividedMesh, OFF -> original mesh
 	// =====================================
 	USkeletalMesh* SourceMesh = nullptr;
 
 	if (SubdivisionSettings.bEnableSubdivision)
 	{
-		// 서브디비전 ON: SubdividedMesh 생성/사용
+		// Subdivision ON: Generate/use SubdividedMesh
 		if (!SubdivisionSettings.SubdividedMesh || NeedsSubdivisionRegeneration())
 		{
 			GenerateSubdividedMesh(SourceComponent);
@@ -2452,14 +2452,14 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 		}
 		else
 		{
-			// 서브디비전 생성 실패 → 원본 메시로 폴백
+			// Subdivision generation failed -> fallback to original mesh
 			SourceMesh = TargetSkeletalMesh.LoadSynchronous();
 			UE_LOG(LogFleshRingAsset, Warning, TEXT("GenerateBakedMesh: SubdividedMesh generation failed, falling back to original mesh"));
 		}
 	}
 	else
 	{
-		// 서브디비전 OFF: 원본 메시에 변형만 적용하여 베이크
+		// Subdivision OFF: Bake with deformation applied to original mesh only
 		SourceMesh = TargetSkeletalMesh.LoadSynchronous();
 		UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Subdivision disabled, using original mesh"));
 	}
@@ -2485,51 +2485,51 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 	}
 
 	// =====================================
-	// GPU 베이킹: SourceMesh를 렌더링하여 Readback
-	// (Subdivision ON: SubdividedMesh / OFF: 원본 메시)
+	// GPU Baking: Render SourceMesh and Readback
+	// (Subdivision ON: SubdividedMesh / OFF: original mesh)
 	// =====================================
 	//
-	// 비동기 베이크 지원 방식:
-	// 1. 현재 메시가 SourceMesh가 아니면 → 스왑만 하고 false 반환 (비동기 시스템이 대기)
-	// 2. SourceMesh이고 캐시가 유효하면 → Readback 진행
-	// 3. SourceMesh이지만 캐시가 아직 안 유효하면 → false 반환 (비동기 시스템이 대기)
+	// Async bake support approach:
+	// 1. If current mesh is not SourceMesh -> swap only and return false (async system waits)
+	// 2. If SourceMesh and cache is valid -> proceed with Readback
+	// 3. If SourceMesh but cache not yet valid -> return false (async system waits)
 
 	USkeletalMesh* CurrentMesh = SkelMeshComp->GetSkeletalMeshAsset();
 	const bool bAlreadyUsingSourceMesh = (CurrentMesh == SourceMesh);
 
 	if (!bAlreadyUsingSourceMesh)
 	{
-		// Step 1: SourceMesh로 스왑 (첫 호출)
+		// Step 1: Swap to SourceMesh (first call)
 		UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Swapping to SourceMesh..."));
 		SkelMeshComp->SetSkeletalMeshAsset(SourceMesh);
 
-		// Step 2: ★ MeshObject 완전 재생성 (동기적)
-		// RecreateRenderState_Concurrent()는 비동기적이라 MeshObject가 바로 업데이트되지 않음
-		// UnregisterComponent/RegisterComponent를 사용하여 동기적으로 재생성
+		// Step 2: Complete MeshObject regeneration (synchronous)
+		// RecreateRenderState_Concurrent() is async so MeshObject doesn't update immediately
+		// Use UnregisterComponent/RegisterComponent for synchronous regeneration
 		SkelMeshComp->UnregisterComponent();
 		SkelMeshComp->RegisterComponent();
 		FlushRenderingCommands();
 
-		// Step 3: Deformer 완전 재초기화 (새 메시 기준으로 LODData/AffectedVertices 재등록)
-		// ★ 반드시 MeshObject 재생성 후 호출해야 새 메시의 RenderData를 읽음
+		// Step 3: Complete Deformer reinitialization (re-register LODData/AffectedVertices for new mesh)
+		// Must call after MeshObject regeneration to read new mesh's RenderData
 		DeformerInstance->InvalidateForMeshChange();
 
-		// 메시 스왑만 하고 반환 - 비동기 시스템이 캐시 유효해질 때까지 대기 후 재호출
+		// Swap mesh only and return - async system waits until cache valid then recalls
 		return false;
 	}
 
-	// 이미 SourceMesh가 설정됨 - 캐시 확인
+	// SourceMesh already set - check cache
 	if (!DeformerInstance->HasCachedDeformedGeometry(0))
 	{
-		// 캐시가 아직 유효하지 않음 - 비동기 시스템이 재시도
+		// Cache not yet valid - async system will retry
 		UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Waiting for cache to become valid..."));
 		return false;
 	}
 
-	// 캐시 유효 - Readback 진행
+	// Cache valid - proceed with Readback
 	UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Cache valid, proceeding with readback..."));
 
-	// GPU Readback (SourceMesh 기준 - 직접 대응)
+	// GPU Readback (SourceMesh basis - direct correspondence)
 	TArray<FVector3f> DeformedPositions;
 	TArray<FVector3f> DeformedNormals;
 	TArray<FVector4f> DeformedTangents;
@@ -2537,11 +2537,11 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 	if (!DeformerInstance->ReadbackDeformedGeometry(DeformedPositions, DeformedNormals, DeformedTangents, 0))
 	{
 		UE_LOG(LogFleshRingAsset, Error, TEXT("GenerateBakedMesh: GPU Readback failed"));
-		// 메시 복원은 비동기 시스템(CleanupAsyncBake)이 처리
+		// Mesh restoration handled by async system (CleanupAsyncBake)
 		return false;
 	}
 
-	// Readback 검증
+	// Readback verification
 	const FSkeletalMeshRenderData* SourceRenderData = SourceMesh->GetResourceForRendering();
 	if (!SourceRenderData || SourceRenderData->LODRenderData.Num() == 0)
 	{
@@ -2552,7 +2552,7 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 	const FSkeletalMeshLODRenderData& SourceLODData = SourceRenderData->LODRenderData[0];
 	const uint32 SourceVertexCount = SourceLODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
 
-	// 버퍼 크기 검증 (SourceMesh 직접 렌더링이므로 정확히 일치해야 함)
+	// Buffer size verification (must match exactly since rendering SourceMesh directly)
 	if (DeformedPositions.Num() != (int32)SourceVertexCount)
 	{
 		UE_LOG(LogFleshRingAsset, Error, TEXT("GenerateBakedMesh: Vertex count mismatch - Readback=%d, Expected=%d"),
@@ -2560,7 +2560,7 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 		return false;
 	}
 
-	// Normal/Tangent 기본값 채우기 (없는 경우)
+	// Fill default Normal/Tangent values (if missing)
 	const bool bHasNormals = DeformedNormals.Num() == (int32)SourceVertexCount;
 	const bool bHasTangents = DeformedTangents.Num() == (int32)SourceVertexCount;
 
@@ -2582,17 +2582,17 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 		}
 	}
 
-	// ★ 수정: 기존 BakedMesh 정리를 나중에 수행 (새 메시 생성 성공 후)
-	// 먼저 정리하면, 새 메시 생성 실패 시 이전 메시도 없어짐
+	// Fix: Perform existing BakedMesh cleanup later (after new mesh creation succeeds)
+	// If cleaned up first, previous mesh is lost if new mesh creation fails
 
 	// =====================================
-	// MeshDescription 기반 방식 (SubdividedMesh와 동일)
-	// DuplicateObject로 복제하면 MeshDescription(스킨 웨이트 포함)이 복사됨
-	// MeshDescription에서 버텍스 위치만 수정 후 Build() 호출
-	// 이 방식은 제대로 직렬화되고, 스킨 웨이트 매핑도 유지됨
+	// MeshDescription-based approach (same as SubdividedMesh)
+	// DuplicateObject copies MeshDescription (including skin weights)
+	// Only modify vertex positions in MeshDescription then call Build()
+	// This approach serializes properly and maintains skin weight mapping
 	// =====================================
 
-	// 고유한 이름으로 새 SkeletalMesh 생성 (기존 메시가 GC 대기 중일 수 있으므로)
+	// Create new SkeletalMesh with unique name (old mesh may be pending GC)
 	FString MeshName = FString::Printf(TEXT("%s_Baked_%s"),
 		*SourceMesh->GetName(),
 		*FGuid::NewGuid().ToString(EGuidFormats::Short));
@@ -2603,12 +2603,12 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 		return false;
 	}
 
-	// ★ 애니메이션 관련 속성을 원본과 동일하게 유지 (AnimInstance 재초기화 방지)
+	// Keep animation-related properties same as original (prevent AnimInstance reinitialization)
 	NewBakedMesh->SetSkeleton(SourceMesh->GetSkeleton());
 	NewBakedMesh->SetPhysicsAsset(SourceMesh->GetPhysicsAsset());
 	NewBakedMesh->SetShadowPhysicsAsset(SourceMesh->GetShadowPhysicsAsset());
 
-	// MeshDescription 가져오기 (DuplicateObject로 복사됨, 스킨 웨이트 포함)
+	// Get MeshDescription (copied by DuplicateObject, includes skin weights)
 	FMeshDescription* MeshDesc = NewBakedMesh->GetMeshDescription(0);
 	if (!MeshDesc)
 	{
@@ -2618,34 +2618,34 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 	}
 
 	// =====================================
-	// MeshDescription에서 버텍스 위치 수정
-	// 스킨 웨이트는 MeshDescription 안에 이미 있으므로 그대로 유지됨
+	// Modify vertex positions in MeshDescription
+	// Skin weights are already in MeshDescription so they're preserved
 	// =====================================
 	TVertexAttributesRef<FVector3f> VertexPositions = MeshDesc->GetVertexPositions();
 	const int32 MeshDescVertexCount = MeshDesc->Vertices().Num();
 
-	// 버텍스 수 검증: RenderData 버텍스 수와 MeshDescription 버텍스 수는 다를 수 있음
-	// MeshDescription은 고유 버텍스, RenderData는 VertexInstance(중복 포함)
-	// GPU Readback 데이터는 RenderData 기준이므로 매핑이 필요
+	// Vertex count verification: RenderData vertex count and MeshDescription vertex count can differ
+	// MeshDescription has unique vertices, RenderData has VertexInstances (includes duplicates)
+	// GPU Readback data is RenderData-based so mapping is needed
 	UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: MeshDesc vertices=%d, RenderData vertices=%d"),
 		MeshDescVertexCount, SourceVertexCount);
 
 	// =====================================
-	// 버텍스 매핑 및 위치 업데이트 (최적화된 해시맵 방식)
-	// RenderData 버텍스 → MeshDescription 버텍스 매핑
+	// Vertex mapping and position update (optimized hashmap approach)
+	// RenderData vertex -> MeshDescription vertex mapping
 	// =====================================
 
-	// 원본 RenderData에서 위치 기반 매핑 구축
-	// (SourceRenderData는 이미 위에서 선언되어 있음)
+	// Build position-based mapping from original RenderData
+	// (SourceRenderData already declared above)
 	if (SourceRenderData && SourceRenderData->LODRenderData.Num() > 0)
 	{
 		const FPositionVertexBuffer& SrcPosBuffer = SourceRenderData->LODRenderData[0].StaticVertexBuffers.PositionVertexBuffer;
 
-		// 위치를 정수 그리드로 양자화하여 해시 키로 사용 (O(1) 룩업)
-		// 스케일: 0.001 단위로 양자화 (1mm 정밀도)
+		// Quantize position to integer grid for hash key (O(1) lookup)
+		// Scale: quantize in 0.001 units (1mm precision)
 		auto QuantizePosition = [](const FVector3f& Pos) -> FIntVector
 		{
-			const float Scale = 1000.0f;  // 0.001 단위
+			const float Scale = 1000.0f;  // 0.001 units
 			return FIntVector(
 				FMath::RoundToInt(Pos.X * Scale),
 				FMath::RoundToInt(Pos.Y * Scale),
@@ -2653,8 +2653,8 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 			);
 		};
 
-		// ★ 수정: UV seam에서 같은 위치에 여러 버텍스가 있을 수 있으므로 TArray 사용
-		// MeshDescription 버텍스를 양자화된 위치로 인덱싱 (위치당 여러 버텍스 허용)
+		// Fix: Use TArray since multiple vertices can be at same position at UV seam
+		// Index MeshDescription vertices by quantized position (allow multiple vertices per position)
 		TMap<FIntVector, TArray<FVertexID>> QuantizedPosToVertices;
 		QuantizedPosToVertices.Reserve(MeshDescVertexCount);
 
@@ -2664,8 +2664,8 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 			QuantizedPosToVertices.FindOrAdd(QuantizedPos).Add(VertexID);
 		}
 
-		// RenderData 버텍스 → MeshDescription 버텍스 매핑 (O(n) 복잡도)
-		// ★ 같은 위치의 모든 MeshDescription 버텍스에 동일한 RenderIdx 매핑
+		// RenderData vertex -> MeshDescription vertex mapping (O(n) complexity)
+		// Map same RenderIdx to all MeshDescription vertices at same position
 		TMap<FVertexID, uint32> VertexToFirstRenderIdx;
 		VertexToFirstRenderIdx.Reserve(MeshDescVertexCount);
 
@@ -2674,13 +2674,13 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 			FVector3f RenderPos = SrcPosBuffer.VertexPosition(RenderIdx);
 			FIntVector QuantizedPos = QuantizePosition(RenderPos);
 
-			// 해시맵에서 O(1) 룩업 - 같은 위치의 모든 버텍스에 매핑
+			// O(1) lookup in hashmap - map to all vertices at same position
 			TArray<FVertexID>* FoundVertexIDs = QuantizedPosToVertices.Find(QuantizedPos);
 			if (FoundVertexIDs)
 			{
 				for (const FVertexID& VertexID : *FoundVertexIDs)
 				{
-					// 첫 번째 매핑만 저장 (같은 위치의 여러 RenderData 버텍스 중 하나만 필요)
+					// Only store first mapping (only one of multiple RenderData vertices at same position needed)
 					if (!VertexToFirstRenderIdx.Contains(VertexID))
 					{
 						VertexToFirstRenderIdx.Add(VertexID, RenderIdx);
@@ -2689,7 +2689,7 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 			}
 		}
 
-		// MeshDescription 버텍스 위치 업데이트
+		// Update MeshDescription vertex positions
 		for (const FVertexID VertexID : MeshDesc->Vertices().GetElementIDs())
 		{
 			uint32* RenderIdxPtr = VertexToFirstRenderIdx.Find(VertexID);
@@ -2703,9 +2703,9 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 			VertexToFirstRenderIdx.Num(), MeshDescVertexCount);
 
 		// =====================================
-		// 노멀/탄젠트 업데이트 (VertexInstance 기반)
-		// MeshDescription에서 노멀/탄젠트는 VertexInstance에 저장됨
-		// ★ 수정: 순차 인덱싱 대신 VertexID 기반 매핑 사용
+		// Normal/Tangent update (VertexInstance based)
+		// In MeshDescription, normals/tangents are stored in VertexInstance
+		// Fix: Use VertexID-based mapping instead of sequential indexing
 		// =====================================
 		if (bHasNormals && bHasTangents)
 		{
@@ -2714,8 +2714,8 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 			TVertexInstanceAttributesRef<FVector3f> InstanceTangents = MeshAttributes.GetVertexInstanceTangents();
 			TVertexInstanceAttributesRef<float> InstanceBinormalSigns = MeshAttributes.GetVertexInstanceBinormalSigns();
 
-			// VertexInstance를 순회하며 노멀/탄젠트 업데이트
-			// ★ VertexInstance의 부모 VertexID를 통해 RenderData 인덱스 찾기
+			// Iterate VertexInstances to update normals/tangents
+			// Find RenderData index through VertexInstance's parent VertexID
 			for (const FVertexInstanceID InstanceID : MeshDesc->VertexInstances().GetElementIDs())
 			{
 				FVertexID VertexID = MeshDesc->GetVertexInstanceVertex(InstanceID);
@@ -2725,7 +2725,7 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 				{
 					uint32 RenderIdx = *RenderIdxPtr;
 					const FVector3f& Normal = DeformedNormals[RenderIdx];
-					// GPU에서 재계산된 노멀이 유효한 경우만 적용
+					// Only apply if GPU-recomputed normal is valid
 					if (!Normal.IsNearlyZero())
 					{
 						FVector3f Tangent(DeformedTangents[RenderIdx].X, DeformedTangents[RenderIdx].Y, DeformedTangents[RenderIdx].Z);
@@ -2736,36 +2736,36 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 						InstanceBinormalSigns[InstanceID] = BinormalSign;
 					}
 				}
-				// 매핑 안 된 VertexInstance는 원본 노멀 유지 (얼굴 등 영향받지 않는 영역)
+				// Unmapped VertexInstances keep original normals (non-affected areas like face)
 			}
 		}
 	}
 
 	// =====================================
-	// MeshDescription 커밋 및 빌드 (SubdividedMesh와 동일)
+	// Commit MeshDescription and build (same as SubdividedMesh)
 	// =====================================
-	// 기존 렌더 리소스 해제
+	// Release existing render resources
 	NewBakedMesh->ReleaseResources();
 	NewBakedMesh->ReleaseResourcesFence.Wait();
 	FlushRenderingCommands();
 
-	// MeshDescription을 LOD 모델로 커밋
+	// Commit MeshDescription to LOD model
 	USkeletalMesh::FCommitMeshDescriptionParams CommitParams;
 	CommitParams.bMarkPackageDirty = false;
 	NewBakedMesh->CommitMeshDescription(0, CommitParams);
 
-	// ★ Build() 전에 Normal/Tangent 재계산 비활성화 (깍두기 현상 방지)
-	// 원본 메시의 BuildSettings에 bRecomputeNormals=true가 있으면 우리가 설정한 Normal이 무시됨
+	// Disable Normal/Tangent recomputation before Build() (prevent blocky artifacts)
+	// If source mesh's BuildSettings has bRecomputeNormals=true, our set Normals get ignored
 	if (FSkeletalMeshLODInfo* LODInfo = NewBakedMesh->GetLODInfo(0))
 	{
 		LODInfo->BuildSettings.bRecomputeNormals = false;
 		LODInfo->BuildSettings.bRecomputeTangents = false;
 	}
 
-	// 메시 빌드 (RenderData 생성)
+	// Build mesh (create RenderData)
 	NewBakedMesh->Build();
 
-	// RenderData 검증
+	// Verify RenderData
 	FSkeletalMeshRenderData* NewRenderData = NewBakedMesh->GetResourceForRendering();
 	if (!NewRenderData || NewRenderData->LODRenderData.Num() == 0)
 	{
@@ -2774,11 +2774,11 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 		return false;
 	}
 
-	// 렌더 리소스 초기화
+	// Initialize render resources
 	NewBakedMesh->InitResources();
 	FlushRenderingCommands();
 
-	// 바운딩 박스 재계산
+	// Recalculate bounding box
 	FBox BoundingBox(ForceInit);
 	for (uint32 i = 0; i < SourceVertexCount; ++i)
 	{
@@ -2787,7 +2787,7 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 	NewBakedMesh->SetImportedBounds(FBoxSphereBounds(BoundingBox));
 	NewBakedMesh->CalculateExtendedBounds();
 
-	// Ring 트랜스폼 저장 (본 상대 좌표로 저장)
+	// Save Ring transforms (stored in bone-relative coordinates)
 	SubdivisionSettings.BakedRingTransforms.Empty();
 	for (const FFleshRingSettings& Ring : Rings)
 	{
@@ -2798,47 +2798,47 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 		SubdivisionSettings.BakedRingTransforms.Add(RingRelativeTransform);
 	}
 
-	// ★ 새 메시가 완전히 준비되었으므로 이제 이전 BakedMesh 정리
-	// (생성 실패 시에도 이전 메시가 유지됨)
+	// New mesh is fully ready so now clean up previous BakedMesh
+	// (Previous mesh preserved if creation fails)
 	if (SubdivisionSettings.BakedMesh)
 	{
 		USkeletalMesh* OldMesh = SubdivisionSettings.BakedMesh;
 
-		// 1. 렌더 리소스 완전 해제 (ReleaseResourcesFence.Wait() 필수!)
+		// 1. Fully release render resources (ReleaseResourcesFence.Wait() required!)
 		OldMesh->ReleaseResources();
 		OldMesh->ReleaseResourcesFence.Wait();
 		FlushRenderingCommands();
 
-		// 2. Outer를 TransientPackage로 변경 (Asset 서브오브젝트에서 분리)
+		// 2. Change Outer to TransientPackage (detach from Asset sub-objects)
 		OldMesh->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);
 
-		// 3. RF_Transactional 플래그 제거 - Undo/Redo 시스템에서 참조하지 않도록
+		// 3. Remove RF_Transactional flag - prevent Undo/Redo system from referencing it
 		OldMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
 		OldMesh->SetFlags(RF_Transient);
 
-		// 4. GC 대상으로 표시
+		// 4. Mark as garbage collection target
 		OldMesh->MarkAsGarbage();
 
 		UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Cleaned up previous BakedMesh"));
 	}
-	// ★ 버그 수정: 이전에 여기서 BakedRingTransforms.Empty()를 호출하여
-	// 위에서 채운 Ring 트랜스폼 데이터를 즉시 삭제하는 버그가 있었음 - 삭제됨
+	// Bug fix: Previously called BakedRingTransforms.Empty() here which immediately deleted
+	// the Ring transform data filled above - removed
 
-	// 결과 저장
+	// Save result
 	SubdivisionSettings.BakedMesh = NewBakedMesh;
 	SubdivisionSettings.BakeParamsHash = CalculateBakeParamsHash();
 
-	// ★ RF_Transactional 제거 - Undo/Redo 시스템에서 참조하지 않도록
-	// DuplicateObject는 소스 메시의 플래그를 상속하므로, TransBuffer 참조 방지를 위해 명시적 제거
+	// Remove RF_Transactional - prevent Undo/Redo system from referencing it
+	// DuplicateObject inherits source mesh flags, so explicit removal prevents TransBuffer reference
 	NewBakedMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
 
 	UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Success - %d vertices, %d rings, Hash=%u"),
 		SourceVertexCount, Rings.Num(), SubdivisionSettings.BakeParamsHash);
 
-	// ★ SubdividedMesh 정리는 CleanupAsyncBake에서 수행
-	// (프리뷰 메시가 원본으로 복원된 후 안전하게 정리)
+	// SubdividedMesh cleanup is performed in CleanupAsyncBake
+	// (Safely cleaned up after preview mesh is restored to original)
 
-	// 에셋 변경 통지
+	// Notify asset change
 	MarkPackageDirty();
 	OnAssetChanged.Broadcast(this);
 
@@ -2847,34 +2847,34 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 
 void UFleshRingAsset::ClearBakedMesh()
 {
-	// ★ 트랜잭션 비활성화 - 메시 정리가 Undo 히스토리에 포함되지 않도록
-	// GUndo를 nullptr로 설정하면 Modify() 호출이 무시되어 트랜잭션에 기록 안 됨
+	// Disable transaction - prevent mesh cleanup from being included in Undo history
+	// Setting GUndo to nullptr causes Modify() calls to be ignored, not recorded in transaction
 	ITransaction* PreviousGUndo = GUndo;
 	GUndo = nullptr;
 	ON_SCOPE_EXIT { GUndo = PreviousGUndo; };
 
 	if (SubdivisionSettings.BakedMesh)
 	{
-		// 이전 메시를 Transient 패키지로 이동시켜 GC가 정리하도록 함
-		// 이렇게 하지 않으면 에셋 내에 BakedMesh_1, BakedMesh_2... 가 계속 누적됨
+		// Move previous mesh to Transient package so GC can clean it up
+		// Without this, BakedMesh_1, BakedMesh_2... accumulate in asset
 		USkeletalMesh* OldMesh = SubdivisionSettings.BakedMesh;
 
-		// 1. 포인터 해제 (Asset의 UPROPERTY 참조 끊기)
+		// 1. Release pointer (disconnect Asset's UPROPERTY reference)
 		SubdivisionSettings.BakedMesh = nullptr;
 
-		// 2. 렌더 리소스 완전 해제 (ReleaseResourcesFence.Wait() 필수!)
+		// 2. Fully release render resources (ReleaseResourcesFence.Wait() required!)
 		OldMesh->ReleaseResources();
 		OldMesh->ReleaseResourcesFence.Wait();
 		FlushRenderingCommands();
 
-		// 3. Outer를 TransientPackage로 변경 (Asset 서브오브젝트에서 분리)
+		// 3. Change Outer to TransientPackage (detach from Asset sub-objects)
 		OldMesh->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);
 
-		// 4. RF_Transactional 플래그 제거 - Undo/Redo 시스템에서 참조하지 않도록
+		// 4. Remove RF_Transactional flag - prevent Undo/Redo system from referencing it
 		OldMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
 		OldMesh->SetFlags(RF_Transient);
 
-		// 5. GC 대상으로 표시
+		// 5. Mark as garbage collection target
 		OldMesh->MarkAsGarbage();
 
 		UE_LOG(LogFleshRingAsset, Log, TEXT("ClearBakedMesh: Cleanup complete"));
@@ -2887,25 +2887,25 @@ void UFleshRingAsset::ClearBakedMesh()
 
 bool UFleshRingAsset::NeedsBakeRegeneration() const
 {
-	// BakedMesh가 없으면 재생성 필요
+	// Needs regeneration if no BakedMesh
 	if (!SubdivisionSettings.BakedMesh)
 	{
 		return true;
 	}
 
-	// 해시 비교로 파라미터 변경 여부 확인
+	// Check parameter change via hash comparison
 	return SubdivisionSettings.BakeParamsHash != CalculateBakeParamsHash();
 }
 
 uint32 UFleshRingAsset::CalculateBakeParamsHash() const
 {
-	// Subdivision 파라미터 해시를 기본으로
+	// Base on Subdivision parameter hash
 	uint32 Hash = CalculateSubdivisionParamsHash();
 
-	// Ring별 변형 파라미터 추가
+	// Add per-Ring deformation parameters
 	for (const FFleshRingSettings& Ring : Rings)
 	{
-		// 위치/회전 (정밀도 제한)
+		// Position/Rotation (limited precision)
 		Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(Ring.RingOffset.X * 100)));
 		Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(Ring.RingOffset.Y * 100)));
 		Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(Ring.RingOffset.Z * 100)));
@@ -2913,14 +2913,14 @@ uint32 UFleshRingAsset::CalculateBakeParamsHash() const
 		Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(Ring.RingEulerRotation.Yaw * 10)));
 		Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(Ring.RingEulerRotation.Roll * 10)));
 
-		// 변형 강도
+		// Deformation strength
 		Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(Ring.TightnessStrength * 1000)));
 		Hash = HashCombine(Hash, GetTypeHash(Ring.bEnableBulge));
 		Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(Ring.BulgeIntensity * 1000)));
 		Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(Ring.BulgeAxialRange * 100)));
 		Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(Ring.BulgeRadialRange * 100)));
 
-		// 스무딩 설정
+		// Smoothing settings
 		Hash = HashCombine(Hash, GetTypeHash(Ring.bEnablePostProcess));
 		Hash = HashCombine(Hash, GetTypeHash(Ring.bEnableSmoothing));
 		Hash = HashCombine(Hash, GetTypeHash(Ring.SmoothingIterations));
@@ -2934,7 +2934,7 @@ int32 UFleshRingAsset::CleanupOrphanedMeshes()
 {
 	int32 RemovedCount = 0;
 
-	// 현재 사용 중인 메시 포인터 수집
+	// Collect currently used mesh pointers
 	TSet<USkeletalMesh*> ActiveMeshes;
 	if (SubdivisionSettings.SubdividedMesh)
 	{
@@ -2944,9 +2944,9 @@ int32 UFleshRingAsset::CleanupOrphanedMeshes()
 	{
 		ActiveMeshes.Add(SubdivisionSettings.BakedMesh);
 	}
-	// Note: PreviewSubdividedMesh는 FleshRingPreviewScene에서 관리되므로 여기서 추적하지 않음
+	// Note: PreviewSubdividedMesh is managed by FleshRingPreviewScene so not tracked here
 
-	// 이 에셋의 모든 SkeletalMesh 서브오브젝트 수집
+	// Collect all SkeletalMesh sub-objects of this asset
 	TArray<UObject*> SubObjects;
 	GetObjectsWithOuter(this, SubObjects, false);
 
@@ -2955,7 +2955,7 @@ int32 UFleshRingAsset::CleanupOrphanedMeshes()
 		USkeletalMesh* SkelMesh = Cast<USkeletalMesh>(SubObj);
 		if (SkelMesh && !ActiveMeshes.Contains(SkelMesh))
 		{
-			// 고아 메시 발견 - Transient 패키지로 이동
+			// Orphaned mesh found - move to Transient package
 			UE_LOG(LogFleshRingAsset, Log, TEXT("CleanupOrphanedMeshes: Removing orphaned mesh '%s'"), *SkelMesh->GetName());
 
 			SkelMesh->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);

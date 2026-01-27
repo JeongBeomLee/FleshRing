@@ -15,11 +15,11 @@ public:
 	virtual void StartupModule() override;
 	virtual void ShutdownModule() override;
 
-	/** FleshRing 스타일 셋 이름 */
+	/** FleshRing style set name */
 	static FName GetStyleSetName() { return TEXT("FleshRingStyle"); }
 
 private:
-	/** 커스텀 스타일 셋 */
+	/** Custom style set */
 	TSharedPtr<FSlateStyleSet> StyleSet;
 
 	TSharedPtr<IAssetTypeActions> FleshRingAssetTypeActions;

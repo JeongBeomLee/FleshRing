@@ -89,13 +89,13 @@ void DispatchFleshRingHeatPropagationCS(
     );
     AddClearUAVFloatPass(GraphBuilder, GraphBuilder.CreateUAV(DummyFloatBuffer, PF_R32_FLOAT), 0.0f);
 
-    // UV Seam Welding: RepresentativeIndices 바인딩
-    // nullptr이면 ExtendedIndices를 fallback으로 사용
+    // UV Seam Welding: RepresentativeIndices binding
+    // If nullptr, use ExtendedIndices as fallback
     FRDGBufferSRVRef RepresentativeIndicesSRV = RepresentativeIndicesBuffer
         ? GraphBuilder.CreateSRV(RepresentativeIndicesBuffer)
         : GraphBuilder.CreateSRV(ExtendedIndicesBuffer);
 
-    // Barrier 버퍼: nullptr이면 모든 플래그가 0인 더미 버퍼 사용
+    // Barrier buffer: If nullptr, use dummy buffer with all flags set to 0
     FRDGBufferRef BarrierBuffer = IsBarrierFlagsBuffer;
     if (!BarrierBuffer)
     {
@@ -107,11 +107,11 @@ void DispatchFleshRingHeatPropagationCS(
     }
     FRDGBufferSRVRef IsBarrierFlagsSRV = GraphBuilder.CreateSRV(BarrierBuffer);
 
-    // BoundarySeed 버퍼: nullptr이면 모든 Seed를 경계로 취급 (기존 동작)
+    // BoundarySeed buffer: If nullptr, treat all Seeds as boundary (legacy behavior)
     FRDGBufferRef BoundarySeedBuffer = IsBoundarySeedFlagsBuffer;
     if (!BoundarySeedBuffer)
     {
-        // nullptr이면 IsSeedFlags를 그대로 사용 (모든 Seed가 경계)
+        // If nullptr, use IsSeedFlags directly (all Seeds are boundary)
         BoundarySeedBuffer = IsSeedFlagsBuffer;
     }
     FRDGBufferSRVRef IsBoundarySeedFlagsSRV = GraphBuilder.CreateSRV(BoundarySeedBuffer);

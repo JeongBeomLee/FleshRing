@@ -23,8 +23,8 @@
 #include "Misc/ScopedSlowTask.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Rendering/SlateRenderer.h"
-#include "UObject/UObjectGlobals.h"  // CollectGarbage용
-#include "FileHelpers.h"  // FEditorFileUtils::PromptForCheckoutAndSave용
+#include "UObject/UObjectGlobals.h"  // For CollectGarbage
+#include "FileHelpers.h"  // For FEditorFileUtils::PromptForCheckoutAndSave
 
 #define LOCTEXT_NAMESPACE "SubdivisionSettingsCustomization"
 
@@ -34,7 +34,7 @@ FSubdivisionSettingsCustomization::FSubdivisionSettingsCustomization()
 
 FSubdivisionSettingsCustomization::~FSubdivisionSettingsCustomization()
 {
-	// 진행 중인 비동기 베이크 정리
+	// Clean up any in-progress async bake
 	if (bAsyncBakeInProgress)
 	{
 		CleanupAsyncBake(true);
@@ -53,8 +53,8 @@ void FSubdivisionSettingsCustomization::CustomizeHeader(
 {
 	MainPropertyHandle = PropertyHandle;
 
-	// 헤더 숨기기 - 카테고리 이름만 표시되도록
-	// (구조체 이름 "Subdivision Settings" 중복 방지)
+	// Hide header - only show category name
+	// (Prevents duplicate display of struct name "Subdivision Settings")
 }
 
 void FSubdivisionSettingsCustomization::CustomizeChildren(
@@ -62,7 +62,7 @@ void FSubdivisionSettingsCustomization::CustomizeChildren(
 	IDetailChildrenBuilder& ChildBuilder,
 	IPropertyTypeCustomizationUtils& CustomizationUtils)
 {
-	// 자식 프로퍼티 핸들 가져오기
+	// Get child property handles
 	TSharedPtr<IPropertyHandle> bEnableSubdivisionHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, bEnableSubdivision));
 	TSharedPtr<IPropertyHandle> MinEdgeLengthHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, MinEdgeLength));
 	TSharedPtr<IPropertyHandle> PreviewSubdivisionLevelHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, PreviewSubdivisionLevel));
@@ -73,7 +73,7 @@ void FSubdivisionSettingsCustomization::CustomizeChildren(
 	TSharedPtr<IPropertyHandle> BakedMeshHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, BakedMesh));
 
 	// =====================================
-	// 공통 설정 (최상위)
+	// Common Settings (Top-level)
 	// =====================================
 	if (bEnableSubdivisionHandle.IsValid())
 	{
@@ -85,7 +85,7 @@ void FSubdivisionSettingsCustomization::CustomizeChildren(
 	}
 
 	// =====================================
-	// Editor Preview 서브그룹
+	// Editor Preview Subgroup
 	// =====================================
 	IDetailGroup& EditorPreviewGroup = ChildBuilder.AddGroup(
 		TEXT("EditorPreview"),
@@ -105,7 +105,7 @@ void FSubdivisionSettingsCustomization::CustomizeChildren(
 		EditorPreviewGroup.AddPropertyRow(PreviewBoneWeightThresholdHandle.ToSharedRef());
 	}
 
-	// Refresh Preview 버튼
+	// Refresh Preview button
 	EditorPreviewGroup.AddWidgetRow()
 	.WholeRowContent()
 	[
@@ -146,7 +146,7 @@ void FSubdivisionSettingsCustomization::CustomizeChildren(
 	];
 
 	// =====================================
-	// Baked Mesh 서브그룹 (런타임용, 변형 적용 완료)
+	// Baked Mesh Subgroup (For runtime, deformation applied)
 	// =====================================
 	IDetailGroup& BakedMeshGroup = ChildBuilder.AddGroup(
 		TEXT("BakedMesh"),
@@ -158,7 +158,7 @@ void FSubdivisionSettingsCustomization::CustomizeChildren(
 		BakedMeshGroup.AddPropertyRow(MaxSubdivisionLevelHandle.ToSharedRef());
 	}
 
-	// Bake + Clear 버튼
+	// Bake + Clear buttons
 	BakedMeshGroup.AddWidgetRow()
 	.WholeRowContent()
 	[
@@ -167,7 +167,7 @@ void FSubdivisionSettingsCustomization::CustomizeChildren(
 		.HAlign(HAlign_Center)
 		[
 			SNew(SHorizontalBox)
-			// Bake 버튼 (녹색)
+			// Bake button (green)
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
 			.Padding(0, 0, 4, 0)
@@ -202,7 +202,7 @@ void FSubdivisionSettingsCustomization::CustomizeChildren(
 					]
 				]
 			]
-			// Clear 버튼 (빨간색)
+			// Clear button (red)
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
 			.Padding(4, 0, 0, 0)
@@ -240,7 +240,7 @@ void FSubdivisionSettingsCustomization::CustomizeChildren(
 		]
 	];
 
-	// Baked Mesh 프로퍼티 (읽기 전용)
+	// Baked Mesh property (read-only)
 	if (BakedMeshHandle.IsValid())
 	{
 		BakedMeshGroup.AddPropertyRow(BakedMeshHandle.ToSharedRef());
@@ -280,9 +280,9 @@ void FSubdivisionSettingsCustomization::SaveAsset(UFleshRingAsset* Asset)
 	UPackage* Package = Asset->GetOutermost();
 	if (Package && Package->IsDirty())
 	{
-		// ★ 체크아웃 다이얼로그 전에 렌더링 완전 플러시
-		// BakedMesh 등 새로 생성된 메시의 렌더 리소스가 완전히 초기화된 후
-		// 체크아웃 다이얼로그가 뜨도록 보장 (렌더 스레드 동기화)
+		// Fully flush rendering before checkout dialog
+		// Ensures render resources for newly created meshes like BakedMesh are fully initialized
+		// before the checkout dialog appears (render thread synchronization)
 		FlushRenderingCommands();
 
 		TArray<UPackage*> PackagesToSave;
@@ -296,7 +296,7 @@ FReply FSubdivisionSettingsCustomization::OnRefreshPreviewClicked()
 	UFleshRingAsset* Asset = GetOuterAsset();
 	if (Asset && GEditor)
 	{
-		// 에디터 찾아서 PreviewScene의 메시 강제 재생성
+		// Find editor and force regenerate PreviewScene mesh
 		UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
 		if (AssetEditorSubsystem)
 		{
@@ -320,7 +320,7 @@ FReply FSubdivisionSettingsCustomization::OnGenerateSubdividedMeshClicked()
 	UFleshRingAsset* Asset = GetOuterAsset();
 	if (Asset)
 	{
-		// UAssetEditorSubsystem을 통해 열린 에디터에서 PreviewComponent 가져오기
+		// Get PreviewComponent from the editor opened via UAssetEditorSubsystem
 		UFleshRingComponent* PreviewComponent = nullptr;
 
 		if (GEditor)
@@ -331,7 +331,7 @@ FReply FSubdivisionSettingsCustomization::OnGenerateSubdividedMeshClicked()
 				TArray<IAssetEditorInstance*> Editors = AssetEditorSubsystem->FindEditorsForAsset(Asset);
 				for (IAssetEditorInstance* Editor : Editors)
 				{
-					// FFleshRingAssetEditor는 FAssetEditorToolkit을 상속
+					// FFleshRingAssetEditor inherits from FAssetEditorToolkit
 					FFleshRingAssetEditor* FleshRingEditor = static_cast<FFleshRingAssetEditor*>(Editor);
 					if (FleshRingEditor)
 					{
@@ -356,7 +356,7 @@ FReply FSubdivisionSettingsCustomization::OnClearSubdividedMeshClicked()
 	if (Asset)
 	{
 		Asset->ClearSubdividedMesh();
-		// ★ 메모리 누수 방지: 버튼 클릭 시 즉시 GC 실행
+		// Prevent memory leak: Execute GC immediately on button click
 		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
 	}
 	return FReply::Handled();
@@ -364,7 +364,7 @@ FReply FSubdivisionSettingsCustomization::OnClearSubdividedMeshClicked()
 
 FReply FSubdivisionSettingsCustomization::OnBakeMeshClicked()
 {
-	// 이미 베이크 진행 중이면 무시
+	// Ignore if bake is already in progress
 	if (bAsyncBakeInProgress)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Bake already in progress. Please wait..."));
@@ -377,10 +377,10 @@ FReply FSubdivisionSettingsCustomization::OnBakeMeshClicked()
 		return FReply::Handled();
 	}
 
-	// ★ 순서 중요: FleshRingEditor를 먼저 찾은 후 CloseAllEditorsForAsset 호출
-	// (CloseAllEditorsForAsset가 에디터 닫힘 이벤트를 발생시켜 PreviewSubdividedMesh 손상 가능)
+	// Order matters: Find FleshRingEditor first before calling CloseAllEditorsForAsset
+	// (CloseAllEditorsForAsset triggers editor close events which can corrupt PreviewSubdividedMesh)
 
-	// UAssetEditorSubsystem을 통해 열린 에디터와 PreviewComponent 가져오기
+	// Get editor and PreviewComponent through UAssetEditorSubsystem
 	FFleshRingAssetEditor* FleshRingEditor = nullptr;
 	UFleshRingComponent* PreviewComponent = nullptr;
 
@@ -411,8 +411,8 @@ FReply FSubdivisionSettingsCustomization::OnBakeMeshClicked()
 		return FReply::Handled();
 	}
 
-	// ★ CloseAllEditorsForAsset 호출 전에 PreviewScene의 PreviewSubdividedMesh 정리
-	// (에디터 닫힘 이벤트가 렌더 리소스를 손상시키는 것을 방지)
+	// Clean up PreviewScene's PreviewSubdividedMesh before calling CloseAllEditorsForAsset
+	// (Prevents editor close events from corrupting render resources)
 	TSharedPtr<SFleshRingEditorViewport> ViewportWidget = FleshRingEditor->GetViewportWidget();
 	if (ViewportWidget.IsValid())
 	{
@@ -425,7 +425,7 @@ FReply FSubdivisionSettingsCustomization::OnBakeMeshClicked()
 		}
 	}
 
-	// ★ 기존 BakedMesh가 다른 에디터에서 열려있으면 먼저 닫기 (크래시 방지)
+	// Close existing BakedMesh if it's open in another editor (crash prevention)
 	if (Asset->HasBakedMesh())
 	{
 		UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
@@ -439,14 +439,14 @@ FReply FSubdivisionSettingsCustomization::OnBakeMeshClicked()
 		}
 	}
 
-	// ★ Deformer가 없으면 강제 초기화 (서브디비전 OFF 상태에서도 베이크 가능하도록)
+	// Force initialize if Deformer doesn't exist (allows baking even with subdivision OFF)
 	if (!PreviewComponent->GetDeformer())
 	{
 		UE_LOG(LogTemp, Log, TEXT("Bake: Deformer not found, force initializing for editor preview..."));
 		PreviewComponent->ForceInitializeForEditorPreview();
 		FlushRenderingCommands();
 
-		// 초기화 후에도 Deformer가 없으면 에러
+		// Error if Deformer still doesn't exist after initialization
 		if (!PreviewComponent->GetDeformer())
 		{
 			UE_LOG(LogTemp, Warning, TEXT("Cannot bake mesh: Failed to initialize Deformer. Please check Ring settings (need valid SDF or VirtualRing mode)."));
@@ -454,46 +454,46 @@ FReply FSubdivisionSettingsCustomization::OnBakeMeshClicked()
 		}
 	}
 
-	// 현재 프리뷰 메시 저장 (나중에 복원용)
+	// Store current preview mesh (for later restoration)
 	USkeletalMeshComponent* SkelMeshComp = PreviewComponent->GetResolvedTargetMesh();
 	if (SkelMeshComp)
 	{
 		OriginalPreviewMesh = SkelMeshComp->GetSkeletalMeshAsset();
 	}
 
-	// ★ 비동기 베이크 시작 (오버레이 + FTSTicker)
+	// Start async bake (overlay + FTSTicker)
 	bAsyncBakeInProgress = true;
 	AsyncBakeFrameCount = 0;
 	PostCacheValidFrameCount = 0;
 	AsyncBakeAsset = Asset;
 	AsyncBakeComponent = PreviewComponent;
 
-	// 오버레이 표시 (입력 차단)
+	// Show overlay (block input)
 	FleshRingEditor->ShowBakeOverlay(true, LOCTEXT("BakingMeshOverlay", "Baking mesh...\nPlease wait."));
 
-	// 메시 스왑 시작 (캐시 무효화)
+	// Start mesh swap (invalidate cache)
 	FlushRenderingCommands();
 	bool bImmediateSuccess = Asset->GenerateBakedMesh(PreviewComponent);
 
 	if (bImmediateSuccess)
 	{
-		// 즉시 성공 (이미 캐시가 있었던 경우)
+		// Immediate success (cache already existed)
 		UE_LOG(LogTemp, Log, TEXT("Bake completed immediately."));
 		FleshRingEditor->ShowBakeOverlay(false);
 		bAsyncBakeInProgress = false;
 		RestoreOriginalPreviewMesh(PreviewComponent);
 
-		// ★ 메모리 누수 방지: 즉시 성공 경로에서도 GC 호출
+		// Prevent memory leak: Call GC even in immediate success path
 		FlushRenderingCommands();
 		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
 
-		// ★ 자동 저장 (Perforce 체크아웃 프롬프트 포함)
+		// Auto-save (includes Perforce checkout prompt)
 		SaveAsset(Asset);
 
 		return FReply::Handled();
 	}
 
-	// 비동기 틱커 시작 (렌더링 계속되면서 GPU 작업 완료 대기)
+	// Start async ticker (continue rendering while waiting for GPU work to complete)
 	TickerHandle = FTSTicker::GetCoreTicker().AddTicker(
 		FTickerDelegate::CreateSP(this, &FSubdivisionSettingsCustomization::OnAsyncBakeTick),
 		0.016f  // ~60fps
@@ -507,7 +507,7 @@ FReply FSubdivisionSettingsCustomization::OnClearBakedMeshClicked()
 	UFleshRingAsset* Asset = GetOuterAsset();
 	if (Asset)
 	{
-		// ★ 기존 BakedMesh가 다른 에디터에서 열려있으면 먼저 닫기 (크래시 방지)
+		// Close existing BakedMesh if it's open in another editor (crash prevention)
 		if (Asset->HasBakedMesh())
 		{
 			UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
@@ -522,10 +522,10 @@ FReply FSubdivisionSettingsCustomization::OnClearBakedMeshClicked()
 		}
 
 		Asset->ClearBakedMesh();
-		// ★ 메모리 누수 방지: 버튼 클릭 시 즉시 GC 실행
+		// Prevent memory leak: Execute GC immediately on button click
 		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
 
-		// ★ 자동 저장 (Perforce 체크아웃 프롬프트 포함)
+		// Auto-save (includes Perforce checkout prompt)
 		SaveAsset(Asset);
 	}
 	return FReply::Handled();
@@ -533,34 +533,34 @@ FReply FSubdivisionSettingsCustomization::OnClearBakedMeshClicked()
 
 bool FSubdivisionSettingsCustomization::OnAsyncBakeTick(float DeltaTime)
 {
-	// 유효성 검사
+	// Validity check
 	if (!AsyncBakeAsset.IsValid() || !AsyncBakeComponent.IsValid())
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Async bake failed: Asset or Component became invalid."));
 		CleanupAsyncBake(true);
-		return false;  // 틱커 중지
+		return false;  // Stop ticker
 	}
 
 	++AsyncBakeFrameCount;
 
-	// Deformer 캐시 상태 확인
+	// Check Deformer cache status
 	UFleshRingDeformer* Deformer = AsyncBakeComponent->GetDeformer();
 	if (Deformer)
 	{
 		UFleshRingDeformerInstance* Instance = Deformer->GetActiveInstance();
 		if (Instance && Instance->HasCachedDeformedGeometry(0))
 		{
-			// 캐시가 유효해짐 - 추가 프레임 대기 (GPU 연산 완료 보장)
+			// Cache is now valid - wait additional frames (ensure GPU computation is complete)
 			++PostCacheValidFrameCount;
 
 			if (PostCacheValidFrameCount < PostCacheValidWaitFrames)
 			{
 				UE_LOG(LogTemp, Log, TEXT("Cache valid, waiting additional frame %d/%d for GPU completion..."),
 					PostCacheValidFrameCount, PostCacheValidWaitFrames);
-				return true;  // 계속 대기
+				return true;  // Continue waiting
 			}
 
-			// 충분히 대기했으므로 GPU 명령 플러시 후 베이킹 시도
+			// Waited long enough, flush GPU commands and attempt baking
 			FlushRenderingCommands();
 
 			bool bSuccess = AsyncBakeAsset->GenerateBakedMesh(AsyncBakeComponent.Get());
@@ -570,38 +570,38 @@ bool FSubdivisionSettingsCustomization::OnAsyncBakeTick(float DeltaTime)
 				UE_LOG(LogTemp, Log, TEXT("Async bake completed successfully after %d frames (%d post-cache frames)."),
 					AsyncBakeFrameCount, PostCacheValidFrameCount);
 				CleanupAsyncBake(true);
-				return false;  // 틱커 중지
+				return false;  // Stop ticker
 			}
 			else
 			{
-				// 캐시가 유효한데 실패? 뭔가 문제가 있음
+				// Cache is valid but failed? Something is wrong
 				UE_LOG(LogTemp, Warning, TEXT("Async bake failed even with valid cache. Retrying..."));
 			}
 		}
 	}
 
-	// 최대 프레임 초과 확인
+	// Check if maximum frames exceeded
 	if (AsyncBakeFrameCount >= MaxAsyncBakeFrames)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Async bake timed out after %d frames. Deformer may not have processed the mesh."), MaxAsyncBakeFrames);
 		CleanupAsyncBake(true);
-		return false;  // 틱커 중지
+		return false;  // Stop ticker
 	}
 
-	// 계속 대기
-	return true;  // 틱커 계속
+	// Continue waiting
+	return true;  // Continue ticker
 }
 
 void FSubdivisionSettingsCustomization::CleanupAsyncBake(bool bRestorePreviewMesh)
 {
-	// 틱커 제거
+	// Remove ticker
 	if (TickerHandle.IsValid())
 	{
 		FTSTicker::GetCoreTicker().RemoveTicker(TickerHandle);
 		TickerHandle.Reset();
 	}
 
-	// 오버레이 숨김
+	// Hide overlay
 	if (AsyncBakeAsset.IsValid() && GEditor)
 	{
 		UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
@@ -620,7 +620,7 @@ void FSubdivisionSettingsCustomization::CleanupAsyncBake(bool bRestorePreviewMes
 		}
 	}
 
-	// 원본 프리뷰 메시 복원
+	// Restore original preview mesh
 	if (bRestorePreviewMesh && AsyncBakeComponent.IsValid() && OriginalPreviewMesh.IsValid())
 	{
 		USkeletalMeshComponent* SkelMeshComp = AsyncBakeComponent->GetResolvedTargetMesh();
@@ -628,7 +628,7 @@ void FSubdivisionSettingsCustomization::CleanupAsyncBake(bool bRestorePreviewMes
 		{
 			UE_LOG(LogTemp, Log, TEXT("Restoring original preview mesh..."));
 
-			// 기존 버퍼 해제
+			// Release existing buffers
 			if (UFleshRingDeformer* Deformer = AsyncBakeComponent->GetDeformer())
 			{
 				if (UFleshRingDeformerInstance* Instance = Deformer->GetActiveInstance())
@@ -638,7 +638,7 @@ void FSubdivisionSettingsCustomization::CleanupAsyncBake(bool bRestorePreviewMes
 			}
 			FlushRenderingCommands();
 
-			// 원본 메시로 복원
+			// Restore to original mesh
 			SkelMeshComp->SetSkeletalMeshAsset(OriginalPreviewMesh.Get());
 			SkelMeshComp->MarkRenderStateDirty();
 			SkelMeshComp->MarkRenderDynamicDataDirty();
@@ -646,12 +646,12 @@ void FSubdivisionSettingsCustomization::CleanupAsyncBake(bool bRestorePreviewMes
 		}
 	}
 
-	// ★ 원본 메시 복원 후 SubdividedMesh 정리 (안전한 시점)
+	// Clean up SubdividedMesh after restoring original mesh (safe timing)
 	if (AsyncBakeAsset.IsValid() && AsyncBakeAsset->SubdivisionSettings.SubdividedMesh)
 	{
 		USkeletalMesh* SubdividedMesh = AsyncBakeAsset->SubdivisionSettings.SubdividedMesh;
 
-		// ★ 프리뷰 컴포넌트가 아직 SubdividedMesh를 사용 중이면 먼저 다른 메시로 전환
+		// Switch to another mesh first if preview component is still using SubdividedMesh
 		if (AsyncBakeComponent.IsValid())
 		{
 			USkeletalMeshComponent* SkelMeshComp = AsyncBakeComponent->GetResolvedTargetMesh();
@@ -659,7 +659,7 @@ void FSubdivisionSettingsCustomization::CleanupAsyncBake(bool bRestorePreviewMes
 			{
 				UE_LOG(LogTemp, Log, TEXT("CleanupAsyncBake: Preview still using SubdividedMesh, switching..."));
 
-				// Deformer 버퍼 해제
+				// Release Deformer buffers
 				if (UFleshRingDeformer* Deformer = AsyncBakeComponent->GetDeformer())
 				{
 					if (UFleshRingDeformerInstance* Instance = Deformer->GetActiveInstance())
@@ -669,7 +669,7 @@ void FSubdivisionSettingsCustomization::CleanupAsyncBake(bool bRestorePreviewMes
 				}
 				FlushRenderingCommands();
 
-				// 원본 메시 또는 TargetSkeletalMesh로 전환
+				// Switch to original mesh or TargetSkeletalMesh
 				USkeletalMesh* FallbackMesh = OriginalPreviewMesh.IsValid()
 					? OriginalPreviewMesh.Get()
 					: AsyncBakeAsset->TargetSkeletalMesh.Get();
@@ -683,37 +683,37 @@ void FSubdivisionSettingsCustomization::CleanupAsyncBake(bool bRestorePreviewMes
 			}
 		}
 
-		// 포인터 해제 (UPROPERTY 참조 끊기)
+		// Release pointer (break UPROPERTY reference)
 		AsyncBakeAsset->SubdivisionSettings.SubdividedMesh = nullptr;
 
-		// 렌더 리소스 완전 해제
+		// Fully release render resources
 		SubdividedMesh->ReleaseResources();
 		SubdividedMesh->ReleaseResourcesFence.Wait();
 		FlushRenderingCommands();
 
-		// Outer를 TransientPackage로 변경 (Asset 서브오브젝트에서 분리)
+		// Change Outer to TransientPackage (detach from Asset subobject)
 		SubdividedMesh->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);
 
-		// RF_Transactional 플래그 제거 - Undo/Redo 시스템에서 참조하지 않도록
+		// Remove RF_Transactional flag - prevent Undo/Redo system from referencing
 		SubdividedMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
 		SubdividedMesh->SetFlags(RF_Transient);
 
-		// GC 대상으로 표시
+		// Mark for garbage collection
 		SubdividedMesh->MarkAsGarbage();
 
 		UE_LOG(LogTemp, Log, TEXT("CleanupAsyncBake: SubdividedMesh cleanup complete"));
 	}
 
-	// ★ 메모리 누수 방지: 원본 메시 복원 후 GC 실행
-	// 이 시점에서야 SubdividedMesh/BakedMesh에 대한 참조가 모두 해제됨
-	// Bake 중 오버레이로 대기 중이므로 동기 GC 비용 허용 가능
-	FlushRenderingCommands();  // 렌더 스레드 완료 대기 (조건문 미진입 시에도 필요)
+	// Prevent memory leak: Execute GC after restoring original mesh
+	// At this point all references to SubdividedMesh/BakedMesh are released
+	// Synchronous GC cost is acceptable since user is waiting with overlay during bake
+	FlushRenderingCommands();  // Wait for render thread completion (needed even if condition not entered)
 	CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
 
-	// ★ 자동 저장 (Perforce 체크아웃 프롬프트 포함)
+	// Auto-save (includes Perforce checkout prompt)
 	SaveAsset(AsyncBakeAsset.Get());
 
-	// 상태 초기화
+	// Reset state
 	bAsyncBakeInProgress = false;
 	AsyncBakeFrameCount = 0;
 	PostCacheValidFrameCount = 0;
@@ -734,7 +734,7 @@ void FSubdivisionSettingsCustomization::RestoreOriginalPreviewMesh(UFleshRingCom
 	{
 		UE_LOG(LogTemp, Log, TEXT("Restoring original preview mesh..."));
 
-		// 기존 버퍼 해제
+		// Release existing buffers
 		if (UFleshRingDeformer* Deformer = PreviewComponent->GetDeformer())
 		{
 			if (UFleshRingDeformerInstance* Instance = Deformer->GetActiveInstance())
@@ -744,7 +744,7 @@ void FSubdivisionSettingsCustomization::RestoreOriginalPreviewMesh(UFleshRingCom
 		}
 		FlushRenderingCommands();
 
-		// 원본 메시로 복원
+		// Restore to original mesh
 		SkelMeshComp->SetSkeletalMeshAsset(OriginalPreviewMesh.Get());
 		SkelMeshComp->MarkRenderStateDirty();
 		SkelMeshComp->MarkRenderDynamicDataDirty();

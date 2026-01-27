@@ -36,10 +36,10 @@
 #define LOCTEXT_NAMESPACE "FleshRingSettingsCustomization"
 
 /**
- * Ring 이름 인라인 편집 위젯
- * - 싱글 클릭: Ring 선택
- * - 더블 클릭: 이름 편집 모드
- * - 중복 이름 검증 (느낌표 아이콘 + 오류 툴팁)
+ * Ring name inline edit widget
+ * - Single click: Select Ring
+ * - Double click: Enter name edit mode
+ * - Duplicate name validation (exclamation icon + error tooltip)
  */
 class SRingNameWidget : public SCompoundWidget
 {
@@ -63,10 +63,10 @@ public:
 		Asset = InArgs._Asset;
 		RingIndex = InArgs._RingIndex;
 
-		// 초기 텍스트 저장 (바인딩 아님 - 고정값)
+		// Store initial text (not a binding - fixed value)
 		CurrentText = InArgs._InitialText;
 
-		// 에셋 변경 델리게이트 구독 (스켈레톤 트리에서 이름 변경 시 업데이트)
+		// Subscribe to asset change delegate (update when name changes from skeleton tree)
 		if (Asset)
 		{
 			Asset->OnAssetChanged.AddSP(this, &SRingNameWidget::OnAssetChangedHandler);
@@ -82,8 +82,8 @@ public:
 			.Font(IDetailLayoutBuilder::GetDetailFont())
 		];
 
-		// 자식 위젯이 직접 마우스 이벤트를 받지 못하도록 설정
-		// (편집 모드 진입 시에만 다시 활성화)
+		// Prevent child widget from receiving mouse events directly
+		// (re-enable only when entering edit mode)
 		if (InlineTextBlock.IsValid())
 		{
 			InlineTextBlock->SetVisibility(EVisibility::HitTestInvisible);
@@ -92,14 +92,14 @@ public:
 
 	~SRingNameWidget()
 	{
-		// 델리게이트 해제
+		// Unbind delegate
 		if (Asset)
 		{
 			Asset->OnAssetChanged.RemoveAll(this);
 		}
 	}
 
-	/** 텍스트 업데이트 (외부에서 호출) */
+	/** Update text (called externally) */
 	void SetText(const FText& NewText)
 	{
 		CurrentText = NewText;
@@ -109,7 +109,7 @@ public:
 		}
 	}
 
-	/** 에셋 변경 핸들러 (스켈레톤 트리에서 이름 변경 시) */
+	/** Asset change handler (when name changes from skeleton tree) */
 	void OnAssetChangedHandler(UFleshRingAsset* ChangedAsset)
 	{
 		if (Asset && Asset->Rings.IsValidIndex(RingIndex))
@@ -132,15 +132,15 @@ public:
 	{
 		if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 		{
-			// 좌클릭 눌림 상태 추적
+			// Track left click pressed state
 			bIsLeftMouseButtonDown = true;
-			// 싱글 클릭: Ring 선택 + 포커스 설정 (F2 키 처리를 위해)
+			// Single click: Select Ring + set focus (for F2 key handling)
 			OnClickedDelegate.ExecuteIfBound();
 			return FReply::Handled().SetUserFocus(AsShared(), EFocusCause::Mouse);
 		}
 		else if (MouseEvent.GetEffectingButton() == EKeys::RightMouseButton)
 		{
-			// 좌클릭 눌린 상태면 우클릭 무시 (동시 클릭 방지)
+			// Ignore right click if left click is pressed (prevent simultaneous clicks)
 			if (bIsLeftMouseButtonDown)
 			{
 				return FReply::Handled();
@@ -154,12 +154,12 @@ public:
 	{
 		if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 		{
-			// 우클릭이 동시에 눌려있으면 더블클릭 무시
+			// Ignore double click if right click is also pressed
 			if (MouseEvent.IsMouseButtonDown(EKeys::RightMouseButton))
 			{
 				return FReply::Handled();
 			}
-			// 더블클릭: 편집 모드 진입
+			// Double click: Enter edit mode
 			EnterEditingMode();
 			return FReply::Handled();
 		}
@@ -170,31 +170,31 @@ public:
 	{
 		if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 		{
-			// 좌클릭 해제
+			// Left click released
 			bIsLeftMouseButtonDown = false;
 			return FReply::Handled();
 		}
 		else if (MouseEvent.GetEffectingButton() == EKeys::RightMouseButton)
 		{
-			// 좌클릭이 눌려있으면 컨텍스트 메뉴 표시 안 함
+			// Don't show context menu if left click is pressed
 			if (bIsLeftMouseButtonDown)
 			{
 				return FReply::Handled();
 			}
 
-			// 우클릭: 컨텍스트 메뉴 표시
+			// Right click: Show context menu
 			ShowContextMenu(MouseEvent.GetScreenSpacePosition());
 			return FReply::Handled();
 		}
 		return FReply::Unhandled();
 	}
 
-	/** 컨텍스트 메뉴 표시 */
+	/** Show context menu */
 	void ShowContextMenu(const FVector2D& ScreenPosition)
 	{
 		FMenuBuilder MenuBuilder(true, nullptr);
 
-		// Rename Ring 메뉴 항목
+		// Rename Ring menu item
 		FMenuEntryParams RenameParams;
 		RenameParams.LabelOverride = LOCTEXT("RenameRingName", "Rename Ring");
 		RenameParams.ToolTipOverride = LOCTEXT("RenameRingNameTooltip", "Rename this ring");
@@ -218,21 +218,21 @@ public:
 
 	virtual FReply OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent) override
 	{
-		// F2 키: 이름 편집 모드 진입
+		// F2 key: Enter name edit mode
 		if (InKeyEvent.GetKey() == EKeys::F2)
 		{
 			EnterEditingMode();
 			return FReply::Handled();
 		}
 
-		// Delete 키: Ring 삭제
+		// Delete key: Delete Ring
 		if (InKeyEvent.GetKey() == EKeys::Delete)
 		{
 			OnDeleteRequestedDelegate.ExecuteIfBound();
 			return FReply::Handled();
 		}
 
-		// F 키: 카메라 포커스 (선택된 Ring에)
+		// F key: Camera focus (on selected Ring)
 		if (InKeyEvent.GetKey() == EKeys::F)
 		{
 			FocusCameraOnRing();
@@ -242,16 +242,16 @@ public:
 		return SCompoundWidget::OnKeyDown(MyGeometry, InKeyEvent);
 	}
 
-	/** 편집 모드 진입 */
+	/** Enter edit mode */
 	void EnterEditingMode()
 	{
-		// 편집 시작 시 원본 텍스트 저장 (검증 실패 시 복원용)
+		// Save original text when starting edit (for restoration on validation failure)
 		OriginalText = CurrentText;
 		bIsEnterPressed = false;
 
 		if (InlineTextBlock.IsValid())
 		{
-			// 편집 중에는 마우스 이벤트를 받을 수 있도록 활성화
+			// Enable receiving mouse events while editing
 			InlineTextBlock->SetVisibility(EVisibility::Visible);
 			InlineTextBlock->EnterEditingMode();
 		}
@@ -259,7 +259,7 @@ public:
 
 	virtual FReply OnPreviewKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent) override
 	{
-		// Enter 키 감지 (OnVerifyNameChanged에서 이전 이름으로 되돌리기 위해)
+		// Detect Enter key (to revert to previous name in OnVerifyNameChanged)
 		if (InKeyEvent.GetKey() == EKeys::Enter)
 		{
 			bIsEnterPressed = true;
@@ -273,7 +273,7 @@ private:
 		return IsSelectedAttr.Get(false);
 	}
 
-	/** 카메라를 선택된 Ring에 포커스 */
+	/** Focus camera on the selected Ring */
 	void FocusCameraOnRing()
 	{
 		if (!Asset)
@@ -281,7 +281,7 @@ private:
 			return;
 		}
 
-		// 현재 에셋을 편집 중인 뷰포트 클라이언트 찾기
+		// Find the viewport client currently editing this asset
 		for (FFleshRingEditorViewportClient* ViewportClient : FFleshRingEditorViewportClient::GetAllInstances())
 		{
 			if (ViewportClient && ViewportClient->GetEditingAsset() == Asset)
@@ -292,7 +292,7 @@ private:
 		}
 	}
 
-	/** 이름 검증 (빈 이름/중복 체크) */
+	/** Name validation (empty name/duplicate check) */
 	bool OnVerifyNameChanged(const FText& NewText, FText& OutErrorMessage)
 	{
 		if (!Asset)
@@ -304,13 +304,13 @@ private:
 		FName NewName = FName(*NewText.ToString());
 		bool bIsValid = true;
 
-		// 빈 이름 체크
+		// Empty name check
 		if (NewName.IsNone())
 		{
 			OutErrorMessage = LOCTEXT("EmptyNameError", "Name cannot be empty.");
 			bIsValid = false;
 		}
-		// 중복 이름 체크
+		// Duplicate name check
 		else if (!Asset->IsRingNameUnique(NewName, RingIndex))
 		{
 			OutErrorMessage = LOCTEXT("DuplicateNameError", "This name is already in use. Please choose a different name.");
@@ -319,26 +319,26 @@ private:
 
 		if (!bIsValid)
 		{
-			// Enter 시에만 이전 이름으로 되돌림
+			// Revert to previous name only on Enter
 			if (bIsEnterPressed && InlineTextBlock.IsValid())
 			{
 				InlineTextBlock->SetText(OriginalText);
 			}
 			bIsEnterPressed = false;
-			return false;  // 편집 모드 유지
+			return false;  // Keep edit mode
 		}
 
 		bIsEnterPressed = false;
 		return true;
 	}
 
-	/** 이름 커밋 */
+	/** Commit name */
 	void OnNameCommitted(const FText& NewText, ETextCommit::Type CommitType)
 	{
 		if (CommitType == ETextCommit::OnEnter || CommitType == ETextCommit::OnUserMovedFocus)
 		{
-			// OnVerifyTextChanged에서 false 반환 시 여기까지 오지 않음
-			// 여기 도달했다면 유효한 이름
+			// If OnVerifyTextChanged returns false, this won't be reached
+			// If we reach here, the name is valid
 			CurrentText = NewText;
 			if (InlineTextBlock.IsValid())
 			{
@@ -347,7 +347,7 @@ private:
 			OnTextCommittedDelegate.ExecuteIfBound(NewText, CommitType);
 		}
 
-		// 편집 종료 후 다시 마우스 이벤트 차단
+		// Block mouse events again after editing ends
 		if (InlineTextBlock.IsValid())
 		{
 			InlineTextBlock->SetVisibility(EVisibility::HitTestInvisible);
@@ -362,13 +362,13 @@ private:
 	UFleshRingAsset* Asset = nullptr;
 	int32 RingIndex = INDEX_NONE;
 	FText CurrentText;
-	FText OriginalText;				// 편집 시작 시 원본 텍스트 (검증 실패 시 복원용)
-	bool bIsEnterPressed = false;		// Enter 키 감지 플래그
-	bool bIsLeftMouseButtonDown = false;	// 좌클릭 눌림 상태 (동시 클릭 방지용)
+	FText OriginalText;				// Original text at edit start (for restoration on validation failure)
+	bool bIsEnterPressed = false;		// Enter key detection flag
+	bool bIsLeftMouseButtonDown = false;	// Left click pressed state (prevents simultaneous clicks)
 };
 
 /**
- * 클릭/더블클릭 가능한 Row 버튼 위젯
+ * Clickable/Double-clickable Row button widget
  */
 class SClickableRowButton : public SCompoundWidget
 {
@@ -410,7 +410,7 @@ public:
 	{
 		if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 		{
-			// 싱글 클릭
+			// Single click
 			OnClickedDelegate.ExecuteIfBound();
 			return FReply::Handled();
 		}
@@ -421,7 +421,7 @@ public:
 	{
 		if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 		{
-			// 더블클릭
+			// Double click
 			OnDoubleClickedDelegate.ExecuteIfBound();
 			return FReply::Handled();
 		}
@@ -434,7 +434,7 @@ private:
 };
 
 /**
- * Bone 드롭다운용 트리 행 위젯 (SExpanderArrow + Wires 지원)
+ * Tree row widget for Bone dropdown (SExpanderArrow + Wires support)
  */
 class SBoneDropdownTreeRow : public STableRow<TSharedPtr<FBoneDropdownItem>>
 {
@@ -449,7 +449,7 @@ public:
 		Item = InArgs._Item;
 		HighlightText = InArgs._HighlightText;
 
-		// 아이콘과 색상 결정
+		// Determine icon and color
 		const FSlateBrush* IconBrush = nullptr;
 		FSlateColor TextColor = FSlateColor::UseForeground();
 		FSlateColor IconColor = FSlateColor::UseForeground();
@@ -460,7 +460,7 @@ public:
 		}
 		else
 		{
-			// 웨이팅 안 된 본 (검색 시에만 표시됨)
+			// Non-weighted bone (only shown during search)
 			IconBrush = FAppStyle::GetBrush("SkeletonTree.BoneNonWeighted");
 			TextColor = FSlateColor(FLinearColor(0.4f, 0.4f, 0.4f));
 			IconColor = FSlateColor(FLinearColor(0.4f, 0.4f, 0.4f));
@@ -472,11 +472,11 @@ public:
 			InOwnerTable
 		);
 
-		// SExpanderArrow로 트리 연결선 표시
+		// Display tree connection lines with SExpanderArrow
 		ChildSlot
 		[
 			SNew(SHorizontalBox)
-			// Expander Arrow (트리 연결선)
+			// Expander Arrow (tree connection lines)
 			+ SHorizontalBox::Slot()
 			.AutoWidth()
 			.VAlign(VAlign_Fill)
@@ -484,13 +484,13 @@ public:
 				SNew(SExpanderArrow, SharedThis(this))
 				.ShouldDrawWires(true)
 			]
-			// 아이콘 + 텍스트
+			// Icon + Text
 			+ SHorizontalBox::Slot()
 			.FillWidth(1.0f)
 			.Padding(0, 2)
 			[
 				SNew(SHorizontalBox)
-				// 아이콘
+				// Icon
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
 				.Padding(0, 0, 6, 0)
@@ -501,7 +501,7 @@ public:
 					.ColorAndOpacity(IconColor)
 					.DesiredSizeOverride(FVector2D(16, 16))
 				]
-				// 본 이름
+				// Bone name
 				+ SHorizontalBox::Slot()
 				.FillWidth(1.0f)
 				.VAlign(VAlign_Center)
@@ -521,7 +521,7 @@ private:
 	FText HighlightText;
 };
 
-// 각도 표시용 TypeInterface (숫자 옆에 ° 표시)
+// TypeInterface for angle display (shows ° next to the number)
 class FDegreeTypeInterface : public TDefaultNumericTypeInterface<double>
 {
 public:
@@ -552,24 +552,24 @@ void FFleshRingSettingsCustomization::CustomizeHeader(
 	FDetailWidgetRow& HeaderRow,
 	IPropertyTypeCustomizationUtils& CustomizationUtils)
 {
-	// 메인 프로퍼티 핸들 캐싱 (Asset 접근용)
+	// Cache main property handle (for asset access)
 	MainPropertyHandle = PropertyHandle;
 
-	// 배열 인덱스 캐싱 (클릭 선택 및 이름 표시용)
+	// Cache array index (for click selection and name display)
 	CachedArrayIndex = PropertyHandle->GetIndexInArray();
 
-	// BoneName 핸들 미리 가져오기 (헤더 미리보기용)
+	// Pre-fetch BoneName handle (for header preview)
 	BoneNameHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BoneName));
 
-	// 헤더: 전체 row 클릭 가능 (클릭=선택, 더블클릭=이름 편집)
+	// Header: entire row is clickable (click=select, double-click=rename)
 	FText TooltipText = LOCTEXT("RingHeaderTooltip", "Ring Name\nClick to select, Double-click to rename");
 
-	// 배열 컨트롤용 핸들
+	// Handle for array control
 	TSharedRef<IPropertyHandle> PropHandleRef = PropertyHandle;
 
 	HeaderRow.WholeRowContent()
 	[
-		// 선택 상태에 따른 배경색 하이라이트 (HighlightProperty 대체)
+		// Background color highlight based on selection state (replaces HighlightProperty)
 		SNew(SBorder)
 		.BorderImage(FAppStyle::GetBrush("WhiteBrush"))
 		.BorderBackgroundColor(this, &FFleshRingSettingsCustomization::GetHeaderBackgroundColor)
@@ -586,11 +586,11 @@ void FFleshRingSettingsCustomization::CustomizeHeader(
 			.ToolTipText(TooltipText)
 			[
 				SNew(SHorizontalBox)
-			// 좌측 열: Ring 이름 (35%, 클리핑 적용)
+			// Left column: Ring name (35%, with clipping)
 			+ SHorizontalBox::Slot()
 			.FillWidth(0.35f)
 			.VAlign(VAlign_Center)
-			.Padding(0, 0, 16, 0)  // Ring 이름과 Bone 이름 사이 간격
+			.Padding(0, 0, 16, 0)  // Spacing between Ring name and Bone name
 			[
 				SNew(SBox)
 				.Clipping(EWidgetClipping::ClipToBounds)
@@ -611,13 +611,13 @@ void FFleshRingSettingsCustomization::CustomizeHeader(
 					})
 				]
 			]
-			// 우측 열: Bone 이름 + 버튼 (65%)
+			// Right column: Bone name + buttons (65%)
 			+ SHorizontalBox::Slot()
 			.FillWidth(0.65f)
 			.VAlign(VAlign_Center)
 			[
 				SNew(SHorizontalBox)
-				// Bone 이름
+				// Bone name
 				+ SHorizontalBox::Slot()
 				.FillWidth(1.0f)
 				.VAlign(VAlign_Center)
@@ -627,7 +627,7 @@ void FFleshRingSettingsCustomization::CustomizeHeader(
 					.Font(IDetailLayoutBuilder::GetDetailFont())
 					.ColorAndOpacity(FSlateColor::UseSubduedForeground())
 				]
-				// 가시성 토글 버튼 (눈 아이콘)
+				// Visibility toggle button (eye icon)
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
 				.VAlign(VAlign_Center)
@@ -644,7 +644,7 @@ void FFleshRingSettingsCustomization::CustomizeHeader(
 						.ColorAndOpacity(FSlateColor::UseForeground())
 					]
 				]
-				// 삽입 버튼
+				// Insert button
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
 				.VAlign(VAlign_Center)
@@ -668,7 +668,7 @@ void FFleshRingSettingsCustomization::CustomizeHeader(
 						.ColorAndOpacity(FSlateColor::UseForeground())
 					]
 				]
-				// 복제 버튼
+				// Duplicate button
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
 				.VAlign(VAlign_Center)
@@ -692,7 +692,7 @@ void FFleshRingSettingsCustomization::CustomizeHeader(
 						.ColorAndOpacity(FSlateColor::UseForeground())
 					]
 				]
-				// 삭제 버튼
+				// Delete button
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
 				.VAlign(VAlign_Center)
@@ -718,7 +718,7 @@ void FFleshRingSettingsCustomization::CustomizeHeader(
 				]
 			]
 		]
-		]  // SBorder 닫기
+		]  // Close SBorder
 	];
 }
 
@@ -727,20 +727,20 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	IDetailChildrenBuilder& ChildBuilder,
 	IPropertyTypeCustomizationUtils& CustomizationUtils)
 {
-	// BoneName 핸들은 CustomizeHeader에서 이미 설정됨
-	// Bone 트리 빌드
+	// BoneName handle is already set in CustomizeHeader
+	// Build bone tree
 	BuildBoneTree();
 
-	// InfluenceMode 핸들 가져오기 (최상위에 배치하기 위해 먼저 처리)
+	// Get InfluenceMode handle (processed first to place at top)
 	TSharedPtr<IPropertyHandle> InfluenceModeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, InfluenceMode));
 
-	// ----- Effect Range Mode (최상위, BoneName 위) -----
+	// ----- Effect Range Mode (topmost, above BoneName) -----
 	if (InfluenceModeHandle.IsValid())
 	{
 		ChildBuilder.AddProperty(InfluenceModeHandle.ToSharedRef());
 	}
 
-	// BoneName을 검색 가능한 드롭다운으로 커스터마이징
+	// Customize BoneName as searchable dropdown
 	if (BoneNameHandle.IsValid())
 	{
 		ChildBuilder.AddCustomRow(LOCTEXT("BoneNameRow", "Bone Name"))
@@ -757,11 +757,11 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		];
 	}
 
-	// Rotation 핸들 캐싱
+	// Cache Rotation handles
 	RingRotationHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingRotation));
 	MeshRotationHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshRotation));
 
-	// 현재 InfluenceMode가 VirtualRing인지 확인 (초기 상태용)
+	// Check if current InfluenceMode is VirtualRing (for initial state)
 	bool bIsVirtualRingMode = false;
 	if (InfluenceModeHandle.IsValid())
 	{
@@ -770,7 +770,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		bIsVirtualRingMode = (static_cast<EFleshRingInfluenceMode>(ModeValue) == EFleshRingInfluenceMode::VirtualRing);
 	}
 
-	// VirtualRing 모드 동적 체크용 TAttribute (Ring Transform에 사용)
+	// TAttribute for dynamic VirtualRing mode check (used in Ring Transform)
 	TAttribute<bool> IsVirtualRingModeAttr = TAttribute<bool>::Create([InfluenceModeHandle]() -> bool
 	{
 		if (!InfluenceModeHandle.IsValid())
@@ -782,7 +782,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		return static_cast<EFleshRingInfluenceMode>(ModeValue) == EFleshRingInfluenceMode::VirtualRing;
 	});
 
-	// Auto(SDF) 모드 동적 체크용 TAttribute (SDF Bounds Expand에 사용)
+	// TAttribute for dynamic Auto(SDF) mode check (used in SDF Bounds Expand)
 	TAttribute<bool> IsAutoModeAttr = TAttribute<bool>::Create([InfluenceModeHandle]() -> bool
 	{
 		if (!InfluenceModeHandle.IsValid())
@@ -794,7 +794,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		return static_cast<EFleshRingInfluenceMode>(ModeValue) == EFleshRingInfluenceMode::Auto;
 	});
 
-	// VirtualBand 모드 동적 체크용 TAttribute
+	// TAttribute for dynamic VirtualBand mode check
 	TAttribute<bool> IsVirtualBandModeAttr = TAttribute<bool>::Create([InfluenceModeHandle]() -> bool
 	{
 		if (!InfluenceModeHandle.IsValid())
@@ -806,7 +806,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		return static_cast<EFleshRingInfluenceMode>(ModeValue) == EFleshRingInfluenceMode::VirtualBand;
 	});
 
-	// VirtualBand 이외 모드 동적 체크용 TAttribute (BulgeRadialTaper 등에 사용)
+	// TAttribute for dynamic non-VirtualBand mode check (used in BulgeRadialTaper, etc.)
 	TAttribute<bool> IsNotVirtualBandModeAttr = TAttribute<bool>::Create([InfluenceModeHandle]() -> bool
 	{
 		if (!InfluenceModeHandle.IsValid())
@@ -818,7 +818,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		return static_cast<EFleshRingInfluenceMode>(ModeValue) != EFleshRingInfluenceMode::VirtualBand;
 	});
 
-	// Ring 그룹에 넣을 프로퍼티들 수집
+	// Collect properties to add to Ring group
 	TSharedPtr<IPropertyHandle> RingMeshHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingMesh));
 	TSharedPtr<IPropertyHandle> RingRadiusHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingRadius));
 	TSharedPtr<IPropertyHandle> RingThicknessHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingThickness));
@@ -826,7 +826,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	TSharedPtr<IPropertyHandle> RingOffsetHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingOffset));
 	TSharedPtr<IPropertyHandle> RingEulerHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingEulerRotation));
 
-	// Ring 그룹에 들어갈 프로퍼티 이름들
+	// Property names to go into Ring group
 	TSet<FName> RingGroupProperties;
 	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingMesh));
 	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingRadius));
@@ -835,36 +835,36 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingOffset));
 	RingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingEulerRotation));
 
-	// SDF 그룹 프로퍼티 핸들
+	// SDF group property handles
 	TSharedPtr<IPropertyHandle> SDFBoundsExpandXHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SDFBoundsExpandX));
 	TSharedPtr<IPropertyHandle> SDFBoundsExpandYHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SDFBoundsExpandY));
 
-	// SDF 그룹에 들어갈 프로퍼티 이름들
+	// Property names to go into SDF group
 	TSet<FName> SDFGroupProperties;
 	SDFGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SDFBoundsExpandX));
 	SDFGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SDFBoundsExpandY));
 
-	// Mesh Transform 그룹 프로퍼티 핸들
+	// Mesh Transform group property handles
 	TSharedPtr<IPropertyHandle> MeshOffsetHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshOffset));
 	TSharedPtr<IPropertyHandle> MeshEulerRotationHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshEulerRotation));
-	// MeshScaleHandle은 클래스 멤버로 이미 존재 (비율 잠금 기능용)
+	// MeshScaleHandle already exists as a class member (for scale lock feature)
 	MeshScaleHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshScale));
 
-	// Mesh Transform 그룹에 들어갈 프로퍼티 이름들
+	// Property names to go into Mesh Transform group
 	TSet<FName> MeshTransformGroupProperties;
 	MeshTransformGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshOffset));
 	MeshTransformGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshEulerRotation));
 	MeshTransformGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshScale));
 
-	// Virtual Band 그룹 프로퍼티 핸들
+	// Virtual Band group property handles
 	TSharedPtr<IPropertyHandle> VirtualBandHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, VirtualBand));
 
-	// Virtual Band 그룹에 들어갈 프로퍼티 이름들
+	// Property names to go into Virtual Band group
 	TSet<FName> VirtualBandGroupProperties;
 	VirtualBandGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, VirtualBand));
 
-	// Smoothing 프로퍼티 핸들 개별 획득
-	// Post Process 최상위 토글
+	// Get Smoothing property handles individually
+	// Post Process master toggle
 	TSharedPtr<IPropertyHandle> bEnablePostProcessHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnablePostProcess));
 
 	TSharedPtr<IPropertyHandle> bEnableSmoothingHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableSmoothing));
@@ -882,13 +882,13 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	TSharedPtr<IPropertyHandle> HopFalloffTypeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HopFalloffType));
 	TSharedPtr<IPropertyHandle> SmoothingBoundsZTopHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingBoundsZTop));
 	TSharedPtr<IPropertyHandle> SmoothingBoundsZBottomHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingBoundsZBottom));
-	// Heat Propagation 핸들
+	// Heat Propagation handles
 	TSharedPtr<IPropertyHandle> bEnableHeatPropagationHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableHeatPropagation));
 	TSharedPtr<IPropertyHandle> HeatPropagationIterationsHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HeatPropagationIterations));
 	TSharedPtr<IPropertyHandle> HeatPropagationLambdaHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HeatPropagationLambda));
 	TSharedPtr<IPropertyHandle> bIncludeBulgeVerticesAsSeedsHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bIncludeBulgeVerticesAsSeeds));
 
-	// Post Process 그룹에 들어갈 프로퍼티 이름들
+	// Property names to go into Post Process group
 	TSet<FName> SmoothingGroupProperties;
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnablePostProcess));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableSmoothing));
@@ -905,21 +905,21 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MaxSmoothingHops));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HopFalloffType));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingBoundsZTop));
-	// Heat Propagation 프로퍼티
+	// Heat Propagation properties
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableHeatPropagation));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HeatPropagationIterations));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HeatPropagationLambda));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, SmoothingBoundsZBottom));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bIncludeBulgeVerticesAsSeeds));
 
-	// PBD 프로퍼티 핸들 개별 획득
+	// Get PBD property handles individually
 	TSharedPtr<IPropertyHandle> bEnablePBDEdgeConstraintHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnablePBDEdgeConstraint));
 	TSharedPtr<IPropertyHandle> bPBDAnchorAffectedVerticesHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bPBDAnchorAffectedVertices));
 	TSharedPtr<IPropertyHandle> PBDStiffnessHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PBDStiffness));
 	TSharedPtr<IPropertyHandle> PBDIterationsHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PBDIterations));
 	TSharedPtr<IPropertyHandle> PBDToleranceHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PBDTolerance));
 
-	// PBD 그룹에 들어갈 프로퍼티 이름들
+	// Property names to go into PBD group
 	TSet<FName> PBDGroupProperties;
 	PBDGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnablePBDEdgeConstraint));
 	PBDGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bPBDAnchorAffectedVertices));
@@ -927,7 +927,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	PBDGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PBDIterations));
 	PBDGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, PBDTolerance));
 
-	// Deformation (Tightness + Bulge) 프로퍼티 핸들 획득
+	// Get Deformation (Tightness + Bulge) property handles
 	TSharedPtr<IPropertyHandle> TightnessStrengthHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, TightnessStrength));
 	TSharedPtr<IPropertyHandle> FalloffTypeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, FalloffType));
 	TSharedPtr<IPropertyHandle> bEnableBulgeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableBulge));
@@ -941,7 +941,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	TSharedPtr<IPropertyHandle> LowerBulgeStrengthHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, LowerBulgeStrength));
 	TSharedPtr<IPropertyHandle> BulgeRadialRatioHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeRadialRatio));
 
-	// Deformation 그룹에 들어갈 프로퍼티 이름들
+	// Property names to go into Deformation group
 	TSet<FName> DeformationGroupProperties;
 	// Tightness
 	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, TightnessStrength));
@@ -958,7 +958,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, LowerBulgeStrength));
 	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeRadialRatio));
 
-	// 나머지 프로퍼티들 먼저 표시 (Ring 그룹 제외)
+	// Display remaining properties first (excluding Ring group)
 	uint32 NumChildren;
 	PropertyHandle->GetNumChildren(NumChildren);
 
@@ -967,79 +967,79 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		TSharedRef<IPropertyHandle> ChildHandle = PropertyHandle->GetChildHandle(ChildIndex).ToSharedRef();
 		FName PropertyName = ChildHandle->GetProperty()->GetFName();
 
-		// BoneName은 이미 커스터마이징했으므로 스킵
+		// Skip BoneName as it's already customized
 		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BoneName))
 		{
 			continue;
 		}
 
-		// RingName은 헤더에서 인라인 편집 가능하므로 스킵
+		// Skip RingName as it's inline editable in the header
 		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingName))
 		{
 			continue;
 		}
 
-		// InfluenceMode는 최상위에서 이미 추가했으므로 스킵
+		// Skip InfluenceMode as it's already added at the top
 		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, InfluenceMode))
 		{
 			continue;
 		}
 
-		// FQuat은 UI에서 숨김 (EulerRotation만 표시)
+		// Hide FQuat in UI (only show EulerRotation)
 		if (PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingRotation) ||
 			PropertyName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshRotation))
 		{
 			continue;
 		}
 
-		// Ring 그룹에 넣을 프로퍼티는 여기서 스킵
+		// Skip properties that go into Ring group
 		if (RingGroupProperties.Contains(PropertyName))
 		{
 			continue;
 		}
 
-		// Smoothing 그룹에 넣을 프로퍼티는 여기서 스킵
+		// Skip properties that go into Smoothing group
 		if (SmoothingGroupProperties.Contains(PropertyName))
 		{
 			continue;
 		}
 
-		// PBD 그룹에 넣을 프로퍼티는 여기서 스킵
+		// Skip properties that go into PBD group
 		if (PBDGroupProperties.Contains(PropertyName))
 		{
 			continue;
 		}
 
-		// Deformation 그룹에 넣을 프로퍼티는 여기서 스킵
+		// Skip properties that go into Deformation group
 		if (DeformationGroupProperties.Contains(PropertyName))
 		{
 			continue;
 		}
 
-		// SDF 그룹에 넣을 프로퍼티는 여기서 스킵
+		// Skip properties that go into SDF group
 		if (SDFGroupProperties.Contains(PropertyName))
 		{
 			continue;
 		}
 
-		// Mesh Transform 그룹에 넣을 프로퍼티는 여기서 스킵
+		// Skip properties that go into Mesh Transform group
 		if (MeshTransformGroupProperties.Contains(PropertyName))
 		{
 			continue;
 		}
 
-		// Virtual Band 그룹에 넣을 프로퍼티는 여기서 스킵
+		// Skip properties that go into Virtual Band group
 		if (VirtualBandGroupProperties.Contains(PropertyName))
 		{
 			continue;
 		}
 
-		// 나머지는 기본 위젯 사용
+		// Use default widget for the rest
 		ChildBuilder.AddProperty(ChildHandle);
 	}
 
 	// =====================================
-	// Ring 그룹
+	// Ring group
 	// =====================================
 	IDetailGroup& RingDefinitionGroup = ChildBuilder.AddGroup(TEXT("RingDefinition"), LOCTEXT("RingDefinitionGroup", "Ring"));
 
@@ -1048,7 +1048,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		RingDefinitionGroup.AddPropertyRow(RingMeshHandle.ToSharedRef());
 	}
 
-	// ----- Mesh Transform 서브그룹 (RingMesh와 InfluenceMode 사이) -----
+	// ----- Mesh Transform subgroup (between RingMesh and InfluenceMode) -----
 	IDetailGroup& MeshTransformSubGroup = RingDefinitionGroup.AddGroup(TEXT("MeshTransform"), LOCTEXT("MeshTransformSubGroup", "Mesh Transform"));
 
 	if (MeshOffsetHandle.IsValid())
@@ -1127,8 +1127,8 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 					.ToolTipText_Lambda([this]()
 					{
 						return bMeshScaleLocked
-							? LOCTEXT("UnlockScale", "Unlock Scale (비율 유지 해제)")
-							: LOCTEXT("LockScale", "Lock Scale (비율 유지)");
+							? LOCTEXT("UnlockScale", "Unlock Scale (Disable Proportional Scaling)")
+							: LOCTEXT("LockScale", "Lock Scale (Maintain Proportions)");
 					})
 					.ContentPadding(FMargin(2.0f))
 					[
@@ -1162,7 +1162,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			);
 	}
 
-	// ----- Ring Transform 서브그룹 (VirtualRing 모드용) -----
+	// ----- Ring Transform subgroup (for VirtualRing mode) -----
 	IDetailGroup& RingTransformSubGroup = RingDefinitionGroup.AddGroup(TEXT("RingTransform"), LOCTEXT("RingTransformSubGroup", "Ring Transform"));
 	RingTransformSubGroup.HeaderRow()
 		.NameContent()
@@ -1280,7 +1280,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			);
 	}
 
-	// ----- Virtual Band 서브그룹 (VirtualBand 모드용) -----
+	// ----- Virtual Band subgroup (for VirtualBand mode) -----
 	IDetailGroup& VirtualBandSubGroup = RingDefinitionGroup.AddGroup(TEXT("VirtualBand"), LOCTEXT("VirtualBandSubGroup", "Virtual Band"));
 	VirtualBandSubGroup.HeaderRow()
 		.NameContent()
@@ -1294,10 +1294,10 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			})
 		];
 
-	// VirtualBand 구조체의 자식 프로퍼티들을 그룹별로 추가
+	// Add VirtualBand struct's child properties by group
 	if (VirtualBandHandle.IsValid())
 	{
-		// ----- Transform 프로퍼티 (밴드 위치/회전) -----
+		// ----- Transform properties (band position/rotation) -----
 		TSharedPtr<IPropertyHandle> BandOffsetHandle = VirtualBandHandle->GetChildHandle(TEXT("BandOffset"));
 		TSharedPtr<IPropertyHandle> BandEulerRotationHandle = VirtualBandHandle->GetChildHandle(TEXT("BandEulerRotation"));
 
@@ -1356,7 +1356,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 				);
 		}
 
-		// ----- 공통 프로퍼티 (전체 적용) -----
+		// ----- Common properties (applied globally) -----
 		TSharedPtr<IPropertyHandle> BandThicknessHandle = VirtualBandHandle->GetChildHandle(TEXT("BandThickness"));
 
 		if (BandThicknessHandle.IsValid())
@@ -1365,7 +1365,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 				.IsEnabled(IsVirtualBandModeAttr);
 		}
 
-		// Mid Band 서브그룹
+		// Mid Band subgroup
 		IDetailGroup& MidBandGroup = VirtualBandSubGroup.AddGroup(TEXT("MidBand"), LOCTEXT("MidBandGroup", "Mid Band"));
 		MidBandGroup.HeaderRow()
 			.NameContent()
@@ -1399,7 +1399,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 				.IsEnabled(IsVirtualBandModeAttr);
 		}
 
-		// Upper/Lower 서브그룹 (구조체 그대로 추가)
+		// Upper/Lower subgroups (add structs as-is)
 		TSharedPtr<IPropertyHandle> UpperHandle = VirtualBandHandle->GetChildHandle(TEXT("Upper"));
 		TSharedPtr<IPropertyHandle> LowerHandle = VirtualBandHandle->GetChildHandle(TEXT("Lower"));
 
@@ -1416,11 +1416,11 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	}
 
 	// =====================================
-	// Deformation 그룹 (Tightness + Bulge)
+	// Deformation group (Tightness + Bulge)
 	// =====================================
 	IDetailGroup& DeformationGroup = ChildBuilder.AddGroup(TEXT("Deformation"), LOCTEXT("DeformationGroup", "Deformation"));
 
-	// ----- Tightness 서브그룹 -----
+	// ----- Tightness subgroup -----
 	IDetailGroup& TightnessGroup = DeformationGroup.AddGroup(TEXT("Tightness"), LOCTEXT("TightnessGroup", "Tightness"));
 
 	if (TightnessStrengthHandle.IsValid())
@@ -1455,7 +1455,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 				)
 			);
 	}
-	// SDF Bounds Expand (Auto 모드일 때만 표시)
+	// SDF Bounds Expand (only shown in Auto mode)
 	if (SDFBoundsExpandXHandle.IsValid())
 	{
 		TightnessGroup.AddPropertyRow(SDFBoundsExpandXHandle.ToSharedRef())
@@ -1491,7 +1491,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			);
 	}
 
-	// ----- Bulge 서브그룹 -----
+	// ----- Bulge subgroup -----
 	IDetailGroup& BulgeGroup = DeformationGroup.AddGroup(TEXT("Bulge"), LOCTEXT("BulgeGroup", "Bulge"));
 
 	if (bEnableBulgeHandle.IsValid())
@@ -1620,7 +1620,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			);
 	}
 
-	// ===== Post Process 그룹 (최상위) =====
+	// ===== Post Process group (topmost) =====
 	IDetailGroup& PostProcessGroup = ChildBuilder.AddGroup(TEXT("PostProcess"), LOCTEXT("PostProcessGroup", "Post Process"));
 	PostProcessGroup.HeaderRow()
 		.NameContent()
@@ -1630,21 +1630,21 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			.Font(IDetailLayoutBuilder::GetDetailFontBold())
 		];
 
-	// Post Process 마스터 토글
+	// Post Process master toggle
 	if (bEnablePostProcessHandle.IsValid())
 	{
 		PostProcessGroup.AddPropertyRow(bEnablePostProcessHandle.ToSharedRef());
 	}
 
-	// ===== Smoothing Volume 서브그룹 =====
+	// ===== Smoothing Volume subgroup =====
 	IDetailGroup& SmoothingVolumeGroup = PostProcessGroup.AddGroup(TEXT("SmoothingVolume"), LOCTEXT("SmoothingVolumeGroup", "Smoothing Volume"));
 
-	// 볼륨 모드 선택
+	// Volume mode selection
 	if (SmoothingVolumeModeHandle.IsValid())
 	{
 		SmoothingVolumeGroup.AddPropertyRow(SmoothingVolumeModeHandle.ToSharedRef());
 	}
-	// HopBased 설정 (SmoothingVolumeMode == HopBased일 때만 보임)
+	// HopBased settings (only shown when SmoothingVolumeMode == HopBased)
 	if (MaxSmoothingHopsHandle.IsValid())
 	{
 		SmoothingVolumeGroup.AddPropertyRow(MaxSmoothingHopsHandle.ToSharedRef())
@@ -1661,7 +1661,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 				)
 			);
 	}
-	// BoundsExpand 설정 (SmoothingVolumeMode == BoundsExpand일 때만 보임)
+	// BoundsExpand settings (only shown when SmoothingVolumeMode == BoundsExpand)
 	if (SmoothingBoundsZTopHandle.IsValid())
 	{
 		SmoothingVolumeGroup.AddPropertyRow(SmoothingBoundsZTopHandle.ToSharedRef())
@@ -1694,7 +1694,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 				)
 			);
 	}
-	// Advanced (HopBased 모드일 때만 표시)
+	// Advanced (only shown in HopBased mode)
 	TAttribute<EVisibility> SmoothingVolumeAdvancedVisibility = TAttribute<EVisibility>::Create([SmoothingVolumeModeHandle]() -> EVisibility
 	{
 		if (!SmoothingVolumeModeHandle.IsValid()) return EVisibility::Collapsed;
@@ -1730,16 +1730,16 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			);
 	}
 
-	// ===== Smoothing 서브그룹 =====
+	// ===== Smoothing subgroup =====
 	IDetailGroup& SmoothingGroup = PostProcessGroup.AddGroup(TEXT("Smoothing"), LOCTEXT("SmoothingGroup", "Smoothing"));
 
-	// Smoothing 마스터 토글
+	// Smoothing master toggle
 	if (bEnableSmoothingHandle.IsValid())
 	{
 		SmoothingGroup.AddPropertyRow(bEnableSmoothingHandle.ToSharedRef());
 	}
 
-	// ===== Deformation Spread 서브그룹 (Radial 전에 실행) =====
+	// ===== Deformation Spread subgroup (executes before Radial) =====
 	IDetailGroup& HeatPropagationGroup = SmoothingGroup.AddGroup(TEXT("DeformationSpread"), LOCTEXT("DeformationSpreadGroup", "Deformation Spread"));
 	if (bEnableHeatPropagationHandle.IsValid())
 	{
@@ -1794,7 +1794,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			);
 	}
 
-	// ===== Radial 서브그룹 =====
+	// ===== Radial subgroup =====
 	IDetailGroup& RadialGroup = SmoothingGroup.AddGroup(TEXT("Radial"), LOCTEXT("RadialGroup", "Radial"));
 	if (bEnableRadialSmoothingHandle.IsValid())
 	{
@@ -1816,7 +1816,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 				)
 			);
 	}
-	// Advanced (Radial Smoothing 활성화 시에만 표시)
+	// Advanced (only shown when Radial Smoothing is enabled)
 	TAttribute<EVisibility> RadialAdvancedVisibility = TAttribute<EVisibility>::Create([bEnableRadialSmoothingHandle]() -> EVisibility
 	{
 		if (!bEnableRadialSmoothingHandle.IsValid()) return EVisibility::Collapsed;
@@ -1851,13 +1851,13 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			);
 	}
 
-	// ===== Surface Smoothing 서브그룹 =====
+	// ===== Surface Smoothing subgroup =====
 	IDetailGroup& LaplacianGroup = SmoothingGroup.AddGroup(TEXT("SurfaceSmoothing"), LOCTEXT("SurfaceSmoothingGroup", "Surface Smoothing"));
 	if (bEnableLaplacianSmoothingHandle.IsValid())
 	{
 		LaplacianGroup.AddPropertyRow(bEnableLaplacianSmoothingHandle.ToSharedRef());
 	}
-	// 공통 파라미터 (Iterations → Lambda 순서)
+	// Common parameters (Iterations → Lambda order)
 	if (SmoothingIterationsHandle.IsValid())
 	{
 		LaplacianGroup.AddPropertyRow(SmoothingIterationsHandle.ToSharedRef())
@@ -1890,17 +1890,17 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 				)
 			);
 	}
-	// 알고리즘 선택
+	// Algorithm selection
 	if (LaplacianSmoothingTypeHandle.IsValid())
 	{
 		LaplacianGroup.AddPropertyRow(LaplacianSmoothingTypeHandle.ToSharedRef());
 	}
-	// 앵커 모드 (직접 변형된 버텍스 고정)
+	// Anchor mode (pin directly deformed vertices)
 	if (bAnchorDeformedVerticesHandle.IsValid())
 	{
 		LaplacianGroup.AddPropertyRow(bAnchorDeformedVerticesHandle.ToSharedRef());
 	}
-	// Advanced (Surface Smoothing + Taubin 타입일 때만 표시)
+	// Advanced (only shown when Surface Smoothing + Taubin type)
 	TAttribute<EVisibility> LaplacianAdvancedVisibility = TAttribute<EVisibility>::Create([bEnableLaplacianSmoothingHandle, LaplacianSmoothingTypeHandle]() -> EVisibility
 	{
 		if (!bEnableLaplacianSmoothingHandle.IsValid() || !LaplacianSmoothingTypeHandle.IsValid())
@@ -1940,7 +1940,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			);
 	}
 
-	// ===== Edge Length Preservation 서브그룹 =====
+	// ===== Edge Length Preservation subgroup =====
 	IDetailGroup& PBDGroup = PostProcessGroup.AddGroup(TEXT("EdgeLengthPreservation"), LOCTEXT("EdgeLengthPreservationGroup", "Edge Length Preservation"));
 
 	if (bEnablePBDEdgeConstraintHandle.IsValid())
@@ -1983,7 +1983,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 				)
 			);
 	}
-	// Advanced (Edge Length Preservation 활성화 시에만 표시)
+	// Advanced (only shown when Edge Length Preservation is enabled)
 	TAttribute<EVisibility> PBDAdvancedVisibility = TAttribute<EVisibility>::Create([bEnablePBDEdgeConstraintHandle]() -> EVisibility
 	{
 		if (!bEnablePBDEdgeConstraintHandle.IsValid()) return EVisibility::Collapsed;
@@ -2036,8 +2036,8 @@ UFleshRingAsset* FFleshRingSettingsCustomization::GetOuterAsset() const
 		return nullptr;
 	}
 
-	// PropertyHandle 체인을 따라 올라가서 UFleshRingAsset 찾기
-	// FFleshRingSettings -> Rings 배열 -> UFleshRingAsset
+	// Walk up PropertyHandle chain to find UFleshRingAsset
+	// FFleshRingSettings -> Rings array -> UFleshRingAsset
 	TArray<UObject*> OuterObjects;
 	MainPropertyHandle->GetOuterObjects(OuterObjects);
 
@@ -2054,11 +2054,11 @@ UFleshRingAsset* FFleshRingSettingsCustomization::GetOuterAsset() const
 
 FReply FFleshRingSettingsCustomization::OnHeaderClicked(int32 RingIndex)
 {
-	// Asset의 SetEditorSelectedRingIndex 호출 (델리게이트 브로드캐스트됨)
+	// Call Asset's SetEditorSelectedRingIndex (broadcasts delegate)
 	if (UFleshRingAsset* Asset = GetOuterAsset())
 	{
-		// RingMesh 유무에 따라 SelectionType 결정
-		// RingMesh가 없으면 Gizmo(가상 링/밴드) 선택, 있으면 Mesh 선택
+		// Determine SelectionType based on RingMesh presence
+		// No RingMesh = Gizmo selection (virtual ring/band), with RingMesh = Mesh selection
 		EFleshRingSelectionType SelectionType = EFleshRingSelectionType::Mesh;
 		if (Asset->Rings.IsValidIndex(RingIndex) && Asset->Rings[RingIndex].RingMesh.IsNull())
 		{
@@ -2097,13 +2097,13 @@ void FFleshRingSettingsCustomization::OnRingNameCommitted(const FText& NewText, 
 		{
 			if (Asset->Rings.IsValidIndex(CachedArrayIndex))
 			{
-				// 위젯에서 이미 검증되었으므로 바로 적용
+				// Already validated in widget, so apply directly
 				FScopedTransaction Transaction(LOCTEXT("RenameRing", "Rename Ring"));
 				Asset->Modify();
 				Asset->Rings[CachedArrayIndex].RingName = FName(*NewText.ToString());
 				Asset->PostEditChange();
 
-				// 스켈레톤 트리 등 다른 UI 갱신
+				// Update other UI like skeleton tree
 				Asset->OnAssetChanged.Broadcast(Asset);
 			}
 		}
@@ -2123,7 +2123,7 @@ FSlateColor FFleshRingSettingsCustomization::GetHeaderBackgroundColor() const
 {
 	if (IsThisRingSelected())
 	{
-		// 선택 시 하이라이트 색상 (Unreal Editor의 선택 색상과 유사)
+		// Highlight color when selected (similar to Unreal Editor's selection color)
 		return FLinearColor(0.1f, 0.4f, 0.7f, 0.3f);
 	}
 	return FLinearColor::Transparent;
@@ -2150,7 +2150,7 @@ FReply FFleshRingSettingsCustomization::OnVisibilityToggleClicked()
 
 		Asset->Rings[CachedArrayIndex].bEditorVisible = !Asset->Rings[CachedArrayIndex].bEditorVisible;
 
-		// Asset 변경 알림 (에디터 뷰포트 갱신용)
+		// Asset change notification (for editor viewport update)
 		Asset->OnAssetChanged.Broadcast(Asset);
 	}
 	return FReply::Handled();
@@ -2168,13 +2168,13 @@ void FFleshRingSettingsCustomization::BuildBoneTree()
 		return;
 	}
 
-	// 웨이팅된 본 캐시 빌드
+	// Build weighted bone cache
 	BuildWeightedBoneCache(SkeletalMesh);
 
 	const FReferenceSkeleton& RefSkeleton = SkeletalMesh->GetRefSkeleton();
 	const int32 NumBones = RefSkeleton.GetNum();
 
-	// 자손 중 웨이팅된 본이 있는지 체크하는 재귀 함수
+	// Recursive function to check if any descendant is weighted
 	TFunction<bool(int32)> HasWeightedDescendant = [&](int32 BoneIndex) -> bool
 	{
 		if (IsBoneWeighted(BoneIndex))
@@ -2182,7 +2182,7 @@ void FFleshRingSettingsCustomization::BuildBoneTree()
 			return true;
 		}
 
-		// 자식 본들 체크
+		// Check child bones
 		for (int32 ChildIdx = 0; ChildIdx < NumBones; ++ChildIdx)
 		{
 			if (RefSkeleton.GetParentIndex(ChildIdx) == BoneIndex)
@@ -2196,7 +2196,7 @@ void FFleshRingSettingsCustomization::BuildBoneTree()
 		return false;
 	};
 
-	// 모든 본에 대해 아이템 생성
+	// Create items for all bones
 	AllBoneItems.SetNum(NumBones);
 	for (int32 BoneIdx = 0; BoneIdx < NumBones; ++BoneIdx)
 	{
@@ -2205,7 +2205,7 @@ void FFleshRingSettingsCustomization::BuildBoneTree()
 		AllBoneItems[BoneIdx] = FBoneDropdownItem::Create(BoneName, BoneIdx, bIsMeshBone);
 	}
 
-	// 부모-자식 관계 설정
+	// Set up parent-child relationships
 	for (int32 BoneIdx = 0; BoneIdx < NumBones; ++BoneIdx)
 	{
 		int32 ParentIdx = RefSkeleton.GetParentIndex(BoneIdx);
@@ -2216,12 +2216,12 @@ void FFleshRingSettingsCustomization::BuildBoneTree()
 		}
 		else
 		{
-			// 루트 본
+			// Root bone
 			BoneTreeRoots.Add(AllBoneItems[BoneIdx]);
 		}
 	}
 
-	// 초기 필터링 적용
+	// Apply initial filtering
 	ApplySearchFilter();
 }
 
@@ -2234,7 +2234,7 @@ void FFleshRingSettingsCustomization::BuildWeightedBoneCache(USkeletalMesh* Skel
 		return;
 	}
 
-	// LOD 0의 렌더 데이터에서 웨이팅된 본 찾기
+	// Find weighted bones from LOD 0 render data
 	FSkeletalMeshRenderData* RenderData = SkelMesh->GetResourceForRendering();
 	if (!RenderData || RenderData->LODRenderData.Num() == 0)
 	{
@@ -2243,7 +2243,7 @@ void FFleshRingSettingsCustomization::BuildWeightedBoneCache(USkeletalMesh* Skel
 
 	const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[0];
 
-	// 각 섹션의 BoneMap에 있는 본들이 웨이팅된 본들
+	// Bones in each section's BoneMap are the weighted bones
 	for (const FSkelMeshRenderSection& Section : LODData.RenderSections)
 	{
 		for (FBoneIndexType BoneIndex : Section.BoneMap)
@@ -2263,7 +2263,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateSearchableBoneDropdow
 	return SAssignNew(BoneComboButton, SComboButton)
 		.OnGetMenuContent_Lambda([this]() -> TSharedRef<SWidget>
 		{
-			// 드롭다운 열릴 때 본 트리 재빌드
+			// Rebuild bone tree when dropdown opens
 			BuildBoneTree();
 			BoneSearchText.Empty();
 
@@ -2287,7 +2287,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateSearchableBoneDropdow
 					.SelectionMode(ESelectionMode::Single)
 				];
 
-			// 트리 생성 후 모든 아이템 확장
+			// Expand all items after tree creation
 			ExpandAllBoneTreeItems();
 
 			return MenuContent;
@@ -2326,10 +2326,10 @@ void FFleshRingSettingsCustomization::OnBoneSearchTextChanged(const FText& NewTe
 
 	if (BoneTreeView.IsValid())
 	{
-		// RebuildList로 행 완전 재생성 (하이라이트 업데이트)
+		// Fully regenerate rows with RebuildList (highlight update)
 		BoneTreeView->RebuildList();
 
-		// 모든 아이템 확장
+		// Expand all items
 		ExpandAllBoneTreeItems();
 	}
 }
@@ -2338,7 +2338,7 @@ void FFleshRingSettingsCustomization::ApplySearchFilter()
 {
 	FilteredBoneTreeRoots.Empty();
 
-	// 검색어가 없으면 웨이팅된 본만 필터링
+	// If no search text, filter to show only weighted bones
 	if (BoneSearchText.IsEmpty())
 	{
 		for (const auto& Root : BoneTreeRoots)
@@ -2351,7 +2351,7 @@ void FFleshRingSettingsCustomization::ApplySearchFilter()
 	}
 	else
 	{
-		// 검색어가 있어도 웨이팅된 본만 표시
+		// Even with search text, show only weighted bones
 		for (const auto& Root : BoneTreeRoots)
 		{
 			if (!Root->bIsMeshBone)
@@ -2365,7 +2365,7 @@ void FFleshRingSettingsCustomization::ApplySearchFilter()
 			}
 			else
 			{
-				// 자식 중 검색어에 맞는 웨이팅된 본이 있으면 부모도 표시
+				// If any child has a matching weighted bone, show parent too
 				TFunction<bool(const TSharedPtr<FBoneDropdownItem>&)> HasMatchingChild;
 				HasMatchingChild = [&](const TSharedPtr<FBoneDropdownItem>& Item) -> bool
 				{
@@ -2410,7 +2410,7 @@ void FFleshRingSettingsCustomization::ExpandAllBoneTreeItems()
 		return;
 	}
 
-	// 재귀적으로 모든 아이템 확장
+	// Recursively expand all items
 	TFunction<void(const TSharedPtr<FBoneDropdownItem>&)> ExpandRecursive;
 	ExpandRecursive = [&](const TSharedPtr<FBoneDropdownItem>& Item)
 	{
@@ -2441,7 +2441,7 @@ void FFleshRingSettingsCustomization::GetBoneTreeChildren(TSharedPtr<FBoneDropdo
 		return;
 	}
 
-	// 검색어가 없으면 웨이팅된 본만 표시
+	// If no search text, show only weighted bones
 	if (BoneSearchText.IsEmpty())
 	{
 		for (const auto& Child : Item->Children)
@@ -2454,7 +2454,7 @@ void FFleshRingSettingsCustomization::GetBoneTreeChildren(TSharedPtr<FBoneDropdo
 	}
 	else
 	{
-		// 검색어가 있어도 웨이팅된 본만 표시
+		// Even with search text, show only weighted bones
 		TFunction<bool(const TSharedPtr<FBoneDropdownItem>&)> HasMatchingDescendant;
 		HasMatchingDescendant = [&](const TSharedPtr<FBoneDropdownItem>& CheckItem) -> bool
 		{
@@ -2490,12 +2490,12 @@ void FFleshRingSettingsCustomization::OnBoneTreeSelectionChanged(TSharedPtr<FBon
 {
 	if (BoneNameHandle.IsValid() && NewSelection.IsValid())
 	{
-		// 웨이팅된 본만 선택 가능
+		// Only weighted bones can be selected
 		if (NewSelection->bIsMeshBone)
 		{
 			BoneNameHandle->SetValue(NewSelection->BoneName);
 
-			// 드롭다운 닫기
+			// Close dropdown
 			if (BoneComboButton.IsValid())
 			{
 				BoneComboButton->SetIsOpen(false);
@@ -2514,17 +2514,17 @@ bool FFleshRingSettingsCustomization::IsBoneInvalid() const
 	FName CurrentValue;
 	BoneNameHandle->GetValue(CurrentValue);
 
-	// None은 경고 아님 (아직 선택 안 한 상태)
+	// None is not a warning (not yet selected)
 	if (CurrentValue == NAME_None)
 	{
 		return false;
 	}
 
-	// SkeletalMesh에서 본 찾기
+	// Find bone in SkeletalMesh
 	USkeletalMesh* SkeletalMesh = const_cast<FFleshRingSettingsCustomization*>(this)->GetTargetSkeletalMesh();
 	if (!SkeletalMesh)
 	{
-		// SkeletalMesh 없으면 경고
+		// Warn if no SkeletalMesh
 		return true;
 	}
 
@@ -2536,7 +2536,7 @@ bool FFleshRingSettingsCustomization::IsBoneInvalid() const
 		return true;
 	}
 
-	// 웨이팅되지 않은 본도 경고 (AllBoneItems가 비어있으면 체크 안 함)
+	// Also warn for non-weighted bones (skip check if AllBoneItems is empty)
 	if (AllBoneItems.IsValidIndex(BoneIndex))
 	{
 		return !AllBoneItems[BoneIndex]->bIsMeshBone;
@@ -2557,7 +2557,7 @@ FText FFleshRingSettingsCustomization::GetCurrentBoneName() const
 			return LOCTEXT("SelectBone", "Select Bone...");
 		}
 
-		// 현재 선택된 본이 SkeletalMesh에 있는지 확인
+		// Check if currently selected bone exists in SkeletalMesh
 		USkeletalMesh* SkeletalMesh = const_cast<FFleshRingSettingsCustomization*>(this)->GetTargetSkeletalMesh();
 		if (SkeletalMesh)
 		{
@@ -2566,13 +2566,13 @@ FText FFleshRingSettingsCustomization::GetCurrentBoneName() const
 
 			if (BoneIndex == INDEX_NONE)
 			{
-				// 본이 없으면 경고 표시
+				// Show warning if bone doesn't exist
 				return FText::Format(
 					LOCTEXT("BoneNotFound", "{0} (Not Found)"),
 					FText::FromName(CurrentValue));
 			}
 
-			// 웨이팅되지 않은 본 경고 (AllBoneItems가 비어있으면 체크 안 함)
+			// Warn for non-weighted bones (skip check if AllBoneItems is empty)
 			if (AllBoneItems.IsValidIndex(BoneIndex) && !AllBoneItems[BoneIndex]->bIsMeshBone)
 			{
 				return FText::Format(
@@ -2582,7 +2582,7 @@ FText FFleshRingSettingsCustomization::GetCurrentBoneName() const
 		}
 		else
 		{
-			// SkeletalMesh가 설정되지 않은 경우
+			// If SkeletalMesh is not set
 			return FText::Format(
 				LOCTEXT("NoSkeletalMesh", "{0} (No Mesh)"),
 				FText::FromName(CurrentValue));
@@ -2602,7 +2602,7 @@ void FFleshRingSettingsCustomization::SyncQuatFromEuler(
 		return;
 	}
 
-	// Euler 읽기
+	// Read Euler
 	FRotator Euler;
 	EulerHandle->EnumerateRawData([&Euler](void* RawData, const int32 DataIndex, const int32 NumDatas)
 	{
@@ -2614,7 +2614,7 @@ void FFleshRingSettingsCustomization::SyncQuatFromEuler(
 		return true;
 	});
 
-	// Quat에 쓰기
+	// Write to Quat
 	FQuat Quat = Euler.Quaternion();
 	QuatHandle->EnumerateRawData([&Quat](void* RawData, const int32 DataIndex, const int32 NumDatas)
 	{
@@ -2625,7 +2625,7 @@ void FFleshRingSettingsCustomization::SyncQuatFromEuler(
 		return true;
 	});
 
-	// 변경 알림 (프리뷰 갱신 트리거)
+	// Change notification (triggers preview update)
 	QuatHandle->NotifyPostChange(EPropertyChangeType::ValueSet);
 }
 
@@ -2671,7 +2671,7 @@ void FFleshRingSettingsCustomization::AddLinearVectorRow(
 {
 	TSharedPtr<IPropertyHandle> VecHandlePtr = VectorHandle.ToSharedPtr();
 
-	// EnumerateRawData로 FVector 직접 읽기
+	// Read FVector directly with EnumerateRawData
 	auto GetVector = [VecHandlePtr]() -> FVector
 	{
 		FVector Result = FVector::ZeroVector;
@@ -2690,8 +2690,8 @@ void FFleshRingSettingsCustomization::AddLinearVectorRow(
 		return Result;
 	};
 
-	// EnumerateRawData로 FVector 직접 쓰기
-	// NotifyPreChange는 호출자가 직접 관리 (슬라이더: OnBeginSliderMovement, 텍스트: OnValueCommitted에서)
+	// Write FVector directly with EnumerateRawData
+	// NotifyPreChange is managed by caller (slider: OnBeginSliderMovement, text: OnValueCommitted)
 	auto SetVector = [VecHandlePtr](const FVector& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (VecHandlePtr.IsValid())
@@ -2747,7 +2747,7 @@ void FFleshRingSettingsCustomization::AddLinearVectorRow(
 				})
 				.OnBeginSliderMovement_Lambda([VecHandlePtr]()
 				{
-					// 드래그 시작 시 Undo 포인트 생성
+					// Create Undo point at drag start
 					if (VecHandlePtr.IsValid())
 					{
 						VecHandlePtr->NotifyPreChange();
@@ -2761,14 +2761,14 @@ void FFleshRingSettingsCustomization::AddLinearVectorRow(
 				})
 				.OnEndSliderMovement_Lambda([GetVector, SetVector](double FinalValue)
 				{
-					// 드래그 종료 시 최종 값으로 커밋 (Undo 포인트 확정)
+					// Commit with final value at drag end (finalize Undo point)
 					FVector Vec = GetVector();
 					Vec.X = FinalValue;
 					SetVector(Vec, EPropertyChangeType::ValueSet);
 				})
 				.OnValueCommitted_Lambda([VecHandlePtr, GetVector, SetVector](double NewValue, ETextCommit::Type)
 				{
-					// 텍스트 입력 시 Undo 포인트 생성 후 값 설정
+					// Create Undo point and set value on text input
 					if (VecHandlePtr.IsValid())
 					{
 						VecHandlePtr->NotifyPreChange();
@@ -2906,7 +2906,7 @@ void FFleshRingSettingsCustomization::AddLinearRotatorRow(
 {
 	TSharedPtr<IPropertyHandle> RotHandlePtr = RotatorHandle.ToSharedPtr();
 
-	// EnumerateRawData로 FRotator 직접 읽기
+	// Read FRotator directly with EnumerateRawData
 	auto GetRotator = [RotHandlePtr]() -> FRotator
 	{
 		FRotator Result = FRotator::ZeroRotator;
@@ -2925,8 +2925,8 @@ void FFleshRingSettingsCustomization::AddLinearRotatorRow(
 		return Result;
 	};
 
-	// EnumerateRawData로 FRotator 직접 쓰기
-	// NotifyPreChange는 호출자가 직접 관리 (슬라이더: OnBeginSliderMovement, 텍스트: OnValueCommitted에서)
+	// Write FRotator directly with EnumerateRawData
+	// NotifyPreChange is managed by caller (slider: OnBeginSliderMovement, text: OnValueCommitted)
 	auto SetRotator = [RotHandlePtr](const FRotator& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (RotHandlePtr.IsValid())
@@ -2943,7 +2943,7 @@ void FFleshRingSettingsCustomization::AddLinearRotatorRow(
 		}
 	};
 
-	// 각도 표시용 TypeInterface
+	// TypeInterface for angle display
 	auto DegreeInterface = MakeShared<FDegreeTypeInterface>();
 
 	ChildBuilder.AddCustomRow(DisplayName)
@@ -2999,14 +2999,14 @@ void FFleshRingSettingsCustomization::AddLinearRotatorRow(
 				})
 				.OnEndSliderMovement_Lambda([GetRotator, SetRotator](double FinalValue)
 				{
-					// 드래그 종료 시 최종 값으로 커밋 (Undo 포인트 확정)
+					// Commit with final value at drag end (finalize Undo point)
 					FRotator Rot = GetRotator();
 					Rot.Roll = FinalValue;
 					SetRotator(Rot, EPropertyChangeType::ValueSet);
 				})
 				.OnValueCommitted_Lambda([RotHandlePtr, GetRotator, SetRotator](double NewValue, ETextCommit::Type)
 				{
-					// 텍스트 입력 시 Undo 포인트 생성 후 값 설정
+					// Create Undo point and set value on text input
 					if (RotHandlePtr.IsValid())
 					{
 						RotHandlePtr->NotifyPreChange();
@@ -3143,10 +3143,10 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidget(
 {
 	TSharedPtr<IPropertyHandle> VecHandlePtr = VectorHandle.ToSharedPtr();
 
-	// 드래그 트랜잭션 관리용 (TSharedPtr로 감싸서 람다에서 안전하게 사용)
+	// For drag transaction management (wrapped in TSharedPtr for safe lambda use)
 	TSharedPtr<TUniquePtr<FScopedTransaction>> TransactionHolder = MakeShared<TUniquePtr<FScopedTransaction>>();
 
-	// EnumerateRawData로 실시간 메모리 값 읽기
+	// Read real-time memory value with EnumerateRawData
 	auto GetVector = [VecHandlePtr]() -> FVector
 	{
 		FVector Result = FVector::ZeroVector;
@@ -3165,7 +3165,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidget(
 		return Result;
 	};
 
-	// 드래그 중 빠른 업데이트용
+	// For fast updates during drag
 	auto SetVectorInteractive = [VecHandlePtr](const FVector& NewValue)
 	{
 		if (VecHandlePtr.IsValid())
@@ -3182,15 +3182,15 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidget(
 		}
 	};
 
-	// 드래그 시작: 트랜잭션 시작 + Modify 호출
+	// Drag start: Begin transaction + call Modify
 	auto BeginTransaction = [VecHandlePtr, TransactionHolder]()
 	{
 		if (VecHandlePtr.IsValid())
 		{
-			// 새 트랜잭션 시작
+			// Start new transaction
 			*TransactionHolder = MakeUnique<FScopedTransaction>(LOCTEXT("DragVector", "Drag Vector Value"));
 
-			// UObject의 Modify() 호출 - 이 시점의 상태가 Undo로 복원됨
+			// Call UObject's Modify() - this state will be restored on Undo
 			TArray<UObject*> OuterObjects;
 			VecHandlePtr->GetOuterObjects(OuterObjects);
 			for (UObject* Obj : OuterObjects)
@@ -3203,7 +3203,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidget(
 		}
 	};
 
-	// 드래그 종료: 트랜잭션 커밋
+	// Drag end: Commit transaction
 	auto EndTransaction = [TransactionHolder]()
 	{
 		TransactionHolder->Reset();
@@ -3246,7 +3246,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidget(
 				})
 				.OnEndSliderMovement_Lambda([VecHandlePtr, EndTransaction](double FinalValue)
 				{
-					// NotifyPostChange(ValueSet)으로 변경 완료 알림
+					// Notify change completion with NotifyPostChange(ValueSet)
 					if (VecHandlePtr.IsValid())
 					{
 						VecHandlePtr->NotifyPostChange(EPropertyChangeType::ValueSet);
@@ -3381,10 +3381,10 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidget(
 {
 	TSharedPtr<IPropertyHandle> RotHandlePtr = RotatorHandle.ToSharedPtr();
 
-	// 드래그 트랜잭션 관리용
+	// For drag transaction management
 	TSharedPtr<TUniquePtr<FScopedTransaction>> TransactionHolder = MakeShared<TUniquePtr<FScopedTransaction>>();
 
-	// EnumerateRawData로 실시간 메모리 값 읽기
+	// Read real-time memory value with EnumerateRawData
 	auto GetRotator = [RotHandlePtr]() -> FRotator
 	{
 		FRotator Result = FRotator::ZeroRotator;
@@ -3403,7 +3403,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidget(
 		return Result;
 	};
 
-	// 드래그 중 빠른 업데이트용
+	// For fast updates during drag
 	auto SetRotatorInteractive = [RotHandlePtr](const FRotator& NewValue)
 	{
 		if (RotHandlePtr.IsValid())
@@ -3420,7 +3420,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidget(
 		}
 	};
 
-	// 드래그 시작: 트랜잭션 시작 + Modify 호출
+	// Drag start: Begin transaction + call Modify
 	auto BeginTransaction = [RotHandlePtr, TransactionHolder]()
 	{
 		if (RotHandlePtr.IsValid())
@@ -3439,7 +3439,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidget(
 		}
 	};
 
-	// 드래그 종료: 트랜잭션 커밋
+	// Drag end: Commit transaction
 	auto EndTransaction = [TransactionHolder]()
 	{
 		TransactionHolder->Reset();
@@ -3613,14 +3613,14 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateMeshScaleWidget(
 	TSharedRef<IPropertyHandle> VectorHandle,
 	float Delta)
 {
-	// MeshScaleHandle 캐싱 (비율 계산용)
+	// Cache MeshScaleHandle (for ratio calculation)
 	MeshScaleHandle = VectorHandle.ToSharedPtr();
 	TSharedPtr<IPropertyHandle> VecHandlePtr = MeshScaleHandle;
 
-	// 드래그 트랜잭션 관리용
+	// For drag transaction management
 	TSharedPtr<TUniquePtr<FScopedTransaction>> TransactionHolder = MakeShared<TUniquePtr<FScopedTransaction>>();
 
-	// EnumerateRawData로 실시간 메모리 값 읽기
+	// Read real-time memory value with EnumerateRawData
 	auto GetVector = [VecHandlePtr]() -> FVector
 	{
 		FVector Result = FVector::ZeroVector;
@@ -3639,7 +3639,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateMeshScaleWidget(
 		return Result;
 	};
 
-	// 드래그 중 빠른 업데이트용
+	// For fast updates during drag
 	auto SetVectorInteractive = [VecHandlePtr](const FVector& NewValue)
 	{
 		if (VecHandlePtr.IsValid())
@@ -3656,7 +3656,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateMeshScaleWidget(
 		}
 	};
 
-	// 드래그 시작: 트랜잭션 시작 + Modify 호출
+	// Drag start: Begin transaction + call Modify
 	auto BeginTransaction = [VecHandlePtr, TransactionHolder]()
 	{
 		if (VecHandlePtr.IsValid())
@@ -3675,13 +3675,13 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateMeshScaleWidget(
 		}
 	};
 
-	// 드래그 종료: 트랜잭션 커밋
+	// Drag end: Commit transaction
 	auto EndTransaction = [TransactionHolder]()
 	{
 		TransactionHolder->Reset();
 	};
 
-	// 비율 유지 스케일링 (X 축 변경 시)
+	// Proportional scaling (when X axis changes)
 	auto ApplyScaleLockX = [this, GetVector, SetVectorInteractive](double NewValue)
 	{
 		FVector OldVec = GetVector();
@@ -3699,7 +3699,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateMeshScaleWidget(
 		}
 	};
 
-	// 비율 유지 스케일링 (Y 축 변경 시)
+	// Proportional scaling (when Y axis changes)
 	auto ApplyScaleLockY = [this, GetVector, SetVectorInteractive](double NewValue)
 	{
 		FVector OldVec = GetVector();
@@ -3717,7 +3717,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateMeshScaleWidget(
 		}
 	};
 
-	// 비율 유지 스케일링 (Z 축 변경 시)
+	// Proportional scaling (when Z axis changes)
 	auto ApplyScaleLockZ = [this, GetVector, SetVectorInteractive](double NewValue)
 	{
 		FVector OldVec = GetVector();
@@ -3735,7 +3735,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateMeshScaleWidget(
 		}
 	};
 
-	// 커밋 시 비율 유지 (X)
+	// Maintain proportions on commit (X)
 	auto CommitWithLockX = [this, VecHandlePtr, GetVector](double NewValue)
 	{
 		if (VecHandlePtr.IsValid())
@@ -3756,7 +3756,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateMeshScaleWidget(
 		}
 	};
 
-	// 커밋 시 비율 유지 (Y)
+	// Maintain proportions on commit (Y)
 	auto CommitWithLockY = [this, VecHandlePtr, GetVector](double NewValue)
 	{
 		if (VecHandlePtr.IsValid())
@@ -3777,7 +3777,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateMeshScaleWidget(
 		}
 	};
 
-	// 커밋 시 비율 유지 (Z)
+	// Maintain proportions on commit (Z)
 	auto CommitWithLockZ = [this, VecHandlePtr, GetVector](double NewValue)
 	{
 		if (VecHandlePtr.IsValid())
@@ -4019,7 +4019,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearVectorWidgetWit
 		return Result;
 	};
 
-	// NotifyPreChange는 호출자가 직접 관리 (슬라이더: OnBeginSliderMovement, 텍스트/버튼: 호출 직전)
+	// NotifyPreChange is managed by caller (slider: OnBeginSliderMovement, text/button: just before call)
 	auto SetVector = [VecHandlePtr](const FVector& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (VecHandlePtr.IsValid())
@@ -4230,7 +4230,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateLinearRotatorWidgetWi
 		return Result;
 	};
 
-	// NotifyPreChange는 호출자가 직접 관리 (슬라이더: OnBeginSliderMovement, 텍스트/버튼: 호출 직전)
+	// NotifyPreChange is managed by caller (slider: OnBeginSliderMovement, text/button: just before call)
 	auto SetRotator = [RotHandlePtr](const FRotator& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (RotHandlePtr.IsValid())
@@ -4427,7 +4427,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateResetButton(
 {
 	TSharedPtr<IPropertyHandle> VecHandlePtr = VectorHandle.ToSharedPtr();
 
-	// 버튼 클릭용 SetVector - NotifyPreChange는 호출자가 관리
+	// SetVector for button click - NotifyPreChange is managed by caller
 	auto SetVector = [VecHandlePtr](const FVector& NewValue)
 	{
 		if (VecHandlePtr.IsValid())
@@ -4467,7 +4467,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateResetButton(
 {
 	TSharedPtr<IPropertyHandle> RotHandlePtr = RotatorHandle.ToSharedPtr();
 
-	// 버튼 클릭용 SetRotator - NotifyPreChange는 호출자가 관리
+	// SetRotator for button click - NotifyPreChange is managed by caller
 	auto SetRotator = [RotHandlePtr](const FRotator& NewValue)
 	{
 		if (RotHandlePtr.IsValid())
@@ -4526,7 +4526,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateVectorWidgetWithReset
 		return Result;
 	};
 
-	// NotifyPreChange는 호출자가 직접 관리 (슬라이더: OnBeginSliderMovement, 텍스트/버튼: 호출 직전)
+	// NotifyPreChange is managed by caller (slider: OnBeginSliderMovement, text/button: just before call)
 	auto SetVector = [VecHandlePtr](const FVector& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (VecHandlePtr.IsValid())
@@ -4692,7 +4692,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateVectorWidgetWithReset
 				.Font(IDetailLayoutBuilder::GetDetailFont())
 			]
 		]
-		// Reset Button (우측 끝)
+		// Reset Button (right end)
 		+ SHorizontalBox::Slot()
 		.AutoWidth()
 		.VAlign(VAlign_Center)
@@ -4741,7 +4741,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateRotatorWidgetWithRese
 		return Result;
 	};
 
-	// NotifyPreChange는 호출자가 직접 관리 (슬라이더: OnBeginSliderMovement, 텍스트/버튼: 호출 직전)
+	// NotifyPreChange is managed by caller (slider: OnBeginSliderMovement, text/button: just before call)
 	auto SetRotator = [RotHandlePtr](const FRotator& NewValue, EPropertyChangeType::Type ChangeType = EPropertyChangeType::ValueSet)
 	{
 		if (RotHandlePtr.IsValid())
@@ -4912,7 +4912,7 @@ TSharedRef<SWidget> FFleshRingSettingsCustomization::CreateRotatorWidgetWithRese
 				.Font(IDetailLayoutBuilder::GetDetailFont())
 			]
 		]
-		// Reset Button (우측 끝)
+		// Reset Button (right end)
 		+ SHorizontalBox::Slot()
 		.AutoWidth()
 		.VAlign(VAlign_Center)

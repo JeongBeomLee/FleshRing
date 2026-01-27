@@ -10,18 +10,18 @@
 class FFleshRingDebugPointSceneProxy;
 
 /**
- * UFleshRingDebugPointComponent - GPU 디버그 포인트 렌더링용 컴포넌트
+ * UFleshRingDebugPointComponent - Component for GPU debug point rendering
  *
- * GPU 버퍼의 디버그 포인트를 Scene 렌더링 단계에서 그려서
- * 에디터 기즈모(PDI)보다 먼저 렌더링되도록 합니다.
+ * Draws debug points from GPU buffers during Scene rendering stage,
+ * rendering before editor gizmos (PDI).
  *
- * Tightness와 Bulge 버퍼를 모두 처리하며, 공유 depth buffer를 사용하여
- * 두 타입의 포인트 간 depth ordering을 보장합니다.
+ * Handles both Tightness and Bulge buffers, using a shared depth buffer
+ * to ensure depth ordering between the two point types.
  *
- * 사용법:
- * 1. FleshRingComponent의 자식 컴포넌트로 생성
- * 2. SetTightnessBuffer() / SetBulgeBuffer()로 GPU 버퍼 설정
- * 3. Scene Proxy가 자동으로 렌더링 수행
+ * Usage:
+ * 1. Create as child component of FleshRingComponent
+ * 2. Set GPU buffers via SetTightnessBuffer() / SetBulgeBuffer()
+ * 3. Scene Proxy performs rendering automatically
  */
 UCLASS(ClassGroup=(FleshRing))
 class FLESHRINGRUNTIME_API UFleshRingDebugPointComponent : public UPrimitiveComponent
@@ -44,15 +44,15 @@ public:
 	// ========================================
 
 	/**
-	 * Tightness 디버그 포인트 버퍼 설정 (게임 스레드에서 호출)
-	 * @param InBuffer - 풀링된 RDG 버퍼 참조
-	 * @param InVisibilityMaskArray - 가시 Ring 비트마스크 배열 (무제한 Ring 지원)
+	 * Set Tightness debug point buffer (called from game thread)
+	 * @param InBuffer - Pooled RDG buffer reference
+	 * @param InVisibilityMaskArray - Visible Ring bitmask array (unlimited Ring support)
 	 */
 	void SetTightnessBuffer(
 		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBuffer,
 		const TArray<uint32>& InVisibilityMaskArray);
 
-	/** Tightness 버퍼 클리어 */
+	/** Clear Tightness buffer */
 	void ClearTightnessBuffer();
 
 	// ========================================
@@ -60,29 +60,29 @@ public:
 	// ========================================
 
 	/**
-	 * Bulge 디버그 포인트 버퍼 설정 (게임 스레드에서 호출)
-	 * @param InBuffer - 풀링된 RDG 버퍼 참조
-	 * @param InVisibilityMaskArray - 가시 Ring 비트마스크 배열 (무제한 Ring 지원)
+	 * Set Bulge debug point buffer (called from game thread)
+	 * @param InBuffer - Pooled RDG buffer reference
+	 * @param InVisibilityMaskArray - Visible Ring bitmask array (unlimited Ring support)
 	 */
 	void SetBulgeBuffer(
 		TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> InBuffer,
 		const TArray<uint32>& InVisibilityMaskArray);
 
-	/** Bulge 버퍼 클리어 */
+	/** Clear Bulge buffer */
 	void ClearBulgeBuffer();
 
-	/** 버퍼가 설정되어 있는지 확인 */
+	/** Check if buffer is set */
 	bool HasValidBuffer() const;
 
 	// ========================================
 	// Rendering Parameters
 	// ========================================
 
-	/** 기본 포인트 크기 (픽셀) */
+	/** Base point size (pixels) */
 	UPROPERTY(EditAnywhere, Category = "Debug Rendering")
 	float PointSizeBase = 8.0f;
 
-	/** Influence 기반 추가 포인트 크기 */
+	/** Additional point size based on Influence */
 	UPROPERTY(EditAnywhere, Category = "Debug Rendering")
 	float PointSizeInfluence = 4.0f;
 
@@ -90,18 +90,18 @@ protected:
 	virtual void SendRenderDynamicData_Concurrent() override;
 
 private:
-	/** Tightness 버퍼 (게임 스레드에서 설정, 렌더 스레드로 전달) */
+	/** Tightness buffer (set from game thread, passed to render thread) */
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> PendingTightnessBuffer;
 
-	/** Bulge 버퍼 (게임 스레드에서 설정, 렌더 스레드로 전달) */
+	/** Bulge buffer (set from game thread, passed to render thread) */
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> PendingBulgeBuffer;
 
-	/** 대기 중인 가시성 마스크 배열 (무제한 Ring 지원) */
+	/** Pending visibility mask array (unlimited Ring support) */
 	TArray<uint32> PendingVisibilityMaskArray;
 
-	/** 버퍼 변경 플래그 */
+	/** Buffer changed flag */
 	bool bBufferDirty = false;
 
-	/** 동기화 */
+	/** Synchronization */
 	mutable FCriticalSection BufferLock;
 };

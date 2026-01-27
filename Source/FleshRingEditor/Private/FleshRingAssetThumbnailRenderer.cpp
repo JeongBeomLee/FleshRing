@@ -12,7 +12,7 @@
 
 UFleshRingAssetThumbnailRenderer::UFleshRingAssetThumbnailRenderer()
 {
-	// 기본 아이콘 텍스처는 Draw에서 lazy load
+	// Default icon texture is lazy loaded in Draw
 	DefaultIconTexture = nullptr;
 }
 
@@ -29,7 +29,7 @@ void UFleshRingAssetThumbnailRenderer::Draw(UObject* Object, int32 X, int32 Y, u
 		return;
 	}
 
-	// BakedMesh가 있으면 해당 메시 썸네일 렌더링
+	// If BakedMesh exists, render that mesh's thumbnail
 	USkeletalMesh* BakedMesh = FleshRingAsset->SubdivisionSettings.BakedMesh;
 	if (BakedMesh)
 	{
@@ -37,18 +37,18 @@ void UFleshRingAssetThumbnailRenderer::Draw(UObject* Object, int32 X, int32 Y, u
 		return;
 	}
 
-	// BakedMesh 없으면 기본 아이콘 렌더링
-	// Lazy load 기본 아이콘 텍스처
+	// If no BakedMesh, render default icon
+	// Lazy load default icon texture
 	if (!DefaultIconTexture)
 	{
-		// 플러그인 Content 경로에서 로드 시도
+		// Attempt to load from plugin Content path
 		const FString IconPath = TEXT("/FleshRingPlugin/FleshRingAssetThumbnail");
 		DefaultIconTexture = LoadObject<UTexture2D>(nullptr, *IconPath);
 	}
 
 	if (DefaultIconTexture && DefaultIconTexture->GetResource())
 	{
-		// 텍스처를 썸네일 영역에 그리기
+		// Draw texture in thumbnail area
 		FCanvasTileItem TileItem(
 			FVector2D(X, Y),
 			DefaultIconTexture->GetResource(),
@@ -60,7 +60,7 @@ void UFleshRingAssetThumbnailRenderer::Draw(UObject* Object, int32 X, int32 Y, u
 	}
 	else
 	{
-		// 아이콘도 없으면 기본 에셋 썸네일 (큐브 아이콘)
+		// If no icon either, use default asset thumbnail (cube icon)
 		Super::Draw(Object, X, Y, Width, Height, RenderTarget, Canvas, bAdditionalViewFamily);
 	}
 }
@@ -72,7 +72,7 @@ void UFleshRingAssetThumbnailRenderer::DrawSkeletalMeshThumbnail(USkeletalMesh* 
 		return;
 	}
 
-	// SkeletalMesh 썸네일 렌더러 직접 사용
+	// Directly use SkeletalMesh thumbnail renderer
 	USkeletalMeshThumbnailRenderer* SkeletalMeshRenderer = GetMutableDefault<USkeletalMeshThumbnailRenderer>();
 	if (SkeletalMeshRenderer)
 	{

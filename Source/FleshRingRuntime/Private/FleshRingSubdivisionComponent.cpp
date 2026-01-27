@@ -70,7 +70,7 @@ void UFleshRingSubdivisionComponent::PostEditChangeProperty(FPropertyChangedEven
 
 	const FName PropertyName = PropertyChangedEvent.GetPropertyName();
 
-	// Settings 변경 시 재계산 필요
+	// Recalculation needed when settings change
 	if (PropertyName == GET_MEMBER_NAME_CHECKED(UFleshRingSubdivisionComponent, MaxSubdivisionLevel) ||
 		PropertyName == GET_MEMBER_NAME_CHECKED(UFleshRingSubdivisionComponent, MinEdgeLength) ||
 		PropertyName == GET_MEMBER_NAME_CHECKED(UFleshRingSubdivisionComponent, SubdivisionMode))
@@ -89,7 +89,7 @@ void UFleshRingSubdivisionComponent::TickComponent(float DeltaTime, ELevelTick T
 		return;
 	}
 
-	// 거리 스케일 업데이트
+	// Update distance scale
 	if (bEnableDistanceFalloff)
 	{
 		UpdateDistanceScale();
@@ -99,7 +99,7 @@ void UFleshRingSubdivisionComponent::TickComponent(float DeltaTime, ELevelTick T
 		CurrentDistanceScale = 1.0f;
 	}
 
-	// Subdivision 필요한 경우 실행
+	// Execute subdivision if needed
 	if (CurrentDistanceScale > 0.0f && bNeedsRecompute)
 	{
 		ComputeSubdivision();
@@ -107,13 +107,13 @@ void UFleshRingSubdivisionComponent::TickComponent(float DeltaTime, ELevelTick T
 	}
 
 #if WITH_EDITORONLY_DATA
-	// 디버그: Subdivided 버텍스 시각화
+	// Debug: Visualize subdivided vertices
 	if (bShowSubdividedVertices && Processor.IsValid() && Processor->IsCacheValid())
 	{
 		DrawSubdividedVerticesDebug();
 	}
 
-	// 디버그: Subdivided 와이어프레임 시각화
+	// Debug: Visualize subdivided wireframe
 	if (bShowSubdividedWireframe && Processor.IsValid() && Processor->IsCacheValid())
 	{
 		DrawSubdividedWireframeDebug();
@@ -123,7 +123,7 @@ void UFleshRingSubdivisionComponent::TickComponent(float DeltaTime, ELevelTick T
 
 void UFleshRingSubdivisionComponent::ForceRecompute()
 {
-	// ★ GPU 작업 완료 대기 후 리소스 해제 (메모리 누수 방지)
+	// Wait for GPU work completion and release resources (prevent memory leak)
 	FlushRenderingCommands();
 
 	if (Processor.IsValid())
@@ -136,7 +136,7 @@ void UFleshRingSubdivisionComponent::ForceRecompute()
 
 void UFleshRingSubdivisionComponent::InvalidateCache()
 {
-	// ★ GPU 작업 완료 대기 후 리소스 해제 (메모리 누수 방지)
+	// Wait for GPU work completion and release resources (prevent memory leak)
 	FlushRenderingCommands();
 
 	if (Processor.IsValid())
@@ -182,7 +182,7 @@ void UFleshRingSubdivisionComponent::FindDependencies()
 		return;
 	}
 
-	// FleshRingComponent 찾기
+	// Find FleshRingComponent
 	FleshRingComp = Owner->FindComponentByClass<UFleshRingComponent>();
 
 	if (!FleshRingComp.IsValid())
@@ -192,7 +192,7 @@ void UFleshRingSubdivisionComponent::FindDependencies()
 			*Owner->GetName());
 	}
 
-	// SkeletalMeshComponent 찾기
+	// Find SkeletalMeshComponent
 	if (FleshRingComp.IsValid())
 	{
 		TargetMeshComp = FleshRingComp->GetResolvedTargetMesh();
@@ -224,10 +224,10 @@ void UFleshRingSubdivisionComponent::Initialize()
 		return;
 	}
 
-	// Processor 생성
+	// Create Processor
 	Processor = MakeUnique<FFleshRingSubdivisionProcessor>();
 
-	// SkeletalMesh에서 소스 데이터 추출
+	// Extract source data from SkeletalMesh
 	USkeletalMesh* SkelMesh = TargetMeshComp->GetSkeletalMeshAsset();
 	if (SkelMesh && Processor->SetSourceMeshFromSkeletalMesh(SkelMesh, 0))
 	{
@@ -248,7 +248,7 @@ void UFleshRingSubdivisionComponent::Initialize()
 
 void UFleshRingSubdivisionComponent::Cleanup()
 {
-	// ★ GPU 작업 완료 대기 후 리소스 해제 (메모리 누수 방지)
+	// Wait for GPU work completion and release resources (prevent memory leak)
 	FlushRenderingCommands();
 
 	ResultCache.Reset();
@@ -314,16 +314,16 @@ void UFleshRingSubdivisionComponent::ComputeSubdivision()
 		return;
 	}
 
-	// 첫 번째 Ring 사용 (TODO: 다중 Ring 지원)
+	// Use the first Ring (TODO: Support multiple Rings)
 	const FFleshRingSettings& Ring = Asset->Rings[0];
 
-	// Ring 파라미터 설정
+	// Set Ring parameters
 	FSubdivisionRingParams RingParams;
 
-	// InfluenceMode에 따라 SDF 모드 또는 VirtualRing 모드 결정
+	// Determine SDF mode or VirtualRing mode based on InfluenceMode
 	if (Ring.InfluenceMode == EFleshRingInfluenceMode::Auto)
 	{
-		// Auto 모드: SDF 캐시에서 바운드 정보 사용
+		// Auto mode: Use bounds information from SDF cache
 		const FRingSDFCache* SDFCache = FleshRingComp->GetRingSDFCache(0);
 		if (SDFCache && SDFCache->IsValid())
 		{
@@ -339,7 +339,7 @@ void UFleshRingSubdivisionComponent::ComputeSubdivision()
 		}
 		else
 		{
-			// SDF 캐시가 없으면 VirtualRing 모드로 폴백
+			// Fall back to VirtualRing mode if SDF cache is not available
 			UE_LOG(LogFleshRingSubdivision, Warning,
 				TEXT("SDF cache not available, falling back to VirtualRing mode"));
 			RingParams.bUseSDFBounds = false;
@@ -351,17 +351,17 @@ void UFleshRingSubdivisionComponent::ComputeSubdivision()
 	}
 	else
 	{
-		// VirtualRing 모드: 기존 기하학적 방식
+		// VirtualRing mode: existing geometric approach
 		RingParams.bUseSDFBounds = false;
 		RingParams.Center = Ring.RingOffset;
-		RingParams.Axis = FVector::UpVector; // TODO: Bone 방향에서 계산
+		RingParams.Axis = FVector::UpVector; // TODO: Calculate from bone direction
 		RingParams.Radius = Ring.RingRadius;
 		RingParams.Width = Ring.RingHeight;
 	}
 
 	Processor->SetRingParams(RingParams);
 
-	// Processor 설정
+	// Configure Processor settings
 	FSubdivisionProcessorSettings Settings;
 	Settings.MaxSubdivisionLevel = MaxSubdivisionLevel;
 	Settings.MinEdgeLength = MinEdgeLength;
@@ -382,17 +382,17 @@ void UFleshRingSubdivisionComponent::ComputeSubdivision()
 
 	Processor->SetSettings(Settings);
 
-	// CPU Subdivision 실행
+	// Execute CPU Subdivision
 	FSubdivisionTopologyResult TopologyResult;
 	if (Processor->Process(TopologyResult))
 	{
-		// 통계 계산
+		// Calculate statistics
 		const int32 AddedVertices = TopologyResult.SubdividedVertexCount - TopologyResult.OriginalVertexCount;
 		const int32 AddedTriangles = TopologyResult.SubdividedTriangleCount - TopologyResult.OriginalTriangleCount;
 		const bool bWasSubdivided = (AddedVertices > 0 || AddedTriangles > 0);
 		const FString ModeStr = RingParams.bUseSDFBounds ? TEXT("SDF") : TEXT("VirtualRing");
 
-		// 항상 로그 출력 (Subdivision 발생 여부 확인용)
+		// Always output log (to verify whether subdivision occurred)
 		if (bWasSubdivided)
 		{
 			UE_LOG(LogFleshRingSubdivision, Log,
@@ -405,7 +405,7 @@ void UFleshRingSubdivisionComponent::ComputeSubdivision()
 		else
 		{
 			UE_LOG(LogFleshRingSubdivision, Warning,
-				TEXT("[%s] Subdivision NO CHANGE - Mode: %s | Vertices: %d | Triangles: %d (영향 영역에 삼각형 없음?)"),
+				TEXT("[%s] Subdivision NO CHANGE - Mode: %s | Vertices: %d | Triangles: %d (no triangles in affected region?)"),
 				*GetOwner()->GetName(),
 				*ModeStr,
 				TopologyResult.OriginalVertexCount,
@@ -413,7 +413,7 @@ void UFleshRingSubdivisionComponent::ComputeSubdivision()
 		}
 
 #if WITH_EDITORONLY_DATA
-		// 화면 디버그 메시지 (에디터에서만)
+		// On-screen debug message (editor only)
 		if (bLogSubdivisionStats && GEngine)
 		{
 			const FColor MsgColor = bWasSubdivided ? FColor::Green : FColor::Yellow;
@@ -425,13 +425,13 @@ void UFleshRingSubdivisionComponent::ComputeSubdivision()
 		}
 #endif
 
-		// GPU 보간 실행
+		// Execute GPU interpolation
 		ExecuteGPUInterpolation();
 	}
 	else
 	{
 		UE_LOG(LogFleshRingSubdivision, Warning,
-			TEXT("[%s] Subdivision FAILED - CPU subdivision 실패"),
+			TEXT("[%s] Subdivision FAILED - CPU subdivision failed"),
 			*GetOwner()->GetName());
 	}
 }
@@ -445,14 +445,14 @@ void UFleshRingSubdivisionComponent::ExecuteGPUInterpolation()
 
 	const FSubdivisionTopologyResult& TopologyResult = Processor->GetCachedResult();
 
-	// Subdivision이 없으면 스킵
+	// Skip if no subdivision occurred
 	if (TopologyResult.SubdividedVertexCount <= TopologyResult.OriginalVertexCount)
 	{
 		UE_LOG(LogFleshRingSubdivision, Log, TEXT("No subdivision occurred, skipping GPU interpolation"));
 		return;
 	}
 
-	// SkeletalMesh LOD 데이터 접근
+	// Access SkeletalMesh LOD data
 	if (!TargetMeshComp.IsValid())
 	{
 		UE_LOG(LogFleshRingSubdivision, Warning, TEXT("ExecuteGPUInterpolation: TargetMeshComp is invalid"));
@@ -473,25 +473,25 @@ void UFleshRingSubdivisionComponent::ExecuteGPUInterpolation()
 		return;
 	}
 
-	const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[0]; // LOD 0 사용
+	const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[0]; // Use LOD 0
 	const uint32 SourceVertexCount = LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
 
-	// 소스 메시 데이터를 복사 (렌더 스레드에서 Processor 접근 불가)
+	// Copy source mesh data (Processor cannot be accessed from render thread)
 	TArray<FVector> SourcePositions = Processor->GetSourcePositions();
 	TArray<FVector2D> SourceUVs = Processor->GetSourceUVs();
 
-	// Position 수와 SkeletalMesh 버텍스 수가 일치하는지 확인
+	// Verify that Position count matches SkeletalMesh vertex count
 	if (SourcePositions.Num() != static_cast<int32>(SourceVertexCount))
 	{
 		UE_LOG(LogFleshRingSubdivision, Warning,
 			TEXT("ExecuteGPUInterpolation: Vertex count mismatch (Processor=%d, Mesh=%d) - using defaults"),
 			SourcePositions.Num(), SourceVertexCount);
-		// 일치하지 않으면 기본값 사용으로 폴백
+		// Fall back to using defaults if they don't match
 		goto FallbackToDefaults;
 	}
 
 	{
-		// ===== Normal 추출 (TangentZ) =====
+		// ===== Extract Normals (TangentZ) =====
 		TArray<FVector> SourceNormals;
 		SourceNormals.SetNum(SourcePositions.Num());
 		for (int32 i = 0; i < SourceNormals.Num(); ++i)
@@ -500,7 +500,7 @@ void UFleshRingSubdivisionComponent::ExecuteGPUInterpolation()
 			SourceNormals[i] = FVector(TangentZ.X, TangentZ.Y, TangentZ.Z);
 		}
 
-		// ===== Tangent 추출 (TangentX, w = binormal sign) =====
+		// ===== Extract Tangents (TangentX, w = binormal sign) =====
 		TArray<FVector4> SourceTangents;
 		SourceTangents.SetNum(SourcePositions.Num());
 		for (int32 i = 0; i < SourceTangents.Num(); ++i)
@@ -509,7 +509,7 @@ void UFleshRingSubdivisionComponent::ExecuteGPUInterpolation()
 			SourceTangents[i] = FVector4(TangentX.X, TangentX.Y, TangentX.Z, TangentX.W);
 		}
 
-		// ===== Bone Weight/Index 추출 =====
+		// ===== Extract Bone Weights/Indices =====
 		const uint32 NumBoneInfluences = 4;
 		TArray<float> SourceBoneWeights;
 		TArray<uint32> SourceBoneIndices;
@@ -519,7 +519,7 @@ void UFleshRingSubdivisionComponent::ExecuteGPUInterpolation()
 		const FSkinWeightVertexBuffer* SkinWeightBuffer = LODData.GetSkinWeightVertexBuffer();
 		if (SkinWeightBuffer && SkinWeightBuffer->GetNumVertices() > 0)
 		{
-			// 버텍스별 섹션 인덱스 매핑 (BoneMap 변환용)
+			// Per-vertex section index mapping (for BoneMap conversion)
 			TArray<int32> VertexToSectionIndex;
 			VertexToSectionIndex.SetNumZeroed(SourcePositions.Num());
 			for (int32 SectionIdx = 0; SectionIdx < LODData.RenderSections.Num(); ++SectionIdx)
@@ -535,7 +535,7 @@ void UFleshRingSubdivisionComponent::ExecuteGPUInterpolation()
 
 			for (int32 i = 0; i < SourcePositions.Num(); ++i)
 			{
-				// 해당 버텍스의 섹션 BoneMap 가져오기
+				// Get the section BoneMap for this vertex
 				const TArray<FBoneIndexType>* BoneMap = nullptr;
 				int32 SectionIdx = VertexToSectionIndex[i];
 				if (SectionIdx >= 0 && SectionIdx < LODData.RenderSections.Num())
@@ -548,14 +548,14 @@ void UFleshRingSubdivisionComponent::ExecuteGPUInterpolation()
 					uint16 LocalBoneIdx = SkinWeightBuffer->GetBoneIndex(i, j);
 					uint8 Weight = SkinWeightBuffer->GetBoneWeight(i, j);
 
-					// BoneMap을 사용하여 Local -> Global 본 인덱스 변환
+					// Convert local to global bone index using BoneMap
 					uint16 GlobalBoneIdx = LocalBoneIdx;
 					if (BoneMap && LocalBoneIdx < BoneMap->Num())
 					{
 						GlobalBoneIdx = (*BoneMap)[LocalBoneIdx];
 					}
 
-					// Weight는 0-255를 0.0-1.0으로 변환
+					// Convert weight from 0-255 to 0.0-1.0
 					SourceBoneWeights[i * NumBoneInfluences + j] = static_cast<float>(Weight) / 255.0f;
 					SourceBoneIndices[i * NumBoneInfluences + j] = static_cast<uint32>(GlobalBoneIdx);
 				}
@@ -567,7 +567,7 @@ void UFleshRingSubdivisionComponent::ExecuteGPUInterpolation()
 				TEXT("ExecuteGPUInterpolation: No SkinWeightBuffer - using default bone weights"));
 			for (int32 i = 0; i < SourcePositions.Num(); ++i)
 			{
-				SourceBoneWeights[i * NumBoneInfluences] = 1.0f; // 첫 번째 본에 100% 가중치
+				SourceBoneWeights[i * NumBoneInfluences] = 1.0f; // 100% weight to the first bone
 			}
 		}
 
@@ -575,12 +575,12 @@ void UFleshRingSubdivisionComponent::ExecuteGPUInterpolation()
 			TEXT("ExecuteGPUInterpolation: Extracted real mesh data - %d vertices (normals, tangents, bone weights)"),
 			SourcePositions.Num());
 
-		// 결과 캐시 포인터 (렌더 스레드에서 접근용)
+		// Result cache pointer (for render thread access)
 		FSubdivisionResultCache* ResultCachePtr = &ResultCache;
 		const uint32 NumVertices = TopologyResult.SubdividedVertexCount;
 		const uint32 NumIndices = TopologyResult.Indices.Num();
 
-		// Render Thread에서 GPU 작업 실행 및 결과 캐싱
+		// Execute GPU work and cache results on Render Thread
 		ENQUEUE_RENDER_COMMAND(FleshRingSubdivisionGPU)(
 			[TopologyResult, SourcePositions, SourceNormals, SourceTangents, SourceUVs, SourceBoneWeights, SourceBoneIndices,
 			 NumBoneInfluences, ResultCachePtr, NumVertices, NumIndices]
@@ -593,7 +593,7 @@ void UFleshRingSubdivisionComponent::ExecuteGPUInterpolation()
 
 				FSubdivisionGPUBuffers Buffers;
 
-				// 소스 메시 데이터 업로드
+				// Upload source mesh data
 				UploadSourceMeshToGPU(
 					GraphBuilder,
 					SourcePositions,
@@ -605,14 +605,14 @@ void UFleshRingSubdivisionComponent::ExecuteGPUInterpolation()
 					NumBoneInfluences,
 					Buffers);
 
-				// 토폴로지 결과에서 GPU 버퍼 생성
+				// Create GPU buffers from topology result
 				CreateSubdivisionGPUBuffersFromTopology(GraphBuilder, TopologyResult, Params, Buffers);
 
-				// GPU 보간 Dispatch
+				// Dispatch GPU interpolation
 				DispatchFleshRingBarycentricInterpolationCS(GraphBuilder, Params, Buffers);
 
-				// 결과를 Pooled 버퍼로 변환하여 캐싱
-				// RDG 버퍼를 외부 버퍼로 추출 (GraphBuilder.Execute() 후에도 유지됨)
+				// Convert results to pooled buffers for caching
+				// Extract RDG buffers to external buffers (persists after GraphBuilder.Execute())
 				GraphBuilder.QueueBufferExtraction(Buffers.OutputPositions, &ResultCachePtr->PositionsBuffer);
 				GraphBuilder.QueueBufferExtraction(Buffers.OutputNormals, &ResultCachePtr->NormalsBuffer);
 				GraphBuilder.QueueBufferExtraction(Buffers.OutputTangents, &ResultCachePtr->TangentsBuffer);
@@ -623,7 +623,7 @@ void UFleshRingSubdivisionComponent::ExecuteGPUInterpolation()
 
 				GraphBuilder.Execute();
 
-				// 캐시 메타데이터 업데이트
+				// Update cache metadata
 				ResultCachePtr->NumVertices = NumVertices;
 				ResultCachePtr->NumIndices = NumIndices;
 				ResultCachePtr->bCached = true;
@@ -633,11 +633,11 @@ void UFleshRingSubdivisionComponent::ExecuteGPUInterpolation()
 					NumVertices, NumIndices);
 			});
 
-		return; // 성공적으로 처리됨
+		return; // Successfully processed
 	}
 
 FallbackToDefaults:
-	// 폴백: 기본값 사용 (기존 동작)
+	// Fallback: Use default values (existing behavior)
 	{
 		UE_LOG(LogFleshRingSubdivision, Warning,
 			TEXT("ExecuteGPUInterpolation: Using fallback default values for normals/tangents/bone weights"));
@@ -666,12 +666,12 @@ FallbackToDefaults:
 			SourceBoneWeights[i * NumBoneInfluences] = 1.0f;
 		}
 
-		// 결과 캐시 포인터 (렌더 스레드에서 접근용)
+		// Result cache pointer (for render thread access)
 		FSubdivisionResultCache* ResultCachePtr = &ResultCache;
 		const uint32 NumVertices = TopologyResult.SubdividedVertexCount;
 		const uint32 NumIndices = TopologyResult.Indices.Num();
 
-		// Render Thread에서 GPU 작업 실행 및 결과 캐싱
+		// Execute GPU work and cache results on Render Thread
 		ENQUEUE_RENDER_COMMAND(FleshRingSubdivisionGPUFallback)(
 			[TopologyResult, SourcePositions, SourceNormals, SourceTangents, SourceUVs, SourceBoneWeights, SourceBoneIndices,
 			 NumBoneInfluences, ResultCachePtr, NumVertices, NumIndices]
@@ -684,7 +684,7 @@ FallbackToDefaults:
 
 				FSubdivisionGPUBuffers Buffers;
 
-				// 소스 메시 데이터 업로드
+				// Upload source mesh data
 				UploadSourceMeshToGPU(
 					GraphBuilder,
 					SourcePositions,
@@ -696,13 +696,13 @@ FallbackToDefaults:
 					NumBoneInfluences,
 					Buffers);
 
-				// 토폴로지 결과에서 GPU 버퍼 생성
+				// Create GPU buffers from topology result
 				CreateSubdivisionGPUBuffersFromTopology(GraphBuilder, TopologyResult, Params, Buffers);
 
-				// GPU 보간 Dispatch
+				// Dispatch GPU interpolation
 				DispatchFleshRingBarycentricInterpolationCS(GraphBuilder, Params, Buffers);
 
-				// 결과를 Pooled 버퍼로 변환하여 캐싱
+				// Convert results to pooled buffers for caching
 				GraphBuilder.QueueBufferExtraction(Buffers.OutputPositions, &ResultCachePtr->PositionsBuffer);
 				GraphBuilder.QueueBufferExtraction(Buffers.OutputNormals, &ResultCachePtr->NormalsBuffer);
 				GraphBuilder.QueueBufferExtraction(Buffers.OutputTangents, &ResultCachePtr->TangentsBuffer);
@@ -713,7 +713,7 @@ FallbackToDefaults:
 
 				GraphBuilder.Execute();
 
-				// 캐시 메타데이터 업데이트
+				// Update cache metadata
 				ResultCachePtr->NumVertices = NumVertices;
 				ResultCachePtr->NumIndices = NumIndices;
 				ResultCachePtr->bCached = true;
@@ -729,68 +729,68 @@ FallbackToDefaults:
 
 void UFleshRingSubdivisionComponent::BakeSubdividedMesh()
 {
-	// 1. Subdivision이 계산되어 있는지 확인
+	// 1. Check if subdivision has been computed
 	if (!Processor.IsValid() || !Processor->IsCacheValid())
 	{
-		// 먼저 Subdivision 계산
+		// Compute subdivision first
 		ForceRecompute();
 
-		// Tick을 수동으로 호출하여 계산 완료
+		// Manually call Tick to complete computation
 		TickComponent(0.0f, ELevelTick::LEVELTICK_All, nullptr);
 
 		if (!Processor.IsValid() || !Processor->IsCacheValid())
 		{
-			UE_LOG(LogFleshRingSubdivision, Error, TEXT("BakeSubdividedMesh: Subdivision 계산 실패"));
+			UE_LOG(LogFleshRingSubdivision, Error, TEXT("BakeSubdividedMesh: Subdivision calculation failed"));
 			return;
 		}
 	}
 
 	if (!TargetMeshComp.IsValid())
 	{
-		UE_LOG(LogFleshRingSubdivision, Error, TEXT("BakeSubdividedMesh: TargetMeshComponent가 유효하지 않음"));
+		UE_LOG(LogFleshRingSubdivision, Error, TEXT("BakeSubdividedMesh: TargetMeshComponent is invalid"));
 		return;
 	}
 
 	USkeletalMesh* SourceMesh = TargetMeshComp->GetSkeletalMeshAsset();
 	if (!SourceMesh)
 	{
-		UE_LOG(LogFleshRingSubdivision, Error, TEXT("BakeSubdividedMesh: SourceMesh가 없음"));
+		UE_LOG(LogFleshRingSubdivision, Error, TEXT("BakeSubdividedMesh: SourceMesh is null"));
 		return;
 	}
 
 	const FSubdivisionTopologyResult& Result = Processor->GetCachedResult();
 
-	// Subdivision이 발생하지 않았으면 스킵
+	// Skip if no subdivision occurred
 	if (Result.SubdividedVertexCount <= Result.OriginalVertexCount)
 	{
-		UE_LOG(LogFleshRingSubdivision, Warning, TEXT("BakeSubdividedMesh: Subdivision이 발생하지 않음 (새 버텍스 없음)"));
+		UE_LOG(LogFleshRingSubdivision, Warning, TEXT("BakeSubdividedMesh: No subdivision occurred (no new vertices)"));
 		return;
 	}
 
 	UE_LOG(LogFleshRingSubdivision, Log,
-		TEXT("BakeSubdividedMesh 시작: %d -> %d vertices, %d -> %d triangles"),
+		TEXT("BakeSubdividedMesh started: %d -> %d vertices, %d -> %d triangles"),
 		Result.OriginalVertexCount, Result.SubdividedVertexCount,
 		Result.OriginalTriangleCount, Result.SubdividedTriangleCount);
 
-	// TODO: 새 SkeletalMesh 에셋 생성
-	// 이 기능은 복잡한 SkeletalMesh 생성 API를 사용해야 하므로
-	// FleshRingEditor 모듈에서 구현하는 것이 좋습니다.
-	// 현재는 플레이스홀더로 로그만 출력합니다.
+	// TODO: Create new SkeletalMesh asset
+	// This feature requires using complex SkeletalMesh creation APIs,
+	// so it should be implemented in the FleshRingEditor module.
+	// Currently only outputs placeholder logs.
 
 	UE_LOG(LogFleshRingSubdivision, Warning,
-		TEXT("BakeSubdividedMesh: SkeletalMesh 생성은 FleshRingEditor 모듈에서 구현 필요"));
+		TEXT("BakeSubdividedMesh: SkeletalMesh creation needs to be implemented in FleshRingEditor module"));
 	UE_LOG(LogFleshRingSubdivision, Log,
-		TEXT("  저장 경로: %s"),
+		TEXT("  Save path: %s"),
 		*BakedMeshSavePath);
 	UE_LOG(LogFleshRingSubdivision, Log,
-		TEXT("  접미사: %s"),
+		TEXT("  Suffix: %s"),
 		*BakedMeshSuffix);
 
-	// 에디터 알림
+	// Editor notification
 	if (GEngine)
 	{
 		GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Yellow,
-			FString::Printf(TEXT("BakeSubdividedMesh: %d -> %d vertices (SkeletalMesh 생성은 Editor 모듈에서 구현 필요)"),
+			FString::Printf(TEXT("BakeSubdividedMesh: %d -> %d vertices (SkeletalMesh creation needs to be implemented in Editor module)"),
 				Result.OriginalVertexCount, Result.SubdividedVertexCount));
 	}
 }
@@ -825,22 +825,22 @@ void UFleshRingSubdivisionComponent::DrawSubdividedVerticesDebug()
 		return;
 	}
 
-	// 월드 트랜스폼 (컴포넌트 스페이스 → 월드 스페이스)
+	// World transform (component space -> world space)
 	const FTransform& MeshTransform = TargetMeshComp->GetComponentTransform();
 
-	// 새로 추가된 버텍스만 시각화 (원본 버텍스 제외)
+	// Visualize only newly added vertices (exclude original vertices)
 	int32 NewVertexCount = 0;
 	for (int32 i = 0; i < Result.VertexData.Num(); ++i)
 	{
 		const FSubdivisionVertexData& VertexData = Result.VertexData[i];
 
-		// 원본 버텍스는 건너뛰기
+		// Skip original vertices
 		if (VertexData.IsOriginalVertex())
 		{
 			continue;
 		}
 
-		// 부모 버텍스 인덱스 유효성 검사
+		// Validate parent vertex indices
 		const uint32 P0 = VertexData.ParentV0;
 		const uint32 P1 = VertexData.ParentV1;
 		const uint32 P2 = VertexData.ParentV2;
@@ -852,30 +852,30 @@ void UFleshRingSubdivisionComponent::DrawSubdividedVerticesDebug()
 			continue;
 		}
 
-		// Barycentric 보간으로 위치 계산 (컴포넌트 스페이스)
+		// Calculate position using barycentric interpolation (component space)
 		const FVector3f& Bary = VertexData.BarycentricCoords;
 		FVector LocalPosition =
 			SourcePositions[P0] * Bary.X +
 			SourcePositions[P1] * Bary.Y +
 			SourcePositions[P2] * Bary.Z;
 
-		// 월드 스페이스로 변환
+		// Transform to world space
 		FVector WorldPosition = MeshTransform.TransformPosition(LocalPosition);
 
-		// 흰색 점으로 그리기
+		// Draw as white point
 		DrawDebugPoint(
 			World,
 			WorldPosition,
 			DebugPointSize,
 			FColor::White,
 			false,  // bPersistent
-			-1.0f   // LifeTime (매 프레임)
+			-1.0f   // LifeTime (every frame)
 		);
 
 		++NewVertexCount;
 	}
 
-	// 첫 프레임만 로그 출력
+	// Output log only on first frame
 	static bool bFirstFrame = true;
 	if (bFirstFrame && NewVertexCount > 0)
 	{
@@ -914,10 +914,10 @@ void UFleshRingSubdivisionComponent::DrawSubdividedWireframeDebug()
 		return;
 	}
 
-	// 월드 트랜스폼 (컴포넌트 스페이스 → 월드 스페이스)
+	// World transform (component space -> world space)
 	const FTransform& MeshTransform = TargetMeshComp->GetComponentTransform();
 
-	// 모든 버텍스 위치를 미리 계산 (원본 + 새 버텍스)
+	// Pre-calculate all vertex positions (original + new vertices)
 	TArray<FVector> AllPositions;
 	AllPositions.SetNum(Result.VertexData.Num());
 
@@ -929,7 +929,7 @@ void UFleshRingSubdivisionComponent::DrawSubdividedWireframeDebug()
 		const uint32 P1 = VertexData.ParentV1;
 		const uint32 P2 = VertexData.ParentV2;
 
-		// 유효성 검사
+		// Validation check
 		if (P0 >= (uint32)SourcePositions.Num() ||
 			P1 >= (uint32)SourcePositions.Num() ||
 			P2 >= (uint32)SourcePositions.Num())
@@ -938,21 +938,21 @@ void UFleshRingSubdivisionComponent::DrawSubdividedWireframeDebug()
 			continue;
 		}
 
-		// Barycentric 보간으로 위치 계산
+		// Calculate position using barycentric interpolation
 		const FVector3f& Bary = VertexData.BarycentricCoords;
 		FVector LocalPosition =
 			SourcePositions[P0] * Bary.X +
 			SourcePositions[P1] * Bary.Y +
 			SourcePositions[P2] * Bary.Z;
 
-		// 월드 스페이스로 변환
+		// Transform to world space
 		AllPositions[i] = MeshTransform.TransformPosition(LocalPosition);
 	}
 
-	// 모든 삼각형의 엣지를 빨간색 선으로 그리기
+	// Draw edges of all triangles as red lines
 	const int32 NumTriangles = Result.Indices.Num() / 3;
 
-	// 새로운 삼각형만 그리기 (원본 삼각형 수 이후)
+	// Draw only new triangles (after original triangle count)
 	const int32 OriginalTriCount = Result.OriginalTriangleCount;
 
 	for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
@@ -972,9 +972,9 @@ void UFleshRingSubdivisionComponent::DrawSubdividedWireframeDebug()
 		const FVector& V1 = AllPositions[I1];
 		const FVector& V2 = AllPositions[I2];
 
-		// 새로 추가된 삼각형은 빨간색, 원본은 초록색
-		// 원본 삼각형과 새 삼각형을 구분하기 어려우므로
-		// 새 버텍스를 포함하는지로 판단
+		// New triangles are red, original triangles are green
+		// Since it's difficult to distinguish original and new triangles,
+		// we determine by checking if the triangle contains new vertices
 		const bool bHasNewVertex =
 			!Result.VertexData[I0].IsOriginalVertex() ||
 			!Result.VertexData[I1].IsOriginalVertex() ||
@@ -982,7 +982,7 @@ void UFleshRingSubdivisionComponent::DrawSubdividedWireframeDebug()
 
 		FColor LineColor = bHasNewVertex ? FColor::Red : FColor::Green;
 
-		// 삼각형 3개의 엣지 그리기
+		// Draw the 3 edges of the triangle
 		DrawDebugLine(World, V0, V1, LineColor, false, -1.0f, 0, 1.0f);
 		DrawDebugLine(World, V1, V2, LineColor, false, -1.0f, 0, 1.0f);
 		DrawDebugLine(World, V2, V0, LineColor, false, -1.0f, 0, 1.0f);

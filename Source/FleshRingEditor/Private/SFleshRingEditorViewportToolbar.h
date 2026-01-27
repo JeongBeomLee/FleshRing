@@ -8,8 +8,8 @@
 class SFleshRingEditorViewport;
 
 /**
- * FleshRing 에디터 뷰포트 툴바
- * 뷰 모드, Show 플래그, 카메라 설정 등 제공
+ * FleshRing editor viewport toolbar
+ * Provides view mode, show flags, camera settings, etc.
  */
 class SFleshRingEditorViewportToolbar : public SCommonEditorViewportToolbarBase
 {
@@ -23,6 +23,6 @@ public:
 	virtual TSharedRef<SWidget> GenerateShowMenu() const override;
 
 private:
-	/** 뷰포트 참조 */
+	/** Viewport reference */
 	TWeakPtr<SFleshRingEditorViewport> Viewport;
 };

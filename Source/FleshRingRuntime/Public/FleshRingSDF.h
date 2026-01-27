@@ -8,8 +8,8 @@
 #include "ShaderParameterStruct.h"
 #include "RenderGraphUtils.h"
 
-// 메시 SDF 생성 Compute Shader
-// Point-to-Triangle 거리 계산으로 SDF 생성
+// Mesh SDF Generation Compute Shader
+// Generates SDF using Point-to-Triangle distance calculation
 class FMeshSDFGenerateCS : public FGlobalShader
 {
 public:
@@ -17,21 +17,21 @@ public:
     SHADER_USE_PARAMETER_STRUCT(FMeshSDFGenerateCS, FGlobalShader)
 
     BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
-        // 메시 데이터
+        // Mesh data
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<FVector3f>, MeshVertices)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<FIntVector>, MeshIndices)
         SHADER_PARAMETER(uint32, TriangleCount)
-        // SDF 파라미터
+        // SDF parameters
         SHADER_PARAMETER(FVector3f, SDFBoundsMin)
         SHADER_PARAMETER(FVector3f, SDFBoundsMax)
         SHADER_PARAMETER(FIntVector, SDFResolution)
-        // 출력
+        // Output
         SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture3D<float>, OutputSDF)
     END_SHADER_PARAMETER_STRUCT()
 };
 
-// SDF 슬라이스 시각화 Compute Shader
-// 3D SDF에서 Z 슬라이스 추출 + 색상 매핑
+// SDF Slice Visualization Compute Shader
+// Extracts Z slice from 3D SDF + color mapping
 class FSDFSliceVisualizeCS : public FGlobalShader
 {
 public:
@@ -39,21 +39,21 @@ public:
     SHADER_USE_PARAMETER_STRUCT(FSDFSliceVisualizeCS, FGlobalShader)
 
     BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
-        // 입력 SDF 텍스처
+        // Input SDF texture
         SHADER_PARAMETER_RDG_TEXTURE_SRV(Texture3D<float>, SDFTexture)
         SHADER_PARAMETER_SAMPLER(SamplerState, SDFSampler)
-        // 출력 2D 텍스처
+        // Output 2D texture
         SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutputSlice)
-        // 파라미터
+        // Parameters
         SHADER_PARAMETER(FIntVector, SDFResolution)
         SHADER_PARAMETER(int32, SliceZ)
         SHADER_PARAMETER(float, MaxDisplayDist)
     END_SHADER_PARAMETER_STRUCT()
 };
 
-// 메시 SDF 생성 함수
-// MeshData의 삼각형들로부터 SDF를 생성
-// 도넛홀 보정은 Apply2DSliceFloodFill로 별도 수행
+// Mesh SDF generation function
+// Generates SDF from MeshData triangles
+// Donut hole correction is performed separately via Apply2DSliceFloodFill
 void GenerateMeshSDF(
     FRDGBuilder& GraphBuilder,
     FRDGTextureRef OutputTexture,
@@ -63,7 +63,7 @@ void GenerateMeshSDF(
     FVector3f BoundsMax,
     FIntVector Resolution);
 
-// SDF 슬라이스 시각화 함수 (디버그용)
+// SDF slice visualization function (for debugging)
 void GenerateSDFSlice(
     FRDGBuilder& GraphBuilder,
     FRDGTextureRef SDFTexture,
@@ -72,10 +72,10 @@ void GenerateSDFSlice(
     int32 SliceZ,
     float MaxDisplayDist);
 
-// 2D Slice Flood Fill - 도넛홀 보정
-// 각 Z 슬라이스에서 XY 경계부터 flood하여 도넛홀 감지
+// 2D Slice Flood Fill - Donut hole correction
+// Floods from XY boundary in each Z slice to detect donut holes
 
-// 2D Flood 초기화 셰이더
+// 2D Flood initialization shader
 class F2DFloodInitializeCS : public FGlobalShader
 {
 public:
@@ -89,7 +89,7 @@ public:
     END_SHADER_PARAMETER_STRUCT()
 };
 
-// 2D Flood 전파 패스 셰이더
+// 2D Flood propagation pass shader
 class F2DFloodPassCS : public FGlobalShader
 {
 public:
@@ -104,8 +104,8 @@ public:
     END_SHADER_PARAMETER_STRUCT()
 };
 
-// Z축 투표 셰이더 - 도넛홀 판정을 Z축으로 전파
-// 각 XY 좌표에서 과반수가 "내부"면 모든 Z를 "내부"로 설정
+// Z-axis voting shader - Propagates donut hole determination along Z-axis
+// If majority at each XY coordinate is "inside", sets all Z values to "inside"
 class FZAxisVoteCS : public FGlobalShader
 {
 public:
@@ -120,7 +120,7 @@ public:
     END_SHADER_PARAMETER_STRUCT()
 };
 
-// 2D Flood 최종화 셰이더
+// 2D Flood finalization shader
 class F2DFloodFinalizeCS : public FGlobalShader
 {
 public:
@@ -135,8 +135,8 @@ public:
     END_SHADER_PARAMETER_STRUCT()
 };
 
-// 2D Slice Flood Fill 적용 함수
-// 도넛홀(XY 경계에서 도달 불가능한 외부 영역)을 내부로 변환
+// 2D Slice Flood Fill application function
+// Converts donut holes (exterior regions unreachable from XY boundary) to interior
 void Apply2DSliceFloodFill(
     FRDGBuilder& GraphBuilder,
     FRDGTextureRef InputSDF,

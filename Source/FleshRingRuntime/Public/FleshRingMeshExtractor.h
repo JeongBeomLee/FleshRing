@@ -1,7 +1,7 @@
 ﻿// Copyright 2026 LgThx. All Rights Reserved.
 
 // FleshRingMeshExtractor.h
-// UStaticMesh에서 버텍스/인덱스/노말 데이터를 추출하는 유틸리티
+// Utility to extract vertex/index/normal data from UStaticMesh
 #pragma once
 
 #include "CoreMinimal.h"
@@ -9,28 +9,28 @@
 #include "Engine/StaticMesh.h"
 #include "FleshRingMeshExtractor.generated.h"
 
-// GPU로 전달할 삼각형 데이터 구조체
+// Triangle data structure to be passed to GPU
 USTRUCT(BlueprintType)
 struct FLESHRINGRUNTIME_API FFleshRingMeshData
 {
     GENERATED_BODY()
 
-    // 버텍스 위치 배열
+    // Vertex position array
     TArray<FVector3f> Vertices;
 
-    // 삼각형 인덱스 (3개씩 = 1개 삼각형)
+    // Triangle indices (3 per triangle)
     TArray<uint32> Indices;
 
-    // 메시 바운딩 박스
+    // Mesh bounding box
     FBox3f Bounds;
 
-    // 삼각형 개수
+    // Triangle count
     int32 GetTriangleCount() const { return Indices.Num() / 3; }
 
-    // 버텍스 개수
+    // Vertex count
     int32 GetVertexCount() const { return Vertices.Num(); }
 
-    // 유효성 검사
+    // Validity check
     bool IsValid() const
     {
         return Vertices.Num() > 0 &&
@@ -38,7 +38,7 @@ struct FLESHRINGRUNTIME_API FFleshRingMeshData
                Indices.Num() % 3 == 0;
     }
 
-    // 데이터 클리어
+    // Clear data
     void Reset()
     {
         Vertices.Empty();
@@ -47,29 +47,29 @@ struct FLESHRINGRUNTIME_API FFleshRingMeshData
     }
 };
 
-// 메시 추출 유틸리티 클래스
+// Mesh extraction utility class
 UCLASS()
 class FLESHRINGRUNTIME_API UFleshRingMeshExtractor : public UBlueprintFunctionLibrary
 {
     GENERATED_BODY()
 
 public:
-    // UStaticMesh에서 데이터 추출 (LOD 0 사용)
-    // @param Mesh - 추출할 스태틱 메시
-    // @param OutMeshData - 추출된 데이터가 저장될 구조체
-    // @return 성공 여부
+    // Extract data from UStaticMesh (uses LOD 0)
+    // @param Mesh - Static mesh to extract from
+    // @param OutMeshData - Struct where extracted data will be stored
+    // @return Success or failure
     UFUNCTION(BlueprintCallable, Category = "FleshRing|Mesh")
     static bool ExtractMeshData(UStaticMesh* Mesh, FFleshRingMeshData& OutMeshData);
 
-    // 특정 LOD에서 데이터 추출
-    // @param Mesh - 추출할 스태틱 메시
-    // @param LODIndex - 사용할 LOD 인덱스
-    // @param OutMeshData - 추출된 데이터가 저장될 구조체
-    // @return 성공 여부
+    // Extract data from specific LOD
+    // @param Mesh - Static mesh to extract from
+    // @param LODIndex - LOD index to use
+    // @param OutMeshData - Struct where extracted data will be stored
+    // @return Success or failure
     UFUNCTION(BlueprintCallable, Category = "FleshRing|Mesh")
     static bool ExtractMeshDataFromLOD(UStaticMesh* Mesh, int32 LODIndex, FFleshRingMeshData& OutMeshData);
 
-    // 추출된 데이터 디버그 출력
+    // Debug print extracted data
     UFUNCTION(BlueprintCallable, Category = "FleshRing|Mesh")
     static void DebugPrintMeshData(const FFleshRingMeshData& MeshData);
 };

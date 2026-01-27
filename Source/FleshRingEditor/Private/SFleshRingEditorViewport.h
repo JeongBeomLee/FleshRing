@@ -13,8 +13,8 @@ class UFleshRingAsset;
 class FFleshRingEdMode;
 
 /**
- * FleshRing 에디터 뷰포트 위젯
- * 스켈레탈 메시와 Ring을 3D로 표시
+ * FleshRing editor viewport widget
+ * Displays skeletal mesh and Rings in 3D
  */
 class SFleshRingEditorViewport : public SEditorViewport, public ICommonEditorViewportToolbarInfoProvider
 {
@@ -26,25 +26,25 @@ public:
 	void Construct(const FArguments& InArgs);
 	virtual ~SFleshRingEditorViewport();
 
-	/** Asset 설정 */
+	/** Set Asset */
 	void SetAsset(UFleshRingAsset* InAsset);
 
-	/** 프리뷰 씬 갱신 (전체 재생성 - 슬라이더 드래그 종료 시) */
+	/** Refresh preview scene (full recreation - on slider drag end) */
 	void RefreshPreview();
 
-	/** Ring 트랜스폼만 업데이트 (깜빡임 없이 - 슬라이더 드래그 중) */
+	/** Update only Ring transforms (without flickering - during slider drag) */
 	void UpdateRingTransformsOnly(int32 DirtyRingIndex = INDEX_NONE);
 
-	/** SDF만 재생성 (VirtualBand 드래그 중 - 컴포넌트 재생성 없이) */
+	/** Regenerate SDF only (during VirtualBand drag - without component recreation) */
 	void RefreshSDFOnly();
 
-	/** 프리뷰 씬 반환 */
+	/** Return preview scene */
 	TSharedPtr<FFleshRingPreviewScene> GetPreviewScene() const { return PreviewScene; }
 
-	/** 뷰포트 클라이언트 반환 */
+	/** Return viewport client */
 	TSharedPtr<FFleshRingEditorViewportClient> GetViewportClient() const { return ViewportClient; }
 
-	/** 툴바 위젯 생성 */
+	/** Create toolbar widget */
 	TSharedRef<SWidget> MakeToolbar();
 
 	// ICommonEditorViewportToolbarInfoProvider interface
@@ -60,10 +60,10 @@ protected:
 	virtual void BindCommands() override;
 
 private:
-	/** 프리뷰 씬 */
+	/** Preview scene */
 	TSharedPtr<FFleshRingPreviewScene> PreviewScene;
 
-	/** 뷰포트 클라이언트 */
+	/** Viewport client */
 	TSharedPtr<FFleshRingEditorViewportClient> ViewportClient;
 
 	/** Editor Mode Tools */
@@ -72,6 +72,6 @@ private:
 	/** FleshRing EdMode */
 	FFleshRingEdMode* FleshRingEdMode = nullptr;
 
-	/** 편집 중인 Asset */
+	/** Asset being edited */
 	TWeakObjectPtr<UFleshRingAsset> EditingAsset;
 };

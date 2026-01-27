@@ -17,7 +17,7 @@ class FLESHRINGRUNTIME_API UFleshRingDeformer : public UMeshDeformer
 public:
 	UFleshRingDeformer();
 
-	/** 현재 활성화된 DeformerInstance 반환 (없으면 nullptr) */
+	/** Return currently active DeformerInstance (nullptr if none) */
 	UFleshRingDeformerInstance* GetActiveInstance() const { return ActiveInstance.Get(); }
 
 	// UMeshDeformer interface
@@ -25,18 +25,18 @@ public:
 	virtual UMeshDeformerInstance* CreateInstance(UMeshComponent* InMeshComponent, UMeshDeformerInstanceSettings* InSettings) override;
 
 private:
-	/** 생성된 DeformerInstance 캐싱 (GetActiveInstance()로 접근) */
+	/** Cache created DeformerInstance (access via GetActiveInstance()) */
 	UPROPERTY(Transient)
 	TWeakObjectPtr<UFleshRingDeformerInstance> ActiveInstance;
 
-	/** 이 Deformer를 생성/관리하는 FleshRingComponent (다중 컴포넌트 환경 지원) */
+	/** FleshRingComponent that creates/manages this Deformer (supports multi-component environment) */
 	UPROPERTY(Transient)
 	TWeakObjectPtr<UFleshRingComponent> OwnerFleshRingComponent;
 
 public:
-	/** Owner FleshRingComponent 설정 (SetupDeformer에서 호출) */
+	/** Set Owner FleshRingComponent (called from SetupDeformer) */
 	void SetOwnerFleshRingComponent(UFleshRingComponent* InComponent);
 
-	/** Owner FleshRingComponent 반환 */
+	/** Return Owner FleshRingComponent */
 	UFleshRingComponent* GetOwnerFleshRingComponent() const;
 };

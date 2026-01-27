@@ -21,35 +21,35 @@ TSharedRef<IDetailCustomization> FFleshRingDetailCustomization::MakeInstance()
 
 void FFleshRingDetailCustomization::CustomizeDetails(IDetailLayoutBuilder& DetailBuilder)
 {
-	// 선택된 오브젝트 캐싱
+	// Cache selected objects
 	DetailBuilder.GetObjectsBeingCustomized(SelectedObjects);
 
 	// =====================================
-	// 카테고리 순서 정의
+	// Define category order
 	// =====================================
 
-	// FleshRing Asset 카테고리 (맨 위)
+	// FleshRing Asset category (top)
 	IDetailCategoryBuilder& AssetCategory = DetailBuilder.EditCategory(
 		TEXT("FleshRing Asset"),
 		LOCTEXT("FleshRingAssetCategory", "FleshRing Asset"),
 		ECategoryPriority::Important
 	);
 
-	// General 카테고리
+	// General category
 	IDetailCategoryBuilder& GeneralCategory = DetailBuilder.EditCategory(
 		TEXT("General"),
 		LOCTEXT("GeneralCategory", "General"),
 		ECategoryPriority::Default
 	);
 
-	// Target Settings 카테고리
+	// Target Settings category
 	IDetailCategoryBuilder& TargetCategory = DetailBuilder.EditCategory(
 		TEXT("Target Settings"),
 		LOCTEXT("TargetSettingsCategory", "Target Settings"),
 		ECategoryPriority::Default
 	);
 
-	// Debug 카테고리 (에디터 전용)
+	// Debug category (editor only)
 	IDetailCategoryBuilder& DebugCategory = DetailBuilder.EditCategory(
 		TEXT("Debug"),
 		LOCTEXT("DebugCategory", "Debug / Visualization"),
@@ -57,13 +57,13 @@ void FFleshRingDetailCustomization::CustomizeDetails(IDetailLayoutBuilder& Detai
 	);
 
 	// =====================================
-	// FleshRingAsset 프로퍼티 필터링 적용
+	// Apply FleshRingAsset property filtering
 	// =====================================
 
 	TSharedRef<IPropertyHandle> AssetPropertyHandle = DetailBuilder.GetProperty(
 		GET_MEMBER_NAME_CHECKED(UFleshRingComponent, FleshRingAsset));
 
-	// 기존 프로퍼티 숨기고 필터링된 버전으로 교체
+	// Hide existing property and replace with filtered version
 	DetailBuilder.HideProperty(AssetPropertyHandle);
 
 	AssetCategory.AddCustomRow(LOCTEXT("FleshRingAssetRow", "FleshRing Asset"))
@@ -82,7 +82,7 @@ void FFleshRingDetailCustomization::CustomizeDetails(IDetailLayoutBuilder& Detai
 		];
 
 	// =====================================
-	// 기본 카테고리 숨기기
+	// Hide default categories
 	// =====================================
 
 	DetailBuilder.HideCategory(TEXT("ComponentTick"));
@@ -119,7 +119,7 @@ USkeletalMesh* FFleshRingDetailCustomization::GetOwnerSkeletalMesh() const
 		return nullptr;
 	}
 
-	// Owner에서 SkeletalMeshComponent 찾기
+	// Find SkeletalMeshComponent from Owner
 	TArray<USkeletalMeshComponent*> SkelMeshComponents;
 	Owner->GetComponents<USkeletalMeshComponent>(SkelMeshComponents);
 
@@ -133,37 +133,37 @@ USkeletalMesh* FFleshRingDetailCustomization::GetOwnerSkeletalMesh() const
 
 bool FFleshRingDetailCustomization::OnShouldFilterAsset(const FAssetData& AssetData) const
 {
-	// true 반환 = 필터링됨(숨김), false 반환 = 표시
+	// return true = filtered (hidden), return false = shown
 
 	USkeletalMesh* OwnerMesh = GetOwnerSkeletalMesh();
 
-	// Owner에 SkeletalMesh가 없으면 모든 Asset 표시
+	// If Owner has no SkeletalMesh, show all Assets
 	if (!OwnerMesh)
 	{
 		return false;
 	}
 
-	// Asset 로드해서 TargetSkeletalMesh 확인
+	// Load Asset to check TargetSkeletalMesh
 	UFleshRingAsset* Asset = Cast<UFleshRingAsset>(AssetData.GetAsset());
 	if (!Asset)
 	{
-		return false;  // 로드 실패 시 표시
+		return false;  // Show on load failure
 	}
 
-	// TargetSkeletalMesh가 설정되지 않은 Asset은 항상 표시
+	// Always show Assets with no TargetSkeletalMesh set
 	if (Asset->TargetSkeletalMesh.IsNull())
 	{
 		return false;
 	}
 
-	// TargetSkeletalMesh와 Owner의 SkeletalMesh 비교
+	// Compare TargetSkeletalMesh with Owner's SkeletalMesh
 	USkeletalMesh* AssetTargetMesh = Asset->TargetSkeletalMesh.LoadSynchronous();
 	if (!AssetTargetMesh)
 	{
-		return false;  // 로드 실패 시 표시
+		return false;  // Show on load failure
 	}
 
-	// 일치하면 표시(false), 불일치하면 숨김(true)
+	// Match = show (false), mismatch = hide (true)
 	return AssetTargetMesh != OwnerMesh;
 }
 

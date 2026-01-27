@@ -56,7 +56,7 @@ void DispatchFleshRingBulgeCS(
 	}
 	else
 	{
-		// Dummy SDF (SDF 텍스처가 없는 경우 더미 텍스처를 RDG가 필요로 함)
+		// Dummy SDF (RDG requires a dummy texture when no SDF texture is provided)
 		FRDGTextureDesc DummySDFDesc = FRDGTextureDesc::Create3D(
 			FIntVector(1, 1, 1),
 			PF_R32_FLOAT,
@@ -89,12 +89,12 @@ void DispatchFleshRingBulgeCS(
 	PassParameters->LowerBulgeStrength = Params.LowerBulgeStrength;
 	PassParameters->bUseSDFInfluence = Params.bUseSDFInfluence;
 
-	// VirtualRing 모드용 파라미터 (Component Space)
+	// VirtualRing mode parameters (Component Space)
 	PassParameters->RingCenter = Params.RingCenter;
 	PassParameters->RingAxis = Params.RingAxis;
 	PassParameters->RingHeight = Params.RingHeight;
 
-	// Debug Point Output은 DebugPointOutputCS에서 처리
+	// Debug Point Output handled by DebugPointOutputCS
 
 	TShaderMapRef<FFleshRingBulgeCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
 

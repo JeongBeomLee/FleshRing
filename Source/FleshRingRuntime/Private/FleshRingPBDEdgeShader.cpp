@@ -58,8 +58,8 @@ void DispatchFleshRingPBDEdgeCS(
 	// Bind affected indices
 	PassParameters->AffectedIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
 
-	// UV Seam Welding: RepresentativeIndices 바인딩
-	// nullptr이면 AffectedIndices를 fallback으로 사용
+	// UV Seam Welding: Bind RepresentativeIndices
+	// If nullptr, use AffectedIndices as fallback
 	if (RepresentativeIndicesBuffer)
 	{
 		PassParameters->RepresentativeIndices = GraphBuilder.CreateSRV(RepresentativeIndicesBuffer);

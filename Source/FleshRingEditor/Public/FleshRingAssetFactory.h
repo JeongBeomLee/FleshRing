@@ -7,7 +7,7 @@
 #include "FleshRingAssetFactory.generated.h"
 
 /**
- * Content Browser에서 FleshRing Asset 생성을 위한 팩토리
+ * Factory for creating FleshRing Asset in Content Browser
  */
 UCLASS()
 class UFleshRingAssetFactory : public UFactory

@@ -15,14 +15,14 @@ bool UFleshRingMeshExtractor::ExtractMeshDataFromLOD(UStaticMesh* Mesh, int32 LO
 {
     OutMeshData.Reset();
 
-    // 1. 유효성 검사
+    // 1. Validation check
     if (!Mesh)
     {
         UE_LOG(LogTemp, Error, TEXT("ExtractMeshData: Mesh is null"));
         return false;
     }
 
-    // 렌더 데이터 확인
+    // Check render data
     FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
     if (!RenderData)
     {
@@ -30,7 +30,7 @@ bool UFleshRingMeshExtractor::ExtractMeshDataFromLOD(UStaticMesh* Mesh, int32 LO
         return false;
     }
 
-    // LOD 유효성 검사
+    // LOD validation check
     if (LODIndex < 0 || LODIndex >= RenderData->LODResources.Num())
     {
         UE_LOG(LogTemp, Error, TEXT("ExtractMeshData: Invalid LOD index %d (max: %d)"),
@@ -38,10 +38,10 @@ bool UFleshRingMeshExtractor::ExtractMeshDataFromLOD(UStaticMesh* Mesh, int32 LO
         return false;
     }
 
-    // 2. LOD 리소스 가져오기
+    // 2. Get LOD resources
     const FStaticMeshLODResources& LODResource = RenderData->LODResources[LODIndex];
 
-    // 3. 버텍스 추출
+    // 3. Extract vertices
     const FPositionVertexBuffer& PositionBuffer = LODResource.VertexBuffers.PositionVertexBuffer;
     const int32 VertexCount = PositionBuffer.GetNumVertices();
 
@@ -53,49 +53,49 @@ bool UFleshRingMeshExtractor::ExtractMeshDataFromLOD(UStaticMesh* Mesh, int32 LO
 
     OutMeshData.Vertices.SetNum(VertexCount);
 
-    // 바운딩 박스 초기화
+    // Initialize bounding box
     FVector3f MinBounds(FLT_MAX, FLT_MAX, FLT_MAX);
     FVector3f MaxBounds(-FLT_MAX, -FLT_MAX, -FLT_MAX);
 
     for (int32 i = 0; i < VertexCount; i++)
     {
-        // UE5에서는 VertexPosition이 FVector3f를 반환
+        // In UE5, VertexPosition returns FVector3f
         const FVector3f& Position = PositionBuffer.VertexPosition(i);
         OutMeshData.Vertices[i] = Position;
 
-        // 바운딩 박스 업데이트
+        // Update bounding box
         MinBounds = FVector3f::Min(MinBounds, Position);
         MaxBounds = FVector3f::Max(MaxBounds, Position);
     }
 
     OutMeshData.Bounds = FBox3f(MinBounds, MaxBounds);
 
-    // 4. 인덱스 추출
+    // 4. Extract indices
     const FRawStaticIndexBuffer& IndexBuffer = LODResource.IndexBuffer;
 
-    // 인덱스 버퍼 접근 (16비트 또는 32비트)
+    // Access index buffer (16-bit or 32-bit)
     TArray<uint32> AllIndices;
 
     if (IndexBuffer.Is32Bit())
     {
-        // 32비트 인덱스
+        // 32-bit indices
         const int32 NumIndices = IndexBuffer.GetNumIndices();
         AllIndices.SetNum(NumIndices);
 
-        // 인덱스 버퍼에서 직접 복사
-        // GetCopy를 사용하여 CPU 접근 가능한 복사본 생성
+        // Copy directly from index buffer
+        // Create CPU-accessible copy using GetCopy
         IndexBuffer.GetCopy(AllIndices);
     }
     else
     {
-        // 16비트 인덱스 → 32비트로 변환
+        // Convert 16-bit indices to 32-bit
         const int32 NumIndices = IndexBuffer.GetNumIndices();
         AllIndices.SetNum(NumIndices);
 
         TArray<uint16> Indices16;
         Indices16.SetNum(NumIndices);
 
-        // 16비트 버전으로 복사
+        // Copy as 16-bit version
         TArray<uint32> TempIndices;
         IndexBuffer.GetCopy(TempIndices);
 
@@ -105,8 +105,8 @@ bool UFleshRingMeshExtractor::ExtractMeshDataFromLOD(UStaticMesh* Mesh, int32 LO
         }
     }
 
-    // 섹션별로 인덱스 처리 (여러 머티리얼 슬롯 지원)
-    // 일단은 모든 섹션의 삼각형을 합침
+    // Process indices per section (supports multiple material slots)
+    // For now, combine triangles from all sections
     OutMeshData.Indices = MoveTemp(AllIndices);
 
     if (OutMeshData.Indices.Num() == 0 || OutMeshData.Indices.Num() % 3 != 0)
@@ -134,7 +134,7 @@ void UFleshRingMeshExtractor::DebugPrintMeshData(const FFleshRingMeshData& MeshD
     UE_LOG(LogTemp, Warning, TEXT("Bounds Max: %s"), *MeshData.Bounds.Max.ToString());
     UE_LOG(LogTemp, Warning, TEXT("IsValid: %s"), MeshData.IsValid() ? TEXT("Yes") : TEXT("No"));
 
-    // 처음 몇 개 버텍스 출력
+    // Print first few vertices
     const int32 MaxVertexPrint = FMath::Min(5, MeshData.GetVertexCount());
     for (int32 i = 0; i < MaxVertexPrint; i++)
     {
@@ -146,7 +146,7 @@ void UFleshRingMeshExtractor::DebugPrintMeshData(const FFleshRingMeshData& MeshD
         UE_LOG(LogTemp, Warning, TEXT("  ... and %d more vertices"), MeshData.GetVertexCount() - MaxVertexPrint);
     }
 
-    // 처음 몇 개 삼각형 출력
+    // Print first few triangles
     const int32 MaxTrianglePrint = FMath::Min(3, MeshData.GetTriangleCount());
     for (int32 i = 0; i < MaxTrianglePrint; i++)
     {

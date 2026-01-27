@@ -33,7 +33,7 @@ bool FHalfEdgeMesh::BuildFromTriangles(
 		Vert.UV = InUVs.IsValidIndex(i) ? InUVs[i] : FVector2D::ZeroVector;
 		Vert.HalfEdgeIndex = -1;
 
-		// 부모 정보 설정 (있으면)
+		// Set parent info (if available)
 		if (InParentIndices && InParentIndices->IsValidIndex(i))
 		{
 			Vert.ParentIndex0 = (*InParentIndices)[i].Key;
@@ -389,8 +389,8 @@ int32 FLEBSubdivision::SubdivideRegion(
 	{
 		Positions.Add(V.Position);
 		UVs.Add(V.UV);
-		// 부모 정보 유지 (멀티레벨 Subdivision용)
-		// 원본 버텍스: INDEX_NONE, 이전 레벨 생성 버텍스: 부모 인덱스 보존
+		// Preserve parent info (for multi-level Subdivision)
+		// Original vertex: INDEX_NONE, previous level generated vertex: preserve parent indices
 		ParentIndices.Add(TPair<int32, int32>(V.ParentIndex0, V.ParentIndex1));
 	}
 
@@ -430,7 +430,7 @@ int32 FLEBSubdivision::SubdivideRegion(
 		return A.Z < B.Z;
 	};
 
-	// 1. Position-based: GREEN split 감지용
+	// 1. Position-based: For GREEN split detection
 	TSet<TPair<FIntVector, FIntVector>> PositionMidpointSet;
 
 	auto MakePositionKey = [&](int32 VA, int32 VB) -> TPair<FIntVector, FIntVector>
@@ -443,7 +443,7 @@ int32 FLEBSubdivision::SubdivideRegion(
 			return TPair<FIntVector, FIntVector>(KeyB, KeyA);
 	};
 
-	// 2. Index-based: 버텍스 재사용용 (UV 보존)
+	// 2. Index-based: For vertex reuse (UV preservation)
 	TMap<TPair<int32, int32>, int32> IndexMidpointMap;
 
 	auto MakeIndexKey = [](int32 A, int32 B) -> TPair<int32, int32>
@@ -510,15 +510,15 @@ int32 FLEBSubdivision::SubdivideRegion(
 		TriNeedsRedSplit.SetNumZeroed(NumTris);
 
 		// ========================================================================
-		// 최적화: 버텍스별 영역 판정 캐싱 (Torus)
-		// 같은 버텍스가 여러 삼각형에 공유되어도 1번만 검사
+		// Optimization: Per-vertex region check caching (Torus)
+		// Even if the same vertex is shared by multiple triangles, check only once
 		// ========================================================================
 		const int32 NumPositions = Positions.Num();
-		TArray<int8> VertexInRegionCache;  // -1: 미검사, 0: 밖, 1: 안
+		TArray<int8> VertexInRegionCache;  // -1: unchecked, 0: outside, 1: inside
 		VertexInRegionCache.SetNumUninitialized(NumPositions);
 		FMemory::Memset(VertexInRegionCache.GetData(), -1, NumPositions);
 
-		// 캐싱된 버텍스 영역 검사 람다
+		// Cached vertex region check lambda
 		auto IsVertexInRegionCached = [&](int32 VertexIndex) -> bool
 		{
 			if (VertexInRegionCache[VertexIndex] == -1)
@@ -535,14 +535,14 @@ int32 FLEBSubdivision::SubdivideRegion(
 			int32 V1 = Triangles[i * 3 + 1];
 			int32 V2 = Triangles[i * 3 + 2];
 
-			// 최적화: 캐싱된 버텍스 검사 사용
+			// Optimization: Use cached vertex checks
 			bool bInRegion = false;
 			if (IsVertexInRegionCached(V0)) bInRegion = true;
 			else if (IsVertexInRegionCached(V1)) bInRegion = true;
 			else if (IsVertexInRegionCached(V2)) bInRegion = true;
 			else
 			{
-				// Edge midpoints 검사 (캐싱 불가 - 매번 새로운 위치)
+				// Edge midpoints check (cannot cache - new positions each time)
 				const FVector& P0 = Positions[V0];
 				const FVector& P1 = Positions[V1];
 				const FVector& P2 = Positions[V2];
@@ -556,7 +556,7 @@ int32 FLEBSubdivision::SubdivideRegion(
 				else if (IsInInfluenceRegion(Mid20)) bInRegion = true;
 				else
 				{
-					// 중심점 검사
+					// Centroid check
 					FVector Center = (P0 + P1 + P2) / 3.0f;
 					if (IsInInfluenceRegion(Center)) bInRegion = true;
 				}
@@ -634,7 +634,7 @@ int32 FLEBSubdivision::SubdivideRegion(
 			int32 V2 = NewTriangles[i * 3 + 2];
 			int32 MatIdx = NewMaterialIndices.IsValidIndex(i) ? NewMaterialIndices[i] : 0;
 
-			// 위치 기반으로 중점 존재 여부 감지
+			// Detect midpoint existence based on position
 			bool bHas01 = HasMidpointAtEdge(V0, V1);
 			bool bHas12 = HasMidpointAtEdge(V1, V2);
 			bool bHas20 = HasMidpointAtEdge(V2, V0);
@@ -648,7 +648,7 @@ int32 FLEBSubdivision::SubdivideRegion(
 			}
 			else if (NumMidpoints == 3)
 			{
-				// GREEN-3: 이웃들이 전부 RED split됨 → 강제 4분할
+				// GREEN-3: All neighbors RED split -> force 4-way split
 				int32 M01 = GetOrCreateMidpoint(V0, V1);
 				int32 M12 = GetOrCreateMidpoint(V1, V2);
 				int32 M20 = GetOrCreateMidpoint(V2, V0);
@@ -796,10 +796,10 @@ int32 FLEBSubdivision::SubdivideRegion(
 	float MinEdgeLength)
 {
 	// ======================================================================
-	// OBB Debug - DrawSdfVolume과 동일한 파라미터 출력
+	// OBB Debug - Output parameters identical to DrawSdfVolume
 	// ======================================================================
 
-	// 메시 버텍스 범위 계산
+	// Calculate mesh vertex bounds
 	FVector VertexMin(FLT_MAX), VertexMax(-FLT_MAX);
 	for (const FHalfEdgeVertex& V : Mesh.Vertices)
 	{
@@ -809,14 +809,14 @@ int32 FLEBSubdivision::SubdivideRegion(
 
 	UE_LOG(LogTemp, Log, TEXT(""));
 	UE_LOG(LogTemp, Log, TEXT("======== SubdivideRegion OBB Debug ========"));
-	UE_LOG(LogTemp, Log, TEXT("  [OBB Parameters (DrawSdfVolume과 동일)]"));
+	UE_LOG(LogTemp, Log, TEXT("  [OBB Parameters (identical to DrawSdfVolume)]"));
 	UE_LOG(LogTemp, Log, TEXT("    Center: %s"), *OBB.Center.ToString());
 	UE_LOG(LogTemp, Log, TEXT("    HalfExtents: %s"), *OBB.HalfExtents.ToString());
 	UE_LOG(LogTemp, Log, TEXT("    AxisX: %s"), *OBB.AxisX.ToString());
 	UE_LOG(LogTemp, Log, TEXT("    AxisY: %s"), *OBB.AxisY.ToString());
 	UE_LOG(LogTemp, Log, TEXT("    AxisZ: %s"), *OBB.AxisZ.ToString());
 	UE_LOG(LogTemp, Log, TEXT("    InfluenceMargin: %.2f"), OBB.InfluenceMargin);
-	UE_LOG(LogTemp, Log, TEXT("  [Local Bounds (디버그용)]"));
+	UE_LOG(LogTemp, Log, TEXT("  [Local Bounds (for debugging)]"));
 	UE_LOG(LogTemp, Log, TEXT("    LocalBoundsMin: %s"), *OBB.LocalBoundsMin.ToString());
 	UE_LOG(LogTemp, Log, TEXT("    LocalBoundsMax: %s"), *OBB.LocalBoundsMax.ToString());
 	UE_LOG(LogTemp, Log, TEXT("    LocalSize: %s"), *(OBB.LocalBoundsMax - OBB.LocalBoundsMin).ToString());
@@ -824,11 +824,11 @@ int32 FLEBSubdivision::SubdivideRegion(
 	UE_LOG(LogTemp, Log, TEXT("    VertexMin: %s"), *VertexMin.ToString());
 	UE_LOG(LogTemp, Log, TEXT("    VertexMax: %s"), *VertexMax.ToString());
 
-	// 샘플 버텍스 테스트 - 실제 투영 값 출력
+	// Sample vertex test - output actual projection values
 	UE_LOG(LogTemp, Log, TEXT("  [Sample Vertex Projection Test]"));
 	if (Mesh.Vertices.Num() > 0)
 	{
-		// 중앙 근처 버텍스, 최소 버텍스, 최대 버텍스 테스트
+		// Test vertices near center, minimum vertex, maximum vertex
 		TArray<int32> SampleIndices = { 0, Mesh.Vertices.Num() / 2, Mesh.Vertices.Num() - 1 };
 		for (int32 Idx : SampleIndices)
 		{
@@ -860,7 +860,7 @@ int32 FLEBSubdivision::SubdivideRegion(
 	TArray<FVector2D> UVs;
 	TArray<int32> Triangles;
 	TArray<int32> MaterialIndices;  // Per-triangle material index
-	TArray<TPair<int32, int32>> ParentIndices;  // Per-vertex parent info (Subdivision 생성 시점에 기록)
+	TArray<TPair<int32, int32>> ParentIndices;  // Per-vertex parent info (recorded at Subdivision creation time)
 
 	Positions.Reserve(Mesh.Vertices.Num());
 	UVs.Reserve(Mesh.Vertices.Num());
@@ -869,8 +869,8 @@ int32 FLEBSubdivision::SubdivideRegion(
 	{
 		Positions.Add(V.Position);
 		UVs.Add(V.UV);
-		// 부모 정보 유지 (멀티레벨 Subdivision용)
-		// 원본 버텍스: INDEX_NONE, 이전 레벨 생성 버텍스: 부모 인덱스 보존
+		// Preserve parent info (for multi-level Subdivision)
+		// Original vertex: INDEX_NONE, previous level generated vertex: preserve parent indices
 		ParentIndices.Add(TPair<int32, int32>(V.ParentIndex0, V.ParentIndex1));
 	}
 
@@ -892,19 +892,19 @@ int32 FLEBSubdivision::SubdivideRegion(
 	// ============================================================================
 	// Dual Midpoint Map System (Position + Index)
 	// ============================================================================
-	// 문제 1: 머티리얼 섹션/UV seam 경계에서 같은 위치의 버텍스가 다른 인덱스
-	//         -> GREEN split이 중점 존재를 감지 못함
-	// 문제 2: 위치만으로 버텍스 공유하면 UV가 섞임
-	//         -> UV seam에서 렌더링 아티팩트 발생
+	// Problem 1: At material section/UV seam boundaries, vertices at same position have different indices
+	//            -> GREEN split cannot detect midpoint existence
+	// Problem 2: Sharing vertices by position only mixes UVs
+	//            -> Rendering artifacts at UV seams
 	//
-	// 해결: 두 개의 맵 사용
-	//   1. PositionMidpointMap: GREEN split 감지용 (위치 기반) - "이 edge에 중점이 있나?"
-	//   2. IndexMidpointMap: 버텍스 재사용용 (인덱스 기반) - "같은 UV면 재사용"
+	// Solution: Use two maps
+	//   1. PositionMidpointMap: For GREEN split detection (position-based) - "Is there a midpoint on this edge?"
+	//   2. IndexMidpointMap: For vertex reuse (index-based) - "Reuse if same UV"
 	// ============================================================================
 
 	constexpr float MidpointWeldPrecision = 0.1f;
 
-	// Position -> 양자화된 정수 좌표 변환
+	// Position -> quantized integer coordinate conversion
 	auto PositionToKey = [MidpointWeldPrecision](const FVector& Pos) -> FIntVector
 	{
 		return FIntVector(
@@ -921,7 +921,7 @@ int32 FLEBSubdivision::SubdivideRegion(
 		return A.Z < B.Z;
 	};
 
-	// 1. Position-based map: GREEN split 감지용 (이 위치의 edge에 중점이 있는지)
+	// 1. Position-based map: For GREEN split detection (whether midpoint exists at this edge position)
 	TSet<TPair<FIntVector, FIntVector>> PositionMidpointSet;
 
 	auto MakePositionKey = [&](int32 VA, int32 VB) -> TPair<FIntVector, FIntVector>
@@ -934,7 +934,7 @@ int32 FLEBSubdivision::SubdivideRegion(
 			return TPair<FIntVector, FIntVector>(KeyB, KeyA);
 	};
 
-	// 2. Index-based map: 버텍스 재사용용 (같은 인덱스 = 같은 UV)
+	// 2. Index-based map: For vertex reuse (same index = same UV)
 	TMap<TPair<int32, int32>, int32> IndexMidpointMap;
 
 	auto MakeIndexKey = [](int32 A, int32 B) -> TPair<int32, int32>
@@ -942,57 +942,57 @@ int32 FLEBSubdivision::SubdivideRegion(
 		return A < B ? TPair<int32, int32>(A, B) : TPair<int32, int32>(B, A);
 	};
 
-	// 디버그 통계
+	// Debug statistics
 	int32 DebugMidpointCreated = 0, DebugMidpointReused = 0;
 
-	// GetOrCreateMidpoint: 인덱스 기반으로 재사용, 위치 기반으로 존재 등록
+	// GetOrCreateMidpoint: Reuse based on index, register existence based on position
 	auto GetOrCreateMidpoint = [&](int32 VA, int32 VB) -> int32
 	{
 		TPair<int32, int32> IndexKey = MakeIndexKey(VA, VB);
 
-		// 같은 인덱스(= 같은 UV)면 재사용
+		// Reuse if same index (= same UV)
 		if (int32* Existing = IndexMidpointMap.Find(IndexKey))
 		{
 			DebugMidpointReused++;
 			return *Existing;
 		}
 
-		// 새 버텍스 생성 (자기 UV로)
+		// Create new vertex (with its own UV)
 		DebugMidpointCreated++;
 		int32 NewIdx = Positions.Num();
 		Positions.Add((Positions[VA] + Positions[VB]) * 0.5f);
-		UVs.Add((UVs[VA] + UVs[VB]) * 0.5f);  // 자기 삼각형의 UV로 보간
+		UVs.Add((UVs[VA] + UVs[VB]) * 0.5f);  // Interpolate with its own triangle's UV
 		ParentIndices.Add(TPair<int32, int32>(VA, VB));
 
-		// 두 맵 모두에 등록
+		// Register in both maps
 		IndexMidpointMap.Add(IndexKey, NewIdx);
-		PositionMidpointSet.Add(MakePositionKey(VA, VB));  // GREEN split 감지용
+		PositionMidpointSet.Add(MakePositionKey(VA, VB));  // For GREEN split detection
 
 		return NewIdx;
 	};
 
-	// GREEN split용: 이 edge에 중점이 있는지 확인 (위치 기반)
+	// For GREEN split: Check if midpoint exists at this edge (position-based)
 	auto HasMidpointAtEdge = [&](int32 VA, int32 VB) -> bool
 	{
 		return PositionMidpointSet.Contains(MakePositionKey(VA, VB));
 	};
 
-	// 디버그용 통계
+	// Debug statistics
 	int32 DebugInCount = 0, DebugOutCount = 0;
 	int32 DebugFailX = 0, DebugFailY = 0, DebugFailZ = 0;
 
-	// OBB influence check - DrawSdfVolume과 동일한 방식
+	// OBB influence check - Same method as DrawSdfVolume
 	auto IsInInfluenceRegion = [&](const FVector& P) -> bool
 	{
-		// 점에서 OBB 중심까지의 벡터
+		// Vector from point to OBB center
 		FVector D = P - OBB.Center;
 
-		// 각 OBB 축에 투영
+		// Project onto each OBB axis
 		float ProjX = FMath::Abs(FVector::DotProduct(D, OBB.AxisX));
 		float ProjY = FMath::Abs(FVector::DotProduct(D, OBB.AxisY));
 		float ProjZ = FMath::Abs(FVector::DotProduct(D, OBB.AxisZ));
 
-		// 마진 포함 범위 체크
+		// Range check including margin
 		bool bInX = ProjX <= OBB.HalfExtents.X + OBB.InfluenceMargin;
 		bool bInY = ProjY <= OBB.HalfExtents.Y + OBB.InfluenceMargin;
 		bool bInZ = ProjZ <= OBB.HalfExtents.Z + OBB.InfluenceMargin;
@@ -1023,20 +1023,20 @@ int32 FLEBSubdivision::SubdivideRegion(
 		TriNeedsRedSplit.SetNumZeroed(NumTris);
 
 		// ========================================================================
-		// 최적화: 버텍스별 영역 판정 캐싱
-		// 같은 버텍스가 여러 삼각형에 공유되어도 1번만 검사
+		// Optimization: Per-vertex region check caching
+		// Even if the same vertex is shared by multiple triangles, check only once
 		// ========================================================================
 		const int32 NumPositions = Positions.Num();
-		TArray<int8> VertexInRegionCache;  // -1: 미검사, 0: 밖, 1: 안
+		TArray<int8> VertexInRegionCache;  // -1: unchecked, 0: outside, 1: inside
 		VertexInRegionCache.SetNumUninitialized(NumPositions);
 		FMemory::Memset(VertexInRegionCache.GetData(), -1, NumPositions);
 
-		// 캐싱된 버텍스 영역 검사 람다
+		// Cached vertex region check lambda
 		auto IsVertexInRegionCached = [&](int32 VertexIndex) -> bool
 		{
 			if (VertexInRegionCache[VertexIndex] == -1)
 			{
-				// 처음 검사 - 결과 캐싱
+				// First check - cache the result
 				VertexInRegionCache[VertexIndex] = IsInInfluenceRegion(Positions[VertexIndex]) ? 1 : 0;
 			}
 			return VertexInRegionCache[VertexIndex] == 1;
@@ -1049,14 +1049,14 @@ int32 FLEBSubdivision::SubdivideRegion(
 			int32 V1 = Triangles[i * 3 + 1];
 			int32 V2 = Triangles[i * 3 + 2];
 
-			// 최적화: 캐싱된 버텍스 검사 사용
+			// Optimization: Use cached vertex checks
 			bool bInRegion = false;
 			if (IsVertexInRegionCached(V0)) bInRegion = true;
 			else if (IsVertexInRegionCached(V1)) bInRegion = true;
 			else if (IsVertexInRegionCached(V2)) bInRegion = true;
 			else
 			{
-				// Edge midpoints 검사 (캐싱 불가 - 매번 새로운 위치)
+				// Edge midpoints check (cannot cache - new positions each time)
 				const FVector& P0 = Positions[V0];
 				const FVector& P1 = Positions[V1];
 				const FVector& P2 = Positions[V2];
@@ -1070,7 +1070,7 @@ int32 FLEBSubdivision::SubdivideRegion(
 				else if (IsInInfluenceRegion(Mid20)) bInRegion = true;
 				else
 				{
-					// 중심점 검사
+					// Centroid check
 					FVector Center = (P0 + P1 + P2) / 3.0f;
 					if (IsInInfluenceRegion(Center)) bInRegion = true;
 				}
@@ -1131,8 +1131,8 @@ int32 FLEBSubdivision::SubdivideRegion(
 
 		// Phase 3: GREEN splits - fix T-junctions
 		// ============================================================================
-		// 핵심 변경: 감지는 위치 기반(HasMidpointAtEdge), 버텍스는 인덱스 기반(GetOrCreateMidpoint)
-		// -> UV seam에서 각 삼각형이 자기 UV로 중점 생성, 하지만 GREEN split은 정확히 감지
+		// Key change: Detection is position-based (HasMidpointAtEdge), vertices are index-based (GetOrCreateMidpoint)
+		// -> Each triangle creates midpoint with its own UV at UV seam, but GREEN split is detected accurately
 		// ============================================================================
 		TArray<int32> FinalTriangles;
 		TArray<int32> FinalMaterialIndices;
@@ -1149,7 +1149,7 @@ int32 FLEBSubdivision::SubdivideRegion(
 			int32 V2 = NewTriangles[i * 3 + 2];
 			int32 MatIdx = NewMaterialIndices.IsValidIndex(i) ? NewMaterialIndices[i] : 0;
 
-			// 위치 기반으로 중점 존재 여부 감지 (UV seam 경계도 감지)
+			// Detect midpoint existence based on position (also detects UV seam boundaries)
 			bool bHas01 = HasMidpointAtEdge(V0, V1);
 			bool bHas12 = HasMidpointAtEdge(V1, V2);
 			bool bHas20 = HasMidpointAtEdge(V2, V0);
@@ -1163,7 +1163,7 @@ int32 FLEBSubdivision::SubdivideRegion(
 			}
 			else if (NumMidpoints == 3)
 			{
-				// GREEN-3: 이웃들이 전부 RED split됨 → 강제 4분할
+				// GREEN-3: All neighbors RED split -> force 4-way split
 				int32 M01 = GetOrCreateMidpoint(V0, V1);
 				int32 M12 = GetOrCreateMidpoint(V1, V2);
 				int32 M20 = GetOrCreateMidpoint(V2, V0);
@@ -1182,7 +1182,7 @@ int32 FLEBSubdivision::SubdivideRegion(
 				DebugGreenSplit1++;
 				if (bHas01)
 				{
-					// 자기 UV로 중점 생성/조회
+					// Create/retrieve midpoint with its own UV
 					int32 M01 = GetOrCreateMidpoint(V0, V1);
 					FinalTriangles.Add(V0); FinalTriangles.Add(M01); FinalTriangles.Add(V2);
 					FinalMaterialIndices.Add(MatIdx);
@@ -1309,7 +1309,7 @@ int32 FLEBSubdivision::SubdivideRegion(
 		}
 	}
 
-	// 디버그: 통계 출력
+	// Debug: Output statistics
 	UE_LOG(LogTemp, Log, TEXT("=== SubdivideRegion Complete ==="));
 	UE_LOG(LogTemp, Log, TEXT("  Vertices IN region: %d, OUT of region: %d"), DebugInCount, DebugOutCount);
 	UE_LOG(LogTemp, Log, TEXT("  Fail reasons - X: %d, Y: %d, Z: %d"), DebugFailX, DebugFailY, DebugFailZ);
@@ -1389,10 +1389,10 @@ int32 FLEBSubdivision::SubdivideUniform(
 	UE_LOG(LogTemp, Log, TEXT("  Initial: %d vertices, %d triangles"), InitialVertCount, InitialTriCount);
 
 	// ============================================================================
-	// Dual Midpoint Map System (Position + Index) - GREEN split 지원
+	// Dual Midpoint Map System (Position + Index) - GREEN split support
 	// ============================================================================
-	// 1. PositionMidpointSet: GREEN split 감지용 (위치 기반) - "이 edge에 중점이 있나?"
-	// 2. IndexMidpointMap: 버텍스 재사용용 (인덱스 기반) - "같은 UV면 재사용"
+	// 1. PositionMidpointSet: For GREEN split detection (position-based) - "Is there a midpoint on this edge?"
+	// 2. IndexMidpointMap: For vertex reuse (index-based) - "Reuse if same UV"
 	// ============================================================================
 	constexpr float MidpointWeldPrecision = 0.1f;
 
@@ -1412,7 +1412,7 @@ int32 FLEBSubdivision::SubdivideUniform(
 		return A.Z < B.Z;
 	};
 
-	// 1. Position-based set: GREEN split 감지용
+	// 1. Position-based set: For GREEN split detection
 	TSet<TPair<FIntVector, FIntVector>> PositionMidpointSet;
 
 	auto MakePositionKey = [&](int32 VA, int32 VB) -> TPair<FIntVector, FIntVector>
@@ -1425,7 +1425,7 @@ int32 FLEBSubdivision::SubdivideUniform(
 			return TPair<FIntVector, FIntVector>(KeyB, KeyA);
 	};
 
-	// 2. Index-based map: 버텍스 재사용용 (같은 인덱스 = 같은 UV)
+	// 2. Index-based map: For vertex reuse (same index = same UV)
 	TMap<TPair<int32, int32>, int32> IndexMidpointMap;
 
 	auto MakeIndexKey = [](int32 A, int32 B) -> TPair<int32, int32>
@@ -1433,7 +1433,7 @@ int32 FLEBSubdivision::SubdivideUniform(
 		return A < B ? TPair<int32, int32>(A, B) : TPair<int32, int32>(B, A);
 	};
 
-	// GetOrCreateMidpoint: 인덱스 기반으로 재사용, 위치 기반으로 존재 등록
+	// GetOrCreateMidpoint: Reuse based on index, register existence based on position
 	auto GetOrCreateMidpoint = [&](int32 VA, int32 VB) -> int32
 	{
 		TPair<int32, int32> IndexKey = MakeIndexKey(VA, VB);
@@ -1448,11 +1448,11 @@ int32 FLEBSubdivision::SubdivideUniform(
 		ParentIndices.Add(TPair<int32, int32>(VA, VB));
 
 		IndexMidpointMap.Add(IndexKey, NewIdx);
-		PositionMidpointSet.Add(MakePositionKey(VA, VB));  // GREEN split 감지용
+		PositionMidpointSet.Add(MakePositionKey(VA, VB));  // For GREEN split detection
 		return NewIdx;
 	};
 
-	// GREEN split용: 이 edge에 중점이 있는지 확인 (위치 기반)
+	// For GREEN split: Check if midpoint exists at this edge (position-based)
 	auto HasMidpointAtEdge = [&](int32 VA, int32 VB) -> bool
 	{
 		return PositionMidpointSet.Contains(MakePositionKey(VA, VB));
@@ -1469,7 +1469,7 @@ int32 FLEBSubdivision::SubdivideUniform(
 		int32 NumTris = Triangles.Num() / 3;
 		int32 SplitCount = 0;
 
-		// Phase 1: RED splits - MinEdgeLength 조건으로 4분할
+		// Phase 1: RED splits - 4-way split based on MinEdgeLength condition
 		for (int32 i = 0; i < NumTris; i++)
 		{
 			int32 V0 = Triangles[i * 3];
@@ -1481,7 +1481,7 @@ int32 FLEBSubdivision::SubdivideUniform(
 			const FVector& P1 = Positions[V1];
 			const FVector& P2 = Positions[V2];
 
-			// MinEdgeLength 조건 확인
+			// Check MinEdgeLength condition
 			float MaxEdgeLen = FMath::Max3(
 				FVector::Dist(P0, P1),
 				FVector::Dist(P1, P2),
@@ -1517,7 +1517,7 @@ int32 FLEBSubdivision::SubdivideUniform(
 			}
 		}
 
-		// Phase 2: GREEN splits - T-junction 수정
+		// Phase 2: GREEN splits - T-junction fix
 		TArray<int32> FinalTriangles;
 		TArray<int32> FinalMaterialIndices;
 		FinalTriangles.Reserve(NewTriangles.Num() * 2);
@@ -1533,7 +1533,7 @@ int32 FLEBSubdivision::SubdivideUniform(
 			int32 V2 = NewTriangles[i * 3 + 2];
 			int32 MatIdx = NewMaterialIndices.IsValidIndex(i) ? NewMaterialIndices[i] : 0;
 
-			// 위치 기반으로 중점 존재 여부 감지
+			// Detect midpoint existence based on position
 			bool bHas01 = HasMidpointAtEdge(V0, V1);
 			bool bHas12 = HasMidpointAtEdge(V1, V2);
 			bool bHas20 = HasMidpointAtEdge(V2, V0);
@@ -1542,14 +1542,14 @@ int32 FLEBSubdivision::SubdivideUniform(
 
 			if (NumMidpoints == 0)
 			{
-				// 분할 불필요
+				// No split needed
 				FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
 				FinalMaterialIndices.Add(MatIdx);
 			}
 			else if (NumMidpoints == 3)
 			{
-				// GREEN-3: 이웃들이 전부 RED split됨 → 강제 4분할
-				// (자기는 RED split 안 됐지만 T-junction 3개 해결 필요)
+				// GREEN-3: All neighbors RED split -> force 4-way split
+				// (Self was not RED split but needs to resolve 3 T-junctions)
 				GreenSplit3++;
 				int32 M01 = GetOrCreateMidpoint(V0, V1);
 				int32 M12 = GetOrCreateMidpoint(V1, V2);
@@ -1569,7 +1569,7 @@ int32 FLEBSubdivision::SubdivideUniform(
 			}
 			else if (NumMidpoints == 1)
 			{
-				// GREEN split: 1개 중점 → 2개 삼각형
+				// GREEN split: 1 midpoint -> 2 triangles
 				GreenSplit1++;
 				if (bHas01)
 				{
@@ -1598,7 +1598,7 @@ int32 FLEBSubdivision::SubdivideUniform(
 			}
 			else // NumMidpoints == 2
 			{
-				// GREEN split: 2개 중점 → 3개 삼각형
+				// GREEN split: 2 midpoints -> 3 triangles
 				GreenSplit2++;
 				if (!bHas20) // bHas01 && bHas12
 				{
@@ -1735,7 +1735,7 @@ int32 FLEBSubdivision::SubdivideSelectedFaces(
 		ParentIndices.Add(TPair<int32, int32>(V.ParentIndex0, V.ParentIndex1));
 	}
 
-	// 삼각형 인덱스 + 대상 여부 추적
+	// Triangle index + target tracking
 	TArray<bool> IsTargetTriangle;
 	for (int32 FaceIdx = 0; FaceIdx < Mesh.Faces.Num(); FaceIdx++)
 	{
@@ -1760,7 +1760,7 @@ int32 FLEBSubdivision::SubdivideSelectedFaces(
 		InitialVertCount, InitialTriCount, InitialTargetCount);
 
 	// ============================================================================
-	// Dual Midpoint Map System (Position + Index) - GREEN split 지원
+	// Dual Midpoint Map System (Position + Index) - GREEN split support
 	// ============================================================================
 	constexpr float MidpointWeldPrecision = 0.1f;
 
@@ -1780,7 +1780,7 @@ int32 FLEBSubdivision::SubdivideSelectedFaces(
 		return A.Z < B.Z;
 	};
 
-	// 1. Position-based set: GREEN split 감지용
+	// 1. Position-based set: For GREEN split detection
 	TSet<TPair<FIntVector, FIntVector>> PositionMidpointSet;
 
 	auto MakePositionKey = [&](int32 VA, int32 VB) -> TPair<FIntVector, FIntVector>
@@ -1793,7 +1793,7 @@ int32 FLEBSubdivision::SubdivideSelectedFaces(
 			return TPair<FIntVector, FIntVector>(KeyB, KeyA);
 	};
 
-	// 2. Index-based map: 버텍스 재사용용 (같은 인덱스 = 같은 UV)
+	// 2. Index-based map: For vertex reuse (same index = same UV)
 	TMap<TPair<int32, int32>, int32> IndexMidpointMap;
 
 	auto MakeIndexKey = [](int32 A, int32 B) -> TPair<int32, int32>
@@ -1801,7 +1801,7 @@ int32 FLEBSubdivision::SubdivideSelectedFaces(
 		return A < B ? TPair<int32, int32>(A, B) : TPair<int32, int32>(B, A);
 	};
 
-	// GetOrCreateMidpoint: 인덱스 기반으로 재사용, 위치 기반으로 존재 등록
+	// GetOrCreateMidpoint: Reuse based on index, register existence based on position
 	auto GetOrCreateMidpoint = [&](int32 VA, int32 VB) -> int32
 	{
 		TPair<int32, int32> IndexKey = MakeIndexKey(VA, VB);
@@ -1816,11 +1816,11 @@ int32 FLEBSubdivision::SubdivideSelectedFaces(
 		ParentIndices.Add(TPair<int32, int32>(VA, VB));
 
 		IndexMidpointMap.Add(IndexKey, NewIdx);
-		PositionMidpointSet.Add(MakePositionKey(VA, VB));  // GREEN split 감지용
+		PositionMidpointSet.Add(MakePositionKey(VA, VB));  // For GREEN split detection
 		return NewIdx;
 	};
 
-	// GREEN split용: 이 edge에 중점이 있는지 확인 (위치 기반)
+	// For GREEN split: Check if midpoint exists at this edge (position-based)
 	auto HasMidpointAtEdge = [&](int32 VA, int32 VB) -> bool
 	{
 		return PositionMidpointSet.Contains(MakePositionKey(VA, VB));
@@ -1839,7 +1839,7 @@ int32 FLEBSubdivision::SubdivideSelectedFaces(
 		int32 NumTris = Triangles.Num() / 3;
 		int32 SplitCount = 0;
 
-		// Phase 1: RED splits - 대상 삼각형만 + MinEdgeLength 조건으로 4분할
+		// Phase 1: RED splits - Target triangles only + 4-way split based on MinEdgeLength condition
 		for (int32 i = 0; i < NumTris; i++)
 		{
 			int32 V0 = Triangles[i * 3];
@@ -1848,10 +1848,10 @@ int32 FLEBSubdivision::SubdivideSelectedFaces(
 			int32 MatIdx = MaterialIndices.IsValidIndex(i) ? MaterialIndices[i] : 0;
 			bool bIsTarget = IsTargetTriangle.IsValidIndex(i) ? IsTargetTriangle[i] : false;
 
-			// ★ 대상 삼각형인지 확인
+			// Check if this is a target triangle
 			if (!bIsTarget)
 			{
-				// 대상이 아니면 그대로 유지 (GREEN split은 나중에 할 수 있음)
+				// Not a target, keep as-is (GREEN split can be applied later)
 				NewTriangles.Add(V0); NewTriangles.Add(V1); NewTriangles.Add(V2);
 				NewMaterialIndices.Add(MatIdx);
 				NewIsTarget.Add(false);
@@ -1862,7 +1862,7 @@ int32 FLEBSubdivision::SubdivideSelectedFaces(
 			const FVector& P1 = Positions[V1];
 			const FVector& P2 = Positions[V2];
 
-			// MinEdgeLength 조건 확인
+			// Check MinEdgeLength condition
 			float MaxEdgeLen = FMath::Max3(
 				FVector::Dist(P0, P1),
 				FVector::Dist(P1, P2),
@@ -1896,14 +1896,14 @@ int32 FLEBSubdivision::SubdivideSelectedFaces(
 			}
 			else
 			{
-				// 이미 충분히 작음
+				// Already small enough
 				NewTriangles.Add(V0); NewTriangles.Add(V1); NewTriangles.Add(V2);
 				NewMaterialIndices.Add(MatIdx);
 				NewIsTarget.Add(true);
 			}
 		}
 
-		// Phase 2: GREEN splits - T-junction 수정
+		// Phase 2: GREEN splits - T-junction fix
 		TArray<int32> FinalTriangles;
 		TArray<int32> FinalMaterialIndices;
 		TArray<bool> FinalIsTarget;
@@ -1922,7 +1922,7 @@ int32 FLEBSubdivision::SubdivideSelectedFaces(
 			int32 MatIdx = NewMaterialIndices.IsValidIndex(i) ? NewMaterialIndices[i] : 0;
 			bool bIsTarget = NewIsTarget.IsValidIndex(i) ? NewIsTarget[i] : false;
 
-			// 위치 기반으로 중점 존재 여부 감지
+			// Detect midpoint existence based on position
 			bool bHas01 = HasMidpointAtEdge(V0, V1);
 			bool bHas12 = HasMidpointAtEdge(V1, V2);
 			bool bHas20 = HasMidpointAtEdge(V2, V0);
@@ -1931,14 +1931,14 @@ int32 FLEBSubdivision::SubdivideSelectedFaces(
 
 			if (NumMidpoints == 0)
 			{
-				// 분할 불필요
+				// No split needed
 				FinalTriangles.Add(V0); FinalTriangles.Add(V1); FinalTriangles.Add(V2);
 				FinalMaterialIndices.Add(MatIdx);
 				FinalIsTarget.Add(bIsTarget);
 			}
 			else if (NumMidpoints == 3)
 			{
-				// GREEN-3: 이웃들이 전부 RED split됨 → 강제 4분할
+				// GREEN-3: All neighbors RED split -> force 4-way split
 				GreenSplit3++;
 				int32 M01 = GetOrCreateMidpoint(V0, V1);
 				int32 M12 = GetOrCreateMidpoint(V1, V2);
@@ -1962,7 +1962,7 @@ int32 FLEBSubdivision::SubdivideSelectedFaces(
 			}
 			else if (NumMidpoints == 1)
 			{
-				// GREEN split: 1개 중점 → 2개 삼각형
+				// GREEN split: 1 midpoint -> 2 triangles
 				GreenSplit1++;
 				if (bHas01)
 				{
@@ -1997,7 +1997,7 @@ int32 FLEBSubdivision::SubdivideSelectedFaces(
 			}
 			else // NumMidpoints == 2
 			{
-				// GREEN split: 2개 중점 → 3개 삼각형
+				// GREEN split: 2 midpoints -> 3 triangles
 				GreenSplit2++;
 				if (!bHas20) // bHas01 && bHas12
 				{

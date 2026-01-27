@@ -12,10 +12,10 @@ void GenerateWireframeLines(
 {
 	OutLines.Reset();
 
-	// 좌표계: Z=0이 Mid Band 중심
+	// Coordinate system: Z=0 is the center of the Mid Band
 	const float MidOffset = Settings.GetMidOffset();
 
-	// 높이 레이어 정의 (Height=0인 섹션은 스킵하고 Mid 값 사용)
+	// Height layer definition (sections with Height=0 are skipped, using Mid values instead)
 	struct FLayerInfo { float Z; float Radius; };
 	TArray<FLayerInfo> Layers;
 
@@ -23,10 +23,10 @@ void GenerateWireframeLines(
 	const bool bHasLowerSection = (Settings.Lower.Height > HeightEpsilon);
 	const bool bHasUpperSection = (Settings.Upper.Height > HeightEpsilon);
 
-	// 내부 좌표로 계산 후 MidOffset을 빼서 새 좌표로 변환
+	// Calculate using internal coordinates, then subtract MidOffset to convert to new coordinates
 	float InternalZ = 0.0f;
 
-	// Lower 섹션이 있는 경우에만 Lower.Radius 레이어 추가
+	// Add Lower.Radius layer only if the Lower section exists
 	if (bHasLowerSection)
 	{
 		Layers.Add({ InternalZ - MidOffset, Settings.Lower.Radius });
@@ -38,14 +38,14 @@ void GenerateWireframeLines(
 	InternalZ += Settings.BandHeight;
 	Layers.Add({ InternalZ - MidOffset, Settings.MidUpperRadius });
 
-	// Upper 섹션이 있는 경우에만 Upper.Radius 레이어 추가
+	// Add Upper.Radius layer only if the Upper section exists
 	if (bHasUpperSection)
 	{
 		InternalZ += Settings.Upper.Height;
 		Layers.Add({ InternalZ - MidOffset, Settings.Upper.Radius });
 	}
 
-	// 각 레이어의 원형 와이어프레임
+	// Circular wireframe for each layer
 	for (const FLayerInfo& Layer : Layers)
 	{
 		for (int32 i = 0; i < NumSegments; i++)
@@ -68,7 +68,7 @@ void GenerateWireframeLines(
 		}
 	}
 
-	// 레이어 간 수직선 (4방향)
+	// Vertical lines between layers (4 directions)
 	for (int32 i = 0; i < 4; i++)
 	{
 		const float Angle = PI * 0.5f * i;

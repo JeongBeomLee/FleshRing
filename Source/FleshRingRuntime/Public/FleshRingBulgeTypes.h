@@ -9,50 +9,50 @@
 class FVertexSpatialHash;
 
 // ============================================================================
-// EBulgeDirection - Bulge 방향 모드
+// EBulgeDirection - Bulge Direction Mode
 // ============================================================================
 
 /**
- * Bulge 변형 방향 결정 방식
- * Auto: SDF 경계 버텍스 분석으로 자동 감지
- * Positive/Negative: 수동으로 +Z/-Z 방향 지정
+ * Bulge deformation direction determination method
+ * Auto: Auto-detect via SDF boundary vertex analysis
+ * Positive/Negative: Manually specify +Z/-Z direction
  */
 enum class EBulgeDirection : uint8
 {
-	/** SDF 경계 버텍스 평균 Z로 자동 감지 */
+	/** Auto-detect via average Z of SDF boundary vertices */
 	Auto = 0,
 
-	/** +Z 방향 (위쪽) 강제 */
+	/** Force +Z direction (upward) */
 	Positive = 1,
 
-	/** -Z 방향 (아래쪽) 강제 */
+	/** Force -Z direction (downward) */
 	Negative = 2
 };
 
 // ============================================================================
-// FBulgeDirectionDetector - 경계 버텍스 기반 방향 감지
+// FBulgeDirectionDetector - Boundary Vertex Based Direction Detection
 // ============================================================================
 
 /**
- * Ring 메시의 경계 버텍스(edge use count == 1)를 분석하여
- * Bulge 방향을 자동으로 감지하는 유틸리티 클래스
+ * Utility class that analyzes ring mesh boundary vertices (edge use count == 1)
+ * to automatically detect Bulge direction
  *
- * 알고리즘:
- * 1. 모든 엣지의 사용 횟수 계산
- * 2. 사용 횟수 == 1인 버텍스 = 경계 버텍스
- * 3. 경계 버텍스들의 평균 Z 위치 계산
- * 4. 평균 Z가 SDF 중심보다 위면 +1, 아래면 -1
+ * Algorithm:
+ * 1. Count usage of all edges
+ * 2. Vertices with use count == 1 = boundary vertices
+ * 3. Calculate average Z position of boundary vertices
+ * 4. +1 if average Z is above SDF center, -1 if below
  */
 class FBulgeDirectionDetector
 {
 public:
 	/**
-	 * Ring 메시 경계 버텍스 분석으로 Bulge 방향 감지
+	 * Detect Bulge direction by analyzing ring mesh boundary vertices
 	 *
-	 * @param Vertices 메시 버텍스 배열 (로컬 스페이스)
-	 * @param Indices 메시 인덱스 배열 (삼각형당 3개)
-	 * @param SDFCenter SDF 볼륨 중심점 (로컬 스페이스)
-	 * @return +1 (위쪽), -1 (아래쪽), 0 (감지 실패)
+	 * @param Vertices Mesh vertex array (local space)
+	 * @param Indices Mesh index array (3 per triangle)
+	 * @param SDFCenter SDF volume center point (local space)
+	 * @return +1 (upward), -1 (downward), 0 (detection failed)
 	 */
 	static int32 DetectFromBoundaryVertices(
 		const TArray<FVector3f>& Vertices,
@@ -64,10 +64,10 @@ public:
 			return 0;
 		}
 
-		// 엣지 사용 횟수 카운트 (엣지 = 정렬된 버텍스 쌍)
+		// Count edge usage (edge = sorted vertex pair)
 		TMap<TPair<uint32, uint32>, int32> EdgeUseCounts;
 
-		// 모든 삼각형의 엣지 순회
+		// Iterate all triangle edges
 		const int32 NumTriangles = Indices.Num() / 3;
 		for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
 		{
@@ -75,7 +75,7 @@ public:
 			uint32 Idx1 = Indices[TriIdx * 3 + 1];
 			uint32 Idx2 = Indices[TriIdx * 3 + 2];
 
-			// 3개의 엣지 추가 (항상 작은 인덱스가 먼저)
+			// Add 3 edges (smaller index always first)
 			auto AddEdge = [&EdgeUseCounts](uint32 A, uint32 B)
 			{
 				TPair<uint32, uint32> Edge(FMath::Min(A, B), FMath::Max(A, B));
@@ -87,7 +87,7 @@ public:
 			AddEdge(Idx2, Idx0);
 		}
 
-		// 경계 엣지(사용횟수 == 1)에 속한 버텍스 수집
+		// Collect vertices belonging to boundary edges (use count == 1)
 		TSet<uint32> BoundaryVertexSet;
 		for (const auto& Pair : EdgeUseCounts)
 		{
@@ -100,14 +100,14 @@ public:
 
 		if (BoundaryVertexSet.Num() == 0)
 		{
-			// 경계 없음 (폐쇄 메시) - 양방향 Bulge
+			// No boundary (closed mesh) - bidirectional Bulge
 			UE_LOG(LogTemp, Log, TEXT("FBulgeDirectionDetector: No boundary edges (closed mesh) - returning 0 for bidirectional"));
 			return 0;
 		}
 
 		UE_LOG(LogTemp, Log, TEXT("FBulgeDirectionDetector: Found %d boundary vertices"), BoundaryVertexSet.Num());
 
-		// 경계 버텍스들의 평균 Z 계산
+		// Calculate average Z of boundary vertices
 		float SumZ = 0.0f;
 		int32 Count = 0;
 		for (uint32 VertIdx : BoundaryVertexSet)
@@ -126,16 +126,16 @@ public:
 
 		const float AverageZ = SumZ / static_cast<float>(Count);
 
-		// 경계 버텍스가 중심 근처에 있으면 → Torus 이음새 패턴 → 양방향
-		const float Tolerance = 0.1f;  // 허용 오차
+		// If boundary vertices are near center → Torus seam pattern → bidirectional
+		const float Tolerance = 0.1f;  // Tolerance
 		if (FMath::Abs(AverageZ - SDFCenter.Z) < Tolerance)
 		{
 			UE_LOG(LogTemp, Log, TEXT("FBulgeDirectionDetector: Boundary at center (AverageZ=%.2f ≈ SDFCenter.Z=%.2f) - Torus seam pattern, returning 0 for bidirectional"),
 				AverageZ, SDFCenter.Z);
-			return 0;  // 양방향
+			return 0;  // Bidirectional
 		}
 
-		// SDF 중심 Z와 비교
+		// Compare with SDF center Z
 		int32 Result = (AverageZ > SDFCenter.Z) ? 1 : -1;
 		UE_LOG(LogTemp, Log, TEXT("FBulgeDirectionDetector: AverageZ=%.2f, SDFCenter.Z=%.2f, Result=%d"),
 			AverageZ, SDFCenter.Z, Result);
@@ -143,11 +143,11 @@ public:
 	}
 
 	/**
-	 * EBulgeDirection에 따라 실제 방향값 반환
+	 * Return actual direction value based on EBulgeDirection
 	 *
-	 * @param Mode 방향 모드
-	 * @param AutoDetectedDirection Auto 모드일 때 사용할 감지된 방향
-	 * @return +1 (위쪽), -1 (아래쪽)
+	 * @param Mode Direction mode
+	 * @param AutoDetectedDirection Detected direction to use in Auto mode
+	 * @return +1 (upward), -1 (downward)
 	 */
 	static int32 ResolveDirection(EBulgeDirection Mode, int32 AutoDetectedDirection)
 	{
@@ -166,12 +166,12 @@ public:
 };
 
 // ============================================================================
-// IBulgeRegionProvider - Bulge 영역 계산 인터페이스
+// IBulgeRegionProvider - Bulge Region Calculation Interface
 // ============================================================================
 
 /**
- * Bulge 영역 계산 인터페이스
- * SDF 기반, VirtualRing 모드 등 다양한 방식 지원
+ * Bulge region calculation interface
+ * Supports various methods including SDF-based, VirtualRing mode, etc.
  */
 class IBulgeRegionProvider
 {
@@ -179,12 +179,12 @@ public:
 	virtual ~IBulgeRegionProvider() = default;
 
 	/**
-	 * Bulge 영역 버텍스 계산
-	 * @param AllVertexPositions - 모든 메시 버텍스 위치 (Component Space)
-	 * @param SpatialHash - Spatial Hash (O(1) 쿼리, nullptr이면 브루트포스)
-	 * @param OutBulgeVertexIndices - 출력: Bulge 영향받는 버텍스 인덱스
-	 * @param OutBulgeInfluences - 출력: 각 버텍스의 Bulge 영향도
-	 * @param OutBulgeDirections - 출력: Bulge 방향 (GPU에서 계산 시 비어있음)
+	 * Calculate Bulge region vertices
+	 * @param AllVertexPositions - All mesh vertex positions (Component Space)
+	 * @param SpatialHash - Spatial Hash (O(1) query, brute force if nullptr)
+	 * @param OutBulgeVertexIndices - Output: Bulge-affected vertex indices
+	 * @param OutBulgeInfluences - Output: Bulge influence for each vertex
+	 * @param OutBulgeDirections - Output: Bulge directions (empty when calculated on GPU)
 	 */
 	virtual void CalculateBulgeRegion(
 		const TArrayView<const FVector3f>& AllVertexPositions,
@@ -196,7 +196,7 @@ public:
 };
 
 /**
- * CPU에서 계산된 Bulge 데이터
+ * Bulge data calculated on CPU
  */
 struct FBulgeRegionData
 {

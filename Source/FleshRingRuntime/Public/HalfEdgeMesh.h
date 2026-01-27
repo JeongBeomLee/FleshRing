@@ -44,9 +44,9 @@ struct FHalfEdgeVertex
 	int32 HalfEdgeIndex = -1;    // One of the outgoing half-edges from this vertex
 
 	// ========================================
-	// 부모 버텍스 정보 (Subdivision 시 기록)
-	// 원본 버텍스: ParentIndex0 == ParentIndex1 == INDEX_NONE
-	// Edge midpoint: 양쪽 부모 버텍스 인덱스
+	// Parent vertex information (recorded during Subdivision)
+	// Original vertex: ParentIndex0 == ParentIndex1 == INDEX_NONE
+	// Edge midpoint: parent vertex indices from both ends
 	// ========================================
 	int32 ParentIndex0 = INDEX_NONE;
 	int32 ParentIndex1 = INDEX_NONE;
@@ -57,7 +57,7 @@ struct FHalfEdgeVertex
 	FHalfEdgeVertex(const FVector& InPos, const FVector2D& InUV, int32 InParent0, int32 InParent1)
 		: Position(InPos), UV(InUV), ParentIndex0(InParent0), ParentIndex1(InParent1) {}
 
-	/** 원본 버텍스인지 확인 */
+	/** Check if this is an original vertex */
 	bool IsOriginalVertex() const { return ParentIndex0 == INDEX_NONE && ParentIndex1 == INDEX_NONE; }
 };
 
@@ -122,7 +122,7 @@ private:
 };
 
 /**
- * Torus parameters for subdivision influence region (VirtualRing 모드용)
+ * Torus parameters for subdivision influence region (for VirtualRing mode)
  */
 struct FTorusParams
 {
@@ -135,9 +135,9 @@ struct FTorusParams
 
 /**
  * OBB (Oriented Bounding Box) for subdivision influence region
- * DrawSdfVolume과 정확히 동일한 방식으로 OBB 체크
+ * OBB check using exactly the same method as DrawSdfVolume
  *
- * DrawSdfVolume 방식:
+ * DrawSdfVolume method:
  *   Center = LocalToComponent.TransformPosition(LocalCenter)
  *   Rotation = LocalToComponent.GetRotation()
  *   HalfExtents = LocalHalfExtents * LocalToComponent.GetScale3D()
@@ -145,35 +145,35 @@ struct FTorusParams
  */
 struct FSubdivisionOBB
 {
-	/** OBB 중심 (Component Space) */
+	/** OBB center (Component Space) */
 	FVector Center = FVector::ZeroVector;
 
-	/** OBB 축들 (Component Space, 정규화됨) - DrawSdfVolume의 WorldRotation과 동일 */
+	/** OBB axes (Component Space, normalized) - same as DrawSdfVolume's WorldRotation */
 	FVector AxisX = FVector(1, 0, 0);
 	FVector AxisY = FVector(0, 1, 0);
 	FVector AxisZ = FVector(0, 0, 1);
 
-	/** OBB 반크기 (각 축 방향) - DrawSdfVolume의 ScaledExtent와 동일 */
+	/** OBB half extents (in each axis direction) - same as DrawSdfVolume's ScaledExtent */
 	FVector HalfExtents = FVector(10.0f);
 
-	/** 추가 영향 범위 마진 */
+	/** Additional influence range margin */
 	float InfluenceMargin = 5.0f;
 
-	/** 디버그용: 로컬 바운드 */
+	/** For debugging: local bounds */
 	FVector LocalBoundsMin = FVector(-10.0f);
 	FVector LocalBoundsMax = FVector(10.0f);
 
-	/** 기본 생성자 */
+	/** Default constructor */
 	FSubdivisionOBB() = default;
 
 	/**
-	 * SDF 캐시 정보로부터 OBB 생성
-	 * DrawSdfVolume과 완전히 동일한 계산 방식
+	 * Create OBB from SDF cache information
+	 * Uses exactly the same calculation method as DrawSdfVolume
 	 *
-	 * @param BoundsMin - 로컬 스페이스 AABB 최소점
-	 * @param BoundsMax - 로컬 스페이스 AABB 최대점
-	 * @param LocalToComponent - 로컬 → 컴포넌트 스페이스 변환
-	 * @param InInfluenceMultiplier - 영향 범위 확장 배율
+	 * @param BoundsMin - Local space AABB minimum point
+	 * @param BoundsMax - Local space AABB maximum point
+	 * @param LocalToComponent - Local to Component space transform
+	 * @param InInfluenceMultiplier - Influence range expansion multiplier
 	 */
 	static FSubdivisionOBB CreateFromSDFBounds(
 		const FVector& BoundsMin,
@@ -183,32 +183,32 @@ struct FSubdivisionOBB
 	{
 		FSubdivisionOBB OBB;
 
-		// 디버그용 로컬 바운드 저장
+		// Save local bounds for debugging
 		OBB.LocalBoundsMin = BoundsMin;
 		OBB.LocalBoundsMax = BoundsMax;
 
 		// ========================================
-		// DrawSdfVolume과 동일한 계산
+		// Same calculation as DrawSdfVolume
 		// ========================================
 
-		// 로컬 스페이스 중심/반크기
+		// Local space center/half extents
 		FVector LocalCenter = (BoundsMin + BoundsMax) * 0.5f;
 		FVector LocalHalfExtents = (BoundsMax - BoundsMin) * 0.5f;
 
-		// OBB 중심을 Component Space로 변환
+		// Transform OBB center to Component Space
 		OBB.Center = LocalToComponent.TransformPosition(LocalCenter);
 
-		// OBB 축들을 Component Space로 변환 (회전만 적용)
+		// Transform OBB axes to Component Space (rotation only)
 		FQuat Rotation = LocalToComponent.GetRotation();
 		OBB.AxisX = Rotation.RotateVector(FVector(1, 0, 0));
 		OBB.AxisY = Rotation.RotateVector(FVector(0, 1, 0));
 		OBB.AxisZ = Rotation.RotateVector(FVector(0, 0, 1));
 
-		// 반크기 (스케일 적용) - DrawSdfVolume의 ScaledExtent와 동일
+		// Half extents (with scale applied) - same as DrawSdfVolume's ScaledExtent
 		FVector Scale = LocalToComponent.GetScale3D();
 		OBB.HalfExtents = LocalHalfExtents * Scale;
 
-		// 영향 마진
+		// Influence margin
 		float MinDimension = (BoundsMax - BoundsMin).GetMin();
 		OBB.InfluenceMargin = MinDimension * (InInfluenceMultiplier - 1.0f);
 
@@ -216,55 +216,55 @@ struct FSubdivisionOBB
 	}
 
 	/**
-	 * 점이 OBB 영향 범위 내에 있는지 검사
-	 * DrawSdfVolume에서 그리는 박스와 정확히 동일한 영역
+	 * Check if a point is within the OBB influence range
+	 * Exactly the same region as the box drawn by DrawSdfVolume
 	 *
-	 * @param Point - 검사할 점 (컴포넌트 스페이스)
-	 * @return 영향 범위 내이면 true
+	 * @param Point - Point to check (Component Space)
+	 * @return true if within influence range
 	 */
 	bool IsPointInInfluence(const FVector& Point) const
 	{
-		// 점에서 OBB 중심까지의 벡터
+		// Vector from point to OBB center
 		FVector D = Point - Center;
 
-		// 각 OBB 축에 투영하여 범위 체크
+		// Project onto each OBB axis and check range
 		float ProjX = FMath::Abs(FVector::DotProduct(D, AxisX));
 		float ProjY = FMath::Abs(FVector::DotProduct(D, AxisY));
 		float ProjZ = FMath::Abs(FVector::DotProduct(D, AxisZ));
 
-		// 마진 포함 범위 체크
+		// Range check including margin
 		return ProjX <= HalfExtents.X + InfluenceMargin &&
 		       ProjY <= HalfExtents.Y + InfluenceMargin &&
 		       ProjZ <= HalfExtents.Z + InfluenceMargin;
 	}
 
 	/**
-	 * OBB까지의 서명된 거리 (근사값)
-	 * 양수: 외부, 음수: 내부
+	 * Signed distance to OBB (approximation)
+	 * Positive: outside, Negative: inside
 	 */
 	float SignedDistance(const FVector& Point) const
 	{
-		// 점에서 OBB 중심까지의 벡터
+		// Vector from point to OBB center
 		FVector D = Point - Center;
 
-		// 각 축에 투영
+		// Project onto each axis
 		FVector LocalD(
 			FVector::DotProduct(D, AxisX),
 			FVector::DotProduct(D, AxisY),
 			FVector::DotProduct(D, AxisZ)
 		);
 
-		// 각 축에 대한 초과 거리 계산
+		// Calculate excess distance for each axis
 		FVector Q;
 		for (int32 i = 0; i < 3; i++)
 		{
 			Q[i] = FMath::Max(0.0f, FMath::Abs(LocalD[i]) - HalfExtents[i]);
 		}
 
-		// 외부 거리
+		// Outside distance
 		float OutsideDist = Q.Size();
 
-		// 내부 거리
+		// Inside distance
 		float InsideDist = 0.0f;
 		if (OutsideDist == 0.0f)
 		{
@@ -289,7 +289,7 @@ class FLESHRINGRUNTIME_API FLEBSubdivision
 {
 public:
 	/**
-	 * Subdivide faces that intersect with the torus influence region (VirtualRing 모드용)
+	 * Subdivide faces that intersect with the torus influence region (for VirtualRing mode)
 	 * Uses Red-Green refinement to ensure no T-junctions
 	 *
 	 * @param Mesh - Half-edge mesh to subdivide (modified in place)
@@ -323,9 +323,9 @@ public:
 	);
 
 	/**
-	 * 전체 메시를 균일하게 Subdivision (에디터 프리뷰용)
-	 * 영역 체크 없이 모든 삼각형을 분할
-	 * Red-Green refinement로 T-junction 방지
+	 * Uniformly subdivide the entire mesh (for editor preview)
+	 * Subdivides all triangles without region check
+	 * Prevents T-junctions using Red-Green refinement
 	 *
 	 * @param Mesh - Half-edge mesh to subdivide (modified in place)
 	 * @param MaxLevel - Maximum subdivision depth
@@ -339,12 +339,12 @@ public:
 	);
 
 	/**
-	 * 선택된 삼각형들만 Subdivision (에디터 프리뷰용 - 본 기반 최적화)
-	 * 지정된 삼각형 인덱스 집합만 분할
-	 * Red-Green refinement로 T-junction 방지
+	 * Subdivide only selected triangles (for editor preview - bone-based optimization)
+	 * Subdivides only the specified set of triangle indices
+	 * Prevents T-junctions using Red-Green refinement
 	 *
 	 * @param Mesh - Half-edge mesh to subdivide (modified in place)
-	 * @param TargetFaces - 대상 삼각형 인덱스 집합
+	 * @param TargetFaces - Set of target triangle indices
 	 * @param MaxLevel - Maximum subdivision depth
 	 * @param MinEdgeLength - Stop subdividing when edges are smaller than this
 	 * @return Number of faces added

@@ -5,12 +5,9 @@
 // ============================================================================
 // Purpose: Redistribute vertices along tangent directions while preserving
 //          normal-direction displacement (SDF deformation depth)
-//          접선 방향으로 버텍스 재배치 (노멀 방향 변형은 유지)
 //
 // Use Case: After TightnessCS + PBDEdgeCS, vertices may cluster unevenly.
 //           TangentRelaxCS improves vertex distribution uniformity.
-//           TightnessCS + PBDEdgeCS 후 버텍스가 불균등하게 몰릴 수 있음.
-//           TangentRelaxCS로 버텍스 분포 균일성 개선.
 
 #pragma once
 
@@ -85,14 +82,11 @@ struct FTangentRelaxDispatchParams
 	/** Total mesh vertex count */
 	uint32 NumTotalVertices;
 
-	/** Relaxation strength (0~1) - higher = more smoothing
-	 *  완화 강도 (0~1) - 높을수록 더 많이 스무딩 */
+	/** Relaxation strength (0~1) - higher = more smoothing */
 	float RelaxStrength;
 
 	/** How much deform amount affects relaxation strength
-	 *  0 = uniform relaxation, 1 = less relaxation on deformed areas
-	 *  변형량이 relaxation에 미치는 영향
-	 *  0 = 균일 적용, 1 = 변형된 곳은 적게 적용 */
+	 *  0 = uniform relaxation, 1 = less relaxation on deformed areas */
 	float DeformAmountInfluence;
 
 	/** Number of relaxation iterations */

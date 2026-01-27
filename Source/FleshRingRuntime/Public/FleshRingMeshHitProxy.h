@@ -8,18 +8,18 @@
 #include "HitProxies.h"
 
 /**
- * Ring 메시 클릭 감지용 HitProxy
- * 본보다 높은 우선순위로 Ring 메시가 먼저 선택되도록 함
+ * HitProxy for Ring mesh click detection
+ * Higher priority than bones so Ring mesh is selected first
  */
 struct FLESHRINGRUNTIME_API HFleshRingMeshHitProxy : public HHitProxy
 {
 	DECLARE_HIT_PROXY();
 
-	/** Ring 인덱스 */
+	/** Ring index */
 	int32 RingIndex;
 
 	HFleshRingMeshHitProxy(int32 InRingIndex)
-		: HHitProxy(HPP_Foreground)  // 본(HPP_World)보다 높은 우선순위
+		: HHitProxy(HPP_Foreground)  // Higher priority than bones (HPP_World)
 		, RingIndex(InRingIndex)
 	{
 	}

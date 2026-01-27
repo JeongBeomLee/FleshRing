@@ -6,25 +6,25 @@
 UFleshRingDebugPointComponent::UFleshRingDebugPointComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	// 기본 설정
+	// Default settings
 	PrimaryComponentTick.bCanEverTick = false;
 
-	// 렌더링 설정
+	// Rendering settings
 	bCastDynamicShadow = false;
 	bCastStaticShadow = false;
 	SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	SetGenerateOverlapEvents(false);
 
-	// 에디터에서만 렌더링
+	// Render only in editor
 	bIsEditorOnly = true;
 
-	// 항상 Dirty 상태로 시작
+	// Always start in dirty state
 	bBufferDirty = false;
 }
 
 FPrimitiveSceneProxy* UFleshRingDebugPointComponent::CreateSceneProxy()
 {
-	// 버퍼가 없으면 프록시 생성하지 않음
+	// Do not create proxy if buffer does not exist
 	if (!HasValidBuffer())
 	{
 		return nullptr;
@@ -32,11 +32,11 @@ FPrimitiveSceneProxy* UFleshRingDebugPointComponent::CreateSceneProxy()
 
 	FFleshRingDebugPointSceneProxy* Proxy = new FFleshRingDebugPointSceneProxy(this);
 
-	// 렌더링 파라미터 전달
+	// Pass rendering parameters
 	Proxy->PointSizeBase = PointSizeBase;
 	Proxy->PointSizeInfluence = PointSizeInfluence;
 
-	// 초기 버퍼 설정
+	// Initial buffer setup
 	{
 		FScopeLock Lock(&BufferLock);
 		if (PendingTightnessBuffer.IsValid())
@@ -64,8 +64,8 @@ FPrimitiveSceneProxy* UFleshRingDebugPointComponent::CreateSceneProxy()
 
 FBoxSphereBounds UFleshRingDebugPointComponent::CalcBounds(const FTransform& LocalToWorld) const
 {
-	// 매우 큰 바운딩 박스를 사용하여 항상 렌더링되도록 함
-	// 디버그 포인트는 월드 전체에 걸쳐 있을 수 있음
+	// Use a very large bounding box to ensure it is always rendered
+	// Debug points can span across the entire world
 	return FBoxSphereBounds(FBox(FVector(-HALF_WORLD_MAX), FVector(HALF_WORLD_MAX)));
 }
 
@@ -79,14 +79,14 @@ void UFleshRingDebugPointComponent::SetTightnessBuffer(
 	PendingVisibilityMaskArray = InVisibilityMaskArray;
 	bBufferDirty = true;
 
-	// 프록시가 없으면 생성
+	// Create proxy if it does not exist
 	if (!SceneProxy && InBuffer.IsValid())
 	{
 		MarkRenderStateDirty();
 	}
 	else
 	{
-		// 동적 데이터 업데이트 요청
+		// Request dynamic data update
 		MarkRenderDynamicDataDirty();
 	}
 }
@@ -98,7 +98,7 @@ void UFleshRingDebugPointComponent::ClearTightnessBuffer()
 	PendingTightnessBuffer = nullptr;
 	bBufferDirty = true;
 
-	// 둘 다 없으면 프록시 제거, 아니면 동적 데이터 업데이트
+	// Remove proxy if both buffers are empty, otherwise update dynamic data
 	if (!PendingBulgeBuffer.IsValid())
 	{
 		MarkRenderStateDirty();
@@ -119,14 +119,14 @@ void UFleshRingDebugPointComponent::SetBulgeBuffer(
 	PendingVisibilityMaskArray = InVisibilityMaskArray;
 	bBufferDirty = true;
 
-	// 프록시가 없으면 생성
+	// Create proxy if it does not exist
 	if (!SceneProxy && InBuffer.IsValid())
 	{
 		MarkRenderStateDirty();
 	}
 	else
 	{
-		// 동적 데이터 업데이트 요청
+		// Request dynamic data update
 		MarkRenderDynamicDataDirty();
 	}
 }
@@ -138,7 +138,7 @@ void UFleshRingDebugPointComponent::ClearBulgeBuffer()
 	PendingBulgeBuffer = nullptr;
 	bBufferDirty = true;
 
-	// 둘 다 없으면 프록시 제거, 아니면 동적 데이터 업데이트
+	// Remove proxy if both buffers are empty, otherwise update dynamic data
 	if (!PendingTightnessBuffer.IsValid())
 	{
 		MarkRenderStateDirty();

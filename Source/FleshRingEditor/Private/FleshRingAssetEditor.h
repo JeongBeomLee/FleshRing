@@ -14,8 +14,8 @@ class SFleshRingSkeletonTree;
 class IDetailsView;
 
 /**
- * FleshRing Asset 전용 에디터
- * Physics Asset Editor처럼 3D 뷰포트와 Details 패널 제공
+ * Dedicated editor for FleshRing Asset
+ * Provides 3D viewport and Details panel like Physics Asset Editor
  */
 class FFleshRingAssetEditor : public FAssetEditorToolkit
 {
@@ -23,7 +23,7 @@ public:
 	FFleshRingAssetEditor();
 	virtual ~FFleshRingAssetEditor();
 
-	/** 에디터 초기화 */
+	/** Initialize editor */
 	void InitFleshRingAssetEditor(
 		const EToolkitMode::Type Mode,
 		const TSharedPtr<IToolkitHost>& InitToolkitHost,
@@ -42,116 +42,116 @@ public:
 	virtual void RegisterTabSpawners(const TSharedRef<FTabManager>& TabManager) override;
 	virtual void UnregisterTabSpawners(const TSharedRef<FTabManager>& TabManager) override;
 
-	/** 편집 중인 Asset 반환 */
+	/** Return the Asset being edited */
 	UFleshRingAsset* GetEditingAsset() const { return EditingAsset; }
 
-	/** 뷰포트 갱신 (전체 재생성) */
+	/** Refresh viewport (full regeneration) */
 	void RefreshViewport();
 
-	/** Ring 트랜스폼만 업데이트 (깜빡임 방지) */
+	/** Update only Ring transforms (prevents flickering) */
 	void UpdateRingTransformsOnly(int32 DirtyRingIndex = INDEX_NONE);
 
-	/** SDF만 재생성 (VirtualBand 드래그 중 - 컴포넌트 재생성 없이) */
+	/** Regenerate SDF only (during VirtualBand drag - without component regeneration) */
 	void RefreshSDFOnly();
 
-	/** PreviewScene의 FleshRingComponent 반환 (Subdivision 데이터 접근용) */
+	/** Return FleshRingComponent from PreviewScene (for Subdivision data access) */
 	UFleshRingComponent* GetPreviewFleshRingComponent() const;
 
-	/** 프리뷰 메시 강제 재생성 (캐시 무효화 후 재생성) */
+	/** Force regenerate preview mesh (invalidate cache then regenerate) */
 	void ForceRefreshPreviewMesh();
 
-	/** PreviewScene 강제 틱 (모달 다이얼로그에서 뷰포트 렌더링용) */
+	/** Force tick PreviewScene (for viewport rendering in modal dialog) */
 	void TickPreviewScene(float DeltaTime);
 
-	/** 베이크 오버레이 표시/숨김 (입력 차단 + 진행 표시) */
+	/** Show/hide bake overlay (blocks input + shows progress) */
 	void ShowBakeOverlay(bool bShow, const FText& Message = FText::GetEmpty());
 
-	/** 베이크 오버레이 상태 */
+	/** Bake overlay state */
 	bool IsBakeOverlayVisible() const { return bBakeOverlayVisible; }
 
-	/** 뷰포트 위젯 반환 (베이크 시 PreviewScene 접근용) */
+	/** Return viewport widget (for PreviewScene access during bake) */
 	TSharedPtr<SFleshRingEditorViewport> GetViewportWidget() const { return ViewportWidget; }
 
 private:
-	/** Skeleton Tree 탭 생성 */
+	/** Spawn Skeleton Tree tab */
 	TSharedRef<SDockTab> SpawnTab_SkeletonTree(const FSpawnTabArgs& Args);
 
-	/** Viewport 탭 생성 */
+	/** Spawn Viewport tab */
 	TSharedRef<SDockTab> SpawnTab_Viewport(const FSpawnTabArgs& Args);
 
-	/** Details 탭 생성 */
+	/** Spawn Details tab */
 	TSharedRef<SDockTab> SpawnTab_Details(const FSpawnTabArgs& Args);
 
-	/** Preview Settings 탭 생성 */
+	/** Spawn Preview Settings tab */
 	TSharedRef<SDockTab> SpawnTab_PreviewSettings(const FSpawnTabArgs& Args);
 
-	/** Details View 생성 */
+	/** Create Details View */
 	void CreateDetailsView();
 
-	/** 본 선택 콜백 (Skeleton Tree에서) */
+	/** Bone selection callback (from Skeleton Tree) */
 	void OnBoneSelected(FName BoneName);
 
-	/** Ring 선택 콜백 (Skeleton Tree에서) */
+	/** Ring selection callback (from Skeleton Tree) */
 	void OnRingSelected(int32 RingIndex);
 
-	/** Ring 선택 콜백 (뷰포트에서 피킹) */
+	/** Ring selection callback (picking from viewport) */
 	void OnRingSelectedInViewport(int32 RingIndex, EFleshRingSelectionType SelectionType);
 
-	/** 본 선택 해제 콜백 (뷰포트에서) */
+	/** Bone selection cleared callback (from viewport) */
 	void OnBoneSelectionCleared();
 
-	/** 본 선택 콜백 (뷰포트에서 피킹) */
+	/** Bone selection callback (picking from viewport) */
 	void OnBoneSelectedInViewport(FName BoneName);
 
-	/** Ring 추가 요청 콜백 (스켈레톤 트리에서 - 메쉬 선택 포함) */
+	/** Ring add request callback (from skeleton tree - includes mesh selection) */
 	void OnAddRingRequested(FName BoneName, UStaticMesh* SelectedMesh);
 
-	/** Ring 추가 요청 콜백 (뷰포트 우클릭에서 - 위치 및 메쉬 포함) */
+	/** Ring add request callback (from viewport right-click - includes position and mesh) */
 	void OnAddRingAtPositionRequested(FName BoneName, const FVector& LocalOffset, const FRotator& LocalRotation, UStaticMesh* SelectedMesh);
 
-	/** 카메라 포커스 요청 콜백 */
+	/** Camera focus request callback */
 	void OnFocusCameraRequested();
 
-	/** Ring 삭제 공통 처리 (뷰포트/트리/디테일 모두에서 호출) */
+	/** Ring deletion common handler (called from viewport/tree/details) */
 	void HandleRingDeleted();
 
-	/** 프로퍼티 변경 콜백 */
+	/** Property change callback */
 	void OnObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& PropertyChangedEvent);
 
-	/** Undo/Redo 콜백 */
+	/** Undo/Redo callback */
 	void OnObjectTransacted(UObject* Object, const FTransactionObjectEvent& TransactionEvent);
 
-	/** 에셋의 선택 상태를 뷰포트에 반영 (Undo/Redo 시 호출) */
+	/** Apply selection state from asset to viewport (called on Undo/Redo) */
 	void ApplySelectionFromAsset();
 
-	/** Ring 선택 변경 콜백 (디테일 패널에서) */
+	/** Ring selection change callback (from details panel) */
 	void OnRingSelectionChangedFromDetails(int32 RingIndex);
 
 private:
-	/** 편집 중인 Asset */
+	/** Asset being edited */
 	UFleshRingAsset* EditingAsset = nullptr;
 
-	/** Skeleton Tree 위젯 */
+	/** Skeleton Tree widget */
 	TSharedPtr<SFleshRingSkeletonTree> SkeletonTreeWidget;
 
-	/** 뷰포트 위젯 */
+	/** Viewport widget */
 	TSharedPtr<SFleshRingEditorViewport> ViewportWidget;
 
 	/** Details View */
 	TSharedPtr<IDetailsView> DetailsView;
 
-	/** 프로퍼티 변경 델리게이트 핸들 */
+	/** Property change delegate handle */
 	FDelegateHandle OnPropertyChangedHandle;
 
-	/** Undo/Redo 델리게이트 핸들 */
+	/** Undo/Redo delegate handle */
 	FDelegateHandle OnObjectTransactedHandle;
 
-	/** 뷰포트에서 Ring 선택 중 플래그 (순환 호출 방지) */
+	/** Flag for Ring selection from viewport (prevents circular calls) */
 	bool bSyncingFromViewport = false;
 
-	/** 베이크 오버레이 표시 상태 */
+	/** Bake overlay visibility state */
 	bool bBakeOverlayVisible = false;
 
-	/** 베이크 오버레이 윈도우 */
+	/** Bake overlay window */
 	TSharedPtr<SWindow> BakeOverlayWindow;
 };

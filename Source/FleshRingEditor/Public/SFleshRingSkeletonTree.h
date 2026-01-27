@@ -16,7 +16,7 @@ class SComboButton;
 struct FFleshRingSettings;
 
 /**
- * 트리 아이템 타입
+ * Tree item type
  */
 enum class EFleshRingTreeItemType : uint8
 {
@@ -25,119 +25,119 @@ enum class EFleshRingTreeItemType : uint8
 };
 
 /**
- * 트리 아이템 구조체 (Persona 스타일)
+ * Tree item struct (Persona style)
  */
 struct FFleshRingTreeItem : public TSharedFromThis<FFleshRingTreeItem>
 {
-	/** 아이템 타입 */
+	/** Item type */
 	EFleshRingTreeItemType ItemType = EFleshRingTreeItemType::Bone;
 
-	/** 본 이름 (Bone 타입) 또는 부착된 본 이름 (Ring 타입) */
+	/** Bone name (Bone type) or attached bone name (Ring type) */
 	FName BoneName;
 
-	/** 본 인덱스 (Bone 타입) */
+	/** Bone index (Bone type) */
 	int32 BoneIndex = INDEX_NONE;
 
-	/** Ring 인덱스 (Ring 타입) */
+	/** Ring index (Ring type) */
 	int32 RingIndex = INDEX_NONE;
 
-	/** 편집 중인 에셋 (Ring 이름 표시용) */
+	/** Asset being edited (for Ring name display) */
 	TWeakObjectPtr<UFleshRingAsset> EditingAsset;
 
-	/** 자식 노드들 */
+	/** Child nodes */
 	TArray<TSharedPtr<FFleshRingTreeItem>> Children;
 
-	/** 부모 노드 */
+	/** Parent node */
 	TWeakPtr<FFleshRingTreeItem> Parent;
 
-	/** 메시 본인지 (IK/가상 본이 아닌) */
+	/** Is mesh bone (not IK/virtual bone) */
 	bool bIsMeshBone = true;
 
-	/** 필터링으로 숨겨졌는지 */
+	/** Is hidden by filtering */
 	bool bIsFiltered = false;
 
-	/** 마지막 자식인지 (트리 라인용) */
+	/** Is last child (for tree lines) */
 	bool bIsLastChild = false;
 
-	/** 깊이 레벨 */
+	/** Depth level */
 	int32 Depth = 0;
 
-	/** 표시 이름 */
+	/** Display name */
 	FText GetDisplayName() const;
 
-	/** Bone 생성자 */
+	/** Bone constructor */
 	static TSharedPtr<FFleshRingTreeItem> CreateBone(FName InBoneName, int32 InBoneIndex);
 
-	/** Ring 생성자 */
+	/** Ring constructor */
 	static TSharedPtr<FFleshRingTreeItem> CreateRing(FName InBoneName, int32 InRingIndex, UFleshRingAsset* InAsset);
 };
 
 /**
- * Ring 드래그 앤 드롭 Operation
+ * Ring drag and drop Operation
  */
 class FFleshRingDragDropOp : public FDragDropOperation
 {
 public:
 	DRAG_DROP_OPERATOR_TYPE(FFleshRingDragDropOp, FDragDropOperation)
 
-	/** 드래그 중인 Ring 인덱스 */
+	/** Ring index being dragged */
 	int32 RingIndex = INDEX_NONE;
 
-	/** Ring 이름 (드래그 비주얼용) */
+	/** Ring name (for drag visual) */
 	FString RingName;
 
-	/** 원래 부착된 본 */
+	/** Originally attached bone */
 	FName SourceBoneName;
 
-	/** 편집 중인 에셋 */
+	/** Asset being edited */
 	TWeakObjectPtr<UFleshRingAsset> Asset;
 
-	/** 드롭 가능 여부 */
+	/** Can drop */
 	bool bCanDrop = false;
 
-	/** 드래그 시작 시 Modifier 키 상태 */
+	/** Modifier key state at drag start */
 	FModifierKeysState ModifierKeysState;
 
-	/** Alt 드래그 여부 (복제) */
+	/** Is Alt drag (duplicate) */
 	bool IsAltDrag() const { return ModifierKeysState.IsAltDown(); }
 
-	/** Shift 드래그 여부 (월드 위치 유지) */
+	/** Is Shift drag (preserve world position) */
 	bool IsShiftDrag() const { return ModifierKeysState.IsShiftDown(); }
 
-	/** 팩토리 함수 */
+	/** Factory function */
 	static TSharedRef<FFleshRingDragDropOp> New(int32 InRingIndex, const FString& InRingName, FName InBoneName, UFleshRingAsset* InAsset, FModifierKeysState InModifierKeys);
 
-	/** 드래그 비주얼 */
+	/** Drag visual */
 	virtual TSharedPtr<SWidget> GetDefaultDecorator() const override;
 
-	/** 아이콘 getter (Slate 바인딩용) */
+	/** Icon getter (for Slate binding) */
 	const FSlateBrush* GetIcon() const { return CurrentIconBrush; }
 
-	/** 아이콘 setter (드롭 가능 여부에 따라 변경) */
+	/** Icon setter (changes based on drop validity) */
 	void SetIcon(const FSlateBrush* InIcon) { CurrentIconBrush = InIcon; }
 
 private:
-	/** 현재 표시 중인 아이콘 */
+	/** Currently displayed icon */
 	const FSlateBrush* CurrentIconBrush = nullptr;
 };
 
-/** 본 선택 델리게이트 */
+/** Bone selected delegate */
 DECLARE_DELEGATE_OneParam(FOnBoneSelected, FName /*BoneName*/);
 
-/** Ring 선택 델리게이트 */
+/** Ring selected delegate */
 DECLARE_DELEGATE_OneParam(FOnRingSelected, int32 /*RingIndex*/);
 
-/** Ring 추가 요청 델리게이트 (메쉬 선택 포함) */
+/** Ring add request delegate (includes mesh selection) */
 DECLARE_DELEGATE_TwoParams(FOnAddRingRequested, FName /*BoneName*/, UStaticMesh* /*SelectedMesh*/);
 
-/** 카메라 포커스 요청 델리게이트 */
+/** Camera focus request delegate */
 DECLARE_DELEGATE(FOnFocusCameraRequested);
 
-/** Ring 삭제 델리게이트 (트리에서 삭제 시 뷰포트 갱신용) */
+/** Ring deleted delegate (for viewport refresh when deleted from tree) */
 DECLARE_DELEGATE(FOnRingDeletedFromTree);
 
 /**
- * FleshRing 에디터용 스켈레톤 트리 위젯 (Persona 스타일)
+ * Skeleton tree widget for FleshRing editor (Persona style)
  */
 class SFleshRingSkeletonTree : public SCompoundWidget
 {
@@ -153,91 +153,91 @@ public:
 
 	void Construct(const FArguments& InArgs);
 
-	/** Asset 설정 */
+	/** Set Asset */
 	void SetAsset(UFleshRingAsset* InAsset);
 
-	/** 트리 갱신 */
+	/** Refresh tree */
 	void RefreshTree();
 
-	/** 특정 본 선택 */
+	/** Select specific bone */
 	void SelectBone(FName BoneName);
 
-	/** 현재 선택된 본 이름 반환 */
+	/** Get currently selected bone name */
 	FName GetSelectedBoneName() const;
 
-	/** 선택 해제 */
+	/** Clear selection */
 	void ClearSelection();
 
-	/** Ring 인덱스로 선택 (뷰포트에서 호출) */
+	/** Select by Ring index (called from viewport) */
 	void SelectRingByIndex(int32 RingIndex);
 
 	// SWidget interface
 	virtual FReply OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent) override;
 
 private:
-	/** 트리 데이터 빌드 */
+	/** Build tree data */
 	void BuildTree();
 
-	/** TreeView 행 생성 */
+	/** Generate TreeView row */
 	TSharedRef<ITableRow> GenerateTreeRow(TSharedPtr<FFleshRingTreeItem> Item, const TSharedRef<STableViewBase>& OwnerTable);
 
-	/** TreeView 자식 노드 */
+	/** TreeView children */
 	void GetChildrenForTree(TSharedPtr<FFleshRingTreeItem> Item, TArray<TSharedPtr<FFleshRingTreeItem>>& OutChildren);
 
-	/** TreeView 선택 변경 */
+	/** TreeView selection changed */
 	void OnTreeSelectionChanged(TSharedPtr<FFleshRingTreeItem> Item, ESelectInfo::Type SelectInfo);
 
-	/** TreeView 더블클릭 */
+	/** TreeView double click */
 	void OnTreeDoubleClick(TSharedPtr<FFleshRingTreeItem> Item);
 
-	/** Ring 이름 변경 처리 */
+	/** Handle Ring renamed */
 	void HandleRingRenamed(int32 RingIndex, FName NewName);
 
-	/** Asset 변경 델리게이트 핸들러 (디테일 패널에서 이름 변경 시) */
+	/** Asset changed delegate handler (when name changed from detail panel) */
 	void OnAssetChangedHandler(UFleshRingAsset* Asset);
 
-	/** TreeView 확장 변경 */
+	/** TreeView expansion changed */
 	void OnTreeExpansionChanged(TSharedPtr<FFleshRingTreeItem> Item, bool bIsExpanded);
 
-	/** 확장 상태 저장 */
+	/** Save expansion state */
 	void SaveExpansionState();
 
-	/** 확장 상태 복원 */
+	/** Restore expansion state */
 	void RestoreExpansionState();
 
-	/** 컨텍스트 메뉴 생성 */
+	/** Create context menu */
 	TSharedPtr<SWidget> CreateContextMenu();
 
-	/** 특정 아이템 찾기 */
+	/** Find specific item */
 	TSharedPtr<FFleshRingTreeItem> FindItem(FName BoneName, const TArray<TSharedPtr<FFleshRingTreeItem>>& Items);
 
-	/** Ring 데이터 업데이트 */
+	/** Update Ring items */
 	void UpdateRingItems();
 
-	/** 버텍스 웨이팅된 본인지 체크 */
+	/** Check if bone is vertex weighted */
 	bool IsBoneWeighted(int32 BoneIndex) const;
 
-	/** 웨이팅된 본 인덱스 캐시 빌드 */
+	/** Build weighted bone indices cache */
 	void BuildWeightedBoneCache(USkeletalMesh* SkelMesh);
 
-	// === 툴바 ===
+	// === Toolbar ===
 
-	/** 상단 툴바 생성 */
+	/** Create top toolbar */
 	TSharedRef<SWidget> CreateToolbar();
 
-	/** + 버튼 클릭 */
+	/** + button clicked */
 	FReply OnAddButtonClicked();
 
-	/** 검색 텍스트 변경 */
+	/** Search text changed */
 	void OnSearchTextChanged(const FText& NewText);
 
-	/** 필터 적용 */
+	/** Apply filter */
 	void ApplyFilter();
 
-	/** 설정 메뉴 생성 */
+	/** Create filter menu */
 	TSharedRef<SWidget> CreateFilterMenu();
 
-	// === 필터 옵션 ===
+	// === Filter options ===
 
 	void OnShowAllBones();
 	bool IsShowAllBonesChecked() const;
@@ -248,89 +248,89 @@ private:
 	void OnShowBonesWithRingsOnly();
 	bool IsShowBonesWithRingsOnlyChecked() const;
 
-	// === 컨텍스트 메뉴 액션 ===
+	// === Context menu actions ===
 
-	/** Ring 추가 */
+	/** Add Ring */
 	void OnContextMenuAddRing();
 	bool CanAddRing() const;
 
-	/** Ring 삭제 */
+	/** Delete Ring */
 	void OnContextMenuDeleteRing();
 	bool CanDeleteRing() const;
 
-	/** Ring 이름 변경 */
+	/** Rename Ring */
 	void OnContextMenuRenameRing();
 
-	/** 본 이름 복사 */
+	/** Copy bone name */
 	void OnContextMenuCopyBoneName();
 
-	/** Ring 복사 */
+	/** Copy Ring */
 	void OnContextMenuCopyRing();
 	bool CanCopyRing() const;
 
-	/** Ring 붙여넣기 (원본 본에) */
+	/** Paste Ring (to original bone) */
 	void OnContextMenuPasteRing();
 	bool CanPasteRing() const;
 
-	/** Ring 붙여넣기 (선택한 본에) */
+	/** Paste Ring (to selected bone) */
 	void OnContextMenuPasteRingToSelectedBone();
 	bool CanPasteRingToSelectedBone() const;
 
-	/** Ring을 특정 본에 붙여넣기 (공통 로직) */
+	/** Paste Ring to specific bone (common logic) */
 	void PasteRingToBone(FName TargetBoneName);
 
-	// === 드래그 앤 드롭 ===
+	// === Drag and drop ===
 
-	/** Ring을 다른 본으로 이동 */
+	/** Move Ring to another bone */
 	void MoveRingToBone(int32 RingIndex, FName NewBoneName, bool bPreserveWorldPosition = false);
 
-	/** Ring을 복제하여 다른 본에 추가 (Alt+드래그) */
+	/** Duplicate Ring to another bone (Alt+drag) */
 	void DuplicateRingToBone(int32 SourceRingIndex, FName TargetBoneName);
 
 private:
-	/** 편집 중인 Asset */
+	/** Asset being edited */
 	TWeakObjectPtr<UFleshRingAsset> EditingAsset;
 
-	/** 본 선택 델리게이트 */
+	/** Bone selected delegate */
 	FOnBoneSelected OnBoneSelected;
 
-	/** Ring 선택 델리게이트 */
+	/** Ring selected delegate */
 	FOnRingSelected OnRingSelected;
 
-	/** Ring 추가 요청 델리게이트 */
+	/** Ring add request delegate */
 	FOnAddRingRequested OnAddRingRequested;
 
-	/** 카메라 포커스 요청 델리게이트 */
+	/** Camera focus request delegate */
 	FOnFocusCameraRequested OnFocusCameraRequested;
 
-	/** Ring 삭제 델리게이트 */
+	/** Ring deleted delegate */
 	FOnRingDeletedFromTree OnRingDeleted;
 
-	/** 루트 아이템들 */
+	/** Root items */
 	TArray<TSharedPtr<FFleshRingTreeItem>> RootItems;
 
-	/** 필터링된 루트 아이템들 */
+	/** Filtered root items */
 	TArray<TSharedPtr<FFleshRingTreeItem>> FilteredRootItems;
 
-	/** 모든 아이템 맵 (본 이름 → 아이템) */
+	/** All items map (bone name -> item) */
 	TMap<FName, TSharedPtr<FFleshRingTreeItem>> BoneItemMap;
 
-	/** TreeView 위젯 */
+	/** TreeView widget */
 	TSharedPtr<STreeView<TSharedPtr<FFleshRingTreeItem>>> TreeView;
 
-	/** 검색 박스 */
+	/** Search box */
 	TSharedPtr<SSearchBox> SearchBox;
 
-	/** 현재 선택된 아이템 */
+	/** Currently selected item */
 	TSharedPtr<FFleshRingTreeItem> SelectedItem;
 
-	/** 검색 텍스트 */
+	/** Search text */
 	FString SearchText;
 
-	/** 확장된 아이템들 (본 이름) */
+	/** Expanded items (bone names) */
 	TSet<FName> ExpandedBoneNames;
 
-	/** 본 필터 모드 */
+	/** Bone filter mode */
 	enum class EBoneFilterMode : uint8
 	{
 		ShowAll,
@@ -339,15 +339,15 @@ private:
 	};
 	EBoneFilterMode BoneFilterMode = EBoneFilterMode::ShowAll;
 
-	/** 행 인덱스 카운터 (줄무늬 배경용) */
+	/** Row index counter (for striped background) */
 	mutable int32 RowIndexCounter = 0;
 
-	/** 웨이팅된 본 인덱스 캐시 */
+	/** Weighted bone indices cache */
 	TSet<int32> WeightedBoneIndices;
 
-	/** 복사된 Ring 설정 (클립보드 역할) */
+	/** Copied Ring settings (acts as clipboard) */
 	TOptional<FFleshRingSettings> CopiedRingSettings;
 
-	/** 복사된 Ring의 원본 본 이름 */
+	/** Original bone name of copied Ring */
 	FName CopiedRingSourceBone;
 };

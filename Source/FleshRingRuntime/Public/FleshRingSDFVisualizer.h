@@ -1,7 +1,7 @@
 ﻿// Copyright 2026 LgThx. All Rights Reserved.
 
 // FleshRingSDFVisualizer.h
-// SDF 시각화 유틸리티 - 에디터/런타임에서 범용으로 사용
+// SDF visualization utility - general purpose for editor/runtime
 #pragma once
 
 #include "CoreMinimal.h"
@@ -9,32 +9,32 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "FleshRingSDFVisualizer.generated.h"
 
-// SDF 시각화 결과를 담는 구조체
+// Struct containing SDF visualization result
 USTRUCT(BlueprintType)
 struct FLESHRINGRUNTIME_API FSDFVisualizationResult
 {
     GENERATED_BODY()
 
-    // 스폰된 평면 액터 (시각화 표시용)
+    // Spawned plane actor (for visualization display)
     UPROPERTY(BlueprintReadOnly, Category = "SDF Visualization")
     AActor* PlaneActor = nullptr;
 
-    // 생성된 렌더 타겟 (슬라이스 이미지)
+    // Generated render target (slice image)
     UPROPERTY(BlueprintReadOnly, Category = "SDF Visualization")
     UTextureRenderTarget2D* SliceTexture = nullptr;
 
-    // SDF 바운딩 박스
+    // SDF bounding box
     UPROPERTY(BlueprintReadOnly, Category = "SDF Visualization")
     FVector BoundsMin = FVector::ZeroVector;
 
     UPROPERTY(BlueprintReadOnly, Category = "SDF Visualization")
     FVector BoundsMax = FVector::ZeroVector;
 
-    // 현재 슬라이스 Z 인덱스
+    // Current slice Z index
     UPROPERTY(BlueprintReadOnly, Category = "SDF Visualization")
     int32 CurrentSliceZ = 0;
 
-    // SDF 해상도
+    // SDF resolution
     UPROPERTY(BlueprintReadOnly, Category = "SDF Visualization")
     int32 Resolution = 64;
 
@@ -47,14 +47,14 @@ class FLESHRINGRUNTIME_API UFleshRingSDFVisualizer : public UBlueprintFunctionLi
     GENERATED_BODY()
 
 public:
-    // SDF 슬라이스 시각화 - 메시에서 SDF 생성 후 평면에 표시
-    // @param WorldContext - 월드 컨텍스트 (액터 스폰용)
-    // @param Mesh - SDF를 생성할 스태틱 메시
-    // @param WorldLocation - 평면을 배치할 월드 위치
-    // @param SliceZ - 표시할 Z 슬라이스 인덱스 (0 ~ Resolution-1)
-    // @param Resolution - SDF 해상도 (기본 64)
-    // @param PlaneSize - 평면 크기 (기본 100)
-    // @return 시각화 결과 (평면 액터, 텍스처 등)
+    // SDF slice visualization - generate SDF from mesh and display on plane
+    // @param WorldContext - World context (for actor spawning)
+    // @param Mesh - Static mesh to generate SDF from
+    // @param WorldLocation - World location to place the plane
+    // @param SliceZ - Z slice index to display (0 ~ Resolution-1)
+    // @param Resolution - SDF resolution (default 64)
+    // @param PlaneSize - Plane size (default 100)
+    // @return Visualization result (plane actor, texture, etc.)
     UFUNCTION(BlueprintCallable, Category = "FleshRing|Visualization", meta = (WorldContext = "WorldContextObject"))
     static FSDFVisualizationResult VisualizeSDFSlice(
         UObject* WorldContextObject,
@@ -64,22 +64,22 @@ public:
         int32 Resolution = 64
     );
 
-    // 기존 시각화 업데이트 (슬라이스 Z만 변경)
-    // @param Result - 이전 VisualizeSDFSlice 결과
-    // @param NewSliceZ - 새로운 Z 슬라이스 인덱스
+    // Update existing visualization (change slice Z only)
+    // @param Result - Previous VisualizeSDFSlice result
+    // @param NewSliceZ - New Z slice index
     UFUNCTION(BlueprintCallable, Category = "FleshRing|Visualization")
     static void UpdateSliceZ(UPARAM(ref) FSDFVisualizationResult& Result, int32 NewSliceZ);
 
-    // 시각화 정리 (평면 액터 제거)
+    // Cleanup visualization (remove plane actor)
     UFUNCTION(BlueprintCallable, Category = "FleshRing|Visualization")
     static void CleanupVisualization(UPARAM(ref) FSDFVisualizationResult& Result);
 
-    // 모든 슬라이스 한 번에 시각화 (SDF 1회 생성)
-    // @param WorldContext - 월드 컨텍스트 (액터 스폰용)
-    // @param Mesh - SDF를 생성할 스태틱 메시
-    // @param WorldLocation - 평면들을 배치할 기준 월드 위치
-    // @param Resolution - SDF 해상도 (기본 64, 슬라이스 개수와 동일)
-    // @return 시각화 결과 배열 (Resolution 개수만큼)
+    // Visualize all slices at once (single SDF generation)
+    // @param WorldContext - World context (for actor spawning)
+    // @param Mesh - Static mesh to generate SDF from
+    // @param WorldLocation - Base world location to place the planes
+    // @param Resolution - SDF resolution (default 64, same as slice count)
+    // @return Array of visualization results (Resolution count)
     UFUNCTION(BlueprintCallable, Category = "FleshRing|Visualization", meta = (WorldContext = "WorldContextObject"))
     static TArray<FSDFVisualizationResult> VisualizeAllSDFSlices(
         UObject* WorldContextObject,

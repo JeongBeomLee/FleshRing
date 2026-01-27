@@ -6,12 +6,12 @@
 #include "FleshRingMeshHitProxy.h"
 #include "StaticMeshSceneProxy.h"
 
-// HitProxy 구현 매크로
+// HitProxy implementation macro
 IMPLEMENT_HIT_PROXY(HFleshRingMeshHitProxy, HHitProxy);
 
 /**
- * Ring 메시용 커스텀 SceneProxy
- * CreateHitProxies를 오버라이드하여 본보다 높은 우선순위의 HitProxy 제공
+ * Custom SceneProxy for Ring mesh
+ * Overrides CreateHitProxies to provide HitProxy with higher priority than bones
  */
 class FFleshRingMeshSceneProxy : public FStaticMeshSceneProxy
 {
@@ -24,7 +24,7 @@ public:
 
 	virtual HHitProxy* CreateHitProxies(UPrimitiveComponent* Component, TArray<TRefCountPtr<HHitProxy>>& OutHitProxies) override
 	{
-		// 커스텀 HitProxy 생성 - HPP_Foreground로 본(HPP_World)보다 높은 우선순위
+		// Create custom HitProxy - HPP_Foreground has higher priority than bones (HPP_World)
 		if (RingIndex != INDEX_NONE)
 		{
 			HFleshRingMeshHitProxy* HitProxy = new HFleshRingMeshHitProxy(RingIndex);
@@ -32,7 +32,7 @@ public:
 			return HitProxy;
 		}
 
-		// RingIndex가 없으면 기본 동작
+		// Fall back to default behavior if RingIndex is not set
 		return FStaticMeshSceneProxy::CreateHitProxies(Component, OutHitProxies);
 	}
 
@@ -43,7 +43,7 @@ private:
 
 UFleshRingMeshComponent::UFleshRingMeshComponent()
 {
-	// 기본 설정
+	// Default settings
 	CastShadow = false;
 	bCastDynamicShadow = false;
 }
@@ -51,7 +51,7 @@ UFleshRingMeshComponent::UFleshRingMeshComponent()
 FPrimitiveSceneProxy* UFleshRingMeshComponent::CreateSceneProxy()
 {
 #if WITH_EDITOR
-	// 에디터에서는 커스텀 프록시 생성 (높은 피킹 우선순위)
+	// Create custom proxy in editor (with higher picking priority)
 	if (GetStaticMesh() == nullptr || GetStaticMesh()->GetRenderData() == nullptr)
 	{
 		return nullptr;
@@ -64,7 +64,7 @@ FPrimitiveSceneProxy* UFleshRingMeshComponent::CreateSceneProxy()
 
 	return new FFleshRingMeshSceneProxy(this, false, RingIndex);
 #else
-	// 런타임에서는 기본 프록시 사용
+	// Use default proxy at runtime
 	return Super::CreateSceneProxy();
 #endif
 }

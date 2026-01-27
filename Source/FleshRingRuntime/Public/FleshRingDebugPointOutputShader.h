@@ -26,7 +26,7 @@ public:
 		// Input Buffers
 		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float>, FinalPositions)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, VertexIndices)
-		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float>, Influences)  // GPU에서 계산된 Influence (RWBuffer<float>에서 읽기)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float>, Influences)  // GPU-computed Influence (read from RWBuffer<float>)
 
 		// Output Buffer
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWStructuredBuffer<FFleshRingDebugPoint>, DebugPointBuffer)
@@ -35,8 +35,8 @@ public:
 		SHADER_PARAMETER(uint32, NumVertices)
 		SHADER_PARAMETER(uint32, NumTotalVertices)
 		SHADER_PARAMETER(uint32, RingIndex)
-		SHADER_PARAMETER(uint32, BaseOffset)           // 출력 버퍼 오프셋
-		SHADER_PARAMETER(uint32, InfluenceBaseOffset)  // Influence 버퍼 오프셋 (다중 Ring 지원)
+		SHADER_PARAMETER(uint32, BaseOffset)           // Output buffer offset
+		SHADER_PARAMETER(uint32, InfluenceBaseOffset)  // Influence buffer offset (multi-ring support)
 		SHADER_PARAMETER(FMatrix44f, LocalToWorld)
 	END_SHADER_PARAMETER_STRUCT()
 

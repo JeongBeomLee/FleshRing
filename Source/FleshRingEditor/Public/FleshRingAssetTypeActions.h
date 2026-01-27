@@ -8,10 +8,10 @@
 class UFleshRingAsset;
 
 /**
- * FleshRing Asset의 Content Browser 통합
- * - 더블클릭 시 전용 에디터 열기
- * - 아이콘/색상 설정
- * - 우클릭 메뉴 커스터마이징
+ * Content Browser integration for FleshRing Asset
+ * - Open dedicated editor on double-click
+ * - Icon/color configuration
+ * - Right-click menu customization
  */
 class FFleshRingAssetTypeActions : public FAssetTypeActions_Base
 {
@@ -22,6 +22,6 @@ public:
 	virtual UClass* GetSupportedClass() const override;
 	virtual uint32 GetCategories() override;
 
-	/** 더블클릭 시 에디터 열기 */
+	/** Open editor on double-click */
 	virtual void OpenAssetEditor(const TArray<UObject*>& InObjects, TSharedPtr<class IToolkitHost> EditWithinLevelEditor = TSharedPtr<IToolkitHost>()) override;
 };

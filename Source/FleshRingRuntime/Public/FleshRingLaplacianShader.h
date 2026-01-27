@@ -89,7 +89,6 @@ public:
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float>, Influences)
 
         // Representative vertex indices for UV seam welding
-        // 대표 버텍스 인덱스 (UV seam 용접용)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, RepresentativeIndices)
 
         // Adjacency data (packed)

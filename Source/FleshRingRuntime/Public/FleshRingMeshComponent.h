@@ -7,8 +7,8 @@
 #include "FleshRingMeshComponent.generated.h"
 
 /**
- * Ring 메시용 커스텀 StaticMeshComponent
- * 에디터에서 커스텀 SceneProxy를 통해 본보다 높은 피킹 우선순위 제공
+ * Custom StaticMeshComponent for Ring mesh
+ * Provides higher picking priority than bones via custom SceneProxy in editor
  */
 UCLASS()
 class FLESHRINGRUNTIME_API UFleshRingMeshComponent : public UStaticMeshComponent
@@ -18,16 +18,16 @@ class FLESHRINGRUNTIME_API UFleshRingMeshComponent : public UStaticMeshComponent
 public:
 	UFleshRingMeshComponent();
 
-	/** Ring 인덱스 설정 (HitProxy에서 사용) */
+	/** Set Ring index (used by HitProxy) */
 	void SetRingIndex(int32 InRingIndex) { RingIndex = InRingIndex; }
 
-	/** Ring 인덱스 반환 */
+	/** Return Ring index */
 	int32 GetRingIndex() const { return RingIndex; }
 
 	// UPrimitiveComponent interface
 	virtual FPrimitiveSceneProxy* CreateSceneProxy() override;
 
 private:
-	/** Ring 인덱스 */
+	/** Ring index */
 	int32 RingIndex = INDEX_NONE;
 };

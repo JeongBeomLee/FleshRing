@@ -16,31 +16,31 @@
 #include "TimerManager.h"
 #include "Rendering/SkeletalMeshRenderData.h"
 #include "Editor.h"
-#include "RenderingThread.h"         // FlushRenderingCommands용
-#include "UObject/UObjectGlobals.h"  // CollectGarbage용
+#include "RenderingThread.h"         // For FlushRenderingCommands
+#include "UObject/UObjectGlobals.h"  // For CollectGarbage
 #include "MeshDescription.h"
 #include "SkeletalMeshAttributes.h"
 
 FFleshRingPreviewScene::FFleshRingPreviewScene(const ConstructionValues& CVS)
 	: FAdvancedPreviewScene(CVS)
 {
-	// 프리뷰 액터 생성
+	// Create preview actor
 	CreatePreviewActor();
 }
 
 FFleshRingPreviewScene::~FFleshRingPreviewScene()
 {
-	// 델리게이트 구독 해제
+	// Unsubscribe from delegate
 	UnbindFromAssetDelegate();
 
-	// 원본 메시 복원 (PreviewSubdividedMesh가 적용되어 있던 경우)
+	// Restore original mesh (if PreviewSubdividedMesh was applied)
 	if (SkeletalMeshComponent && CachedOriginalMesh.IsValid())
 	{
 		USkeletalMesh* CurrentMesh = SkeletalMeshComponent->GetSkeletalMeshAsset();
 		USkeletalMesh* OriginalMesh = CachedOriginalMesh.Get();
 		if (CurrentMesh != OriginalMesh)
 		{
-			// ★ Undo 비활성화
+			// ★ Disable Undo
 			ITransaction* OldGUndo = GUndo;
 			GUndo = nullptr;
 
@@ -54,10 +54,10 @@ FFleshRingPreviewScene::~FFleshRingPreviewScene()
 	}
 	CachedOriginalMesh.Reset();
 
-	// PreviewSubdividedMesh 정리
+	// Clean up PreviewSubdividedMesh
 	ClearPreviewMesh();
 
-	// Ring 메시 컴포넌트 정리
+	// Clean up Ring mesh components
 	for (UStaticMeshComponent* RingComp : RingMeshComponents)
 	{
 		if (RingComp)
@@ -67,7 +67,7 @@ FFleshRingPreviewScene::~FFleshRingPreviewScene()
 	}
 	RingMeshComponents.Empty();
 
-	// 프리뷰 액터 정리
+	// Clean up preview actor
 	if (PreviewActor)
 	{
 		PreviewActor->Destroy();
@@ -80,7 +80,7 @@ FFleshRingPreviewScene::~FFleshRingPreviewScene()
 
 void FFleshRingPreviewScene::CreatePreviewActor()
 {
-	// 프리뷰 월드에 액터 생성
+	// Create actor in preview world
 	UWorld* World = GetWorld();
 	if (!World)
 	{
@@ -97,50 +97,50 @@ void FFleshRingPreviewScene::CreatePreviewActor()
 		return;
 	}
 
-	// 스켈레탈 메시 컴포넌트 생성 (DebugSkelMesh 사용 - Persona 스타일 고정 본 색상)
+	// Create skeletal mesh component (using DebugSkelMesh - Persona style fixed bone colors)
 	SkeletalMeshComponent = NewObject<UDebugSkelMeshComponent>(PreviewActor, TEXT("SkeletalMeshComponent"));
 	SkeletalMeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	SkeletalMeshComponent->SetAnimationMode(EAnimationMode::AnimationSingleNode);
 	SkeletalMeshComponent->bCastDynamicShadow = true;
 	SkeletalMeshComponent->CastShadow = true;
 	SkeletalMeshComponent->SetVisibility(true);
-	SkeletalMeshComponent->SkeletonDrawMode = ESkeletonDrawMode::Default;  // 본 표시 및 선택 가능
+	SkeletalMeshComponent->SkeletonDrawMode = ESkeletonDrawMode::Default;  // Bone display and selection enabled
 	SkeletalMeshComponent->RegisterComponent();
 	PreviewActor->AddInstanceComponent(SkeletalMeshComponent);
 
-	// FleshRing 컴포넌트 생성 (에디터에서도 Deformer 활성화)
+	// Create FleshRing component (enable Deformer in editor as well)
 	FleshRingComponent = NewObject<UFleshRingComponent>(PreviewActor, TEXT("FleshRingComponent"));
 	FleshRingComponent->SetTargetMesh(SkeletalMeshComponent);
-	FleshRingComponent->bEnableFleshRing = true;  // 에디터 프리뷰에서도 Deformer 활성화
+	FleshRingComponent->bEnableFleshRing = true;  // Enable Deformer in editor preview
 	FleshRingComponent->RegisterComponent();
 	PreviewActor->AddInstanceComponent(FleshRingComponent);
 }
 
 void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 {
-	// 기존 에셋에서 델리게이트 해제
+	// Unbind delegate from existing asset
 	UnbindFromAssetDelegate();
 
 	CurrentAsset = InAsset;
 
-	// ★ nullptr 및 GC된 객체 체크 (Timer 콜백에서 호출 시 유효하지 않을 수 있음)
+	// ★ Check for nullptr and GC'd objects (may be invalid when called from Timer callback)
 	if (!InAsset || !IsValid(InAsset))
 	{
 		return;
 	}
 
-	// 새 에셋에 델리게이트 바인딩
+	// Bind delegate to new asset
 	BindToAssetDelegate();
 
 	// ============================================
-	// 1단계: 먼저 원본 메시로 설정 (FleshRingComponent 초기화용)
+	// Step 1: First set to original mesh (for FleshRingComponent initialization)
 	// ============================================
-	// ★ Soft Reference 유효성 체크 (오래된 에셋의 stale reference 방지)
+	// ★ Soft Reference validity check (prevent stale reference from old assets)
 	USkeletalMesh* OriginalMesh = nullptr;
 	if (!InAsset->TargetSkeletalMesh.IsNull())
 	{
 		OriginalMesh = InAsset->TargetSkeletalMesh.LoadSynchronous();
-		// LoadSynchronous 후 추가 검증 (corrupt 객체 방지)
+		// Additional validation after LoadSynchronous (prevent corrupt objects)
 		if (OriginalMesh && !IsValid(OriginalMesh))
 		{
 			UE_LOG(LogTemp, Warning, TEXT("FleshRingPreviewScene: TargetSkeletalMesh reference is invalid (stale asset?)"));
@@ -148,13 +148,13 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 		}
 	}
 
-	// 메시 변경 여부 확인 (TargetSkeletalMesh 기준)
+	// Check if mesh changed (based on TargetSkeletalMesh)
 	const bool bOriginalMeshChanged = (CachedOriginalMesh.Get() != OriginalMesh);
 
-	// 현재 표시 중인 메시
+	// Currently displayed mesh
 	USkeletalMesh* CurrentDisplayedMesh = SkeletalMeshComponent ? SkeletalMeshComponent->GetSkeletalMeshAsset() : nullptr;
 
-	// 표시해야 할 메시 결정 + Subdivision 재생성 필요 여부
+	// Determine mesh to display + whether Subdivision regeneration is needed
 	USkeletalMesh* TargetDisplayMesh = OriginalMesh;
 	bool bNeedsPreviewMeshGeneration = false;
 
@@ -163,60 +163,60 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	{
 		if (HasValidPreviewMesh() && !NeedsPreviewMeshRegeneration())
 		{
-			// 유효한 PreviewMesh 존재 - 그것을 표시해야 함
+			// Valid PreviewMesh exists - use it for display
 			TargetDisplayMesh = PreviewSubdividedMesh;
 		}
 		else
 		{
-			// PreviewMesh 재생성 필요 - full refresh 경로 필수
+			// PreviewMesh regeneration needed - full refresh path required
 			bNeedsPreviewMeshGeneration = true;
 		}
 	}
 #endif
 
-	// 표시 메시 변경 필요 여부
+	// Whether display mesh needs to change
 	const bool bDisplayMeshChanged = (CurrentDisplayedMesh != TargetDisplayMesh);
 
-	// 조건: 원본 동일 + 표시 메시 동일 + 재생성 필요 없음 + DeformerInstance 존재
-	// 이 모든 조건 충족 시에만 early return (Ring 파라미터 갱신만 수행)
+	// Condition: original same + display mesh same + no regeneration needed + DeformerInstance exists
+	// Early return only when all conditions are met (only update Ring parameters)
 	if (!bOriginalMeshChanged && !bDisplayMeshChanged && !bNeedsPreviewMeshGeneration &&
 		OriginalMesh && SkeletalMeshComponent && SkeletalMeshComponent->GetMeshDeformerInstance())
 	{
 		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Mesh unchanged, skipping full refresh (preserving DeformerInstance caches)"));
 
-		// Ring 메시만 갱신 (Tightness 등 파라미터 변경 반영)
+		// Update only Ring meshes (reflect parameter changes like Tightness)
 		if (FleshRingComponent)
 		{
 			FleshRingComponent->FleshRingAsset = InAsset;
-			// ApplyAsset() 대신 가벼운 갱신만 수행
+			// Perform lightweight update instead of ApplyAsset()
 			FleshRingComponent->UpdateRingTransforms();
-			// RingMesh 변경 시에도 반영되도록 Ring 메시 재생성 + SDF 재생성
+			// Regenerate Ring meshes + SDF to reflect RingMesh changes
 			FleshRingComponent->RefreshRingMeshes();
 			FleshRingComponent->RefreshSDF();
 
-			// DeformerInstance의 Tightness 캐시 무효화 (파라미터 변경 반영)
+			// Invalidate DeformerInstance's Tightness cache (reflect parameter changes)
 			if (UFleshRingDeformerInstance* DeformerInstance = Cast<UFleshRingDeformerInstance>(SkeletalMeshComponent->GetMeshDeformerInstance()))
 			{
 				DeformerInstance->InvalidateTightnessCache();
 			}
 		}
 
-		// Ring 메시 갱신 (FleshRingComponent가 비활성화된 경우만)
-		// bEnableFleshRing=true면 FleshRingComponent가 Ring Mesh 관리, PreviewScene은 정리만
+		// Update Ring meshes (only when FleshRingComponent is disabled)
+		// If bEnableFleshRing=true, FleshRingComponent manages Ring Mesh, PreviewScene only cleans up
 		if (!FleshRingComponent || !FleshRingComponent->bEnableFleshRing)
 		{
 			RefreshRings(InAsset->Rings);
 		}
 		else
 		{
-			// FleshRingComponent가 Ring Mesh를 관리하므로 PreviewScene의 Ring Mesh 정리
+			// FleshRingComponent manages Ring Mesh, so clean up PreviewScene's Ring Mesh
 			RefreshRings(TArray<FFleshRingSettings>());
 		}
 		return;
 	}
 
-	// ★ CL 320 복원: 원본 메시가 변경된 경우에만 DeformerInstance 파괴
-	// (Subdivision 토글 시에는 Deformer 유지 - ApplyAsset이 먼저 실행되어 Deformer가 설정된 후 메시 교체)
+	// ★ CL 320 restore: Destroy DeformerInstance only when original mesh changed
+	// (Keep Deformer when toggling Subdivision - ApplyAsset runs first so Deformer is set before mesh swap)
 	if (bOriginalMeshChanged && SkeletalMeshComponent)
 	{
 		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Mesh changed, destroying DeformerInstance"));
@@ -226,52 +226,52 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 			OldInstance->MarkAsGarbage();
 			OldInstance->ConditionalBeginDestroy();
 		}
-		// Deformer도 해제하여 SetSkeletalMesh()가 새 Instance를 생성하지 않도록 함
+		// Also release Deformer so SetSkeletalMesh() doesn't create a new Instance
 		SkeletalMeshComponent->SetMeshDeformer(nullptr);
 	}
 
-	// TargetSkeletalMesh가 null이면 씬 정리 후 리턴
+	// If TargetSkeletalMesh is null, clean up scene and return
 	if (!OriginalMesh)
 	{
 		SetSkeletalMesh(nullptr);
-		CachedOriginalMesh.Reset();  // 캐시 초기화 (다시 복원 안 되게)
+		CachedOriginalMesh.Reset();  // Clear cache (prevent restoration)
 		if (FleshRingComponent)
 		{
 			FleshRingComponent->FleshRingAsset = InAsset;
 			FleshRingComponent->ApplyAsset();
 		}
-		RefreshRings(TArray<FFleshRingSettings>());  // Ring도 정리
+		RefreshRings(TArray<FFleshRingSettings>());  // Clean up Rings too
 		return;
 	}
 
 	SetSkeletalMesh(OriginalMesh);
 
-	// 원본 메시 캐싱 (복원용) - 메시 변경 시에도 갱신
+	// Cache original mesh (for restoration) - also update on mesh change
 	if (CachedOriginalMesh.IsValid() && CachedOriginalMesh.Get() != OriginalMesh)
 	{
-		// 메시가 변경되었으면 캐시 갱신
+		// Update cache if mesh changed
 		CachedOriginalMesh = OriginalMesh;
 		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Updated cached mesh to '%s' (mesh changed)"),
 			OriginalMesh ? *OriginalMesh->GetName() : TEXT("null"));
 	}
 	else if (!CachedOriginalMesh.IsValid() && OriginalMesh)
 	{
-		// 최초 설정
+		// Initial setup
 		CachedOriginalMesh = OriginalMesh;
 		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Cached original mesh '%s' for restoration"),
 			*OriginalMesh->GetName());
 	}
 
 	// ============================================
-	// 2단계: FleshRing 컴포넌트 초기화 (Subdivision 처리 전에!)
-	// ★ CL 320 순서 복원: ApplyAsset()을 먼저 호출하여 Deformer가 설정된 후 메시 교체
+	// Step 2: Initialize FleshRing component (before Subdivision processing!)
+	// ★ CL 320 order restore: Call ApplyAsset() first so Deformer is set before mesh swap
 	// ============================================
 	if (FleshRingComponent)
 	{
 		FleshRingComponent->FleshRingAsset = InAsset;
 		FleshRingComponent->ApplyAsset();
 
-		// ApplyAsset() 후 즉시 Ring 메시 가시성 적용 (깜빡임 방지)
+		// Apply Ring mesh visibility immediately after ApplyAsset() (prevent flickering)
 		const auto& ComponentRingMeshes = FleshRingComponent->GetRingMeshComponents();
 		for (UStaticMeshComponent* RingComp : ComponentRingMeshes)
 		{
@@ -283,31 +283,31 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	}
 
 	// ============================================
-	// 3단계: Subdivision 처리 (ApplyAsset 후에!)
-	// ★ Deformer가 이미 설정된 후 메시를 교체하면 Deformer가 유지됨
+	// Step 3: Subdivision processing (after ApplyAsset!)
+	// ★ If mesh is swapped after Deformer is already set, Deformer is preserved
 	// ============================================
 #if WITH_EDITOR
 	if (InAsset->SubdivisionSettings.bEnableSubdivision)
 	{
-		// 프리뷰 메시가 없거나 재생성 필요 시 생성
+		// Generate if preview mesh doesn't exist or needs regeneration
 		if (!HasValidPreviewMesh() || NeedsPreviewMeshRegeneration())
 		{
 			GeneratePreviewMesh();
 		}
 
-		// 프리뷰 메시 사용 (있으면)
+		// Use preview mesh (if available)
 		if (HasValidPreviewMesh())
 		{
 			SetSkeletalMesh(PreviewSubdividedMesh);
 
-			// ★ 렌더 리소스 동기화 (IndexBuffer 초기화 대기)
+			// ★ Synchronize render resources (wait for IndexBuffer initialization)
 			if (SkeletalMeshComponent)
 			{
 				SkeletalMeshComponent->MarkRenderStateDirty();
 				FlushRenderingCommands();
 			}
 
-			// ★ GC 방지: 로깅 전 유효성 체크 (Timer 콜백에서 호출 시 객체가 destroyed될 수 있음)
+			// ★ Prevent GC: Check validity before logging (objects may be destroyed when called from Timer callback)
 			if (IsValid(InAsset) && IsValid(PreviewSubdividedMesh))
 			{
 				FSkeletalMeshRenderData* RenderData = PreviewSubdividedMesh->GetResourceForRendering();
@@ -319,10 +319,10 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	}
 	else
 	{
-		// Subdivision 비활성화 시 프리뷰 메시 제거 및 원본 복원
+		// Remove preview mesh and restore original when Subdivision is disabled
 		ClearPreviewMesh();
 
-		// 원본 메시로 복원
+		// Restore to original mesh
 		if (CachedOriginalMesh.IsValid() && SkeletalMeshComponent)
 		{
 			USkeletalMesh* CurrentMesh = SkeletalMeshComponent->GetSkeletalMeshAsset();
@@ -338,8 +338,8 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 #endif
 
 	// ============================================
-	// 4단계: Deformer 초기화 예약
-	// ★ CL 320 복원: bPendingDeformerInit만 설정
+	// Step 4: Schedule Deformer initialization
+	// ★ CL 320 restore: Only set bPendingDeformerInit
 	// ============================================
 	if (FleshRingComponent && FleshRingComponent->bEnableFleshRing)
 	{
@@ -347,20 +347,20 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Deformer init pending (waiting for mesh to be rendered)"));
 	}
 
-	// Deformer 비활성화 시에만 Ring 시각화 (활성화 시 FleshRingComponent가 관리)
+	// Visualize Rings only when Deformer is disabled (FleshRingComponent manages when enabled)
 	if (!FleshRingComponent || !FleshRingComponent->bEnableFleshRing)
 	{
 		RefreshRings(InAsset->Rings);
 	}
 	else
 	{
-		// FleshRingComponent가 Ring Mesh를 관리하므로 PreviewScene의 Ring Mesh 정리
+		// FleshRingComponent manages Ring Mesh, so clean up PreviewScene's Ring Mesh
 		RefreshRings(TArray<FFleshRingSettings>());
 	}
 
 	// ============================================
-	// 5단계: 사용하지 않는 PreviewMesh 정리 (CL 325 메시 정리 코드)
-	// ★ 메모리 누수 방지: Subdivision 토글 또는 Refresh 시 이전 PreviewMesh GC
+	// Step 5: Clean up unused PreviewMesh (CL 325 mesh cleanup code)
+	// ★ Prevent memory leak: GC previous PreviewMesh when toggling Subdivision or Refresh
 	// ============================================
 	if (bDisplayMeshChanged || bNeedsPreviewMeshGeneration)
 	{
@@ -374,7 +374,7 @@ void FFleshRingPreviewScene::SetSkeletalMesh(USkeletalMesh* InMesh)
 {
 	if (SkeletalMeshComponent)
 	{
-		// 메시 유효성 검사 (Undo/Redo 크래시 방지 + 렌더 리소스 초기화 검증)
+		// Validate mesh (prevent Undo/Redo crash + verify render resource initialization)
 		if (InMesh && !FleshRingUtils::IsSkeletalMeshValid(InMesh, /*bLogWarnings=*/ true))
 		{
 			UE_LOG(LogTemp, Warning,
@@ -383,8 +383,8 @@ void FFleshRingPreviewScene::SetSkeletalMesh(USkeletalMesh* InMesh)
 			return;
 		}
 
-		// ★ Undo 비활성화하여 메시 교체 시 트랜잭션에 캡처되지 않도록 함
-		// (이전 메시가 TransBuffer에 캡처되면 GC 불가)
+		// ★ Disable Undo to prevent mesh swap from being captured in transaction
+		// (If previous mesh is captured in TransBuffer, it cannot be GC'd)
 		ITransaction* OldGUndo = GUndo;
 		GUndo = nullptr;
 
@@ -401,7 +401,7 @@ void FFleshRingPreviewScene::SetSkeletalMesh(USkeletalMesh* InMesh)
 		}
 		else
 		{
-			// 메시가 nullptr이면 컴포넌트 숨기기
+			// Hide component if mesh is nullptr
 			SkeletalMeshComponent->SetVisibility(false);
 		}
 	}
@@ -417,7 +417,7 @@ void FFleshRingPreviewScene::RefreshPreview()
 
 void FFleshRingPreviewScene::RefreshRings(const TArray<FFleshRingSettings>& Rings)
 {
-	// 기존 Ring 컴포넌트 제거
+	// Remove existing Ring components
 	for (UStaticMeshComponent* RingComp : RingMeshComponents)
 	{
 		if (RingComp)
@@ -427,26 +427,26 @@ void FFleshRingPreviewScene::RefreshRings(const TArray<FFleshRingSettings>& Ring
 	}
 	RingMeshComponents.Empty();
 
-	// 새 Ring 컴포넌트 생성
+	// Create new Ring components
 	for (int32 i = 0; i < Rings.Num(); ++i)
 	{
 		const FFleshRingSettings& RingSetting = Rings[i];
 
 		UFleshRingMeshComponent* RingComp = NewObject<UFleshRingMeshComponent>(PreviewActor);
-		RingComp->SetRingIndex(i);  // HitProxy에서 사용할 Ring 인덱스 설정
+		RingComp->SetRingIndex(i);  // Set Ring index for use in HitProxy
 		RingComp->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 		RingComp->SetCollisionResponseToAllChannels(ECR_Ignore);
 		RingComp->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 		RingComp->bSelectable = true;
 
-		// Ring 메시 설정
+		// Set Ring mesh
 		UStaticMesh* RingMesh = RingSetting.RingMesh.LoadSynchronous();
 		if (RingMesh)
 		{
 			RingComp->SetStaticMesh(RingMesh);
 		}
 
-		// 본 위치에 배치 (MeshOffset, MeshRotation 적용)
+		// Place at bone position (apply MeshOffset, MeshRotation)
 		if (SkeletalMeshComponent && SkeletalMeshComponent->GetSkeletalMeshAsset())
 		{
 			int32 BoneIndex = SkeletalMeshComponent->GetBoneIndex(RingSetting.BoneName);
@@ -455,10 +455,10 @@ void FFleshRingPreviewScene::RefreshRings(const TArray<FFleshRingSettings>& Ring
 				FTransform BoneTransform = SkeletalMeshComponent->GetBoneTransform(BoneIndex);
 				FQuat BoneRotation = BoneTransform.GetRotation();
 
-				// MeshOffset 적용 (본 로컬 좌표계)
+				// Apply MeshOffset (in bone local coordinate system)
 				FVector MeshLocation = BoneTransform.GetLocation() + BoneRotation.RotateVector(RingSetting.MeshOffset);
 
-				// 본 회전 * 메시 회전 = 월드 회전 (기본값으로 본의 X축과 메시의 Z축이 일치)
+				// Bone rotation * Mesh rotation = World rotation (by default bone's X-axis aligns with mesh's Z-axis)
 				FQuat MeshWorldRotation = BoneRotation * RingSetting.MeshRotation;
 
 				RingComp->SetWorldLocationAndRotation(MeshLocation, MeshWorldRotation);
@@ -466,7 +466,7 @@ void FFleshRingPreviewScene::RefreshRings(const TArray<FFleshRingSettings>& Ring
 			}
 		}
 
-		// 현재 Show Flag에 맞게 가시성 설정 (AddComponent 전에 설정)
+		// Set visibility according to current Show Flag (set before AddComponent)
 		RingComp->SetVisibility(bRingMeshesVisible);
 
 		AddComponent(RingComp, RingComp->GetComponentTransform());
@@ -506,10 +506,10 @@ void FFleshRingPreviewScene::UpdateAllRingTransforms()
 			FTransform BoneTransform = SkeletalMeshComponent->GetBoneTransform(BoneIndex);
 			FQuat BoneRotation = BoneTransform.GetRotation();
 
-			// MeshOffset 적용 (본 로컬 좌표계)
+			// Apply MeshOffset (in bone local coordinate system)
 			FVector MeshLocation = BoneTransform.GetLocation() + BoneRotation.RotateVector(RingSetting.MeshOffset);
 
-			// 본 회전 * 메시 회전 = 월드 회전
+			// Bone rotation * Mesh rotation = World rotation
 			FQuat MeshWorldRotation = BoneRotation * RingSetting.MeshRotation;
 
 			RingComp->SetWorldLocationAndRotation(MeshLocation, MeshWorldRotation);
@@ -527,13 +527,13 @@ void FFleshRingPreviewScene::SetRingMeshesVisible(bool bVisible)
 {
 	bRingMeshesVisible = bVisible;
 
-	// FleshRingComponent의 bShowRingMesh도 동기화 (SetupRingMeshes 시 적용되도록)
+	// Also sync FleshRingComponent's bShowRingMesh (to apply during SetupRingMeshes)
 	if (FleshRingComponent)
 	{
 		FleshRingComponent->bShowRingMesh = bVisible;
 	}
 
-	// 1. PreviewScene의 RingMeshComponents (Deformer 비활성화 시)
+	// 1. PreviewScene's RingMeshComponents (when Deformer is disabled)
 	for (UStaticMeshComponent* RingComp : RingMeshComponents)
 	{
 		if (RingComp)
@@ -542,7 +542,7 @@ void FFleshRingPreviewScene::SetRingMeshesVisible(bool bVisible)
 		}
 	}
 
-	// 2. FleshRingComponent의 RingMeshComponents (Deformer 활성화 시)
+	// 2. FleshRingComponent's RingMeshComponents (when Deformer is enabled)
 	if (FleshRingComponent)
 	{
 		const auto& ComponentRingMeshes = FleshRingComponent->GetRingMeshComponents();
@@ -582,11 +582,11 @@ void FFleshRingPreviewScene::UnbindFromAssetDelegate()
 
 void FFleshRingPreviewScene::OnAssetChanged(UFleshRingAsset* ChangedAsset)
 {
-	// 동일한 에셋인지 확인
+	// Verify it's the same asset
 	if (ChangedAsset == CurrentAsset)
 	{
-		// 트랜잭션 완료 후 다음 틱에서 안전하게 갱신
-		// (PostEditChangeProperty에서 호출될 때 트랜잭션 내부일 수 있음 - 메시 생성 시 Undo 크래시 방지)
+		// Safely update on next tick after transaction completes
+		// (May be inside transaction when called from PostEditChangeProperty - prevent Undo crash during mesh creation)
 		if (GEditor)
 		{
 			TWeakObjectPtr<UFleshRingAsset> WeakAsset = ChangedAsset;
@@ -612,8 +612,8 @@ bool FFleshRingPreviewScene::IsPendingDeformerInit() const
 		return false;
 	}
 
-	// 스켈레탈 메시가 렌더링되었는지 확인
-	// WasRecentlyRendered()는 마지막 렌더링 시간을 체크하여 최근 렌더링 여부 반환
+	// Check if skeletal mesh has been rendered
+	// WasRecentlyRendered() checks last render time to return whether recently rendered
 	if (SkeletalMeshComponent && SkeletalMeshComponent->WasRecentlyRendered(0.1f))
 	{
 		return true;
@@ -638,10 +638,10 @@ void FFleshRingPreviewScene::ExecutePendingDeformerInit()
 
 	UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Mesh rendered, executing deferred Deformer init"));
 
-	// Deformer 초기화
+	// Initialize Deformer
 	FleshRingComponent->InitializeForEditorPreview();
 
-	// FleshRingComponent가 생성한 Ring 메시에 Show Flag 적용
+	// Apply Show Flag to Ring meshes created by FleshRingComponent
 	const auto& RingMeshes = FleshRingComponent->GetRingMeshComponents();
 	for (UStaticMeshComponent* RingComp : RingMeshes)
 	{
@@ -651,14 +651,14 @@ void FFleshRingPreviewScene::ExecutePendingDeformerInit()
 		}
 	}
 
-	// PreviewMesh 재적용 (InitializeForEditorPreview가 메시를 덮어썼을 수 있음)
+	// Reapply PreviewMesh (InitializeForEditorPreview may have overwritten the mesh)
 	if (CurrentAsset)
 	{
 		bool bUsePreviewMesh = CurrentAsset->SubdivisionSettings.bEnableSubdivision
 			&& HasValidPreviewMesh();
 		if (bUsePreviewMesh && SkeletalMeshComponent)
 		{
-			// ★ Undo 비활성화하여 메시 교체 시 트랜잭션에 캡처되지 않도록 함
+			// ★ Disable Undo to prevent mesh swap from being captured in transaction
 			ITransaction* OldGUndo = GUndo;
 			GUndo = nullptr;
 
@@ -673,7 +673,7 @@ void FFleshRingPreviewScene::ExecutePendingDeformerInit()
 }
 
 // =====================================
-// Preview Mesh Management (에셋에서 분리하여 트랜잭션 제외)
+// Preview Mesh Management (separated from asset to exclude from transaction)
 // =====================================
 
 void FFleshRingPreviewScene::ClearPreviewMesh()
@@ -685,25 +685,25 @@ void FFleshRingPreviewScene::ClearPreviewMesh()
 		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene::ClearPreviewMesh: Destroying '%s'"),
 			*OldMesh->GetName());
 
-		// 1. 포인터 해제
+		// 1. Release pointer
 		PreviewSubdividedMesh = nullptr;
 
-		// 2. 렌더 리소스 완전 해제
+		// 2. Fully release render resources
 		OldMesh->ReleaseResources();
 		OldMesh->ReleaseResourcesFence.Wait();
 		FlushRenderingCommands();
 
-		// 3. Outer를 TransientPackage로 변경
+		// 3. Change Outer to TransientPackage
 		OldMesh->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);
 
-		// 4. 플래그 설정
+		// 4. Set flags
 		OldMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
 		OldMesh->SetFlags(RF_Transient);
 
-		// 5. GC 대상으로 표시
+		// 5. Mark for GC
 		OldMesh->MarkAsGarbage();
 
-		// 캐시 무효화
+		// Invalidate cache
 		bPreviewMeshCacheValid = false;
 		LastPreviewBoneConfigHash = 0;
 	}
@@ -722,7 +722,7 @@ bool FFleshRingPreviewScene::IsPreviewMeshCacheValid() const
 		return false;
 	}
 
-	// 해시 비교
+	// Compare hash
 	return LastPreviewBoneConfigHash == CalculatePreviewBoneConfigHash();
 }
 
@@ -733,13 +733,13 @@ bool FFleshRingPreviewScene::NeedsPreviewMeshRegeneration() const
 		return false;
 	}
 
-	// 메시가 없으면 재생성 필요
+	// Need regeneration if mesh doesn't exist
 	if (PreviewSubdividedMesh == nullptr)
 	{
 		return true;
 	}
 
-	// 캐시가 무효화되었으면 재생성 필요
+	// Need regeneration if cache is invalidated
 	if (!IsPreviewMeshCacheValid())
 	{
 		return true;
@@ -757,16 +757,16 @@ uint32 FFleshRingPreviewScene::CalculatePreviewBoneConfigHash() const
 
 	uint32 Hash = 0;
 
-	// TargetSkeletalMesh 포인터 해시 (메시 변경 시 캐시 무효화)
+	// TargetSkeletalMesh pointer hash (invalidate cache when mesh changes)
 	Hash = HashCombine(Hash, GetTypeHash(CurrentAsset->TargetSkeletalMesh.Get()));
 
-	// 링 부착 본 목록 해시
+	// Ring attachment bone list hash
 	for (const FFleshRingSettings& Ring : CurrentAsset->Rings)
 	{
 		Hash = HashCombine(Hash, GetTypeHash(Ring.BoneName));
 	}
 
-	// subdivision 파라미터 해시
+	// Subdivision parameters hash
 	Hash = HashCombine(Hash, GetTypeHash(CurrentAsset->SubdivisionSettings.PreviewSubdivisionLevel));
 	Hash = HashCombine(Hash, GetTypeHash(CurrentAsset->SubdivisionSettings.PreviewBoneHopCount));
 	Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(CurrentAsset->SubdivisionSettings.PreviewBoneWeightThreshold * 255)));
@@ -782,18 +782,18 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 		return;
 	}
 
-	// 캐시 체크 - 이미 유효하면 재생성 불필요
+	// Cache check - no regeneration needed if already valid
 	if (IsPreviewMeshCacheValid())
 	{
 		return;
 	}
 
-	// ★ 전체 메시 생성/제거 과정을 Undo 시스템에서 제외
-	// 이전 메시 정리 및 새 메시 생성이 트랜잭션에 캡처되면 GC 불가
+	// ★ Exclude entire mesh creation/removal process from Undo system
+	// If previous mesh cleanup and new mesh creation are captured in transaction, GC is impossible
 	ITransaction* OldGUndo = GUndo;
 	GUndo = nullptr;
 
-	// 기존 PreviewMesh가 있으면 먼저 제거
+	// Remove existing PreviewMesh first if present
 	if (PreviewSubdividedMesh)
 	{
 		ClearPreviewMesh();
@@ -807,7 +807,7 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 
 	if (CurrentAsset->TargetSkeletalMesh.IsNull())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: TargetSkeletalMesh가 설정되지 않음"));
+		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: TargetSkeletalMesh is not set"));
 		GUndo = OldGUndo;
 		return;
 	}
@@ -815,18 +815,18 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 	USkeletalMesh* SourceMesh = CurrentAsset->TargetSkeletalMesh.LoadSynchronous();
 	if (!SourceMesh)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: SourceMesh 로드 실패"));
+		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: Failed to load SourceMesh"));
 		GUndo = OldGUndo;
 		return;
 	}
 
 	const double StartTime = FPlatformTime::Seconds();
 
-	// 1. 소스 메시 렌더 데이터 획득
+	// 1. Get source mesh render data
 	FSkeletalMeshRenderData* RenderData = SourceMesh->GetResourceForRendering();
 	if (!RenderData || RenderData->LODRenderData.Num() == 0)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: RenderData 없음"));
+		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: No RenderData"));
 		GUndo = OldGUndo;
 		return;
 	}
@@ -834,7 +834,7 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 	const FSkeletalMeshLODRenderData& SourceLODData = RenderData->LODRenderData[0];
 	const uint32 SourceVertexCount = SourceLODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
 
-	// 2. 소스 버텍스 데이터 추출
+	// 2. Extract source vertex data
 	TArray<FVector> SourcePositions;
 	TArray<FVector> SourceNormals;
 	TArray<FVector4> SourceTangents;
@@ -854,7 +854,7 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 		SourceUVs[i] = FVector2D(SourceLODData.StaticVertexBuffers.StaticMeshVertexBuffer.GetVertexUV(i, 0));
 	}
 
-	// 인덱스 추출
+	// Extract indices
 	TArray<uint32> SourceIndices;
 	const FRawStaticIndexBuffer16or32Interface* IndexBuffer = SourceLODData.MultiSizeIndexContainer.GetIndexBuffer();
 	if (IndexBuffer)
@@ -867,7 +867,7 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 		}
 	}
 
-	// 섹션별 머티리얼 인덱스 추출
+	// Extract material index per section
 	TArray<int32> SourceTriangleMaterialIndices;
 	{
 		const int32 NumTriangles = SourceIndices.Num() / 3;
@@ -883,7 +883,7 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 		}
 	}
 
-	// 본 웨이트 추출
+	// Extract bone weights
 	const int32 MaxBoneInfluences = SourceLODData.GetVertexBufferMaxBoneInfluences();
 	TArray<TArray<uint16>> SourceBoneIndices;
 	TArray<TArray<uint8>> SourceBoneWeights;
@@ -893,7 +893,7 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 	TArray<FVertexBoneInfluence> VertexBoneInfluences;
 	VertexBoneInfluences.SetNum(SourceVertexCount);
 
-	// 버텍스별 섹션 인덱스 맵 생성
+	// Create vertex-to-section index map
 	TArray<int32> VertexToSectionIndex;
 	VertexToSectionIndex.SetNum(SourceVertexCount);
 	for (int32& SectionIdx : VertexToSectionIndex) { SectionIdx = INDEX_NONE; }
@@ -952,12 +952,12 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 		}
 	}
 
-	// 3. 본 기반 Subdivision 프로세서 실행
+	// 3. Execute bone-based Subdivision processor
 	FFleshRingSubdivisionProcessor Processor;
 
 	if (!Processor.SetSourceMesh(SourcePositions, SourceIndices, SourceUVs, SourceTriangleMaterialIndices))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: SetSourceMesh 실패"));
+		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: SetSourceMesh failed"));
 		GUndo = OldGUndo;
 		return;
 	}
@@ -969,27 +969,27 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 
 	FSubdivisionTopologyResult TopologyResult;
 
-	// ★ Ring이 없으면 subdivision 스킵 (런타임 동작과 일치)
+	// ★ Skip subdivision if no Rings (matches runtime behavior)
 	if (CurrentAsset->Rings.Num() == 0)
 	{
 		UE_LOG(LogTemp, Warning,
-			TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: Ring이 없어 Subdivision을 건너뜀"));
+			TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: Skipping Subdivision because there are no Rings"));
 		GUndo = OldGUndo;
 		return;
 	}
 
 	if (!Processor.HasBoneInfo())
 	{
-		// Ring 있음 + BoneInfo 없음 -> 스킵 (비정상 상황)
+		// Ring exists + No BoneInfo -> Skip (abnormal situation)
 		UE_LOG(LogTemp, Error,
-			TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: BoneInfo가 없어 Subdivision을 건너뜀. ")
-			TEXT("SkeletalMesh '%s'에 SkinWeightBuffer가 없거나 본 웨이트 추출에 실패했습니다."),
+			TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: Skipping Subdivision because there is no BoneInfo. ")
+			TEXT("SkeletalMesh '%s' has no SkinWeightBuffer or bone weight extraction failed."),
 			SourceMesh ? *SourceMesh->GetName() : TEXT("null"));
 		GUndo = OldGUndo;
 		return;
 	}
 
-	// Ring 부착 본 인덱스 수집
+	// Collect Ring attachment bone indices
 	const FReferenceSkeleton& RefSkeleton = SourceMesh->GetRefSkeleton();
 	TArray<int32> RingBoneIndices;
 	for (const FFleshRingSettings& Ring : CurrentAsset->Rings)
@@ -1001,12 +1001,12 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 		}
 	}
 
-	// ★ 유효한 BoneName을 가진 Ring이 없으면 스킵
+	// ★ Skip if no Rings have valid BoneName
 	if (RingBoneIndices.Num() == 0)
 	{
 		UE_LOG(LogTemp, Warning,
-			TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: 유효한 BoneName을 가진 Ring이 없어 Subdivision을 건너뜀. ")
-			TEXT("Ring에 BoneName을 설정해주세요."));
+			TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: Skipping Subdivision because no Rings have valid BoneName. ")
+			TEXT("Please set BoneName on the Ring."));
 		GUndo = OldGUndo;
 		return;
 	}
@@ -1022,12 +1022,12 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 
 	if (!Processor.ProcessBoneRegion(TopologyResult, BoneParams))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: ProcessBoneRegion 실패"));
+		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: ProcessBoneRegion failed"));
 		GUndo = OldGUndo;
 		return;
 	}
 
-	// 4. 새 버텍스 데이터 보간
+	// 4. Interpolate new vertex data
 	const int32 NewVertexCount = TopologyResult.VertexData.Num();
 	TArray<FVector> NewPositions;
 	TArray<FVector> NewNormals;
@@ -1058,7 +1058,7 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 		const uint32 P2 = FMath::Min(VD.ParentV2, (uint32)(SourceVertexCount - 1));
 
 		NewPositions[i] = SourcePositions[P0] * U + SourcePositions[P1] * V + SourcePositions[P2] * W;
-		// Normal 보간
+		// Normal interpolation
 		FVector InterpolatedNormal = SourceNormals[P0] * U + SourceNormals[P1] * V + SourceNormals[P2] * W;
 		NewNormals[i] = InterpolatedNormal.GetSafeNormal();
 		FVector4 InterpTangent = SourceTangents[P0] * U + SourceTangents[P1] * V + SourceTangents[P2] * W;
@@ -1100,8 +1100,8 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 		}
 	}
 
-	// 5. 프리뷰용 USkeletalMesh 생성
-	// ★ Outer를 GetTransientPackage()로 설정 - PreviewScene 소멸 시 GC 대상
+	// 5. Create USkeletalMesh for preview
+	// ★ Set Outer to GetTransientPackage() - eligible for GC when PreviewScene is destroyed
 	FString MeshName = FString::Printf(TEXT("%s_Preview_%s"),
 		*SourceMesh->GetName(),
 		*FGuid::NewGuid().ToString(EGuidFormats::Short));
@@ -1109,12 +1109,12 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 
 	if (!PreviewSubdividedMesh)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: 메시 복제 실패"));
+		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: Mesh duplication failed"));
 		GUndo = OldGUndo;
 		return;
 	}
 
-	// 플래그 설정 - 트랜잭션에서 완전히 제외
+	// Set flags - completely exclude from transaction
 	PreviewSubdividedMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
 	PreviewSubdividedMesh->SetFlags(RF_Transient);
 
@@ -1127,7 +1127,7 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 		PreviewSubdividedMesh->ClearMeshDescription(0);
 	}
 
-	// 6. MeshDescription 생성
+	// 6. Create MeshDescription
 	FMeshDescription MeshDescription;
 	FSkeletalMeshAttributes MeshAttributes(MeshDescription);
 	MeshAttributes.Register();
@@ -1217,9 +1217,9 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 	CommitParams.bMarkPackageDirty = false;
 	PreviewSubdividedMesh->CommitMeshDescription(0, CommitParams);
 
-	// ★ 핵심: Build() 전에 Normal/Tangent 재계산 비활성화
-	// DuplicateObject가 원본 메시의 BuildSettings를 복사하는데,
-	// 원본에 bRecomputeNormals=true가 설정되어 있으면 우리가 설정한 Normal이 무시됨
+	// ★ Key: Disable Normal/Tangent recomputation before Build()
+	// DuplicateObject copies the source mesh's BuildSettings,
+	// if bRecomputeNormals=true is set on the source, our set Normals will be ignored
 	if (FSkeletalMeshLODInfo* LODInfo = PreviewSubdividedMesh->GetLODInfo(0))
 	{
 		LODInfo->BuildSettings.bRecomputeNormals = false;
@@ -1236,17 +1236,17 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 	PreviewSubdividedMesh->SetImportedBounds(FBoxSphereBounds(BoundingBox));
 	PreviewSubdividedMesh->CalculateExtendedBounds();
 
-	// 캐시 해시 업데이트
+	// Update cache hash
 	LastPreviewBoneConfigHash = CalculatePreviewBoneConfigHash();
 	bPreviewMeshCacheValid = true;
 
 	const double EndTime = FPlatformTime::Seconds();
 	const double ElapsedMs = (EndTime - StartTime) * 1000.0;
 
-	UE_LOG(LogTemp, Log, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh 완료: %d vertices, %d triangles (%.2fms, CacheHash=%u)"),
+	UE_LOG(LogTemp, Log, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh completed: %d vertices, %d triangles (%.2fms, CacheHash=%u)"),
 		NewVertexCount, TopologyResult.SubdividedTriangleCount, ElapsedMs, LastPreviewBoneConfigHash);
 
-	// ★ Undo 시스템 복원
+	// ★ Restore Undo system
 	GUndo = OldGUndo;
 }
 

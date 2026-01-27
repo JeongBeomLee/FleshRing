@@ -25,310 +25,307 @@ class UFleshRingDeformerInstance;
 struct IPooledRenderTarget;
 
 // ============================================================================
-// FFleshRingWorkItem - 큐잉된 작업 항목
+// FFleshRingWorkItem - Queued work item
 // ============================================================================
 struct FFleshRingWorkItem
 {
-	// 작업 식별
+	// Work identification
 	TWeakObjectPtr<UFleshRingDeformerInstance> DeformerInstance;
 	FSkeletalMeshObject* MeshObject = nullptr;
 	int32 LODIndex = 0;
 
-	// 버텍스 데이터
+	// Vertex data
 	uint32 TotalVertexCount = 0;
 	TSharedPtr<TArray<float>> SourceDataPtr;
 
-	// Ring 데이터 (Tightness + Bulge용)
+	// Ring data (for Tightness + Bulge)
 	struct FRingDispatchData
 	{
-		// 원본 Ring 인덱스 (FleshRingAsset->Rings 배열의 인덱스)
-		// 버텍스가 없는 Ring이 스킵되어도 설정 조회 시 올바른 인덱스 사용
+		// Original Ring index (index in FleshRingAsset->Rings array)
+		// Ensures correct index lookup even when Rings without vertices are skipped
 		int32 OriginalRingIndex = INDEX_NONE;
 
 		FTightnessDispatchParams Params;
 		TArray<uint32> Indices;
 		TArray<float> Influences;
 
-		// ===== UV Seam Welding용 대표 버텍스 인덱스 =====
-		// UV seam에서 분리된 버텍스들(같은 위치, 다른 인덱스)이 동일하게 움직이도록 보장
-		// 셰이더에서: RepresentativeIndices[ThreadIndex]의 위치를 읽어서 변형 계산
-		// 같은 Position Group의 버텍스들은 동일한 Representative를 공유
+		// ===== Representative vertex indices for UV Seam Welding =====
+		// Ensures vertices split at UV seams (same position, different indices) move identically
+		// In shader: reads position from RepresentativeIndices[ThreadIndex] for deformation calculation
+		// Vertices in the same Position Group share the same Representative
 		TArray<uint32> RepresentativeIndices;
-		bool bHasUVDuplicates = false;  // UV duplicate 존재 여부 (없으면 UVSync 스킵 가능)
+		bool bHasUVDuplicates = false;  // Whether UV duplicates exist (UVSync can be skipped if false)
 
-		// ===== Cached GPU Buffers (정적 데이터, 첫 프레임에만 생성 후 재사용) =====
-		// 토폴로지가 변경되지 않는 한 매 프레임 업로드 불필요
+		// ===== Cached GPU Buffers (static data, created once on first frame and reused) =====
+		// No need to upload every frame unless topology changes
 		mutable TRefCountPtr<FRDGPooledBuffer> CachedRepresentativeIndicesBuffer;
 
-		// SDF 캐시 데이터 (렌더 스레드로 안전하게 전달)
+		// SDF cache data (safely passed to render thread)
 		TRefCountPtr<IPooledRenderTarget> SDFPooledTexture;
 		FVector3f SDFBoundsMin = FVector3f::ZeroVector;
 		FVector3f SDFBoundsMax = FVector3f::ZeroVector;
 		bool bHasValidSDF = false;
 
 		/**
-		 * SDF 로컬 → 컴포넌트 스페이스 변환 (OBB 지원)
-		 * SDF는 로컬 스페이스에서 생성되므로, 셰이더에서 버텍스를
-		 * 컴포넌트 → 로컬로 역변환해야 올바른 SDF 샘플링 가능
+		 * SDF Local -> Component Space transform (OBB support)
+		 * Since SDF is generated in local space, shader must inverse transform vertices
+		 * from Component -> Local for correct SDF sampling
 		 */
 		FTransform SDFLocalToComponent = FTransform::Identity;
 
 		/**
 		 * Ring Center/Axis (SDF Local Space)
-		 * 원본 Ring 메시 바운드 기준으로 계산 (확장 전 바운드)
-		 * SDF 바운드가 확장되어도 Ring의 실제 위치/축을 정확히 전달
-		 * CPU에서 계산하여 GPU 셰이더로 전달 (바운드 기반 추론 대체)
+		 * Calculated based on original Ring mesh bounds (before expansion)
+		 * Accurately conveys Ring's actual position/axis even when SDF bounds are expanded
+		 * Calculated on CPU and passed to GPU shader (replaces bounds-based inference)
 		 */
 		FVector3f SDFLocalRingCenter = FVector3f::ZeroVector;
 		FVector3f SDFLocalRingAxis = FVector3f(0.0f, 0.0f, 1.0f);
 
-		// ===== Ring별 Bulge 데이터 =====
+		// ===== Per-Ring Bulge data =====
 		bool bEnableBulge = false;
 		TArray<uint32> BulgeIndices;
 		TArray<float> BulgeInfluences;
 		float BulgeStrength = 1.0f;
 		float MaxBulgeDistance = 10.0f;
-		float BulgeRadialRatio = 0.7f;	// Radial vs Axial 방향 비율 (0.0~1.0)
+		float BulgeRadialRatio = 0.7f;	// Radial vs Axial direction ratio (0.0~1.0)
 
-		// ===== Asymmetric Bulge (스타킹/타이즈 효과용) =====
-		float UpperBulgeStrength = 1.0f;	// 상단(축 양수) Bulge 강도 배수
-		float LowerBulgeStrength = 1.0f;	// 하단(축 음수) Bulge 강도 배수
+		// ===== Asymmetric Bulge (for stocking/tights effect) =====
+		float UpperBulgeStrength = 1.0f;	// Upper (positive axis) Bulge strength multiplier
+		float LowerBulgeStrength = 1.0f;	// Lower (negative axis) Bulge strength multiplier
 
-		// ===== Bulge 방향 데이터 =====
+		// ===== Bulge direction data =====
 		/**
-		 * Bulge 방향 (-1, 0, +1)
-		 * EBulgeDirectionMode에서 결정됨:
-		 * - Auto 모드: DetectedBulgeDirection 사용
+		 * Bulge direction (-1, 0, +1)
+		 * Determined by EBulgeDirectionMode:
+		 * - Auto mode: uses DetectedBulgeDirection
 		 * - Positive: +1
 		 * - Negative: -1
 		 */
 		int32 BulgeAxisDirection = 0;
 
-		/** Auto 감지된 방향 (GenerateSDF에서 계산됨) */
+		/** Auto-detected direction (calculated in GenerateSDF) */
 		int32 DetectedBulgeDirection = 0;
 
-		// ===== Normal Recomputation용 인접 데이터 =====
-		// AdjacencyOffsets[i] = AffectedVertex i의 인접 삼각형 시작 인덱스
-		// AdjacencyOffsets[NumAffected] = 총 인접 삼각형 수 (sentinel)
+		// ===== Adjacency data for Normal Recomputation =====
+		// AdjacencyOffsets[i] = start index of adjacent triangles for AffectedVertex i
+		// AdjacencyOffsets[NumAffected] = total adjacent triangle count (sentinel)
 		TArray<uint32> AdjacencyOffsets;
-		// 인접 삼각형 인덱스의 평탄화된 리스트
+		// Flattened list of adjacent triangle indices
 		TArray<uint32> AdjacencyTriangles;
 
-		// ===== Laplacian Smoothing용 인접 데이터 =====
+		// ===== Adjacency data for Laplacian Smoothing =====
 		// Packed format: [NeighborCount, N0, N1, ..., N11] per affected vertex (13 uints each)
-		// 패킹 포맷: 영향받는 버텍스당 [이웃수, N0, N1, ..., N11] (각 13 uint)
 		TArray<uint32> LaplacianAdjacencyData;
 
-		// ===== Laplacian Smoothing용 DeformAmounts =====
+		// ===== DeformAmounts for Laplacian Smoothing =====
 		// Per-vertex deform amount: negative=tightness(inward), positive=bulge(outward)
 		// Used to reduce smoothing on bulge areas to preserve bulge effect
 		TArray<float> DeformAmounts;
 
-		// ===== Laplacian/Taubin Smoothing 파라미터 =====
+		// ===== Laplacian/Taubin Smoothing parameters =====
 		bool bEnableLaplacianSmoothing = true;
-		bool bUseTaubinSmoothing = true;      // Taubin: 수축 없는 스무딩
-		float SmoothingLambda = 0.5f;         // λ (수축 강도)
-		float TaubinMu = -0.53f;              // μ (팽창 강도, 음수)
+		bool bUseTaubinSmoothing = true;      // Taubin: shrink-free smoothing
+		float SmoothingLambda = 0.5f;         // λ (shrink strength)
+		float TaubinMu = -0.53f;              // μ (inflate strength, negative)
 		int32 SmoothingIterations = 2;
 
 		// ===== Anchor Mode (Laplacian) =====
-		// true: 원본 Affected Vertices는 앵커로 고정, 확장 영역만 스무딩
+		// true: original Affected Vertices are anchored, only extended region is smoothed
 		bool bAnchorDeformedVertices = false;
 
-		// ===== 통합된 스무딩 영역 데이터 =====
-		// 기존 PostProcessing~ (BoundsExpand)와 Extended~ (HopBased) 변수들을 통합
-		// SmoothingExpandMode에 따라 DeformerInstance에서 적절한 데이터로 채워짐
+		// ===== Unified smoothing region data =====
+		// Consolidates former PostProcessing~ (BoundsExpand) and Extended~ (HopBased) variables
+		// Filled with appropriate data from DeformerInstance based on SmoothingExpandMode
 		ESmoothingVolumeMode SmoothingExpandMode = ESmoothingVolumeMode::BoundsExpand;
-		TArray<uint32> SmoothingRegionIndices;           // 스무딩 영역 버텍스 인덱스
-		TArray<float> SmoothingRegionInfluences;         // 스무딩 영역 influence (falloff 적용)
-		TArray<uint32> SmoothingRegionIsAnchor;          // 앵커 플래그 (1=Seed/Core, 0=확장)
-		TArray<uint32> SmoothingRegionRepresentativeIndices;  // UV seam 대표 버텍스 인덱스
-		bool bSmoothingRegionHasUVDuplicates = false;    // UV duplicate 존재 여부
-		mutable TRefCountPtr<FRDGPooledBuffer> CachedSmoothingRegionRepresentativeIndicesBuffer;  // 캐싱된 GPU 버퍼
-		TArray<uint32> SmoothingRegionLaplacianAdjacency;  // 라플라시안 인접 데이터
-		TArray<uint32> SmoothingRegionPBDAdjacency;      // PBD 인접 데이터
-		TArray<uint32> SmoothingRegionAdjacencyOffsets;  // 노멀 재계산용 인접 오프셋
-		TArray<uint32> SmoothingRegionAdjacencyTriangles;  // 노멀 재계산용 인접 삼각형
-		TArray<int32> SmoothingRegionHopDistances;       // 홉 거리 (HopBased 전용)
-		int32 MaxSmoothingHops = 0;                      // 최대 홉 거리 (블렌딩 계수 계산용)
-		uint32 NormalBlendFalloffType = 2;               // 노멀 블렌딩 falloff (0=Linear, 1=Quadratic, 2=Hermite)
+		TArray<uint32> SmoothingRegionIndices;           // Smoothing region vertex indices
+		TArray<float> SmoothingRegionInfluences;         // Smoothing region influence (with falloff)
+		TArray<uint32> SmoothingRegionIsAnchor;          // Anchor flags (1=Seed/Core, 0=extended)
+		TArray<uint32> SmoothingRegionRepresentativeIndices;  // UV seam representative vertex indices
+		bool bSmoothingRegionHasUVDuplicates = false;    // Whether UV duplicates exist
+		mutable TRefCountPtr<FRDGPooledBuffer> CachedSmoothingRegionRepresentativeIndicesBuffer;  // Cached GPU buffer
+		TArray<uint32> SmoothingRegionLaplacianAdjacency;  // Laplacian adjacency data
+		TArray<uint32> SmoothingRegionPBDAdjacency;      // PBD adjacency data
+		TArray<uint32> SmoothingRegionAdjacencyOffsets;  // Adjacency offsets for normal recomputation
+		TArray<uint32> SmoothingRegionAdjacencyTriangles;  // Adjacency triangles for normal recomputation
+		TArray<int32> SmoothingRegionHopDistances;       // Hop distances (HopBased only)
+		int32 MaxSmoothingHops = 0;                      // Max hop distance (for blend coefficient calculation)
+		uint32 NormalBlendFalloffType = 2;               // Normal blending falloff (0=Linear, 1=Quadratic, 2=Hermite)
 
-		// 홉 거리 기반 influence (Affected 영역용)
+		// Hop distance based influence (for Affected region)
 		TArray<float> HopBasedInfluences;
 
-		// ===== Heat Propagation (변형 전파) =====
-		// Seed의 delta를 SmoothingRegion 영역으로 확산
-		// BoneRatioCS 이후, LaplacianCS 이전에 실행
+		// ===== Heat Propagation (deformation propagation) =====
+		// Propagates delta from Seeds to SmoothingRegion area
+		// Runs after BoneRatioCS, before LaplacianCS
 		bool bEnableHeatPropagation = false;
 		int32 HeatPropagationIterations = 10;
 		float HeatPropagationLambda = 0.5f;
-		bool bIncludeBulgeVerticesAsSeeds = true;  // Bulge 버텍스도 Seed로 포함
+		bool bIncludeBulgeVerticesAsSeeds = true;  // Include Bulge vertices as Seeds
 
-		// ===== Bone Ratio Preserve용 슬라이스 데이터 =====
-		// 반경 균일화 스무딩 활성화 여부
+		// ===== Slice data for Bone Ratio Preserve =====
+		// Enable radial uniformization smoothing
 		bool bEnableRadialSmoothing = true;
-		// 반경 균일화 강도 (0.0 = 효과 없음, 1.0 = 완전 균일화)
+		// Radial uniformization strength (0.0 = no effect, 1.0 = full uniformization)
 		float RadialBlendStrength = 1.0f;
-		// 반경 균일화 슬라이스 높이 (cm)
+		// Radial uniformization slice height (cm)
 		float RadialSliceHeight = 1.0f;
-		// 원본 본 거리 (바인드 포즈)
+		// Original bone distances (bind pose)
 		TArray<float> OriginalBoneDistances;
-		// 축 높이 (가우시안 가중치용)
+		// Axis heights (for Gaussian weighting)
 		TArray<float> AxisHeights;
 		// Packed format: [SliceCount, V0, V1, ..., V31] per affected vertex (33 uints each)
-		// 패킹 포맷: 영향받는 버텍스당 [슬라이스버텍스수, V0, V1, ..., V31] (각 33 uint)
 		TArray<uint32> SlicePackedData;
 
-		// ===== Layer Penetration Resolution용 레이어 타입 =====
+		// ===== Layer types for Layer Penetration Resolution =====
 		// Per-affected-vertex layer types (0=Skin, 1=Stocking, etc.)
-		// 머티리얼 이름에서 자동 감지됨
+		// Auto-detected from material names
 		TArray<uint32> LayerTypes;
 
-		// ===== 전체 메시 레이어 타입 (GPU 직접 업로드용) =====
+		// ===== Full mesh layer types (for direct GPU upload) =====
 		// Full mesh vertex layer types - index by VertexIndex directly
-		// 전체 메시 버텍스 레이어 타입 - VertexIndex로 직접 조회 가능
-		// 축소(PostProcessingLayerTypes) → 확대(FullVertexLayerTypes) 변환 불필요
+		// No need to expand from reduced (PostProcessingLayerTypes) to full (FullVertexLayerTypes)
 		TArray<uint32> FullMeshLayerTypes;
 
-		// Note: PostProcessing~ 변수들은 SmoothingRegion~ 으로 통합됨 (위 참조)
+		// Note: PostProcessing~ variables are consolidated into SmoothingRegion~ (see above)
 
-		// ===== Skin SDF 기반 레이어 분리용 데이터 =====
-		// 스킨 버텍스 인덱스 (SmoothingRegion 범위 내, LayerType=Skin)
+		// ===== Data for Skin SDF based layer separation =====
+		// Skin vertex indices (within SmoothingRegion, LayerType=Skin)
 		TArray<uint32> SkinVertexIndices;
-		// 스킨 버텍스 노멀 (방사 방향으로 계산)
+		// Skin vertex normals (calculated as radial direction)
 		TArray<float> SkinVertexNormals;
-		// 스타킹 버텍스 인덱스 (SmoothingRegion 범위 내, LayerType=Stocking)
+		// Stocking vertex indices (within SmoothingRegion, LayerType=Stocking)
 		TArray<uint32> StockingVertexIndices;
 
-		// ===== PBD Edge Constraint용 데이터 (Tolerance 기반 변형 전파) =====
+		// ===== Data for PBD Edge Constraint (Tolerance-based deformation propagation) =====
 		bool bEnablePBDEdgeConstraint = false;
 		float PBDStiffness = 0.8f;
 		int32 PBDIterations = 5;
-		float PBDTolerance = 0.2f;  // 허용 오차 비율 (0.2 = 80%~120% 허용)
-		bool bPBDAnchorAffectedVertices = true;  // true: Affected Vertices 고정, false: 모든 버텍스 자유
+		float PBDTolerance = 0.2f;  // Tolerance ratio (0.2 = allow 80%~120%)
+		bool bPBDAnchorAffectedVertices = true;  // true: Affected Vertices fixed, false: all vertices free
 
-		// PBD용 인접 데이터 (rest length 포함)
+		// PBD adjacency data (includes rest length)
 		// Packed format: [NeighborCount, Neighbor0, RestLen0(as uint), Neighbor1, RestLen1, ...] per affected vertex
-		// RestLength는 float를 uint로 bit-cast하여 저장
+		// RestLength is stored as float bit-cast to uint
 		TArray<uint32> PBDAdjacencyWithRestLengths;
 
-		// 전체 버텍스에 대한 Influence 맵 (이웃 가중치 조회용)
-		// 인덱스: 전체 버텍스 인덱스, 값: influence
+		// Influence map for all vertices (for neighbor weight lookup)
+		// Index: full vertex index, Value: influence
 		TArray<float> FullInfluenceMap;
 
-		// 전체 버텍스에 대한 DeformAmount 맵 (이웃 가중치 조회용)
-		// 인덱스: 전체 버텍스 인덱스, 값: deform amount
+		// DeformAmount map for all vertices (for neighbor weight lookup)
+		// Index: full vertex index, Value: deform amount
 		TArray<float> FullDeformAmountMap;
 
-		// 전체 버텍스에 대한 IsAnchor 맵 (Tolerance 기반 PBD용)
-		// 인덱스: 전체 버텍스 인덱스, 값: 1=Affected/앵커, 0=Non-Affected/자유
-		// 이웃의 앵커 여부를 조회하여 PBD 가중치 분배 결정
+		// IsAnchor map for all vertices (for Tolerance-based PBD)
+		// Index: full vertex index, Value: 1=Affected/anchor, 0=Non-Affected/free
+		// Used to query neighbor's anchor status for PBD weight distribution
 		TArray<uint32> FullVertexAnchorFlags;
 
-		// ===== 캐시된 Zero 배열 (bPBDAnchorAffectedVertices=false일 때 사용) =====
-		// 매 틱 할당을 피하기 위해 미리 생성해둔 Zero-filled 배열
-		TArray<uint32> CachedZeroIsAnchorFlags;   // PBD 대상 버텍스 수 크기
-		TArray<uint32> CachedZeroFullVertexAnchorFlags;   // 전체 버텍스 수 크기
+		// ===== Cached Zero arrays (used when bPBDAnchorAffectedVertices=false) =====
+		// Pre-created Zero-filled arrays to avoid per-tick allocation
+		TArray<uint32> CachedZeroIsAnchorFlags;   // Size of PBD target vertex count
+		TArray<uint32> CachedZeroFullVertexAnchorFlags;   // Size of total vertex count
 	};
 	TSharedPtr<TArray<FRingDispatchData>> RingDispatchDataPtr;
 
-	// ===== Bulge 전역 플래그 =====
-	// 하나 이상의 Ring에서 Bulge가 활성화되어 있는지 여부
-	// (VolumeAccumBuffer 생성 여부 결정용)
+	// ===== Bulge global flag =====
+	// Whether Bulge is enabled on one or more Rings
+	// (Used to determine whether to create VolumeAccumBuffer)
 	bool bAnyRingHasBulge = false;
 
-	// ===== Layer Penetration Resolution 플래그 =====
-	// 레이어 침투 해결 활성화 여부 (FleshRingAsset에서 설정)
+	// ===== Layer Penetration Resolution flag =====
+	// Whether layer penetration resolution is enabled (set from FleshRingAsset)
 	bool bEnableLayerPenetrationResolution = true;
 
-	// ===== Normal/Tangent Recompute 플래그 =====
-	// 노멀 재계산 활성화 여부 (FleshRingAsset에서 설정)
+	// ===== Normal/Tangent Recompute flags =====
+	// Whether normal recomputation is enabled (set from FleshRingAsset)
 	bool bEnableNormalRecompute = true;
-	// 노멀 재계산 모드 (ENormalRecomputeMethod와 일치)
+	// Normal recomputation mode (matches ENormalRecomputeMethod)
 	// 0 = Geometric, 1 = SurfaceRotation
 	uint32 NormalRecomputeMode = 1;  // Default: SurfaceRotation
-	// 홉 기반 블렌딩 활성화 여부 (경계에서 원본 노멀과 블렌딩)
+	// Whether hop-based blending is enabled (blends with original normals at boundary)
 	bool bEnableNormalHopBlending = true;
-	// 변위 기반 블렌딩 활성화 여부 (버텍스 이동량에 따라 블렌딩)
+	// Whether displacement-based blending is enabled (blends based on vertex movement)
 	bool bEnableDisplacementBlending = false;
-	// 변위 블렌딩 최대 거리 (cm) - 이 거리 이상 이동 시 100% 재계산된 노멀 사용
+	// Max displacement distance for blending (cm) - uses 100% recomputed normal beyond this distance
 	float MaxDisplacementForBlend = 1.0f;
-	// 탄젠트 재계산 활성화 여부 (FleshRingAsset에서 설정, 노멀 재계산이 켜져있어야 동작)
+	// Whether tangent recomputation is enabled (set from FleshRingAsset, requires normal recompute on)
 	bool bEnableTangentRecompute = true;
 
-	// ===== Normal Recomputation용 메시 인덱스 버퍼 =====
-	// 모든 Ring이 공유하는 메시 인덱스 버퍼 (3 indices per triangle)
+	// ===== Mesh index buffer for Normal Recomputation =====
+	// Mesh index buffer shared by all Rings (3 indices per triangle)
 	TSharedPtr<TArray<uint32>> MeshIndicesPtr;
 
-	// 캐싱 상태
+	// Caching state
 	bool bNeedTightnessCaching = false;
 	bool bInvalidatePreviousPosition = false;
 
-	// 캐시 버퍼 (렌더 스레드에서 접근)
-	// TSharedPtr로 래핑하여 DeformerInstance 파괴 후에도 안전하게 접근 가능
+	// Cache buffer (accessed from render thread)
+	// Wrapped in TSharedPtr for safe access after DeformerInstance destruction
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedBufferSharedPtr;
 
-	// 재계산된 노멀 캐시 버퍼 (TightenedBindPose와 함께 캐싱)
-	// NormalRecomputeCS 결과를 캐싱하여 캐싱된 프레임에서도 올바른 노멀 사용
+	// Recomputed normals cache buffer (cached together with TightenedBindPose)
+	// Caches NormalRecomputeCS results to use correct normals on cached frames
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedNormalsBufferSharedPtr;
 
-	// 재계산된 탄젠트 캐시 버퍼 (TightenedBindPose와 함께 캐싱)
-	// TangentRecomputeCS 결과를 캐싱하여 캐싱된 프레임에서도 올바른 탄젠트 사용
+	// Recomputed tangents cache buffer (cached together with TightenedBindPose)
+	// Caches TangentRecomputeCS results to use correct tangents on cached frames
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedTangentsBufferSharedPtr;
 
-	// ===== 디버그 Influence 캐시 버퍼 =====
-	// TightnessCS에서 출력된 Influence 값 캐싱
-	// DrawDebugPoint에서 GPU 계산된 Influence 시각화용
+	// ===== Debug Influence cache buffer =====
+	// Caches Influence values output from TightnessCS
+	// For visualizing GPU-computed Influence in DrawDebugPoint
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedDebugInfluencesBufferSharedPtr;
 
-	// 디버그 Influence 출력 활성화 플래그
+	// Debug Influence output enable flag
 	bool bOutputDebugInfluences = false;
 
-	// ===== 디버그 포인트 버퍼 (GPU 렌더링) =====
-	// TightnessCS에서 출력된 디버그 포인트 (WorldPosition + Influence)
-	// Scene Proxy에서 직접 GPU 렌더링 (CPU Readback 불필요)
+	// ===== Debug point buffer (GPU rendering) =====
+	// Debug points output from TightnessCS (WorldPosition + Influence)
+	// Direct GPU rendering in Scene Proxy (no CPU Readback needed)
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedDebugPointBufferSharedPtr;
 
-	// 디버그 포인트 출력 활성화 플래그
+	// Debug point output enable flag
 	bool bOutputDebugPoints = false;
 
-	// LocalToWorld 행렬 (디버그 포인트 월드 변환용)
+	// LocalToWorld matrix (for debug point world transform)
 	FMatrix44f LocalToWorldMatrix = FMatrix44f::Identity;
 
-	// ===== Bulge 디버그 포인트 버퍼 (GPU 렌더링) =====
-	// BulgeCS에서 출력된 디버그 포인트 (WorldPosition + Influence)
-	// Scene Proxy에서 직접 GPU 렌더링 (Tightness와 다른 색상)
+	// ===== Bulge debug point buffer (GPU rendering) =====
+	// Debug points output from BulgeCS (WorldPosition + Influence)
+	// Direct GPU rendering in Scene Proxy (different color from Tightness)
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> CachedDebugBulgePointBufferSharedPtr;
 
-	// Bulge 디버그 포인트 출력 활성화 플래그
+	// Bulge debug point output enable flag
 	bool bOutputDebugBulgePoints = false;
 
-	// Bulge 디버그 포인트 수
+	// Bulge debug point count
 	uint32 DebugBulgePointCount = 0;
 
-	// ===== GPU Readback 관련 =====
-	// Readback 결과를 저장할 배열 (게임 스레드에서 접근)
+	// ===== GPU Readback related =====
+	// Array to store Readback results (accessed from game thread)
 	TSharedPtr<TArray<float>> DebugInfluenceReadbackResultPtr;
 
-	// Readback 완료 플래그 (스레드 안전)
+	// Readback completion flag (thread safe)
 	TSharedPtr<std::atomic<bool>> bDebugInfluenceReadbackComplete;
 
-	// Readback할 버텍스 수
+	// Number of vertices to Readback
 	uint32 DebugInfluenceCount = 0;
 
-	// Fallback 델리게이트
+	// Fallback delegate
 	FSimpleDelegate FallbackDelegate;
 
 	// ===== Passthrough Mode =====
-	// AffectedVertices가 0이 될 때 한 번만 원본 데이터로 SkinningCS 실행
-	// TightnessCS 건너뛰고 원본 탄젠트를 출력하여 이전 변형 잔상 제거
+	// Runs SkinningCS with original data once when AffectedVertices becomes 0
+	// Skips TightnessCS and outputs original tangents to remove previous deformation residue
 	bool bPassthroughMode = false;
 };
 
 // ============================================================================
-// FFleshRingComputeWorker - IComputeTaskWorker 구현
+// FFleshRingComputeWorker - IComputeTaskWorker implementation
 // ============================================================================
-// 렌더러가 적절한 시점에 호출하여 FleshRing 작업 실행
+// Called by renderer at appropriate timing to execute FleshRing work
 class FLESHRINGRUNTIME_API FFleshRingComputeWorker : public IComputeTaskWorker
 {
 public:
@@ -339,29 +336,29 @@ public:
 	virtual bool HasWork(FName InExecutionGroupName) const override;
 	virtual void SubmitWork(FComputeContext& Context) override;
 
-	// 작업 큐잉 (렌더 스레드에서 호출)
+	// Queue work (called from render thread)
 	void EnqueueWork(FFleshRingWorkItem&& InWorkItem);
 
-	// 작업 취소 (특정 DeformerInstance의 작업 제거)
+	// Cancel work (remove work for specific DeformerInstance)
 	void AbortWork(UFleshRingDeformerInstance* InDeformerInstance);
 
 private:
-	// 실제 작업 실행
+	// Execute actual work
 	void ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshRingWorkItem& WorkItem);
-	
+
 	FSceneInterface const* Scene;
 
-	// 대기 중인 작업 목록 (렌더 스레드 전용)
+	// Pending work list (render thread only)
 	TArray<FFleshRingWorkItem> PendingWorkItems;
 
-	// 스레드 안전성을 위한 락
+	// Lock for thread safety
 	mutable FCriticalSection WorkItemsLock;
 };
 
 // ============================================================================
-// FFleshRingComputeSystem - IComputeSystem 구현
+// FFleshRingComputeSystem - IComputeSystem implementation
 // ============================================================================
-// Scene별 FleshRingComputeWorker 생성/관리
+// Creates/manages FleshRingComputeWorker per Scene
 class FLESHRINGRUNTIME_API FFleshRingComputeSystem : public IComputeSystem
 {
 public:
@@ -371,17 +368,17 @@ public:
 	virtual void CreateWorkers(FSceneInterface const* InScene, TArray<IComputeTaskWorker*>& OutWorkers) override;
 	virtual void DestroyWorkers(FSceneInterface const* InScene, TArray<IComputeTaskWorker*>& InOutWorkers) override;
 
-	// Scene에 대한 Worker 조회
+	// Get Worker for Scene
 	FFleshRingComputeWorker* GetWorker(FSceneInterface const* InScene) const;
 
-	// 시스템 등록/해제
+	// System registration/unregistration
 	static void Register();
 	static void Unregister();
 
 private:
 	FFleshRingComputeSystem() = default;
 
-	// Scene별 Worker 매핑
+	// Per-Scene Worker mapping
 	TMap<FSceneInterface const*, FFleshRingComputeWorker*> SceneWorkers;
 	mutable FCriticalSection WorkersLock;
 

@@ -16,15 +16,15 @@ FFleshRingEdMode::FFleshRingEdMode()
 		EM_FleshRingEdModeId,
 		NSLOCTEXT("FleshRingEdMode", "ModeName", "FleshRing"),
 		FSlateIcon(),
-		false);  // bVisible = false (UI에 표시 안 함)
+		false);  // bVisible = false (don't show in UI)
 
-	// 현재 인스턴스 저장
+	// Store current instance
 	CurrentInstance = this;
 }
 
 FFleshRingEdMode::~FFleshRingEdMode()
 {
-	// 현재 인스턴스 정리
+	// Clean up current instance
 	if (CurrentInstance == this)
 	{
 		CurrentInstance = nullptr;
@@ -33,7 +33,7 @@ FFleshRingEdMode::~FFleshRingEdMode()
 
 bool FFleshRingEdMode::ShouldDrawWidget() const
 {
-	// Ring이 선택된 경우에만 Widget 표시
+	// Only show Widget when Ring is selected
 	if (ViewportClient)
 	{
 		EFleshRingSelectionType SelectionType = ViewportClient->GetSelectionType();
@@ -56,7 +56,7 @@ bool FFleshRingEdMode::UsesTransformWidget() const
 
 bool FFleshRingEdMode::UsesTransformWidget(UE::Widget::EWidgetMode CheckMode) const
 {
-	// 모든 모드 사용 가능 (None 포함)
+	// All modes available (including None)
 	return (CheckMode == UE::Widget::WM_None ||
 			CheckMode == UE::Widget::WM_Translate ||
 			CheckMode == UE::Widget::WM_Rotate ||
@@ -65,7 +65,7 @@ bool FFleshRingEdMode::UsesTransformWidget(UE::Widget::EWidgetMode CheckMode) co
 
 FVector FFleshRingEdMode::GetWidgetLocation() const
 {
-	// ViewportClient의 GetWidgetLocation 사용
+	// Use ViewportClient's GetWidgetLocation
 	if (ViewportClient)
 	{
 		return ViewportClient->GetWidgetLocation();
@@ -75,7 +75,7 @@ FVector FFleshRingEdMode::GetWidgetLocation() const
 
 bool FFleshRingEdMode::GetCustomDrawingCoordinateSystem(FMatrix& InMatrix, void* InData)
 {
-	// 기즈모를 AlignRotation에 맞춰 표시
+	// Display gizmo aligned to AlignRotation
 	if (ViewportClient)
 	{
 		InMatrix = ViewportClient->GetSelectedRingAlignMatrix();
@@ -86,7 +86,7 @@ bool FFleshRingEdMode::GetCustomDrawingCoordinateSystem(FMatrix& InMatrix, void*
 
 bool FFleshRingEdMode::GetCustomInputCoordinateSystem(FMatrix& InMatrix, void* InData)
 {
-	// 입력도 AlignRotation 좌표계 사용
+	// Input also uses AlignRotation coordinate system
 	if (ViewportClient)
 	{
 		InMatrix = ViewportClient->GetSelectedRingAlignMatrix();

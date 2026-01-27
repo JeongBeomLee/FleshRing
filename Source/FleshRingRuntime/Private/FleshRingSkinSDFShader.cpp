@@ -69,7 +69,7 @@ void DispatchFleshRingSkinSDFCS_MultiPass(
 	FRDGBufferRef SkinNormalsBuffer,
 	FRDGBufferRef StockingVertexIndicesBuffer)
 {
-	// 이제 셰이더 내부에서 루프 처리하므로 단일 디스패치로 위임
+	// Loop is now handled inside shader, delegate to single dispatch
 	DispatchFleshRingSkinSDFCS(
 		GraphBuilder,
 		Params,

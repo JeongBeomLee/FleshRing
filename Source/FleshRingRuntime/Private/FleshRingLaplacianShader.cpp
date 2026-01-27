@@ -52,8 +52,8 @@ void DispatchFleshRingLaplacianCS(
     PassParameters->AffectedIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
     PassParameters->Influences = GraphBuilder.CreateSRV(InfluencesBuffer);
 
-    // UV Seam Welding: RepresentativeIndices 바인딩
-    // nullptr이면 AffectedIndices를 fallback으로 사용
+    // UV Seam Welding: Bind RepresentativeIndices
+    // If nullptr, use AffectedIndices as fallback
     if (RepresentativeIndicesBuffer)
     {
         PassParameters->RepresentativeIndices = GraphBuilder.CreateSRV(RepresentativeIndicesBuffer);
@@ -244,7 +244,7 @@ static void DispatchTaubinMultiPass(
     const float Lambda = Params.GetEffectiveLambda();
     const float Mu = Params.GetEffectiveTaubinMu();
 
-    // [조건부 로그] 첫 호출 시에만 출력 (매 프레임 스팸 방지)
+    // [Conditional Log] Output only on first call (prevent per-frame spam)
     static bool bTaubinLoggedOnce = false;
     if (!bTaubinLoggedOnce)
     {

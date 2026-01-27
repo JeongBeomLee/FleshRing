@@ -13,8 +13,8 @@ class UFleshRingComponent;
 class USkeletalMesh;
 
 /**
- * FSubdivisionSettings 구조체의 프로퍼티 타입 커스터마이저
- * Editor Preview / Runtime Settings 서브그룹으로 정리
+ * Property type customization for the FSubdivisionSettings struct
+ * Organized into Editor Preview / Runtime Settings subgroups
  */
 class FSubdivisionSettingsCustomization : public IPropertyTypeCustomization
 {
@@ -22,10 +22,10 @@ public:
 	FSubdivisionSettingsCustomization();
 	virtual ~FSubdivisionSettingsCustomization();
 
-	/** 커스터마이저 인스턴스 생성 (팩토리 함수) */
+	/** Creates a customization instance (factory function) */
 	static TSharedRef<IPropertyTypeCustomization> MakeInstance();
 
-	/** IPropertyTypeCustomization 인터페이스 구현 */
+	/** IPropertyTypeCustomization interface implementation */
 
 	// Header row customization (collapsed view)
 	virtual void CustomizeHeader(
@@ -40,70 +40,70 @@ public:
 		IPropertyTypeCustomizationUtils& CustomizationUtils) override;
 
 private:
-	/** 상위 Asset 가져오기 */
+	/** Gets the outer Asset */
 	UFleshRingAsset* GetOuterAsset() const;
 
-	/** Subdivision 활성화 여부 */
+	/** Whether Subdivision is enabled */
 	bool IsSubdivisionEnabled() const;
 
-	/** Refresh Preview 버튼 클릭 */
+	/** Refresh Preview button clicked */
 	FReply OnRefreshPreviewClicked();
 
-	/** Generate Subdivided Mesh 버튼 클릭 */
+	/** Generate Subdivided Mesh button clicked */
 	FReply OnGenerateSubdividedMeshClicked();
 
-	/** Clear Subdivided Mesh 버튼 클릭 */
+	/** Clear Subdivided Mesh button clicked */
 	FReply OnClearSubdividedMeshClicked();
 
-	/** Bake 버튼 클릭 */
+	/** Bake button clicked */
 	FReply OnBakeMeshClicked();
 
-	/** Clear Baked Mesh 버튼 클릭 */
+	/** Clear Baked Mesh button clicked */
 	FReply OnClearBakedMeshClicked();
 
-	/** 에셋 저장 (Perforce 체크아웃 프롬프트 포함) */
+	/** Saves the asset (includes Perforce checkout prompt) */
 	void SaveAsset(UFleshRingAsset* Asset);
 
-	// ===== 비동기 베이킹 관련 =====
+	// ===== Async Baking Related =====
 
-	/** 비동기 베이크 틱 콜백 */
+	/** Async bake tick callback */
 	bool OnAsyncBakeTick(float DeltaTime);
 
-	/** 비동기 베이크 정리 (성공/실패 시 호출) */
+	/** Async bake cleanup (called on success/failure) */
 	void CleanupAsyncBake(bool bRestorePreviewMesh);
 
-	/** 원본 프리뷰 메시 복원 (동기 베이크용) */
+	/** Restores the original preview mesh (for sync bake) */
 	void RestoreOriginalPreviewMesh(UFleshRingComponent* PreviewComponent);
 
-	/** 메인 프로퍼티 핸들 캐싱 */
+	/** Cached main property handle */
 	TSharedPtr<IPropertyHandle> MainPropertyHandle;
 
-	// ===== 비동기 베이킹 상태 =====
+	// ===== Async Baking State =====
 
-	/** 비동기 베이크 진행 중 여부 */
+	/** Whether async bake is in progress */
 	bool bAsyncBakeInProgress = false;
 
-	/** 비동기 베이크 프레임 카운터 */
+	/** Async bake frame counter */
 	int32 AsyncBakeFrameCount = 0;
 
-	/** 캐시가 유효해진 후 추가 대기 프레임 카운터 */
+	/** Additional wait frame counter after cache becomes valid */
 	int32 PostCacheValidFrameCount = 0;
 
-	/** 비동기 베이크 최대 대기 프레임 */
+	/** Maximum wait frames for async bake */
 	static constexpr int32 MaxAsyncBakeFrames = 30;
 
-	/** 캐시 유효화 후 대기 프레임 수 (GPU 연산 완료 보장) */
+	/** Number of wait frames after cache validation (ensures GPU computation completion) */
 	static constexpr int32 PostCacheValidWaitFrames = 3;
 
-	/** 비동기 베이크용 에셋 (약한 참조) */
+	/** Asset for async bake (weak reference) */
 	TWeakObjectPtr<UFleshRingAsset> AsyncBakeAsset;
 
-	/** 비동기 베이크용 컴포넌트 (약한 참조) */
+	/** Component for async bake (weak reference) */
 	TWeakObjectPtr<UFleshRingComponent> AsyncBakeComponent;
 
-	/** 원본 프리뷰 메시 (복원용, 약한 참조) */
+	/** Original preview mesh (for restoration, weak reference) */
 	TWeakObjectPtr<USkeletalMesh> OriginalPreviewMesh;
 
-	/** 틱커 델리게이트 핸들 */
+	/** Ticker delegate handle */
 	FTSTicker::FDelegateHandle TickerHandle;
 };
