@@ -359,7 +359,7 @@ bool FFleshRingSubdivisionProcessor::Process(FSubdivisionTopologyResult& OutResu
 			}
 			else
 			{
-				// VirtualRing 모드: 기존 Torus 방식 (Legacy)
+				// VirtualRing 모드: Torus 방식
 				FTorusParams TorusParams;
 				TorusParams.Center = CurrentRingParams.Center;
 				TorusParams.Axis = CurrentRingParams.Axis.GetSafeNormal();

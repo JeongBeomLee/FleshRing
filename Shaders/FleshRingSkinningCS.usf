@@ -487,8 +487,7 @@ void ReadTangentsWithRecomputedNormalAndTangent(uint VertexIndex, out float3 Out
     }
 }
 
-// Legacy function for compatibility (deprecated)
-// 호환성을 위한 레거시 함수 (deprecated)
+// 하위 호환용 래퍼 함수
 void ReadTangentsWithRecomputedNormal(uint VertexIndex, out float3 OutNormal, out float4 OutTangent)
 {
     ReadTangentsWithRecomputedNormalAndTangent(VertexIndex, OutNormal, OutTangent);

@@ -94,7 +94,7 @@ public:
 
 		SHADER_PARAMETER(uint32, NumAffectedVertices)
 		SHADER_PARAMETER(uint32, NumTotalVertices)
-		SHADER_PARAMETER(uint32, NormalRecomputeMode)  // 0 = Geometric, 1 = SurfaceRotation, 2 = PolarDecomposition
+		SHADER_PARAMETER(uint32, NormalRecomputeMode)  // 0 = Geometric, 1 = SurfaceRotation
 		SHADER_PARAMETER(uint32, bEnableHopBlending)   // 0 = off, 1 = on (blend with original at boundary)
 		SHADER_PARAMETER(uint32, MaxHops)              // Maximum hop distance (for blend factor calculation)
 		SHADER_PARAMETER(uint32, FalloffType)          // 0 = Linear, 1 = Quadratic, 2 = Hermite
@@ -131,7 +131,7 @@ struct FNormalRecomputeDispatchParams
 
 	// Normal recompute mode (matches ENormalRecomputeMethod)
 	// 노멀 재계산 모드 (ENormalRecomputeMethod와 일치)
-	// 0 = Geometric, 1 = SurfaceRotation, 2 = PolarDecomposition
+	// 0 = Geometric, 1 = SurfaceRotation
 	uint32 NormalRecomputeMode = 2;  // Default: PolarDecomposition
 
 	// ===== Hop-based Blending Parameters =====

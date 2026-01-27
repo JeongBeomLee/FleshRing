@@ -52,8 +52,7 @@ public:
         // 입력: 처리할 영향받는 버텍스 인덱스
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, AffectedIndices)
 
-        // NOTE: Influences 버퍼 제거됨 - GPU에서 직접 Influence 계산
-        // (VirtualRing: CalculateVirtualRingInfluence, VirtualBand: CalculateVirtualBandInfluence)
+        // Influence는 GPU에서 직접 계산 (VirtualRing: CalculateVirtualRingInfluence, VirtualBand: CalculateVirtualBandInfluence)
 
         // Input: Representative vertex indices for UV seam welding
         // 입력: UV seam 용접을 위한 대표 버텍스 인덱스
@@ -84,8 +83,7 @@ public:
         // 디버그 버퍼 기본 오프셋 (다중 링 지원) - DebugInfluences에 사용
         SHADER_PARAMETER(uint32, DebugPointBaseOffset)
 
-        // NOTE: DebugPointBuffer, bOutputDebugPoints, LocalToWorld 제거됨
-        // DebugPointOutputCS에서 최종 위치 기반으로 처리
+        // DebugPointBuffer는 DebugPointOutputCS에서 최종 위치 기반으로 처리
 
         // ===== Skinning Buffers (SRV - Read Only) =====
         // ===== 스키닝 버퍼 (SRV - 읽기 전용) =====
@@ -458,9 +456,7 @@ struct FTightnessDispatchParams
      */
     uint32 bOutputDebugInfluences;
 
-    // NOTE: DebugInfluenceBaseOffset 제거됨 - DebugPointBaseOffset 재사용 (동일한 오프셋)
-
-    // NOTE: bOutputDebugPoints, LocalToWorld 제거됨 - DebugPointOutputCS에서 처리
+    // DebugPoint 출력은 DebugPointOutputCS에서 처리
 
     /**
      * Base offset for debug buffer (multi-ring support)
@@ -587,14 +583,14 @@ inline FTightnessDispatchParams CreateTightnessParams(
  * @param DebugInfluencesBuffer - (Optional) Debug influence output buffer
  *                                (옵션) 디버그 Influence 출력 버퍼
  *                                Params.bOutputDebugInfluences=1일 때 사용
- * NOTE: DebugPointBuffer 제거됨 - DebugPointOutputCS에서 최종 위치 기반으로 처리
+ *                                DebugPointBuffer는 DebugPointOutputCS에서 최종 위치 기반으로 처리
  */
 void DispatchFleshRingTightnessCS(
     FRDGBuilder& GraphBuilder,
     const FTightnessDispatchParams& Params,
     FRDGBufferRef SourcePositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
-    // NOTE: InfluencesBuffer 제거됨 - GPU에서 직접 Influence 계산
+    // Influence는 GPU에서 직접 계산
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRDGTextureRef SDFTexture = nullptr,
@@ -627,14 +623,14 @@ void DispatchFleshRingTightnessCS(
  *                            (옵션) Bulge 패스용 부피 누적 버퍼
  * @param DebugInfluencesBuffer - (Optional) Debug influence output buffer
  *                                (옵션) 디버그 Influence 출력 버퍼
- * NOTE: DebugPointBuffer 제거됨 - DebugPointOutputCS에서 처리
+ *                                DebugPointBuffer는 DebugPointOutputCS에서 처리
  */
 void DispatchFleshRingTightnessCS_WithReadback(
     FRDGBuilder& GraphBuilder,
     const FTightnessDispatchParams& Params,
     FRDGBufferRef SourcePositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
-    // NOTE: InfluencesBuffer 제거됨 - GPU에서 직접 Influence 계산
+    // Influence는 GPU에서 직접 계산
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRHIGPUBufferReadback* Readback,

@@ -2021,7 +2021,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 	// ============================================
 	// 5. 새 USkeletalMesh 생성 (소스 메시 복제 방식)
 	// ============================================
-	// 기존 SubdividedMesh는 함수 시작 부분에서 이미 안전하게 제거됨
+	// (이전 SubdividedMesh는 함수 시작 부분에서 정리됨)
 
 	// 소스 메시를 복제하여 모든 내부 구조 상속 (MorphTarget, LOD 데이터 등)
 	// ★ 고유한 이름 사용 (기존 메시가 GC 대기 중일 수 있으므로 이름 충돌 방지)

@@ -58,7 +58,7 @@ public:
 		SHADER_PARAMETER(FVector3f, RingAxis)
 		SHADER_PARAMETER(float, RingHeight)
 
-		// NOTE: Debug Point Output 제거됨 - DebugPointOutputCS에서 최종 위치 기반으로 처리
+		// Debug Point Output은 DebugPointOutputCS에서 최종 위치 기반으로 처리
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
@@ -99,7 +99,7 @@ struct FBulgeDispatchParams
 	FVector3f RingAxis = FVector3f(0.0f, 0.0f, 1.0f);
 	float RingHeight = 2.0f;
 
-	// NOTE: Debug Point Output 파라미터 제거됨 - DebugPointOutputCS에서 처리
+	// Debug Point Output은 DebugPointOutputCS에서 처리
 };
 
 void DispatchFleshRingBulgeCS(

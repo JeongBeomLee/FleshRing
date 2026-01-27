@@ -49,13 +49,13 @@ void DispatchFleshRingTightnessCS(
     const FTightnessDispatchParams& Params,
     FRDGBufferRef SourcePositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
-    // NOTE: InfluencesBuffer 제거됨 - GPU에서 직접 Influence 계산
+    // Influence는 GPU에서 직접 계산
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRDGTextureRef SDFTexture,
     FRDGBufferRef VolumeAccumBuffer,
     FRDGBufferRef DebugInfluencesBuffer)
-    // NOTE: DebugPointBuffer 제거됨 - DebugPointOutputCS에서 처리
+    // DebugPointBuffer는 DebugPointOutputCS에서 처리
 {
     // Early out if no vertices to process
     // 처리할 버텍스가 없으면 조기 반환
@@ -74,7 +74,7 @@ void DispatchFleshRingTightnessCS(
     // ===== 입력 버퍼 바인딩 (SRV) =====
     PassParameters->SourcePositions = GraphBuilder.CreateSRV(SourcePositionsBuffer, PF_R32_FLOAT);
     PassParameters->AffectedIndices = GraphBuilder.CreateSRV(AffectedIndicesBuffer);
-    // NOTE: Influences 버퍼 제거됨 - GPU에서 CalculateVirtualRingInfluence/CalculateVirtualBandInfluence로 직접 계산
+    // Influence는 GPU에서 직접 계산 (CalculateVirtualRingInfluence, CalculateVirtualBandInfluence)
 
     // ===== UV Seam Welding: RepresentativeIndices 바인딩 =====
     // RepresentativeIndices가 nullptr이면 AffectedIndices를 대신 사용 (fallback)
@@ -225,7 +225,7 @@ void DispatchFleshRingTightnessCS(
     // ===== Debug Influence Output Parameters =====
     // ===== 디버그 Influence 출력 파라미터 =====
     PassParameters->bOutputDebugInfluences = Params.bOutputDebugInfluences;
-    // NOTE: DebugInfluenceBaseOffset 제거됨 - DebugPointBaseOffset 재사용 (동일한 오프셋)
+    // DebugInfluenceBaseOffset과 DebugPointBaseOffset은 동일한 오프셋 사용
 
     if (DebugInfluencesBuffer && Params.bOutputDebugInfluences)
     {
@@ -248,9 +248,7 @@ void DispatchFleshRingTightnessCS(
 
     // DebugPointBaseOffset은 DebugInfluences에도 사용됨
     PassParameters->DebugPointBaseOffset = Params.DebugPointBaseOffset;
-
-    // NOTE: DebugPointBuffer, bOutputDebugPoints, LocalToWorld 제거됨
-    // DebugPointOutputCS에서 최종 위치 기반으로 처리
+    // DebugPointBuffer는 DebugPointOutputCS에서 최종 위치 기반으로 처리
 
     // Get shader reference
     // 셰이더 참조 가져오기
@@ -282,7 +280,7 @@ void DispatchFleshRingTightnessCS_WithReadback(
     const FTightnessDispatchParams& Params,
     FRDGBufferRef SourcePositionsBuffer,
     FRDGBufferRef AffectedIndicesBuffer,
-    // NOTE: InfluencesBuffer 제거됨 - GPU에서 직접 Influence 계산
+    // Influence는 GPU에서 직접 계산
     FRDGBufferRef RepresentativeIndicesBuffer,
     FRDGBufferRef OutputPositionsBuffer,
     FRHIGPUBufferReadback* Readback,
@@ -582,7 +580,7 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
                         ERDGInitialDataFlags::None
                     );
 
-                    // NOTE: InfluencesBuffer 제거됨 - GPU에서 직접 Influence 계산
+                    // Influence는 GPU에서 직접 계산
 
                     // Output 버퍼 (출력: 변형된 버텍스 위치)
                     FRDGBufferRef OutputBuffer = GraphBuilder.CreateBuffer(
@@ -610,7 +608,7 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
                         Params,
                         SourceBuffer,
                         IndicesBuffer,
-                        // NOTE: InfluencesBuffer 제거됨 - GPU에서 직접 Influence 계산
+                        // Influence는 GPU에서 직접 계산
                         nullptr,  // RepresentativeIndicesBuffer - 테스트에서는 사용하지 않음
                         OutputBuffer,
                         Readback.Get()

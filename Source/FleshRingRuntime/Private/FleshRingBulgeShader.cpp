@@ -94,7 +94,7 @@ void DispatchFleshRingBulgeCS(
 	PassParameters->RingAxis = Params.RingAxis;
 	PassParameters->RingHeight = Params.RingHeight;
 
-	// NOTE: Debug Point Output 제거됨 - DebugPointOutputCS에서 처리
+	// Debug Point Output은 DebugPointOutputCS에서 처리
 
 	TShaderMapRef<FFleshRingBulgeCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
 

@@ -399,12 +399,11 @@ public:
 	bool Process(FSubdivisionTopologyResult& OutResult);
 
 	/**
-	 * 균일 Subdivision 실행 (에디터 프리뷰용 - 레거시)
+	 * 균일 Subdivision 실행 (에디터 프리뷰용)
 	 *
 	 * Ring 영역 검사 없이 전체 메시를 균일하게 subdivision
 	 * 에디터에서 링 편집 시 실시간 프리뷰용으로 사용
-	 *
-	 * @deprecated ProcessBoneRegion 사용 권장 (성능 개선)
+	 * (성능상 ProcessBoneRegion 권장)
 	 *
 	 * @param OutResult - 출력 토폴로지 결과
 	 * @param MaxLevel - 최대 subdivision 레벨 (기본 2)

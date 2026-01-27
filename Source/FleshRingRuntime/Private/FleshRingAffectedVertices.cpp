@@ -1392,9 +1392,8 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         return false;
     }
 
-    // [버그 수정] RingDataArray.Reset() 제거
-    // Dirty Flag 시스템 도입 후, 여기서 Reset()하면 clean한 Ring의 캐시된 데이터가 삭제됨
-    // 배열 크기 조정은 아래 SetNum() 로직에서 처리됨 (라인 1440-1443)
+    // RingDataArray 크기 조정은 아래 SetNum() 로직에서 처리
+    // (Dirty Flag 시스템으로 clean한 Ring의 캐시된 데이터 보존)
 
     // FleshRingAsset null check
     // FleshRingAsset null 체크
@@ -4135,8 +4134,7 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
             NumExtended, NumWelded);
     }
 
-    // ===== Step 6: 기존 HopBasedInfluences도 업데이트 (기존 Affected 영역용) =====
-    // 이건 기존 코드와의 호환성을 위해 유지
+    // ===== Step 6: HopBasedInfluences 업데이트 (Affected 영역용) =====
     RingData.HopBasedInfluences.Reset(NumAffected);
     RingData.HopBasedInfluences.AddUninitialized(NumAffected);
     for (int32 i = 0; i < NumAffected; ++i)

@@ -117,7 +117,7 @@ uint GetNeighborVertexIndex(uint AdjacencyOffset, uint NeighborSlot)
 // ============================================================================
 // Pass 0: Init - Compute initial delta
 // ============================================================================
-// [버그 수정] UV duplicate race condition 방지
+// UV duplicate race condition 방지
 //
 // 문제: 같은 위치의 UV duplicate들이 모두 같은 RepIndex slot에 씀
 //       Seed가 delta를 쓴 후 Non-Seed가 0으로 덮어쓸 수 있음

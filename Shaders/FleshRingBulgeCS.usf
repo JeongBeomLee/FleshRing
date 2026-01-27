@@ -41,7 +41,7 @@ float3 RingCenter;
 float3 RingAxis;
 float RingHeight;
 
-// NOTE: Debug Point Output 제거됨 - DebugPointOutputCS에서 최종 위치 기반으로 처리
+// Debug Point Output은 DebugPointOutputCS에서 최종 위치 기반으로 처리
 
 #ifndef THREADGROUP_SIZE
 #define THREADGROUP_SIZE 64
@@ -337,7 +337,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         PosDelta = PosDelta * (MaxBulgeDistance / deltaLen);
     }
 
-    // NOTE: Debug Point Output 제거됨 - DebugPointOutputCS에서 최종 위치 기반으로 처리
+    // Debug Point Output은 DebugPointOutputCS에서 최종 위치 기반으로 처리
 
     WritePosition(VertexIndex, Pos + PosDelta);
 }

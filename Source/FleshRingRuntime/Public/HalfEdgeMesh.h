@@ -122,7 +122,7 @@ private:
 };
 
 /**
- * Torus parameters for subdivision influence region (Legacy)
+ * Torus parameters for subdivision influence region (VirtualRing 모드용)
  */
 struct FTorusParams
 {
@@ -289,7 +289,7 @@ class FLESHRINGRUNTIME_API FLEBSubdivision
 {
 public:
 	/**
-	 * Subdivide faces that intersect with the torus influence region (Legacy)
+	 * Subdivide faces that intersect with the torus influence region (VirtualRing 모드용)
 	 * Uses Red-Green refinement to ensure no T-junctions
 	 *
 	 * @param Mesh - Half-edge mesh to subdivide (modified in place)

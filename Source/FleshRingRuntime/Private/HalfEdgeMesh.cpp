@@ -389,8 +389,8 @@ int32 FLEBSubdivision::SubdivideRegion(
 	{
 		Positions.Add(V.Position);
 		UVs.Add(V.UV);
-		// ★ FIX: 기존 부모 정보 유지 (멀티레벨 Subdivision에서 중요)
-		// 원본 버텍스는 INDEX_NONE, 이전 레벨에서 생성된 버텍스는 부모 정보 유지
+		// 부모 정보 유지 (멀티레벨 Subdivision용)
+		// 원본 버텍스: INDEX_NONE, 이전 레벨 생성 버텍스: 부모 인덱스 보존
 		ParentIndices.Add(TPair<int32, int32>(V.ParentIndex0, V.ParentIndex1));
 	}
 
@@ -869,8 +869,8 @@ int32 FLEBSubdivision::SubdivideRegion(
 	{
 		Positions.Add(V.Position);
 		UVs.Add(V.UV);
-		// ★ FIX: 기존 부모 정보 유지 (멀티레벨 Subdivision에서 중요)
-		// 원본 버텍스는 INDEX_NONE, 이전 레벨에서 생성된 버텍스는 부모 정보 유지
+		// 부모 정보 유지 (멀티레벨 Subdivision용)
+		// 원본 버텍스: INDEX_NONE, 이전 레벨 생성 버텍스: 부모 인덱스 보존
 		ParentIndices.Add(TPair<int32, int32>(V.ParentIndex0, V.ParentIndex1));
 	}
 

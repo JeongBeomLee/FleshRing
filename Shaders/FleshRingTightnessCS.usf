@@ -14,13 +14,12 @@
  */
 Buffer<float> SourcePositions;              // 메시의 원본 정점 위치(바인드 포즈 컴포넌트 스페이스)
 StructuredBuffer<uint> AffectedIndices;     // 영향받는 정점 인덱스 (출력용)
-// NOTE: Influences 버퍼 제거됨 - GPU에서 직접 Influence 계산
-// (CalculateVirtualRingInfluence, CalculateVirtualBandInfluence)
+// Influence는 GPU에서 직접 계산 (CalculateVirtualRingInfluence, CalculateVirtualBandInfluence)
 StructuredBuffer<uint> RepresentativeIndices; // UV seam 용접용 대표 정점 인덱스 (입력용)
 RWBuffer<float> OutputPositions;            // 출력: 변형된 정점 위치
 RWBuffer<uint> VolumeAccumBuffer;           // 출력: Bulge 패스용 부피 누적 버퍼 (Atomic 연산)
 RWBuffer<float> DebugInfluences;            // 출력: 디버그용 Influence 값 (ThreadIndex당 1 float)
-// NOTE: DebugPointBuffer 제거됨 - DebugPointOutputCS에서 최종 위치 기반으로 출력
+// DebugPointBuffer는 DebugPointOutputCS에서 최종 위치 기반으로 출력
 
 // ============================================================================
 // Skinning Data (from GpuSkinCommon.ush pattern)
@@ -101,7 +100,7 @@ float FixedPointScale;      // float → uint 변환 스케일
 uint RingIndex;             // VolumeAccumBuffer 슬롯
 uint bOutputDebugInfluences; // 디버그 Influence 출력 활성화
 uint DebugPointBaseOffset;   // 디버그 버퍼 오프셋 (다중 링 지원, DebugInfluences에 사용)
-// NOTE: bOutputDebugPoints, LocalToWorld 제거됨 - DebugPointOutputCS에서 처리
+// DebugPoint 출력은 DebugPointOutputCS에서 처리
 
 // Z축 상단 확장 거리 (절대값, cm) - 스무딩 영역 확장용
 float BoundsZTop;
@@ -602,17 +601,7 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
             // 바운드 외부였는데 진입점이 이미 내부 = 진입점까지만 이동
             float3 DisplacementLocal = RaymarchStart - LocalPos;
 
-            // SDF Local → Component Space 변환
-            // [기존 방식 - 주석 처리: transpose + 스케일 보정은 Shear 미대응]
-            // float3 DisplacementComponent = mul(DisplacementLocal, (float3x3)transpose(ComponentToSDFLocal));
-            // float3 invScaleSq = float3(
-            //     dot(ComponentToSDFLocal[0].xyz, ComponentToSDFLocal[0].xyz),
-            //     dot(ComponentToSDFLocal[1].xyz, ComponentToSDFLocal[1].xyz),
-            //     dot(ComponentToSDFLocal[2].xyz, ComponentToSDFLocal[2].xyz)
-            // );
-            // DisplacementComponent /= max(invScaleSq, 0.0001);
-
-            // [신규 방식] SDFLocalToComponent 직접 사용 (C++에서 FMatrix::Inverse로 정확한 역행렬 전달)
+            // SDF Local → Component Space 변환 (SDFLocalToComponent 사용)
             float3 DisplacementComponent = mul(DisplacementLocal, (float3x3)SDFLocalToComponent);
 
             return Pos + DisplacementComponent * Strength;
@@ -781,19 +770,7 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
     if (abs(DisplacementLocal.z) > BoundsSize.z * 0.5)
         return Pos;
 
-    // SDF Local → Component Space 변환
-    // [기존 방식 - 주석 처리: transpose + 스케일 보정은 Shear 미대응]
-    // transpose(ComponentToSDFLocal)은 R × S^-1 (스케일 역수 적용됨)
-    // 올바른 변환(R × S)을 위해 S^2 보정 필요
-    // float3 DisplacementComponent = mul(DisplacementLocal, (float3x3)transpose(ComponentToSDFLocal));
-    // float3 invScaleSq = float3(
-    //     dot(ComponentToSDFLocal[0].xyz, ComponentToSDFLocal[0].xyz),
-    //     dot(ComponentToSDFLocal[1].xyz, ComponentToSDFLocal[1].xyz),
-    //     dot(ComponentToSDFLocal[2].xyz, ComponentToSDFLocal[2].xyz)
-    // );
-    // DisplacementComponent /= max(invScaleSq, 0.0001);
-
-    // [신규 방식] SDFLocalToComponent 직접 사용 (C++에서 FMatrix::Inverse로 정확한 역행렬 전달)
+    // SDF Local → Component Space 변환 (SDFLocalToComponent 사용)
     float3 DisplacementComponent = mul(DisplacementLocal, (float3x3)SDFLocalToComponent);
 
     return Pos + DisplacementComponent * Strength;
@@ -905,7 +882,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
             {
                 DebugInfluences[DebugPointBaseOffset + ThreadIndex] = 0.0;
             }
-            // NOTE: DebugPointBuffer 출력 제거됨 - DebugPointOutputCS에서 처리
+            // DebugPointBuffer는 DebugPointOutputCS에서 처리
             WritePosition(WriteIndex, Pos);
             return;
         }
@@ -959,6 +936,4 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     // UV seam welding: 대표에서 계산한 결과를 자신의 인덱스에 기록
     // 모든 UV 중복 버텍스가 동일한 결과를 각자의 위치에 기록함
     WritePosition(WriteIndex, NewPos);
-
-    // NOTE: DebugPointBuffer 출력 제거됨 - DebugPointOutputCS에서 최종 위치 기반으로 처리
 }

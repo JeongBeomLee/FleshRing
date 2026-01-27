@@ -153,8 +153,8 @@ struct FFleshRingWorkItem
 		int32 MaxSmoothingHops = 0;                      // 최대 홉 거리 (블렌딩 계수 계산용)
 		uint32 NormalBlendFalloffType = 2;               // 노멀 블렌딩 falloff (0=Linear, 1=Quadratic, 2=Hermite)
 
-		// ===== Legacy (호환성 유지, 점진적 제거 예정) =====
-		TArray<float> HopBasedInfluences;     // (legacy) 홉 거리 기반 influence
+		// 홉 거리 기반 influence (Affected 영역용)
+		TArray<float> HopBasedInfluences;
 
 		// ===== Heat Propagation (변형 전파) =====
 		// Seed의 delta를 SmoothingRegion 영역으로 확산
@@ -245,7 +245,7 @@ struct FFleshRingWorkItem
 	// 노멀 재계산 활성화 여부 (FleshRingAsset에서 설정)
 	bool bEnableNormalRecompute = true;
 	// 노멀 재계산 모드 (ENormalRecomputeMethod와 일치)
-	// 0 = Geometric, 1 = SurfaceRotation, 2 = PolarDecomposition (DEPRECATED)
+	// 0 = Geometric, 1 = SurfaceRotation
 	uint32 NormalRecomputeMode = 1;  // Default: SurfaceRotation
 	// 홉 기반 블렌딩 활성화 여부 (경계에서 원본 노멀과 블렌딩)
 	bool bEnableNormalHopBlending = true;

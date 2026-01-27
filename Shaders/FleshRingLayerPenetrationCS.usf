@@ -303,16 +303,16 @@ void BuildTriangleLayerCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 }
 
 // ============================================================================
-// Layer Penetration Resolution - Main CS (v2 - Fixed Over-Push)
+// Layer Penetration Resolution - Main CS
 // ============================================================================
 // For each outer-layer vertex, find nearest inner-layer triangle
 // If vertex penetrates the triangle, push it outward
 //
-// v2 수정사항:
-// 1. SearchRadius를 DynamicSeparation 기반으로 대폭 축소 (4cm → 0.5cm)
-// 2. 실제 침투(SignedDist < 0)와 근접(0 < SignedDist < Sep) 분리 처리
-// 3. 가장 가까운 삼각형 기준으로 처리 (최대 침투 → 최소 거리)
-// 4. Normal alignment 조건 강화 (-0.5 → 0.0)
+// 주요 특성:
+// - SearchRadius: DynamicSeparation 기반 (최소 탐색 범위)
+// - 실제 침투(SignedDist < 0)와 근접(0 < SignedDist < Sep) 분리 처리
+// - 최소 거리 삼각형 기준으로 처리
+// - Normal alignment 조건: dot > 0.0
 
 [numthreads(THREADGROUP_SIZE, 1, 1)]
 void LayerPenetrationCS(uint3 DispatchThreadId : SV_DispatchThreadID)

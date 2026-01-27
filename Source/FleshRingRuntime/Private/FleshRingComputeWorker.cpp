@@ -292,9 +292,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 		AddCopyBufferPass(GraphBuilder, TightenedBindPoseBuffer, SourceBuffer);
 
 		// ===== VolumeAccumBuffer 생성 (하나 이상의 Ring에서 Bulge 활성화 시) =====
-		// [버그 수정] 각 Ring이 독립된 VolumeAccum 슬롯을 사용하도록 변경
-		// 이전: 크기 1 버퍼를 모든 Ring이 공유 → Ring A의 압축량이 Ring B에 영향
-		// 수정: OriginalRingIndex 최대값 + 1 크기로 버퍼 생성 → 스킵된 Ring이 있어도 인덱스 일치
+		// 각 Ring이 독립된 VolumeAccum 슬롯을 사용 (OriginalRingIndex 기반)
 		FRDGBufferRef VolumeAccumBuffer = nullptr;
 		const int32 NumRings = WorkItem.RingDispatchDataPtr.IsValid() ? WorkItem.RingDispatchDataPtr->Num() : 0;
 
@@ -318,8 +316,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 
 		// ===== DebugInfluencesBuffer 생성 (디버그 Influence 출력 활성화 시) =====
 		// GPU에서 계산된 Influence 값을 캐싱하여 DrawDebugPoint에서 시각화
-		// [버그 수정] FMath::Max → 합산으로 변경
-		// 다중 Ring에서 InfluenceCumulativeOffset이 누적되므로 버퍼 크기도 합산해야 함
+		// 다중 Ring에서 InfluenceCumulativeOffset이 누적되므로 버퍼 크기도 합산
 		FRDGBufferRef DebugInfluencesBuffer = nullptr;
 		uint32 TotalInfluenceVertices = 0;
 
@@ -344,9 +341,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 		}
 
 		// ===== DebugPointBuffer 생성 (GPU 렌더링용) =====
-		// [버그 수정] FMath::Max → 합산으로 변경
-		// 다중 Ring에서 DebugPointCumulativeOffset이 누적되므로 버퍼 크기도 합산해야 함
-		// 이전: Max만 사용 → 버퍼 오버런 → 힙 손상 → 크래시
+		// 다중 Ring에서 DebugPointCumulativeOffset이 누적되므로 버퍼 크기도 합산
 		uint32 TotalAffectedVertices = 0;
 		if (WorkItem.bOutputDebugPoints && NumRings > 0)
 		{
@@ -419,7 +414,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					ERDGInitialDataFlags::None
 				);
 
-				// NOTE: InfluencesBuffer 제거됨 - GPU에서 직접 Influence 계산
+				// Influence는 GPU에서 직접 계산
 
 				// ===== UV Seam Welding: RepresentativeIndices 버퍼 생성 =====
 				// 같은 위치의 UV 중복 버텍스들이 동일하게 변형되도록 보장
@@ -533,14 +528,14 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					Params.DebugPointBaseOffset = DebugPointCumulativeOffset;
 				}
 
-				// NOTE: DebugPointBuffer 출력은 DebugPointOutputCS에서 최종 위치 기반으로 처리
+				// DebugPointBuffer는 DebugPointOutputCS에서 최종 위치 기반으로 처리
 
 				DispatchFleshRingTightnessCS(
 					GraphBuilder,
 					Params,
 					SourceBuffer,
 					IndicesBuffer,
-					// NOTE: InfluencesBuffer 제거됨 - GPU에서 직접 Influence 계산
+					// Influence는 GPU에서 직접 계산
 					RepresentativeIndicesBuffer,  // UV seam welding용 대표 버텍스 인덱스
 					TightenedBindPoseBuffer,
 					SDFTextureRDG,
