@@ -1655,12 +1655,6 @@ void UFleshRingComponent::DrawDebugVisualization()
 			DrawSDFSlice(RingIndex);
 		}
 
-		// Virtual Band debug wireframe 비활성화 (코드 보존)
-		// if (bShowVirtualBandWireframe)
-		// {
-		// 	DrawVirtualBandWireframe(RingIndex);
-		// }
-
 		if (bShowBulgeHeatmap)
 		{
 			// GPU 렌더링 모드가 아닐 때만 CPU DrawDebugPoint 사용
@@ -2667,77 +2661,6 @@ void UFleshRingComponent::CacheAffectedVerticesForDebug()
 
 	UE_LOG(LogFleshRingComponent, Verbose, TEXT("CacheAffectedVerticesForDebug: Cached %d rings, %d total vertices"),
 		DebugAffectedData.Num(), DebugBindPoseVertices.Num());
-}
-
-void UFleshRingComponent::DrawVirtualBandWireframe(int32 RingIndex)
-{
-	UWorld* World = GetWorld();
-	if (!World || !FleshRingAsset)
-	{
-		return;
-	}
-
-	// Ring 유효성 검사
-	if (!FleshRingAsset->Rings.IsValidIndex(RingIndex))
-	{
-		return;
-	}
-
-	const FFleshRingSettings& Ring = FleshRingAsset->Rings[RingIndex];
-
-	// VirtualBand 모드가 아니면 스킵
-	if (Ring.InfluenceMode != EFleshRingInfluenceMode::VirtualBand)
-	{
-		return;
-	}
-
-	// 와이어프레임 라인 생성
-	TArray<TPair<FVector, FVector>> WireframeLines;
-	FleshRingVirtualBandMesh::GenerateWireframeLines(Ring.VirtualBand, WireframeLines, 32);
-
-	if (WireframeLines.Num() == 0)
-	{
-		return;
-	}
-
-	// 트랜스폼 계산: Local → Component → World
-	// Virtual Band 전용 BandOffset/BandRotation 사용
-	const FVirtualBandSettings& BandSettings = Ring.VirtualBand;
-	FTransform BandTransform;
-	BandTransform.SetLocation(BandSettings.BandOffset);
-	BandTransform.SetRotation(BandSettings.BandRotation);
-	BandTransform.SetScale3D(FVector::OneVector);
-
-	FTransform BoneTransform = GetBoneBindPoseTransform(ResolvedTargetMesh.Get(), Ring.BoneName);
-	FTransform LocalToComponent = BandTransform * BoneTransform;
-
-	USkeletalMeshComponent* SkelMesh = ResolvedTargetMesh.Get();
-	FTransform LocalToWorld = LocalToComponent;
-	if (SkelMesh)
-	{
-		LocalToWorld = LocalToComponent * SkelMesh->GetComponentTransform();
-	}
-
-	// 와이어프레임 색상 (마젠타 - 버추얼 밴드 전용)
-	FColor WireColor = FColor::Magenta;
-	float LineThickness = 0.0f;  // 가장 얇은 선
-
-	// 각 라인 그리기
-	for (const TPair<FVector, FVector>& Line : WireframeLines)
-	{
-		FVector WorldStart = LocalToWorld.TransformPosition(Line.Key);
-		FVector WorldEnd = LocalToWorld.TransformPosition(Line.Value);
-
-		DrawDebugLine(World, WorldStart, WorldEnd, WireColor, false, -1.0f, SDPG_Foreground, LineThickness);
-	}
-
-	// 화면에 정보 표시
-	if (GEngine)
-	{
-		GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::Magenta,
-			FString::Printf(TEXT("Ring[%d] VirtualBand: MidU=%.1f MidL=%.1f H=%.1f"),
-				RingIndex, Ring.VirtualBand.MidUpperRadius, Ring.VirtualBand.MidLowerRadius, Ring.VirtualBand.BandHeight));
-	}
 }
 
 void UFleshRingComponent::DrawBulgeHeatmap(int32 RingIndex)

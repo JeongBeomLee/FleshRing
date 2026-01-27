@@ -486,12 +486,3 @@ TArray<FSDFVisualizationResult> UFleshRingSDFVisualizer::VisualizeAllSDFSlices(
     return Results;
 }
 
-UTexture2D* UFleshRingSDFVisualizer::GenerateSDFSliceTexture(
-    UStaticMesh* Mesh,
-    int32 SliceZ,
-    int32 Resolution)
-{
-    // TODO: 구현 - 평면 없이 텍스처만 생성
-    UE_LOG(LogTemp, Warning, TEXT("GenerateSDFSliceTexture: Not yet implemented"));
-    return nullptr;
-}

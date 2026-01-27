@@ -88,12 +88,4 @@ public:
         int32 Resolution = 64
     );
 
-    // 유틸리티 함수
-    // UTexture2D로 슬라이스 추출 (평면 없이 텍스처만 필요할 때)
-    UFUNCTION(BlueprintCallable, Category = "FleshRing|Visualization")
-    static UTexture2D* GenerateSDFSliceTexture(
-        UStaticMesh* Mesh,
-        int32 SliceZ = 32,
-        int32 Resolution = 64
-    );
 };

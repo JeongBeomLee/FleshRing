@@ -237,10 +237,6 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization && bShowBulgeHeatmap"))
 	bool bShowBulgeArrows = true;
 
-	/** VirtualBand 와이어프레임 표시 */
-	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
-	bool bShowVirtualBandWireframe = true;
-
 	/** Bulge 영향 범위 원기둥 표시 */
 	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
 	bool bShowBulgeRange = false;
@@ -605,9 +601,6 @@ private:
 
 	/** 감지된 Bulge 방향 화살표 그리기 */
 	void DrawBulgeDirectionArrow(int32 RingIndex);
-
-	/** VirtualBand 와이어프레임 그리기 */
-	void DrawVirtualBandWireframe(int32 RingIndex);
 
 	/** Bulge 영향 범위 원기둥 그리기 */
 	void DrawBulgeRange(int32 RingIndex);

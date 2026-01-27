@@ -439,39 +439,6 @@ float3 ApplyTightnessDeformation(float3 Pos, float3 Center, float3 Axis, float I
     return Pos + InwardDir * Strength * Influence;
 }
 
-// VirtualRing 모드: 원통형 + 토러스 블렌딩 압축 (테스트용)
-// TorusBlendRatio: 0 = 순수 원통형(기존), 1 = 순수 토러스 노말
-// 토러스 노말은 링 가장자리에서 살이 링 중심 방향으로 모이는 효과
-float3 ApplyTightnessDeformation_TorusBlend(float3 Pos, float3 Center, float3 Axis, float Influence, float Strength)
-{
-    float3 ToVertex = Pos - Center;
-    float AxisDist = dot(ToVertex, Axis);
-    float3 RadialVec = ToVertex - Axis * AxisDist;
-    float RadialDist = length(RadialVec);
-
-    if (RadialDist < 0.001)
-        return Pos;
-
-    // 원통형 방향 (기존 방식: 축 방향으로 안쪽)
-    float3 RadialDir = RadialVec / RadialDist;
-    float3 CylinderDir = -RadialDir;
-
-    // 토러스 튜브 중심점 계산 (버텍스와 같은 높이, RingRadius 거리)
-    float3 TubeCenter = Center + RadialDir * RingRadius + Axis * AxisDist;
-
-    // 토러스 노말 방향 (튜브 중심에서 버텍스 방향의 반대 = 안쪽)
-    float3 TorusVec = Pos - TubeCenter;
-    float TorusVecLen = length(TorusVec);
-    float3 TorusDir = (TorusVecLen > 0.001) ? -TorusVec / TorusVecLen : CylinderDir;
-
-    // 블렌딩 (0 = 순수 원통형, 1 = 순수 토러스)
-    // TODO: 파라미터화 - 현재 테스트용 하드코딩
-    float TorusBlendRatio = 0.3;
-    float3 InwardDir = normalize(lerp(CylinderDir, TorusDir, TorusBlendRatio));
-
-    return Pos + InwardDir * Strength * Influence;
-}
-
 // ============================================================================
 // Ray-AABB Intersection (Slab Method)
 // ============================================================================
@@ -565,18 +532,6 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
 
         if (!bHit)
         {
-            // [기존 Fallback - 주석 처리]
-            // Z 범위 체크가 선행되므로 더 이상 필요하지 않음
-            // 바운드 중심 방향으로 재시도하는 방식은 방사형이 아니므로 부정확
-            /*
-            float3 boundsCenter = (SDFBoundsMin + SDFBoundsMax) * 0.5;
-            float3 fallbackDir = normalize(boundsCenter - LocalPos);
-            bHit = RayAABBIntersection(LocalPos, fallbackDir, SDFBoundsMin, SDFBoundsMax, EntryPoint);
-            if (!bHit)
-                return Pos;
-            inwardDir = fallbackDir;
-            */
-
             // Z 범위 내인데도 실패 → 이론상 발생 불가, 안전장치
             return Pos;
         }

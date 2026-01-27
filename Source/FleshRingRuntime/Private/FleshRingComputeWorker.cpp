@@ -450,66 +450,13 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					// Local → Component 변환 행렬 (스케일 포함 정확한 역변환용)
 					Params.SDFLocalToComponent = FMatrix44f(DispatchData.SDFLocalToComponent.ToMatrixWithScale());
 
-					// [DEBUG] 역행렬 검증: M × M^-1 = Identity 확인
-					//{
-					//	FMatrix VerifyIdentity = ForwardMatrix * InverseMatrix;
-					//	float MaxError = 0.0f;
-					//	for (int32 Row = 0; Row < 4; ++Row)
-					//	{
-					//		for (int32 Col = 0; Col < 4; ++Col)
-					//		{
-					//			float Expected = (Row == Col) ? 1.0f : 0.0f;
-					//			float Actual = VerifyIdentity.M[Row][Col];
-					//			MaxError = FMath::Max(MaxError, FMath::Abs(Actual - Expected));
-					//		}
-					//	}
-					//
-					//	bool bLoggedMatrixVerify = false;
-					//	if (!bLoggedMatrixVerify)
-					//	{
-					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX] Inverse Verification - MaxError: %e"), MaxError);
-					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX] ForwardMatrix (SDFLocalToComponent):"));
-					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX]   [%.4f, %.4f, %.4f, %.4f]"), ForwardMatrix.M[0][0], ForwardMatrix.M[0][1], ForwardMatrix.M[0][2], ForwardMatrix.M[0][3]);
-					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX]   [%.4f, %.4f, %.4f, %.4f]"), ForwardMatrix.M[1][0], ForwardMatrix.M[1][1], ForwardMatrix.M[1][2], ForwardMatrix.M[1][3]);
-					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX]   [%.4f, %.4f, %.4f, %.4f]"), ForwardMatrix.M[2][0], ForwardMatrix.M[2][1], ForwardMatrix.M[2][2], ForwardMatrix.M[2][3]);
-					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX]   [%.4f, %.4f, %.4f, %.4f]"), ForwardMatrix.M[3][0], ForwardMatrix.M[3][1], ForwardMatrix.M[3][2], ForwardMatrix.M[3][3]);
-					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX] InverseMatrix (ComponentToSDFLocal):"));
-					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX]   [%.4f, %.4f, %.4f, %.4f]"), InverseMatrix.M[0][0], InverseMatrix.M[0][1], InverseMatrix.M[0][2], InverseMatrix.M[0][3]);
-					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX]   [%.4f, %.4f, %.4f, %.4f]"), InverseMatrix.M[1][0], InverseMatrix.M[1][1], InverseMatrix.M[1][2], InverseMatrix.M[1][3]);
-					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX]   [%.4f, %.4f, %.4f, %.4f]"), InverseMatrix.M[2][0], InverseMatrix.M[2][1], InverseMatrix.M[2][2], InverseMatrix.M[2][3]);
-					//		UE_LOG(LogFleshRingWorker, Log, TEXT("[MATRIX]   [%.4f, %.4f, %.4f, %.4f]"), InverseMatrix.M[3][0], InverseMatrix.M[3][1], InverseMatrix.M[3][2], InverseMatrix.M[3][3]);
-					//
-					//		if (MaxError > 1e-5f)
-					//		{
-					//			UE_LOG(LogFleshRingWorker, Warning, TEXT("[MATRIX] WARNING: Large inverse error detected!"));
-					//		}
-					//		bLoggedMatrixVerify = true;
-					//	}
-					//}
-
 					// Ring Center/Axis (SDF Local Space) - 바운드 확장 시에도 정확한 위치 전달
 					Params.SDFLocalRingCenter = DispatchData.SDFLocalRingCenter;
 					Params.SDFLocalRingAxis = DispatchData.SDFLocalRingAxis;
 
-					// [DEBUG] TightnessCS Dispatch 로그 (필요시 주석 해제)
-					// static bool bLoggedSDFDispatch = false;
-					// if (!bLoggedSDFDispatch)
-					// {
-					// 	UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] TightnessCS Dispatch: SDF Mode (OBB), Verts=%d, Strength=%.2f"),
-					// 		Params.NumAffectedVertices, Params.TightnessStrength);
-					// 	bLoggedSDFDispatch = true;
-					// }
 				}
 				else
 				{
-					// [DEBUG] TightnessCS Dispatch VirtualRing 로그 (필요시 주석 해제)
-					// static bool bLoggedVirtualRingDispatch = false;
-					// if (!bLoggedVirtualRingDispatch)
-					// {
-					// 	UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] TightnessCS Dispatch: VirtualRing Mode, Verts=%d, Strength=%.2f"),
-					// 		Params.NumAffectedVertices, Params.TightnessStrength);
-					// 	bLoggedVirtualRingDispatch = true;
-					// }
 				}
 
 				// Bulge 활성화 시 부피 누적 활성화 (이 Ring 또는 다른 Ring에서 Bulge 사용)
@@ -648,15 +595,6 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				}
 
 				// NOTE: 디버그 포인트 출력은 DebugPointOutputCS에서 최종 위치로 처리
-
-				// [DEBUG] BulgeCS Dispatch 로그 (필요시 주석 해제)
-				// static TSet<int32> LoggedBulgeRings;
-				// if (!LoggedBulgeRings.Contains(RingIdx))
-				// {
-				// 	UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] BulgeCS Dispatch Ring[%d]: Verts=%d, Strength=%.2f, MaxDist=%.2f, Direction=%d"),
-				// 		RingIdx, NumBulgeVertices, BulgeParams.BulgeStrength, BulgeParams.MaxBulgeDistance, BulgeParams.BulgeAxisDirection);
-				// 	LoggedBulgeRings.Add(RingIdx);
-				// }
 
 				DispatchFleshRingBulgeCS(
 					GraphBuilder,
@@ -797,14 +735,6 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				// 결과를 TightenedBindPoseBuffer로 복사
 				AddCopyBufferPass(GraphBuilder, TightenedBindPoseBuffer, BoneRatioOutputBuffer);
 
-				// [DEBUG] BoneRatioCS Dispatch 로그 (필요시 주석 해제)
-				// static TSet<int32> LoggedBoneRatioRings;
-				// if (!LoggedBoneRatioRings.Contains(RingIdx))
-				// {
-				// 	UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] BoneRatioCS Dispatch Ring[%d]: AffectedVerts=%d, Slices=%d"),
-				// 		RingIdx, NumAffected, DispatchData.SlicePackedData.Num() / 33);
-				// 	LoggedBoneRatioRings.Add(RingIdx);
-				// }
 			}
 		}
 
@@ -1312,31 +1242,6 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				const uint32 NumSmoothingVertices = IndicesSource.Num();
 				if (NumSmoothingVertices == 0) continue;
 
-				// [DEBUG] LaplacianCS 영역 로그 (필요시 주석 해제)
-				// static TSet<int32> LoggedRegionStatus;
-				// if (!LoggedRegionStatus.Contains(RingIdx))
-				// {
-				// 	if (bUseSmoothingRegion)
-				// 	{
-				// 		UE_LOG(LogFleshRingWorker, Log,
-				// 			TEXT("[DEBUG] Ring[%d] LaplacianCS: POSTPROCESSING region (Z-extended, %d vertices, %d original)"),
-				// 			RingIdx, NumSmoothingVertices, DispatchData.Indices.Num());
-				// 	}
-				// 	else if (bUseSmoothingRegion)
-				// 	{
-				// 		UE_LOG(LogFleshRingWorker, Log,
-				// 			TEXT("[DEBUG] Ring[%d] LaplacianCS: HOP-EXTENDED region (%d vertices, %d original seeds)"),
-				// 			RingIdx, NumSmoothingVertices, DispatchData.Indices.Num());
-				// 	}
-				// 	else
-				// 	{
-				// 		UE_LOG(LogFleshRingWorker, Log,
-				// 			TEXT("[DEBUG] Ring[%d] LaplacianCS: ORIGINAL region (%d vertices)"),
-				// 			RingIdx, NumSmoothingVertices);
-				// 	}
-				// 	LoggedRegionStatus.Add(RingIdx);
-				// }
-
 				// 버텍스 인덱스 버퍼
 				FRDGBufferRef LaplacianIndicesBuffer = GraphBuilder.CreateBuffer(
 					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumSmoothingVertices),
@@ -1459,23 +1364,6 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					LaplacianIsAnchorBuffer     // 앵커 모드용 (nullptr이면 비활성화)
 				);
 
-				// [DEBUG] LaplacianCS/TaubinCS 로그 (필요시 주석 해제)
-				// static TSet<int32> LoggedLaplacianRings;
-				// if (!LoggedLaplacianRings.Contains(RingIdx))
-				// {
-				// 	const TCHAR* RegionMode = bUseSmoothingRegion ? TEXT("EXTENDED") : TEXT("ORIGINAL");
-				// 	if (LaplacianParams.bUseTaubinSmoothing)
-				// 	{
-				// 		UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] TaubinCS Ring[%d]: %s region, %d verts, Lambda=%.2f, Mu=%.2f, Iter=%d"),
-				// 			RingIdx, RegionMode, NumSmoothingVertices, LaplacianParams.SmoothingLambda, LaplacianParams.TaubinMu, LaplacianParams.NumIterations);
-				// 	}
-				// 	else
-				// 	{
-				// 		UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] LaplacianCS Ring[%d]: %s region, %d verts, Lambda=%.2f, Iter=%d"),
-				// 			RingIdx, RegionMode, NumSmoothingVertices, LaplacianParams.SmoothingLambda, LaplacianParams.NumIterations);
-				// 	}
-				// 	LoggedLaplacianRings.Add(RingIdx);
-				// }
 			}
 		}
 
@@ -1650,19 +1538,6 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 						LayerTriIndicesBuffer
 					);
 
-					// [DEBUG] LayerPenetrationCS 로그 (필요시 주석 해제)
-					// static TSet<int32> LoggedLayerPenetrationRings;
-					// if (!LoggedLayerPenetrationRings.Contains(RingIdx))
-					// {
-					// 	const TCHAR* RegionMode = bUseSmoothingRegion ? TEXT("SmoothingRegion") : TEXT("Original");
-					// 	UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] LayerPenetrationCS Dispatch Ring[%d]: %s Verts=%d (original=%d), Triangles=%d"),
-					// 		RingIdx,
-					// 		RegionMode,
-					// 		NumAffected,
-					// 		DispatchData.Indices.Num(),
-					// 		NumTriangles);
-					// 	LoggedLayerPenetrationRings.Add(RingIdx);
-					// }
 				}
 			}
 		}
@@ -1747,15 +1622,6 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 						StockingIndicesBuffer
 					);
 
-					// [DEBUG] SkinSDFCS 로그 (필요시 주석 해제)
-					// static TSet<int32> LoggedSkinSDFRings;
-					// if (!LoggedSkinSDFRings.Contains(RingIdx))
-					// {
-					// 	UE_LOG(LogFleshRingWorker, Log,
-					// 		TEXT("[DEBUG] SkinSDFCS Dispatch Ring[%d]: SkinVerts=%d, StockingVerts=%d, MaxIter=%d"),
-					// 		RingIdx, SkinSDFParams.NumSkinVertices, SkinSDFParams.NumStockingVertices, SkinSDFParams.MaxIterations);
-					// 	LoggedSkinSDFRings.Add(RingIdx);
-					// }
 				}
 			}
 		}
@@ -2018,18 +1884,6 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 						NormalRepresentativeIndicesBuffer  // UV seam welding용 대표 버텍스 인덱스
 					);
 
-					// [DEBUG] NormalRecomputeCS 로그 (필요시 주석 해제)
-					// static TSet<int32> LoggedNormalRings;
-					// if (!LoggedNormalRings.Contains(RingIdx))
-					// {
-					// 	const TCHAR* RegionName = bUseSmoothingRegion ? TEXT("SmoothingRegion") : TEXT("Original");
-					// 	UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] NormalRecomputeCS Ring[%d]: %s region (%d vertices, %d original), AdjTriangles=%d (SurfaceRotation)"),
-					// 		RingIdx,
-					// 		RegionName,
-					// 		NumAffected, DispatchData.Indices.Num(),
-					// 		AdjacencyTrianglesSource.Num());
-					// 	LoggedNormalRings.Add(RingIdx);
-					// }
 				}
 			}
 		}
@@ -2417,16 +2271,6 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 			SkinParams.InputWeightIndexSize = WeightBuffer->GetBoneIndexByteSize() |
 				(WeightBuffer->GetBoneWeightByteSize() << 8);
 			SkinParams.NumBoneInfluences = WeightBuffer->GetMaxBoneInfluences();
-
-			// [DEBUG] SkinningCS 상태 로그 (필요시 주석 해제)
-			// static bool bLoggedSkinningFlags = false;
-			// if (!bLoggedSkinningFlags)
-			// {
-			// 	UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] SkinningCS: RecomputedNormalsBuffer=%s, RecomputedTangentsBuffer=%s"),
-			// 		RecomputedNormalsBuffer ? TEXT("VALID") : TEXT("NULL"),
-			// 		RecomputedTangentsBuffer ? TEXT("VALID") : TEXT("NULL"));
-			// 	bLoggedSkinningFlags = true;
-			// }
 
 			DispatchFleshRingSkinningCS(GraphBuilder, SkinParams, TightenedBindPoseBuffer,
 				SourceTangentsSRV, OutputPositionBuffer, nullptr,

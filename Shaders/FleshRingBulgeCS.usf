@@ -47,8 +47,6 @@ float RingHeight;
 #define THREADGROUP_SIZE 64
 #endif
 
-static const float SQRT2 = 1.41421356237;
-
 // Position read/write
 float3 ReadPosition(uint VertexIndex)
 {

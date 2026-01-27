@@ -47,17 +47,6 @@ void UFleshRingAsset::PostLoad()
 {
 	Super::PostLoad();
 
-	// RingWidth → RingHeight 마이그레이션 (구 에셋 호환성)
-	for (FFleshRingSettings& Ring : Rings)
-	{
-		if (Ring.RingWidth_DEPRECATED > 0.0f)
-		{
-			Ring.RingHeight = Ring.RingWidth_DEPRECATED;
-			Ring.RingWidth_DEPRECATED = 0.0f;
-			MarkPackageDirty();
-		}
-	}
-
 	// ================================================================
 	// AffectedLayerMask에 Other 비트 마이그레이션
 	//
@@ -107,6 +96,7 @@ void UFleshRingAsset::PostLoad()
 void UFleshRingAsset::PreSave(FObjectPreSaveContext SaveContext)
 {
 	Super::PreSave(SaveContext);
+	// TODO: 자동 베이크 로직 구현 예정. 불필요 시 이 오버라이드 삭제할 것.
 }
 #endif
 

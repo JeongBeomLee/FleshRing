@@ -635,10 +635,6 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::VirtualRing", ClampMin = "0.1", ClampMax = "50.0"))
 	float RingHeight = 2.0f;
 
-	/** [DEPRECATED] RingWidth → RingHeight 마이그레이션용 */
-	UPROPERTY()
-	float RingWidth_DEPRECATED = 0.0f;
-
 	/** Bone 기준 Ring 위치 오프셋 (변형 영역) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::VirtualRing"))
 	FVector RingOffset = FVector::ZeroVector;
@@ -1014,7 +1010,6 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		, RingRadius(5.0f)
 		, RingThickness(1.0f)
 		, RingHeight(2.0f)
-		, RingWidth_DEPRECATED(0.0f)
 		, bEnableBulge(true)
 		, BulgeFalloff(EFleshRingFalloffType::WendlandC2)
 		, BulgeIntensity(1.0f)
