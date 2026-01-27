@@ -2277,6 +2277,14 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 	CommitParams.bMarkPackageDirty = false;
 	SubdivisionSettings.SubdividedMesh->CommitMeshDescription(0, CommitParams);
 
+	// ★ Build() 전에 Normal/Tangent 재계산 비활성화 (깍두기 현상 방지)
+	// 원본 메시의 BuildSettings에 bRecomputeNormals=true가 있으면 우리가 설정한 Normal이 무시됨
+	if (FSkeletalMeshLODInfo* LODInfo = SubdivisionSettings.SubdividedMesh->GetLODInfo(0))
+	{
+		LODInfo->BuildSettings.bRecomputeNormals = false;
+		LODInfo->BuildSettings.bRecomputeTangents = false;
+	}
+
 	// 메시 빌드 (LOD 모델 → 렌더 데이터)
 	SubdivisionSettings.SubdividedMesh->Build();
 
@@ -2756,6 +2764,14 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 	CommitParams.bMarkPackageDirty = false;
 	NewBakedMesh->CommitMeshDescription(0, CommitParams);
 
+	// ★ Build() 전에 Normal/Tangent 재계산 비활성화 (깍두기 현상 방지)
+	// 원본 메시의 BuildSettings에 bRecomputeNormals=true가 있으면 우리가 설정한 Normal이 무시됨
+	if (FSkeletalMeshLODInfo* LODInfo = NewBakedMesh->GetLODInfo(0))
+	{
+		LODInfo->BuildSettings.bRecomputeNormals = false;
+		LODInfo->BuildSettings.bRecomputeTangents = false;
+	}
+
 	// 메시 빌드 (RenderData 생성)
 	NewBakedMesh->Build();
 
@@ -2829,35 +2845,8 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 	UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Success - %d vertices, %d rings, Hash=%u"),
 		SourceVertexCount, Rings.Num(), SubdivisionSettings.BakeParamsHash);
 
-	// ★ 베이크 성공 후 SubdividedMesh 정리 (더 이상 필요 없음)
-	// BakedMesh가 SubdividedMesh의 변형 결과를 포함하므로 중복 저장 불필요
-	if (SubdivisionSettings.SubdividedMesh)
-	{
-		USkeletalMesh* OldSubdivMesh = SubdivisionSettings.SubdividedMesh;
-
-		// 1. 포인터 해제 (Asset의 UPROPERTY 참조 끊기)
-		SubdivisionSettings.SubdividedMesh = nullptr;
-		SubdivisionSettings.SubdivisionParamsHash = 0;
-
-		// 2. 렌더 리소스 완전 해제
-		OldSubdivMesh->ReleaseResources();
-		OldSubdivMesh->ReleaseResourcesFence.Wait();
-		FlushRenderingCommands();
-
-		// 3. Outer를 TransientPackage로 변경
-		OldSubdivMesh->Rename(nullptr, GetTransientPackage(),
-			REN_DontCreateRedirectors | REN_NonTransactional);
-
-		// 4. 플래그 정리
-		OldSubdivMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
-		OldSubdivMesh->SetFlags(RF_Transient);
-
-		// 5. GC 대상으로 표시
-		OldSubdivMesh->MarkAsGarbage();
-
-		UE_LOG(LogFleshRingAsset, Log,
-			TEXT("GenerateBakedMesh: Cleared SubdividedMesh (no longer needed after bake)"));
-	}
+	// ★ SubdividedMesh 정리는 CleanupAsyncBake에서 수행
+	// (프리뷰 메시가 원본으로 복원된 후 안전하게 정리)
 
 	// 에셋 변경 통지
 	MarkPackageDirty();

@@ -280,6 +280,11 @@ void FSubdivisionSettingsCustomization::SaveAsset(UFleshRingAsset* Asset)
 	UPackage* Package = Asset->GetOutermost();
 	if (Package && Package->IsDirty())
 	{
+		// ★ 체크아웃 다이얼로그 전에 렌더링 완전 플러시
+		// BakedMesh 등 새로 생성된 메시의 렌더 리소스가 완전히 초기화된 후
+		// 체크아웃 다이얼로그가 뜨도록 보장 (렌더 스레드 동기화)
+		FlushRenderingCommands();
+
 		TArray<UPackage*> PackagesToSave;
 		PackagesToSave.Add(Package);
 		FEditorFileUtils::PromptForCheckoutAndSave(PackagesToSave, false, false);
@@ -639,6 +644,64 @@ void FSubdivisionSettingsCustomization::CleanupAsyncBake(bool bRestorePreviewMes
 			SkelMeshComp->MarkRenderDynamicDataDirty();
 			FlushRenderingCommands();
 		}
+	}
+
+	// ★ 원본 메시 복원 후 SubdividedMesh 정리 (안전한 시점)
+	if (AsyncBakeAsset.IsValid() && AsyncBakeAsset->SubdivisionSettings.SubdividedMesh)
+	{
+		USkeletalMesh* SubdividedMesh = AsyncBakeAsset->SubdivisionSettings.SubdividedMesh;
+
+		// ★ 프리뷰 컴포넌트가 아직 SubdividedMesh를 사용 중이면 먼저 다른 메시로 전환
+		if (AsyncBakeComponent.IsValid())
+		{
+			USkeletalMeshComponent* SkelMeshComp = AsyncBakeComponent->GetResolvedTargetMesh();
+			if (SkelMeshComp && SkelMeshComp->GetSkeletalMeshAsset() == SubdividedMesh)
+			{
+				UE_LOG(LogTemp, Log, TEXT("CleanupAsyncBake: Preview still using SubdividedMesh, switching..."));
+
+				// Deformer 버퍼 해제
+				if (UFleshRingDeformer* Deformer = AsyncBakeComponent->GetDeformer())
+				{
+					if (UFleshRingDeformerInstance* Instance = Deformer->GetActiveInstance())
+					{
+						Instance->ReleaseResources();
+					}
+				}
+				FlushRenderingCommands();
+
+				// 원본 메시 또는 TargetSkeletalMesh로 전환
+				USkeletalMesh* FallbackMesh = OriginalPreviewMesh.IsValid()
+					? OriginalPreviewMesh.Get()
+					: AsyncBakeAsset->TargetSkeletalMesh.Get();
+				if (FallbackMesh)
+				{
+					SkelMeshComp->SetSkeletalMeshAsset(FallbackMesh);
+					SkelMeshComp->MarkRenderStateDirty();
+					SkelMeshComp->MarkRenderDynamicDataDirty();
+					FlushRenderingCommands();
+				}
+			}
+		}
+
+		// 포인터 해제 (UPROPERTY 참조 끊기)
+		AsyncBakeAsset->SubdivisionSettings.SubdividedMesh = nullptr;
+
+		// 렌더 리소스 완전 해제
+		SubdividedMesh->ReleaseResources();
+		SubdividedMesh->ReleaseResourcesFence.Wait();
+		FlushRenderingCommands();
+
+		// Outer를 TransientPackage로 변경 (Asset 서브오브젝트에서 분리)
+		SubdividedMesh->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);
+
+		// RF_Transactional 플래그 제거 - Undo/Redo 시스템에서 참조하지 않도록
+		SubdividedMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
+		SubdividedMesh->SetFlags(RF_Transient);
+
+		// GC 대상으로 표시
+		SubdividedMesh->MarkAsGarbage();
+
+		UE_LOG(LogTemp, Log, TEXT("CleanupAsyncBake: SubdividedMesh cleanup complete"));
 	}
 
 	// ★ 메모리 누수 방지: 원본 메시 복원 후 GC 실행
