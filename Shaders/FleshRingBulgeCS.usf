@@ -118,6 +118,7 @@ float3 ComputePureRadialDirection(float3 LocalPos, FRingGeometry Ring)
 }
 
 // SDF Gradient 계산 (표면 법선 방향)
+// TODO: 현재 미사용 (ComputeFleshCoveringDirection으로 대체됨). 재테스트 후 불필요 시 삭제할 것.
 float3 ComputeSDFGradient(float3 LocalPos)
 {
     float3 BoundsSize = SDFBoundsMax - SDFBoundsMin;

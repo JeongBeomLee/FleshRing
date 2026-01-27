@@ -20,6 +20,7 @@ public:
 
 	float AxialRange = 3.0f;	// 축 방향(위아래) 범위 배율
 	float RadialRange = 1.5f;	// 반경 방향(옆) 범위 배율
+	float RadialTaper = 0.5f;	// 축 방향 테이퍼 계수 (음수=수축, 0=원통, 양수=확장)
 	EFleshRingFalloffType FalloffType = EFleshRingFalloffType::WendlandC2;	// Falloff 커브 타입, FleshRingDeformerInstance가 주입
 
 public:
@@ -71,6 +72,7 @@ public:
 	// Bulge 범위 파라미터
 	float AxialRange = 3.0f;	// 축 방향(위아래) 범위 배율
 	float RadialRange = 1.5f;	// 반경 방향(옆) 범위 배율
+	float RadialTaper = 0.5f;	// 축 방향 테이퍼 계수 (음수=수축, 0=원통, 양수=확장)
 	EFleshRingFalloffType FalloffType = EFleshRingFalloffType::WendlandC2;
 
 public:

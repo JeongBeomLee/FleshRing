@@ -806,6 +806,18 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 		return static_cast<EFleshRingInfluenceMode>(ModeValue) == EFleshRingInfluenceMode::VirtualBand;
 	});
 
+	// VirtualBand 이외 모드 동적 체크용 TAttribute (BulgeRadialTaper 등에 사용)
+	TAttribute<bool> IsNotVirtualBandModeAttr = TAttribute<bool>::Create([InfluenceModeHandle]() -> bool
+	{
+		if (!InfluenceModeHandle.IsValid())
+		{
+			return true;
+		}
+		uint8 ModeValue = 0;
+		InfluenceModeHandle->GetValue(ModeValue);
+		return static_cast<EFleshRingInfluenceMode>(ModeValue) != EFleshRingInfluenceMode::VirtualBand;
+	});
+
 	// Ring 그룹에 넣을 프로퍼티들 수집
 	TSharedPtr<IPropertyHandle> RingMeshHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingMesh));
 	TSharedPtr<IPropertyHandle> RingRadiusHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingRadius));
@@ -924,6 +936,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	TSharedPtr<IPropertyHandle> BulgeIntensityHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeIntensity));
 	TSharedPtr<IPropertyHandle> BulgeAxialRangeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeAxialRange));
 	TSharedPtr<IPropertyHandle> BulgeRadialRangeHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeRadialRange));
+	TSharedPtr<IPropertyHandle> BulgeRadialTaperHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeRadialTaper));
 	TSharedPtr<IPropertyHandle> UpperBulgeStrengthHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, UpperBulgeStrength));
 	TSharedPtr<IPropertyHandle> LowerBulgeStrengthHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, LowerBulgeStrength));
 	TSharedPtr<IPropertyHandle> BulgeRadialRatioHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeRadialRatio));
@@ -940,6 +953,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeIntensity));
 	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeAxialRange));
 	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeRadialRange));
+	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeRadialTaper));
 	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, UpperBulgeStrength));
 	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, LowerBulgeStrength));
 	DeformationGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BulgeRadialRatio));
@@ -1536,6 +1550,23 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 					}),
 					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
 						Handle->SetValue(1.0f);
+					})
+				)
+			);
+	}
+	if (BulgeRadialTaperHandle.IsValid())
+	{
+		BulgeGroup.AddPropertyRow(BulgeRadialTaperHandle.ToSharedRef())
+			.IsEnabled(IsNotVirtualBandModeAttr)
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						float Value;
+						Handle->GetValue(Value);
+						return !FMath::IsNearlyEqual(Value, 0.5f);
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(0.5f);
 					})
 				)
 			);

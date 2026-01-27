@@ -124,9 +124,9 @@ void FSDFBulgeProvider::CalculateBulgeRegion(
 		const FVector3f RadialVec = ToVertex - RingAxis * AxialComponent;
 		const float RadialDist = RadialVec.Size();
 
-		// Axial 거리에 따라 RadialLimit 동적 확장 (몸이 위아래로 넓어지는 것 보정)
+		// Axial 거리에 따라 RadialLimit 동적 조절 (RadialTaper: 음수=수축, 0=원통, 양수=확장)
 		const float AxialRatio = (AxialDist - BulgeStartDist) / FMath::Max(AxialLimit - BulgeStartDist, 0.001f);
-		const float DynamicRadialLimit = RadialLimit * (1.0f + AxialRatio * 0.5f);
+		const float DynamicRadialLimit = RadialLimit * (1.0f + AxialRatio * RadialTaper);
 
 		// 반경 방향 범위 초과 체크 (다른 허벅지 영향 방지)
 		if (RadialDist > DynamicRadialLimit)
@@ -167,8 +167,9 @@ void FSDFBulgeProvider::CalculateExpandedBulgeAABB(FVector& OutMin, FVector& Out
 
 	// Bulge 영역 확장량 계산
 	const float AxialExpansion = RingHeight * 0.5f * AxialRange;
-	// 동적 RadialLimit 확장 고려 (최대 1.5배)
-	const float RadialExpansion = RingRadius * RadialRange * 1.5f;
+	// 동적 RadialLimit 확장 고려 (RadialTaper에 따른 최대 배율)
+	const float MaxTaperFactor = 1.0f + FMath::Max(RadialTaper, 0.0f);
+	const float RadialExpansion = RingRadius * RadialRange * MaxTaperFactor;
 
 	// 로컬 스페이스에서 확장된 AABB
 	// 모든 축에 대해 확장 (Radial + Axial 모두 포함)
@@ -308,9 +309,9 @@ void FVirtualRingBulgeProvider::CalculateBulgeRegion(
 		const FVector3f RadialVec = ToVertex - RingAxis * AxialComponent;
 		const float RadialDist = RadialVec.Size();
 
-		// Axial 거리에 따라 RadialLimit 동적 확장 (몸이 위아래로 넓어지는 것 보정)
+		// Axial 거리에 따라 RadialLimit 동적 조절 (RadialTaper: 음수=수축, 0=원통, 양수=확장)
 		const float AxialRatio = (AxialDist - BulgeStartDist) / FMath::Max(AxialLimit - BulgeStartDist, 0.001f);
-		const float DynamicRadialLimit = RadialLimit * (1.0f + AxialRatio * 0.5f);
+		const float DynamicRadialLimit = RadialLimit * (1.0f + AxialRatio * RadialTaper);
 
 		// 반경 방향 범위 초과 체크
 		if (RadialDist > DynamicRadialLimit)
@@ -346,8 +347,9 @@ void FVirtualRingBulgeProvider::CalculateExpandedBulgeAABB(FVector& OutMin, FVec
 {
 	// Bulge 영역 확장량 계산
 	const float AxialExpansion = RingHeight * 0.5f * AxialRange;
-	// 동적 RadialLimit 확장 고려 (최대 1.5배)
-	const float RadialExpansion = RingRadius * RadialRange * 1.5f;
+	// 동적 RadialLimit 확장 고려 (RadialTaper에 따른 최대 배율)
+	const float MaxTaperFactor = 1.0f + FMath::Max(RadialTaper, 0.0f);
+	const float RadialExpansion = RingRadius * RadialRange * MaxTaperFactor;
 
 	// Component Space에서 확장된 AABB
 	// 모든 축에 대해 확장 (Radial + Axial 모두 포함)

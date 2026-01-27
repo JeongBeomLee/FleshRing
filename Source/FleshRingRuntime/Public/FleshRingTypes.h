@@ -693,6 +693,16 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	float BulgeRadialRange = 1.0f;
 
 	/**
+	 * Bulge 수집 범위의 축 방향 테이퍼 계수
+	 * Ring에서 멀어질수록 반경 방향 범위가 어떻게 변하는지 제어
+	 * - 음수: 수축 (링에서 멀수록 좁아짐)
+	 * - 0: 원통형 (일정한 반경)
+	 * - 양수: 확장 (링에서 멀수록 넓어짐, 기존 동작)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge && InfluenceMode != EFleshRingInfluenceMode::VirtualBand", ClampMin = "-1.0", ClampMax = "1.0", DisplayName = "Bulge Horizontal Taper"))
+	float BulgeRadialTaper = 0.5f;
+
+	/**
 	 * 상단 Bulge 강도 (Ring 위쪽)
 	 * - 0: 상단 Bulge 비활성 ↔ 1: 기본 ↔ 2: 2배 강도
 	 */

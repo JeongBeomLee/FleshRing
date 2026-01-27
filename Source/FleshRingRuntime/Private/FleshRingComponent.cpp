@@ -2963,7 +2963,8 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 				RingLocalToComponent.SetRotation(VirtualRingRotation);
 				RingLocalToComponent.SetScale3D(FVector::OneVector);
 
-				const float MaxExtent = FMath::Max(RadialLimit * 1.5f, AxialLimit);
+				const float MaxTaperFactor = 1.0f + FMath::Max(RingSettings.BulgeRadialTaper, 0.0f);
+				const float MaxExtent = FMath::Max(RadialLimit * MaxTaperFactor, AxialLimit);
 				const FVector LocalMin(-MaxExtent, -MaxExtent, -AxialLimit);
 				const FVector LocalMax(MaxExtent, MaxExtent, AxialLimit);
 				DebugSpatialHash.QueryOBB(RingLocalToComponent, LocalMin, LocalMax, CandidateIndices);
@@ -3021,9 +3022,9 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 			FVector3f RadialVec = ToVertex - RingAxis * AxialComponent;
 			float RadialDist = RadialVec.Size();
 
-			// Axial 거리에 따라 RadialLimit 동적 확장 (몸이 위아래로 넓어지는 것 보정)
+			// Axial 거리에 따라 RadialLimit 동적 조절 (RadialTaper: 음수=수축, 0=원통, 양수=확장)
 			const float AxialRatio = (AxialDist - BulgeStartDist) / FMath::Max(AxialLimit - BulgeStartDist, 0.001f);
-			const float DynamicRadialLimit = RadialLimit * (1.0f + AxialRatio * 0.5f);
+			const float DynamicRadialLimit = RadialLimit * (1.0f + AxialRatio * RingSettings.BulgeRadialTaper);
 
 			// 반경 방향 범위 초과 체크 (다른 허벅지 영향 방지)
 			if (RadialDist > DynamicRadialLimit)
@@ -3467,7 +3468,7 @@ void UFleshRingComponent::DrawBulgeRange(int32 RingIndex)
 			{
 				float T = static_cast<float>(i) / static_cast<float>(NumSlices);
 				float LocalZ = RingHalfHeight + AxialExtent * T;
-				float DynamicRadius = BulgeRadialExtent * (1.0f + T * 0.5f);
+				float DynamicRadius = BulgeRadialExtent * (1.0f + T * RingSettings.BulgeRadialTaper);
 
 				// 로컬 스페이스에서 원의 중심
 				FVector LocalSliceCenter = LocalCenter + LocalRingAxis * LocalZ;
@@ -3511,7 +3512,7 @@ void UFleshRingComponent::DrawBulgeRange(int32 RingIndex)
 			{
 				float T = static_cast<float>(i) / static_cast<float>(NumSlices);
 				float LocalZ = -RingHalfHeight - AxialExtent * T;
-				float DynamicRadius = BulgeRadialExtent * (1.0f + T * 0.5f);
+				float DynamicRadius = BulgeRadialExtent * (1.0f + T * RingSettings.BulgeRadialTaper);
 
 				FVector LocalSliceCenter = LocalCenter + LocalRingAxis * LocalZ;
 
@@ -3587,7 +3588,7 @@ void UFleshRingComponent::DrawBulgeRange(int32 RingIndex)
 			{
 				float T = static_cast<float>(i) / static_cast<float>(NumSlices);
 				float LocalZ = RingHalfHeight + AxialExtent * T;
-				float DynamicRadius = BulgeRadialExtent * (1.0f + T * 0.5f);
+				float DynamicRadius = BulgeRadialExtent * (1.0f + T * RingSettings.BulgeRadialTaper);
 
 				FVector SlicePos = WorldCenter + WorldZAxis * LocalZ;
 				SlicePositions.Add(SlicePos);
@@ -3620,7 +3621,7 @@ void UFleshRingComponent::DrawBulgeRange(int32 RingIndex)
 			{
 				float T = static_cast<float>(i) / static_cast<float>(NumSlices);
 				float LocalZ = -RingHalfHeight - AxialExtent * T;
-				float DynamicRadius = BulgeRadialExtent * (1.0f + T * 0.5f);
+				float DynamicRadius = BulgeRadialExtent * (1.0f + T * RingSettings.BulgeRadialTaper);
 
 				FVector SlicePos = WorldCenter + WorldZAxis * LocalZ;
 				SlicePositions.Add(SlicePos);

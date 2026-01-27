@@ -734,6 +734,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		float RingMaxBulgeDistance = 10.0f;
 		float RingBulgeAxialRange = 3.0f;
 		float RingBulgeRadialRange = 1.5f;
+		float RingBulgeRadialTaper = 0.5f;
 		float RingBulgeRadialRatio = 0.7f;
 		float RingUpperBulgeStrength = 1.0f;
 		float RingLowerBulgeStrength = 1.0f;
@@ -744,6 +745,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			RingBulgeStrength = (*RingSettingsPtr)[OriginalIdx].BulgeIntensity;
 			RingBulgeAxialRange = (*RingSettingsPtr)[OriginalIdx].BulgeAxialRange;
 			RingBulgeRadialRange = (*RingSettingsPtr)[OriginalIdx].BulgeRadialRange;
+			RingBulgeRadialTaper = (*RingSettingsPtr)[OriginalIdx].BulgeRadialTaper;
 			RingBulgeRadialRatio = (*RingSettingsPtr)[OriginalIdx].BulgeRadialRatio;
 			RingUpperBulgeStrength = (*RingSettingsPtr)[OriginalIdx].UpperBulgeStrength;
 			RingLowerBulgeStrength = (*RingSettingsPtr)[OriginalIdx].LowerBulgeStrength;
@@ -782,6 +784,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				DispatchData.SDFLocalToComponent,
 				RingBulgeAxialRange,
 				RingBulgeRadialRange);
+			BulgeProvider.RadialTaper = RingBulgeRadialTaper;
 			BulgeProvider.FalloffType = RingBulgeFalloff;
 
 			BulgeProvider.CalculateBulgeRegion(
@@ -834,6 +837,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				DispatchData.Params.RingHeight,
 				RingBulgeAxialRange,
 				RingBulgeRadialRange);
+			BulgeProvider.RadialTaper = RingBulgeRadialTaper;
 			BulgeProvider.FalloffType = RingBulgeFalloff;
 
 			BulgeProvider.CalculateBulgeRegion(
