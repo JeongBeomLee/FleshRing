@@ -56,17 +56,15 @@ public:
 	 *
 	 * @param InFleshRingComponent Target FleshRingComponent
 	 * @param InNewAsset New FleshRingAsset (nullptr = remove ring effect + restore original mesh)
-	 * @param bPreserveLeaderPose Whether to preserve LeaderPoseComponent setting
 	 * @return Operation result with error details on failure
 	 */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing|Modular|Leader Pose",
 		meta = (DisplayName = "Swap Modular Ring Asset",
-			ToolTip = "Swaps the Ring Asset on a Leader Pose modular part at runtime.\nRequires the new asset to have a BakedMesh.\n\nPass nullptr as NewAsset to remove the ring effect and restore the original mesh.",
+			ToolTip = "Swaps the Ring Asset on a Leader Pose modular part at runtime.\nRequires the new asset to have a BakedMesh.\nLeader Pose setup is preserved automatically.\n\nPass nullptr as NewAsset to remove the ring effect and restore the original mesh.",
 			Keywords = "swap change replace ring modular leader pose"))
 	static FFleshRingModularResult SwapModularRingAsset(
 		UFleshRingComponent* InFleshRingComponent,
-		UFleshRingAsset* InNewAsset,
-		bool bPreserveLeaderPose = true);
+		UFleshRingAsset* InNewAsset);
 
 	/**
 	 * Swaps skeletal mesh on a modular part with ring cleanup.

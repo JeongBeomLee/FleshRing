@@ -127,8 +127,7 @@ FFleshRingMergeOutput UFleshRingModularLibrary::RebuildMergedMesh(
 
 FFleshRingModularResult UFleshRingModularLibrary::SwapModularRingAsset(
 	UFleshRingComponent* InFleshRingComponent,
-	UFleshRingAsset* InNewAsset,
-	bool bPreserveLeaderPose)
+	UFleshRingAsset* InNewAsset)
 {
 	if (!InFleshRingComponent)
 	{
@@ -138,7 +137,7 @@ FFleshRingModularResult UFleshRingModularLibrary::SwapModularRingAsset(
 		return Output;
 	}
 
-	return InFleshRingComponent->Internal_SwapModularRingAsset(InNewAsset, bPreserveLeaderPose);
+	return InFleshRingComponent->Internal_SwapModularRingAsset(InNewAsset, /*bPreserveLeaderPose=*/true);
 }
 
 FFleshRingModularResult UFleshRingModularLibrary::SwapModularPartMesh(
