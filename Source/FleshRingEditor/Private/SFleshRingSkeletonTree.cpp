@@ -1873,13 +1873,34 @@ void SFleshRingSkeletonTree::MoveRingToBone(int32 RingIndex, FName NewBoneName, 
 			FTransform OldBoneAbsolute = GetBindPoseTransform(OldBoneIndex);
 			FTransform NewBoneAbsolute = GetBindPoseTransform(NewBoneIndex);
 
-			// Transform MeshOffset: OldWorld -> NewLocal
-			FVector OldWorldOffset = OldBoneAbsolute.TransformPosition(Ring.MeshOffset);
-			Ring.MeshOffset = NewBoneAbsolute.InverseTransformPosition(OldWorldOffset);
+			// Always transform MeshOffset/MeshRotation (ring mesh is available in all modes)
+			FVector OldWorldMeshOffset = OldBoneAbsolute.TransformPosition(Ring.MeshOffset);
+			Ring.MeshOffset = NewBoneAbsolute.InverseTransformPosition(OldWorldMeshOffset);
 
-			// Transform MeshRotation: OldWorld -> NewLocal
-			FQuat OldWorldRotation = OldBoneAbsolute.GetRotation() * Ring.MeshRotation;
-			Ring.MeshRotation = NewBoneAbsolute.GetRotation().Inverse() * OldWorldRotation;
+			FQuat OldWorldMeshRotation = OldBoneAbsolute.GetRotation() * Ring.MeshRotation;
+			Ring.MeshRotation = NewBoneAbsolute.GetRotation().Inverse() * OldWorldMeshRotation;
+
+			// Additionally transform mode-specific offsets
+			if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualRing)
+			{
+				// VirtualRing: Transform RingOffset and RingRotation
+				FVector OldWorldOffset = OldBoneAbsolute.TransformPosition(Ring.RingOffset);
+				Ring.RingOffset = NewBoneAbsolute.InverseTransformPosition(OldWorldOffset);
+
+				FQuat OldWorldRotation = OldBoneAbsolute.GetRotation() * Ring.RingRotation;
+				Ring.RingRotation = NewBoneAbsolute.GetRotation().Inverse() * OldWorldRotation;
+				Ring.RingEulerRotation = Ring.RingRotation.Rotator();
+			}
+			else if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
+			{
+				// VirtualBand: Transform BandOffset and BandRotation
+				FVector OldWorldOffset = OldBoneAbsolute.TransformPosition(Ring.VirtualBand.BandOffset);
+				Ring.VirtualBand.BandOffset = NewBoneAbsolute.InverseTransformPosition(OldWorldOffset);
+
+				FQuat OldWorldRotation = OldBoneAbsolute.GetRotation() * Ring.VirtualBand.BandRotation;
+				Ring.VirtualBand.BandRotation = NewBoneAbsolute.GetRotation().Inverse() * OldWorldRotation;
+				Ring.VirtualBand.BandEulerRotation = Ring.VirtualBand.BandRotation.Rotator();
+			}
 		}
 	}
 

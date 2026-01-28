@@ -2305,30 +2305,9 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 	SubdivisionSettings.SubdivisionParamsHash = CalculateSubdivisionParamsHash();
 	MarkPackageDirty();
 
-	// Note: Don't call OnAssetChanged.Broadcast()
-	// SubdividedMesh is for runtime, preview uses PreviewSubdividedMesh
-	// Broadcasting would reinitialize preview DeformerInstance causing deformation data loss
-
-	// Only directly update world FleshRingComponents (exclude preview)
-	if (GEngine)
-	{
-		for (const FWorldContext& Context : GEngine->GetWorldContexts())
-		{
-			if (UWorld* World = Context.World())
-			{
-				for (TActorIterator<AActor> It(World); It; ++It)
-				{
-					if (UFleshRingComponent* Comp = It->FindComponentByClass<UFleshRingComponent>())
-					{
-						if (Comp->FleshRingAsset == this)
-						{
-							Comp->ApplyAsset();
-						}
-					}
-				}
-			}
-		}
-	}
+	// Note: SubdividedMesh is only used during bake process (editor preview)
+	// World components use BakedMesh at runtime, not SubdividedMesh
+	// No need to notify world components here
 }
 
 void UFleshRingAsset::ClearSubdividedMesh()
@@ -2366,32 +2345,10 @@ void UFleshRingAsset::ClearSubdividedMesh()
 
 		UE_LOG(LogFleshRingAsset, Log, TEXT("ClearSubdividedMesh: Cleanup complete"));
 
-		// Note: PreviewSubdividedMesh is managed by FleshRingPreviewScene
-		// OnAssetChanged.Broadcast() causes PreviewScene to automatically regenerate preview mesh
-
-		// Notify components using this asset about the change (restore to original mesh)
+		// Note: SubdividedMesh is only used during bake process
+		// World components use BakedMesh at runtime, no need to notify them
+		// OnAssetChanged is for editor preview scene only
 		OnAssetChanged.Broadcast(this);
-
-		// Search directly to update components without delegate bindings
-		if (GEngine)
-		{
-			for (const FWorldContext& Context : GEngine->GetWorldContexts())
-			{
-				if (UWorld* World = Context.World())
-				{
-					for (TActorIterator<AActor> It(World); It; ++It)
-					{
-						if (UFleshRingComponent* Comp = It->FindComponentByClass<UFleshRingComponent>())
-						{
-							if (Comp->FleshRingAsset == this)
-							{
-								Comp->ApplyAsset();
-							}
-						}
-					}
-				}
-			}
-		}
 
 		MarkPackageDirty();
 	}

@@ -398,6 +398,7 @@ void FFleshRingPreviewScene::SetSkeletalMesh(USkeletalMesh* InMesh)
 			SkeletalMeshComponent->SetVisibility(true);
 			SkeletalMeshComponent->UpdateBounds();
 			SkeletalMeshComponent->MarkRenderStateDirty();
+			FlushRenderingCommands();  // Sync render thread to prevent GC crash
 		}
 		else
 		{

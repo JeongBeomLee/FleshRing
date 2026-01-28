@@ -375,89 +375,16 @@ void UFleshRingComponent::FindTargetMeshOnly()
 
 void UFleshRingComponent::ResolveTargetMesh()
 {
-	// Find target mesh
+	// Find target mesh only - don't change the mesh
+	// World components use the mesh already set on their SkeletalMeshComponent
+	// At runtime, BakedMesh is applied via ApplyBakedMesh() in BeginPlay
+	// SubdividedMesh is only used in editor preview scene during bake process
 	FindTargetMeshOnly();
 
-	// Skip mesh change if manually set via SetTargetMesh()
-	// (Cases where appropriate mesh is already set, like preview or merged mesh)
-	if (bManualTargetSet)
+	if (ResolvedTargetMesh.IsValid())
 	{
-		UE_LOG(LogFleshRingComponent, Log, TEXT("ResolveTargetMesh: Skipping mesh change (bManualTargetSet=true)"));
-		return;
-	}
-
-	// Apply SubdividedMesh or original mesh
-	UE_LOG(LogFleshRingComponent, Log, TEXT("ResolveTargetMesh: Checking SubdividedMesh... ResolvedTargetMesh.IsValid()=%d, FleshRingAsset=%p"),
-		ResolvedTargetMesh.IsValid(), FleshRingAsset.Get());
-
-	if (ResolvedTargetMesh.IsValid() && FleshRingAsset)
-	{
-		USkeletalMeshComponent* TargetMeshComp = ResolvedTargetMesh.Get();
-		USkeletalMesh* CurrentMesh = TargetMeshComp->GetSkeletalMeshAsset();
-
-		UE_LOG(LogFleshRingComponent, Log, TEXT("ResolveTargetMesh: HasSubdividedMesh=%d, SubdividedMesh=%p, CurrentMesh='%s'"),
-			FleshRingAsset->HasSubdividedMesh(),
-			FleshRingAsset->SubdivisionSettings.SubdividedMesh.Get(),
-			CurrentMesh ? *CurrentMesh->GetName() : TEXT("null"));
-
-		if (FleshRingAsset->HasSubdividedMesh())
-		{
-			// Apply SubdividedMesh if available
-			USkeletalMesh* SubdivMesh = FleshRingAsset->SubdivisionSettings.SubdividedMesh;
-			if (CurrentMesh != SubdivMesh)
-			{
-				// Skeleton validity check (prevents Undo/Redo crash)
-				if (!IsSkeletalMeshSkeletonValid(SubdivMesh))
-				{
-					UE_LOG(LogFleshRingComponent, Warning,
-						TEXT("FleshRingComponent: SubdividedMesh '%s' has invalid skeleton, skipping SetSkeletalMesh"),
-						SubdivMesh ? *SubdivMesh->GetName() : TEXT("null"));
-					return;
-				}
-
-				// Cache original mesh (for restoration when component is removed)
-				// Don't overwrite if already cached (preserve original)
-				if (!CachedOriginalMesh.IsValid())
-				{
-					CachedOriginalMesh = CurrentMesh;
-					UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Cached original mesh '%s' for restoration"),
-						CurrentMesh ? *CurrentMesh->GetName() : TEXT("null"));
-				}
-
-				TargetMeshComp->SetSkeletalMesh(SubdivMesh);
-				UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Applied SubdividedMesh '%s' to target mesh component"),
-					*SubdivMesh->GetName());
-			}
-			else
-			{
-				UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: SubdividedMesh already applied"));
-			}
-		}
-		else if (!FleshRingAsset->TargetSkeletalMesh.IsNull())
-		{
-			// Restore to original mesh if SubdividedMesh is not available
-			// (PreviewSubdividedMesh check is already handled at top of function)
-			USkeletalMesh* OriginalMesh = FleshRingAsset->TargetSkeletalMesh.LoadSynchronous();
-			if (OriginalMesh && CurrentMesh != OriginalMesh)
-			{
-				// Skeleton validity check (prevents Undo/Redo crash)
-				if (!IsSkeletalMeshSkeletonValid(OriginalMesh))
-				{
-					UE_LOG(LogFleshRingComponent, Warning,
-						TEXT("FleshRingComponent: OriginalMesh '%s' has invalid skeleton, skipping SetSkeletalMesh"),
-						OriginalMesh ? *OriginalMesh->GetName() : TEXT("null"));
-					return;
-				}
-
-				TargetMeshComp->SetSkeletalMesh(OriginalMesh);
-				UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Restored original mesh '%s' to target mesh component"),
-					*OriginalMesh->GetName());
-			}
-		}
-	}
-	else
-	{
-		UE_LOG(LogFleshRingComponent, Warning, TEXT("ResolveTargetMesh: Cannot apply SubdividedMesh - ResolvedTargetMesh or FleshRingAsset is invalid"));
+		UE_LOG(LogFleshRingComponent, Log, TEXT("ResolveTargetMesh: Found target mesh '%s'"),
+			ResolvedTargetMesh->GetSkeletalMeshAsset() ? *ResolvedTargetMesh->GetSkeletalMeshAsset()->GetName() : TEXT("null"));
 	}
 }
 
