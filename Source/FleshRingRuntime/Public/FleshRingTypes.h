@@ -211,7 +211,7 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 	 * - OFF: Use original mesh
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skeletal Mesh Detail Settings")
-	bool bEnableSubdivision = false;
+	bool bEnableSubdivision = true;
 
 	/** Minimum edge length in cm (subdivision stops below this) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skeletal Mesh Detail Settings", meta = (ClampMin = "0.1", DisplayName = "Min Edge Length"))
@@ -229,7 +229,7 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 	 * - Higher values expand subdivision region but increase performance cost
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skeletal Mesh Detail Settings", meta = (ClampMin = "0", ClampMax = "3", DisplayName = "Bone Search Depth"))
-	int32 PreviewBoneHopCount = 1;
+	int32 PreviewBoneHopCount = 0;
 
 	/**
 	 * Bone weight threshold (0.0-1.0)
@@ -243,7 +243,7 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 
 	/** Maximum Subdivision level */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Skeletal Mesh Detail Settings", meta = (ClampMin = "1", ClampMax = "6", EditCondition = "bEnableSubdivision"))
-	int32 MaxSubdivisionLevel = 4;
+	int32 MaxSubdivisionLevel = 2;
 
 	// ===== Generated Mesh (Runtime) =====
 
@@ -286,12 +286,12 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 	uint32 BakeParamsHash = 0;
 
 	FSubdivisionSettings()
-		: bEnableSubdivision(false)
+		: bEnableSubdivision(true)
 		, MinEdgeLength(1.0f)
 		, PreviewSubdivisionLevel(2)
-		, PreviewBoneHopCount(1)
+		, PreviewBoneHopCount(0)
 		, PreviewBoneWeightThreshold(0.1f)
-		, MaxSubdivisionLevel(4)
+		, MaxSubdivisionLevel(2)
 		, SubdividedMesh(nullptr)
 		, SubdivisionParamsHash(0)
 		, BakedMesh(nullptr)
@@ -732,7 +732,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	 * - Recommended: 0.5~1.5
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "3.0"))
-	float TightnessStrength = 1.0f;
+	float TightnessStrength = 1.5f;
 
 	/**
 	 * Effect bounds X-direction expansion (cm)
@@ -740,7 +740,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	 * - Use when small Ring needs to cover wider area
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "10.0", DisplayName = "Effect Bounds Expand X"))
-	float SDFBoundsExpandX = 0.0f;
+	float SDFBoundsExpandX = 1.0f;
 
 	/**
 	 * Effect bounds Y-direction expansion (cm)
@@ -748,7 +748,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	 * - Use when small Ring needs to cover wider area
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (ClampMin = "0.0", ClampMax = "10.0", DisplayName = "Effect Bounds Expand Y"))
-	float SDFBoundsExpandY = 0.0f;
+	float SDFBoundsExpandY = 1.0f;
 
 	/**
 	 * Tightness falloff curve
@@ -757,7 +757,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	 * - Hermite: S-curve (smoothest, recommended)
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (DisplayName = "Tightness Falloff"))
-	EFalloffType FalloffType = EFalloffType::Linear;
+	EFalloffType FalloffType = EFalloffType::Hermite;
 
 	/**
 	 * Target layers for Tightness (bitmask)
@@ -813,7 +813,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	 * - Depth-Based: Topology-based depth propagation (precise)
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess"))
-	ESmoothingVolumeMode SmoothingVolumeMode = ESmoothingVolumeMode::BoundsExpand;
+	ESmoothingVolumeMode SmoothingVolumeMode = ESmoothingVolumeMode::HopBased;
 
 	/**
 	 * Maximum smoothing depth
@@ -821,8 +821,8 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	 * - 1: Minimum, 100: Maximum
 	 * - Recommended: Low-res 5~10, High-res 3~5
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (DisplayName = "Max Smoothing Depth", EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides, ClampMin = "1", ClampMax = "100"))
-	int32 MaxSmoothingHops = 5;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (DisplayName = "Max Smoothing Depth", EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides, ClampMin = "1", ClampMax = "20"))
+	int32 MaxSmoothingHops = 10;
 
 	/**
 	 * Smoothing intensity falloff curve by depth
@@ -847,7 +847,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	 * - 0: No expansion, 50: Maximum expansion
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process", meta = (EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::BoundsExpand", EditConditionHides, ClampMin = "0.0", ClampMax = "50.0", DisplayName = "Bounds Expand Bottom (cm)"))
-	float SmoothingBoundsZBottom = 0.0f;
+	float SmoothingBoundsZBottom = 5.0f;
 
 	// ===== Deformation Spread =====
 
@@ -858,7 +858,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	 * - Execution order: After Radial Smoothing, before Surface Smoothing
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Deformation Spread", meta = (DisplayName = "Enable Deformation Spread", EditCondition = "bEnablePostProcess && SmoothingVolumeMode == ESmoothingVolumeMode::HopBased", EditConditionHides))
-	bool bEnableHeatPropagation = true;
+	bool bEnableHeatPropagation = false;
 
 	/**
 	 * Deformation spread iterations
@@ -910,7 +910,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	 * - Recommended: 0.8~1.0
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableRadialSmoothing", EditConditionHides, ClampMin = "0.0", ClampMax = "1.0"))
-	float RadialBlendStrength = 1.0f;
+	float RadialBlendStrength = 0.8f;
 
 	/**
 	 * Radial uniformization slice height (cm)
@@ -919,7 +919,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	 * - Recommended: High-density 0.5, Low-density 2.0
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableRadialSmoothing", EditConditionHides, ClampMin = "0.1", ClampMax = "10.0"))
-	float RadialSliceHeight = 1.0f;
+	float RadialSliceHeight = 0.5f;
 
 	// ===== Surface Smoothing Settings =====
 
@@ -937,15 +937,15 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	 * - Volume Preserving: Volume-preserving smoothing (prevents shrinkage, recommended)
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (DisplayName = "Smoothing Type", EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides))
-	ELaplacianSmoothingType LaplacianSmoothingType = ELaplacianSmoothingType::Taubin;
+	ELaplacianSmoothingType LaplacianSmoothingType = ELaplacianSmoothingType::Laplacian;
 
 	/**
 	 * Smoothing strength
 	 * - 0.1: Weak, 0.8: Strong (unstable above 0.8)
 	 * - Recommended: 0.3~0.7
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (DisplayName = "Smoothing Strength", EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides, ClampMin = "0.1", ClampMax = "0.8", UIMin = "0.1", UIMax = "0.8"))
-	float SmoothingLambda = 0.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (DisplayName = "Smoothing Strength", EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides, ClampMin = "0.1", ClampMax = "1.0", UIMin = "0.1", UIMax = "1.0"))
+	float SmoothingLambda = 0.8f;
 
 	/**
 	 * Volume Preserving mode expansion strength (negative value)
@@ -960,8 +960,8 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	 * - 1: Minimum, 20: Maximum (Volume Preserving: each iteration = 2 passes)
 	 * - Recommended: 2~5
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (DisplayName = "Smoothing Iterations", EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides, ClampMin = "1", ClampMax = "20"))
-	int32 SmoothingIterations = 2;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (DisplayName = "Smoothing Iterations", EditCondition = "bEnablePostProcess && bEnableSmoothing && bEnableLaplacianSmoothing", EditConditionHides, ClampMin = "1", ClampMax = "30"))
+	int32 SmoothingIterations = 20;
 
 	/**
 	 * Lock deformed vertices
@@ -979,7 +979,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	 * - OFF: No edge length constraints
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Edge Length Preservation", meta = (DisplayName = "Enable Edge Length Preservation", EditCondition = "bEnablePostProcess"))
-	bool bEnablePBDEdgeConstraint = false;
+	bool bEnablePBDEdgeConstraint = true;
 
 	/**
 	 * Constraint strength
@@ -1027,27 +1027,27 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		, BulgeRadialRange(1.0f)
 		, UpperBulgeStrength(1.0f)
 		, LowerBulgeStrength(1.0f)
-		, TightnessStrength(1.0f)
-		, FalloffType(EFalloffType::Linear)
+		, TightnessStrength(1.5f)
+		, FalloffType(EFalloffType::Hermite)
 		, AffectedLayerMask(static_cast<int32>(EFleshRingLayerMask::Skin) | static_cast<int32>(EFleshRingLayerMask::Other))
 		, bEnablePostProcess(true)
-		, SmoothingVolumeMode(ESmoothingVolumeMode::BoundsExpand)
-		, MaxSmoothingHops(5)
+		, SmoothingVolumeMode(ESmoothingVolumeMode::HopBased)
+		, MaxSmoothingHops(10)
 		, HopFalloffType(EFalloffType::Hermite)
 		, SmoothingBoundsZTop(5.0f)
-		, SmoothingBoundsZBottom(0.0f)
-		, bEnableHeatPropagation(true)
+		, SmoothingBoundsZBottom(5.0f)
+		, bEnableHeatPropagation(false)
 		, HeatPropagationIterations(10)
 		, HeatPropagationLambda(0.5f)
 		, bIncludeBulgeVerticesAsSeeds(true)
 		, bEnableSmoothing(true)
 		, bEnableRadialSmoothing(true)
 		, bEnableLaplacianSmoothing(true)
-		, LaplacianSmoothingType(ELaplacianSmoothingType::Taubin)
-		, SmoothingLambda(0.5f)
+		, LaplacianSmoothingType(ELaplacianSmoothingType::Laplacian)
+		, SmoothingLambda(0.8f)
 		, TaubinMu(-0.53f)
-		, SmoothingIterations(2)
-		, bEnablePBDEdgeConstraint(false)
+		, SmoothingIterations(20)
+		, bEnablePBDEdgeConstraint(true)
 		, PBDStiffness(0.8f)
 		, PBDIterations(5)
 		, PBDTolerance(0.2f)

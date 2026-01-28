@@ -90,7 +90,7 @@ public:
 	 * - Geometric: Face normal average (accurate TBN, faceted result)
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normals", meta = (DisplayName = "Normal Recompute Method", EditCondition = "bEnableNormalRecompute"))
-	ENormalRecomputeMethod NormalRecomputeMethod = ENormalRecomputeMethod::SurfaceRotation;
+	ENormalRecomputeMethod NormalRecomputeMethod = ENormalRecomputeMethod::Geometric;
 
 	/**
 	 * Enable depth-based blending
@@ -126,7 +126,7 @@ public:
 	 * - Linear interpolation between 0 and MaxDisplacement
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Normals", meta = (DisplayName = "Max Displacement (cm)", EditCondition = "bEnableNormalRecompute && bEnableDisplacementBlending", ClampMin = "0.01", UIMin = "0.01", UIMax = "10.0"))
-	float MaxDisplacementForBlend = 1.0f;
+	float MaxDisplacementForBlend = 1.5f;
 
 	/**
 	 * Enable tangent recalculation
