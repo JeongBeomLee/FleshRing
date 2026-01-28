@@ -11,7 +11,6 @@ class USkeletalMesh;
 class USkeletalMeshComponent;
 class UFleshRingComponent;
 class UFleshRingAsset;
-class USkeleton;
 
 /**
  * Unified FleshRing library for modular characters
@@ -32,18 +31,22 @@ public:
 
 	/**
 	 * Merges modular parts into a single skeletal mesh and applies to target.
+	 * Skeleton is extracted from the first valid part automatically.
 	 * Ring visuals are automatically set up.
+	 * Invalid parts (null BaseMesh) will be excluded with warning.
+	 * Parts with RingAsset but no BakedMesh will use BaseMesh with warning.
 	 *
 	 * @param TargetComponent Target SkeletalMeshComponent to apply result (nullptr = only create mesh)
-	 * @param Parts Array of modular parts to merge
-	 * @param Skeleton Shared skeleton for all parts
-	 * @return Merge result (contains MergedMesh on success)
+	 * @param Parts Array of modular parts to merge (all parts must share the same skeleton)
+	 * @return Merge result (contains MergedMesh on success, InvalidPartIndices and UnbakedRingPartIndices for warnings)
 	 */
-	UFUNCTION(BlueprintCallable, Category = "FleshRing|Modular|Skeletal Merging")
+	UFUNCTION(BlueprintCallable, Category = "FleshRing|Modular|Skeletal Merging",
+		meta = (DisplayName = "Rebuild Merged Mesh",
+			ToolTip = "Merges modular parts into a single skeletal mesh.\nSkeleton is extracted from the first valid part automatically.\nRing visuals are automatically set up for parts with BakedMesh.\n\nInvalid parts (null BaseMesh) will be excluded (check InvalidPartIndices).\nParts with RingAsset but no BakedMesh will use BaseMesh (check UnbakedRingPartIndices).",
+			Keywords = "merge combine modular skeletal mesh ring"))
 	static FFleshRingMergeOutput RebuildMergedMesh(
 		USkeletalMeshComponent* TargetComponent,
-		const TArray<FFleshRingModularPart>& Parts,
-		USkeleton* Skeleton);
+		const TArray<FFleshRingModularPart>& Parts);
 
 	//==========================================================================
 	// Leader Pose / Copy Pose API

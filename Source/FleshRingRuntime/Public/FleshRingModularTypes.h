@@ -16,6 +16,7 @@ enum class EFleshRingMergeResult : uint8
 {
 	Success,
 	NoValidParts,
+	/** Part mesh skeleton does not match the first part's skeleton */
 	SkeletonMismatch,
 	BakingFailed,
 	MergeFailed
@@ -78,8 +79,22 @@ struct FLESHRINGRUNTIME_API FFleshRingMergeOutput
 	UPROPERTY(BlueprintReadOnly, Category = "FleshRing")
 	int32 FailedPartIndex = INDEX_NONE;
 
+	/** Parts excluded from merge due to IsValid() == false (null BaseMesh) */
+	UPROPERTY(BlueprintReadOnly, Category = "FleshRing")
+	TArray<int32> InvalidPartIndices;
+
+	/** Parts included using BaseMesh because RingAsset has no BakedMesh */
+	UPROPERTY(BlueprintReadOnly, Category = "FleshRing")
+	TArray<int32> UnbakedRingPartIndices;
+
 	/** Returns true if merge succeeded */
 	bool Succeeded() const { return Result == EFleshRingMergeResult::Success; }
+
+	/** Returns true if any parts were excluded due to invalid BaseMesh */
+	bool HasInvalidParts() const { return InvalidPartIndices.Num() > 0; }
+
+	/** Returns true if any parts used BaseMesh instead of BakedMesh */
+	bool HasUnbakedRingParts() const { return UnbakedRingPartIndices.Num() > 0; }
 };
 
 /**

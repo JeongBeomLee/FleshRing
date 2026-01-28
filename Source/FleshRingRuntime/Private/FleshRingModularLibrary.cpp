@@ -8,14 +8,15 @@
 #include "Animation/Skeleton.h"
 #include "SkeletalMeshMerge.h"  // FSkeletalMeshMerge (Engine module)
 
+DEFINE_LOG_CATEGORY_STATIC(LogFleshRingModular, Log, All);
+
 //==========================================================================
 // Skeletal Merging API
 //==========================================================================
 
 FFleshRingMergeOutput UFleshRingModularLibrary::RebuildMergedMesh(
 	USkeletalMeshComponent* TargetComponent,
-	const TArray<FFleshRingModularPart>& Parts,
-	USkeleton* Skeleton)
+	const TArray<FFleshRingModularPart>& Parts)
 {
 	FFleshRingMergeOutput Output;
 
@@ -27,17 +28,12 @@ FFleshRingMergeOutput UFleshRingModularLibrary::RebuildMergedMesh(
 		return Output;
 	}
 
-	if (!Skeleton)
-	{
-		Output.Result = EFleshRingMergeResult::SkeletonMismatch;
-		Output.ErrorMessage = TEXT("Skeleton is null");
-		return Output;
-	}
-
-	// 2. Build mesh array and ring asset array
+	// 2. Build mesh array and ring asset array, extract skeleton from first valid part
 	TArray<USkeletalMesh*> MeshesToMerge;
 	TArray<UFleshRingAsset*> RingAssets;
 	MeshesToMerge.Reserve(Parts.Num());
+
+	USkeleton* Skeleton = nullptr;  // Extracted from first valid part
 
 	for (int32 i = 0; i < Parts.Num(); ++i)
 	{
@@ -45,6 +41,10 @@ FFleshRingMergeOutput UFleshRingModularLibrary::RebuildMergedMesh(
 
 		if (!Part.IsValid())
 		{
+			Output.InvalidPartIndices.Add(i);
+			UE_LOG(LogFleshRingModular, Warning,
+				TEXT("RebuildMergedMesh: Part[%d] is invalid (BaseMesh is null), skipping"),
+				i);
 			continue;
 		}
 
@@ -52,12 +52,18 @@ FFleshRingMergeOutput UFleshRingModularLibrary::RebuildMergedMesh(
 		{
 			// Use BakedMesh (with ring deformation baked in)
 			USkeletalMesh* BakedMesh = Part.RingAsset->SubdivisionSettings.BakedMesh;
+			USkeleton* PartSkeleton = BakedMesh->GetSkeleton();
 
-			if (BakedMesh->GetSkeleton() != Skeleton)
+			if (!Skeleton)
+			{
+				Skeleton = PartSkeleton;
+			}
+			else if (PartSkeleton != Skeleton)
 			{
 				Output.Result = EFleshRingMergeResult::SkeletonMismatch;
 				Output.ErrorMessage = FString::Printf(
-					TEXT("Part[%d] BakedMesh skeleton mismatch"), i);
+					TEXT("Part[%d] BakedMesh skeleton '%s' does not match first part skeleton '%s'"),
+					i, *PartSkeleton->GetName(), *Skeleton->GetName());
 				Output.FailedPartIndex = i;
 				return Output;
 			}
@@ -68,13 +74,29 @@ FFleshRingMergeOutput UFleshRingModularLibrary::RebuildMergedMesh(
 		else
 		{
 			// Use BaseMesh (no ring effect)
-			if (Part.BaseMesh->GetSkeleton() != Skeleton)
+			USkeleton* PartSkeleton = Part.BaseMesh->GetSkeleton();
+
+			if (!Skeleton)
+			{
+				Skeleton = PartSkeleton;
+			}
+			else if (PartSkeleton != Skeleton)
 			{
 				Output.Result = EFleshRingMergeResult::SkeletonMismatch;
 				Output.ErrorMessage = FString::Printf(
-					TEXT("Part[%d] BaseMesh skeleton mismatch"), i);
+					TEXT("Part[%d] BaseMesh skeleton '%s' does not match first part skeleton '%s'"),
+					i, *PartSkeleton->GetName(), *Skeleton->GetName());
 				Output.FailedPartIndex = i;
 				return Output;
+			}
+
+			// Track parts with RingAsset but no BakedMesh (fallback case)
+			if (Part.RingAsset)
+			{
+				Output.UnbakedRingPartIndices.Add(i);
+				UE_LOG(LogFleshRingModular, Warning,
+					TEXT("RebuildMergedMesh: Part[%d] has RingAsset '%s' but no BakedMesh, using BaseMesh instead"),
+					i, *Part.RingAsset->GetName());
 			}
 
 			MeshesToMerge.Add(Part.BaseMesh);
