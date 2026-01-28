@@ -56,16 +56,15 @@ RWBuffer<float> OutputPositions;
 StructuredBuffer<uint> AffectedIndices;
 
 // UV Seam Welding: Representative vertex indices
-// UV seam의 모든 duplicate vertex는 같은 representative를 공유
+// All UV seam duplicate vertices share the same representative
 StructuredBuffer<uint> RepresentativeIndices;
 
 // Per-vertex anchor flags (1 = Affected/Anchor, 0 = Non-Affected/Free)
-// Affected Vertices (Tightness 영역)는 고정, 나머지는 자유롭게 이동
+// Affected Vertices (Tightness region) are fixed, others move freely
 StructuredBuffer<uint> IsAnchorFlags;
 
 // Full mesh anchor map (indexed by absolute vertex index)
 // For neighbor anchor lookup (neighbors might not be in current region)
-// 이웃의 앵커 여부 조회용 전체 메시 크기 맵
 StructuredBuffer<uint> FullVertexAnchorFlags;
 
 // Adjacency with rest lengths
@@ -83,7 +82,7 @@ float Stiffness;
 
 // Tolerance ratio (0.0 ~ 0.5)
 // Allowed range: [RestLength * (1-Tolerance), RestLength * (1+Tolerance)]
-// 예: Tolerance=0.2 → 원래 길이의 80%~120% 범위 허용
+// Example: Tolerance=0.2 -> allow 80%~120% of original length
 float Tolerance;
 
 // ============================================================================
@@ -142,10 +141,10 @@ float GetRestLength(uint AdjacencyOffset, uint NeighborSlot)
 // ============================================================================
 // Tolerance-based Error Calculation
 // ============================================================================
-// 허용 범위 내 변형은 유지, 범위 밖일 때만 보정
-// - 범위 내: Error = 0 (변형 유지)
-// - 너무 짧음: Error = CurrentLength - MinAllowed (음수, 늘려야 함)
-// - 너무 김: Error = CurrentLength - MaxAllowed (양수, 줄여야 함)
+// Preserve deformation within tolerance, correct only outside
+// - Within range: Error = 0 (preserve deformation)
+// - Too short: Error = CurrentLength - MinAllowed (negative, needs stretching)
+// - Too long: Error = CurrentLength - MaxAllowed (positive, needs compression)
 
 float CalculateToleranceError(float CurrentLength, float RestLength)
 {
@@ -154,16 +153,16 @@ float CalculateToleranceError(float CurrentLength, float RestLength)
 
     if (CurrentLength < MinAllowed)
     {
-        // 너무 짧음 → 최소 허용 길이까지만 늘림
-        return CurrentLength - MinAllowed;  // 음수
+        // Too short -> stretch to minimum allowed length
+        return CurrentLength - MinAllowed;  // negative
     }
     else if (CurrentLength > MaxAllowed)
     {
-        // 너무 김 → 최대 허용 길이까지만 줄임
-        return CurrentLength - MaxAllowed;  // 양수
+        // Too long -> compress to maximum allowed length
+        return CurrentLength - MaxAllowed;  // positive
     }
 
-    // 허용 범위 내 → 보정 없음
+    // Within tolerance -> no correction
     return 0.0f;
 }
 
@@ -257,8 +256,8 @@ float3 SolveEdgeConstraints(
         }
 
         // My ratio of the correction
-        // MyWeight=1, NeighborWeight=0 → MyRatio=1 (I move fully)
-        // MyWeight=1, NeighborWeight=1 → MyRatio=0.5 (split evenly)
+        // MyWeight=1, NeighborWeight=0 -> MyRatio=1 (I move fully)
+        // MyWeight=1, NeighborWeight=1 -> MyRatio=0.5 (split evenly)
         float MyRatio = MyWeight / EdgeTotalWeight;
 
         // My correction: move toward neighbor if stretched, away if compressed

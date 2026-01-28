@@ -47,8 +47,8 @@ RWBuffer<float> DeltaOut;           // Output delta (Init/Diffuse)
 // Extended region data
 StructuredBuffer<uint> ExtendedIndices;     // Vertex indices in extended region
 StructuredBuffer<uint> IsSeedFlags;         // 1 = Seed (anchor), 0 = Non-Seed
-StructuredBuffer<uint> IsBoundarySeedFlags; // 1 = Boundary Seed (Non-Seed 이웃 있음), 0 = Internal Seed 또는 Non-Seed
-StructuredBuffer<uint> IsBarrierFlags;      // 1 = Barrier (Tightness), 0 = Non-Barrier (blocks heat propagation)
+StructuredBuffer<uint> IsBoundarySeedFlags; // 1 = Boundary Seed (has Non-Seed neighbor), 0 = Internal Seed or Non-Seed
+StructuredBuffer<uint> IsBarrierFlags;      // 1 = Barrier (blocks heat propagation), 0 = Non-Barrier
 StructuredBuffer<uint> AdjacencyData;       // Neighbor info for diffusion
 
 // UV Seam Welding: Representative vertex indices
@@ -117,35 +117,35 @@ uint GetNeighborVertexIndex(uint AdjacencyOffset, uint NeighborSlot)
 // ============================================================================
 // Pass 0: Init - Compute initial delta
 // ============================================================================
-// UV duplicate race condition 방지
+// Prevents UV duplicate race condition
 //
-// 문제: 같은 위치의 UV duplicate들이 모두 같은 RepIndex slot에 씀
-//       Seed가 delta를 쓴 후 Non-Seed가 0으로 덮어쓸 수 있음
+// Problem: UV duplicates at the same position all write to the same RepIndex slot
+//          A Non-Seed may overwrite delta with 0 after a Seed writes it
 //
-// 해결: Seed만 delta 기록, Non-Seed는 아무것도 안 함
-//       (버퍼는 dispatch 전에 0으로 초기화됨)
+// Solution: Only Seeds write delta, Non-Seeds do nothing
+//           (buffer is pre-initialized to 0 before dispatch)
 //
-// [경계 Seed 전파] 내부 Seed는 delta=0, 경계 Seed만 전파원 역할
+// [Boundary Seed Propagation] Internal Seeds have delta=0, only boundary Seeds propagate
 //
-// 문제: 내부 Seed의 강한 변형이 경계를 넘어 전파됨
-//       예: Seed1(-10) --- A --- B --- Seed2(-3) 에서
-//           B가 -8.14를 받아 Seed2(-3)보다 큰 변형 발생
+// Problem: Strong deformation from internal Seeds propagates beyond boundary
+//          Example: Seed1(-10) --- A --- B --- Seed2(-3)
+//                   B receives -8.14, larger deformation than Seed2(-3)
 //
-// 해결: 경계 Seed (Non-Seed 이웃이 있는 Seed)만 delta 설정
-//       내부 Seed는 delta=0 → 전파되지 않음
-//       Apply Pass에서 Seed는 CurrentPos 사용하므로 결과물 영향 없음
+// Solution: Only boundary Seeds (Seeds with Non-Seed neighbors) set delta
+//           Internal Seeds have delta=0 -> do not propagate
+//           Apply Pass uses CurrentPos for Seeds so result is unaffected
 
 void InitPass(uint ThreadIndex)
 {
     uint VertexIndex = ExtendedIndices[ThreadIndex];
-    uint RepIndex = RepresentativeIndices[ThreadIndex];  // UV seam welding용 대표 버텍스
+    uint RepIndex = RepresentativeIndices[ThreadIndex];  // Representative vertex for UV seam welding
     uint IsSeed = IsSeedFlags[ThreadIndex];
     uint IsBoundarySeed = IsBoundarySeedFlags[ThreadIndex];
 
-    // 경계 Seed만 delta 기록 (내부 Seed는 전파원이 아님)
+    // Only boundary Seeds record delta (internal Seeds are not propagation sources)
     if (IsSeed != 0 && IsBoundarySeed != 0)
     {
-        // 경계 Seed: delta = deformation amount (CurrentPos - OriginalPos)
+        // Boundary Seed: delta = deformation amount (CurrentPos - OriginalPos)
         float3 CurrentPos = ReadPosition(CurrentPositions, VertexIndex);
         float3 OriginalPos = ReadPosition(OriginalPositions, VertexIndex);
         float3 Delta = CurrentPos - OriginalPos;
@@ -153,30 +153,30 @@ void InitPass(uint ThreadIndex)
         // Write delta using REPRESENTATIVE vertex index
         WriteDeltaByVertex(RepIndex, Delta);
     }
-    // 내부 Seed: delta = 0 (전파하지 않음, 버퍼 이미 0)
-    // Non-Seed/Barrier: delta = 0 (버퍼 이미 0)
-    // → Apply Pass에서 Seed는 CurrentPos를 사용하므로 결과물에 영향 없음
+    // Internal Seed: delta = 0 (do not propagate, buffer already 0)
+    // Non-Seed/Barrier: delta = 0 (buffer already 0)
+    // -> Apply Pass uses CurrentPos for Seeds so result is unaffected
 }
 
 // ============================================================================
 // Pass 1: Diffuse - Propagate delta to neighbors (Max-based Propagation)
 // ============================================================================
-// 기존 Heat Diffusion 문제:
-//   lerp(MyDelta, NeighborAvg, lambda) → 0인 이웃들과 평균하여 희석
+// Original Heat Diffusion problem:
+//   lerp(MyDelta, NeighborAvg, lambda) -> diluted by averaging with 0-delta neighbors
 //
-// 새 알고리즘 (Max-based Propagation):
-//   1. 이웃 중 가장 큰 magnitude의 delta 찾기
-//   2. Decay 적용하여 전파 (DecayFactor = 1 - HeatLambda * 0.1)
-//   3. 기존 delta와 비교, 더 큰 것 유지 (monotonic - 줄어들지 않음)
+// New algorithm (Max-based Propagation):
+//   1. Find neighbor with largest magnitude delta
+//   2. Apply decay for propagation (DecayFactor = 1 - HeatLambda * 0.1)
+//   3. Compare with current delta, keep larger (monotonic - never decreases)
 //
-// 결과:
-//   - Iteration N = N hops 전파
-//   - Hop distance에 따른 지수적 감쇠: Delta_n = Delta_0 * DecayFactor^n
-//   - DecayFactor=0.95, 50 hops → 원본의 ~8% 유지
+// Result:
+//   - Iteration N = N hops propagation
+//   - Exponential decay by hop distance: Delta_n = Delta_0 * DecayFactor^n
+//   - DecayFactor=0.95, 50 hops -> ~8% of original retained
 
 void DiffusePass(uint ThreadIndex)
 {
-    uint RepIndex = RepresentativeIndices[ThreadIndex];  // UV seam welding용 대표 버텍스
+    uint RepIndex = RepresentativeIndices[ThreadIndex];  // Representative vertex for UV seam welding
     uint IsSeed = IsSeedFlags[ThreadIndex];
     uint IsBarrier = IsBarrierFlags[ThreadIndex];
 
@@ -192,8 +192,8 @@ void DiffusePass(uint ThreadIndex)
 
     if (IsBarrier != 0)
     {
-        // Barrier (Tightness): delta = 0 고정, 전파 차단
-        // Barrier는 열전파의 "벽" 역할 - delta를 받지도, 전달하지도 않음
+        // Barrier (Tightness): delta = 0 fixed, blocks propagation
+        // Barrier acts as a "wall" for heat propagation - neither receives nor transmits delta
         WriteDeltaByVertex(RepIndex, float3(0, 0, 0));
         return;
     }
@@ -209,7 +209,7 @@ void DiffusePass(uint ThreadIndex)
     }
 
     // ================================================================
-    // Max-based Propagation: 이웃 중 가장 큰 delta 찾기
+    // Max-based Propagation: Find neighbor with largest delta
     // ================================================================
     float3 MaxNeighborDelta = float3(0, 0, 0);
     float MaxNeighborLen = 0.0;
@@ -224,7 +224,7 @@ void DiffusePass(uint ThreadIndex)
         float3 NeighborDelta = ReadDeltaByVertex(NeighborVertexIdx);
         float NeighborLen = length(NeighborDelta);
 
-        // 가장 큰 magnitude의 delta 찾기
+        // Find largest magnitude delta
         if (NeighborLen > MaxNeighborLen)
         {
             MaxNeighborLen = NeighborLen;
@@ -233,18 +233,18 @@ void DiffusePass(uint ThreadIndex)
     }
 
     // ================================================================
-    // Decay 적용하여 전파된 값 계산
+    // Apply decay to calculate propagated value
     // ================================================================
-    // HeatLambda를 decay로 변환: lambda=0.5 → decay=0.95
-    // 공식: decay = 1.0 - HeatLambda * 0.1
-    // lambda=0.0 → decay=1.0 (감쇠 없음)
-    // lambda=0.5 → decay=0.95 (hop당 5% 감쇠)
-    // lambda=1.0 → decay=0.9 (hop당 10% 감쇠)
+    // Convert HeatLambda to decay: lambda=0.5 -> decay=0.95
+    // Formula: decay = 1.0 - HeatLambda * 0.1
+    // lambda=0.0 -> decay=1.0 (no decay)
+    // lambda=0.5 -> decay=0.95 (5% decay per hop)
+    // lambda=1.0 -> decay=0.9 (10% decay per hop)
     float DecayFactor = 1.0 - HeatLambda * 0.1;
     float3 PropagatedDelta = MaxNeighborDelta * DecayFactor;
 
     // ================================================================
-    // Monotonic 업데이트: 더 큰 delta만 수용 (감소 방지)
+    // Monotonic update: Only accept larger delta (prevent decrease)
     // ================================================================
     float MyLen = length(MyDelta);
     float PropagatedLen = length(PropagatedDelta);
@@ -252,12 +252,12 @@ void DiffusePass(uint ThreadIndex)
     float3 NewDelta;
     if (PropagatedLen > MyLen)
     {
-        // 전파된 값이 더 크면 수용
+        // Propagated value is larger - accept it
         NewDelta = PropagatedDelta;
     }
     else
     {
-        // 기존 값 유지 (monotonic - 줄어들지 않음)
+        // Keep existing value (monotonic - never decreases)
         NewDelta = MyDelta;
     }
 
@@ -271,33 +271,33 @@ void DiffusePass(uint ThreadIndex)
 
 void ApplyPass(uint ThreadIndex)
 {
-    uint VertexIndex = ExtendedIndices[ThreadIndex];  // 실제 버텍스 인덱스 (출력용)
-    uint RepIndex = RepresentativeIndices[ThreadIndex];  // UV seam welding용 대표 버텍스
+    uint VertexIndex = ExtendedIndices[ThreadIndex];  // Actual vertex index (for output)
+    uint RepIndex = RepresentativeIndices[ThreadIndex];  // Representative vertex for UV seam welding
     uint IsSeed = IsSeedFlags[ThreadIndex];
     uint IsBarrier = IsBarrierFlags[ThreadIndex];
 
     float3 FinalPos;
     if (IsSeed != 0)
     {
-        // Seed (Bulge): 현재 변형된 위치 유지 (Bulge 결과)
+        // Seed (Bulge): Keep current deformed position (Bulge result)
         FinalPos = ReadPosition(CurrentPositions, VertexIndex);
     }
     else if (IsBarrier != 0)
     {
-        // Barrier (Tightness): 현재 변형된 위치 유지 (Tightness 결과)
-        // Barrier는 열전파를 차단하지만 자신의 변형은 그대로 유지
+        // Barrier (Tightness): Keep current deformed position (Tightness result)
+        // Barrier blocks heat propagation but retains its own deformation
         FinalPos = ReadPosition(CurrentPositions, VertexIndex);
     }
     else
     {
-        // Non-Seed (Non-Barrier): 원본 위치 + 전파된 delta
-        // delta는 REPRESENTATIVE에서 읽음 (UV seam 버텍스들이 동일한 delta 공유)
+        // Non-Seed (Non-Barrier): Original position + propagated delta
+        // Delta is read from REPRESENTATIVE (UV seam vertices share same delta)
         float3 OriginalPos = ReadPosition(OriginalPositions, VertexIndex);
         float3 Delta = ReadDeltaByVertex(RepIndex);
         FinalPos = OriginalPos + Delta;
     }
 
-    // 위치는 실제 버텍스에 출력 (각 UV duplicate가 자기 slot에 출력)
+    // Position is output to actual vertex (each UV duplicate outputs to its own slot)
     WritePosition(OutputPositions, VertexIndex, FinalPos);
 }
 

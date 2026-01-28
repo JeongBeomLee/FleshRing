@@ -78,7 +78,7 @@ enum class ESmoothingVolumeMode : uint8
 UENUM(BlueprintType)
 enum class ELaplacianSmoothingType : uint8
 {
-	/** Standard Laplacian (shrinkage occurs with iterations) */
+	/** Standard Laplacian (shrinks over iterations) */
 	Laplacian	UMETA(DisplayName = "Standard"),
 
 	/** Taubin lambda-mu smoothing (prevents shrinkage) */
@@ -362,16 +362,16 @@ struct FLESHRINGRUNTIME_API FVirtualBandSection
 
 	/**
 	 * Section end radius (cm)
-	 * - If larger than MidRadius, flares outward (Bulge region)
-	 * - If equal to MidRadius, straight line (maintains tightness)
+	 * - If larger than MidRadius, it flares outward (Bulge region)
+	 * - If equal to MidRadius, it forms a straight line (maintains tightness)
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Virtual Band", meta = (ClampMin = "0.1"))
 	float Radius = 10.0f;
 
 	/**
 	 * Section height (cm)
-	 * - 0: No section (cuts off right at band end)
-	 * - Higher values create gentler slope
+	 * - 0: No section (ends directly at band boundary)
+	 * - Higher values create a gentler slope
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Virtual Band", meta = (ClampMin = "0.0"))
 	float Height = 2.0f;
@@ -424,7 +424,7 @@ struct FLESHRINGRUNTIME_API FVirtualBandSettings
 
 	/**
 	 * Band top radius (cm)
-	 * - Tightening point meeting Upper Section
+	 * - Tightening point at Upper Section boundary
 	 * - Must be smaller than Upper.Radius for upward Bulge
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Band", meta = (ClampMin = "0.1", DisplayName = "Band Top Radius"))
@@ -432,7 +432,7 @@ struct FLESHRINGRUNTIME_API FVirtualBandSettings
 
 	/**
 	 * Band bottom radius (cm)
-	 * - Tightening point meeting Lower Section
+	 * - Tightening point at Lower Section boundary
 	 * - Must be smaller than Lower.Radius for downward Bulge
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Band", meta = (ClampMin = "0.1", DisplayName = "Band Bottom Radius"))
@@ -948,7 +948,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	float SmoothingLambda = 0.8f;
 
 	/**
-	 * Volume Preserving mode expansion strength (negative value)
+	 * Volume Preserving mode expansion coefficient (negative value)
 	 * - -1.0: Strong expansion, 0: Auto-calculate
 	 * - Condition: |mu| > lambda required to prevent shrinkage
 	 */

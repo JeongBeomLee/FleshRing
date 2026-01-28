@@ -79,20 +79,16 @@ float3 RingAxis;
 
 // ============================================================================
 // Dynamic Separation & Bidirectional Push Parameters
-// 동적 간격 & 양방향 밀어내기 파라미터
 // ============================================================================
 
 // Current tightness strength (0~1) - affects layer separation
-// Tightness 강도 (0~1) - 레이어 간격에 영향
 float TightnessStrength;
 
 // Push ratio: how much each layer moves when penetration is detected
-// 밀어내기 비율: 침투 감지 시 각 레이어가 얼마나 이동하는지
 float OuterLayerPushRatio;   // e.g., 0.7 = stocking moves 70% outward
 float InnerLayerPushRatio;   // e.g., 0.3 = skin moves 30% inward
 
 // Output: Skin vertex push amounts (for bidirectional push)
-// 출력: Skin 버텍스 밀어내기 양 (양방향 밀어내기용)
 RWBuffer<float> SkinPushAmountsRW;
 
 // ============================================================================
@@ -141,22 +137,21 @@ bool ShouldBeOutside(uint LayerA, uint LayerB)
 
 // ============================================================================
 // Dynamic Separation Calculation (v2 - Larger Margin)
-// 동적 간격 계산 (v2 - 더 큰 마진)
 // ============================================================================
-// 수렴 보장을 위해 마진을 크게 설정
-// 여러 iteration 후에도 안전한 간격 유지
+// Larger margin for guaranteed convergence
+// Maintains safe separation after multiple iterations
 //
-// 핵심 변경: 최소 간격을 0.05mm → 0.5mm로 증가
-// 이유: Jacobi iteration에서 연쇄 효과로 인한 잔여 penetration 방지
+// Key change: Minimum separation increased from 0.005cm (0.05mm) to 0.05cm (0.5mm)
+// Reason: Prevents residual penetration from cascade effects in Jacobi iteration
 
 float CalculateDynamicSeparation()
 {
-    // 단위: cm (언리얼 기본 단위)
-    // v2: 마진 대폭 증가로 수렴 보장
-    float MaxSeparation = 0.1f;    // 느슨할 때 최대 간격 (1mm = 0.1cm)
-    float MinSeparationTight = 0.05f;  // 조였을 때 최소 간격 (0.5mm = 0.05cm)
+    // Unit: cm (Unreal default unit)
+    // v2: Significantly increased margin for guaranteed convergence
+    float MaxSeparation = 0.1f;    // Max separation when loose (1mm = 0.1cm)
+    float MinSeparationTight = 0.05f;  // Min separation when tight (0.5mm = 0.05cm)
 
-    // 선형 보간: Tightness가 강할수록 간격 감소
+    // Linear interpolation: stronger tightness = smaller separation
     return lerp(MaxSeparation, MinSeparationTight, saturate(TightnessStrength));
 }
 
@@ -308,11 +303,11 @@ void BuildTriangleLayerCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 // For each outer-layer vertex, find nearest inner-layer triangle
 // If vertex penetrates the triangle, push it outward
 //
-// 주요 특성:
-// - SearchRadius: DynamicSeparation 기반 (최소 탐색 범위)
-// - 실제 침투(SignedDist < 0)와 근접(0 < SignedDist < Sep) 분리 처리
-// - 최소 거리 삼각형 기준으로 처리
-// - Normal alignment 조건: dot > 0.0
+// Key characteristics:
+// - SearchRadius: Based on DynamicSeparation (minimum search range)
+// - Separates actual penetration (SignedDist < 0) from proximity (0 < SignedDist < Sep)
+// - Processes based on nearest triangle
+// - Normal alignment condition: dot > 0.0
 
 [numthreads(THREADGROUP_SIZE, 1, 1)]
 void LayerPenetrationCS(uint3 DispatchThreadId : SV_DispatchThreadID)
@@ -339,34 +334,31 @@ void LayerPenetrationCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
     // ========================================
     // Compute radial direction for alignment check
-    // 정렬 체크용 방사 방향 계산
     // ========================================
-    // NOTE: 노멀 버퍼 대신 방사 방향 사용 (노멀이 0일 수 있음)
+    // NOTE: Use radial direction instead of normal buffer (normal may be zero)
     float3 VertexRadialDir = GetRadialDirection(VertexPos);
 
     // If radial direction is invalid, skip this vertex
-    // 방사 방향이 유효하지 않으면 이 버텍스 스킵
     if (length(VertexRadialDir) < LAYER_EPSILON)
         return;
 
     // ========================================
     // Calculate Dynamic Separation (Tightness-dependent)
-    // 동적 간격 계산 (Tightness 의존)
     // ========================================
     float DynamicSeparation = CalculateDynamicSeparation();
 
     // ========================================
-    // v5: 검색 반경 대폭 확대
+    // v5: Significantly expanded search radius
     // ========================================
-    // 스무딩 등으로 인해 침투가 상당히 클 수 있음
-    // 충분히 큰 범위에서 삼각형 검색
-    float SearchRadius = MaxPushDistance * 4.0f;  // MaxPush의 4배 (기본 4cm)
+    // Penetration can be significant due to smoothing etc.
+    // Search triangles in sufficiently large range
+    float SearchRadius = MaxPushDistance * 4.0f;  // 4x MaxPush (default 4cm)
 
     // ========================================
-    // v2: 가장 가까운 삼각형 찾기 (최대 침투 X)
+    // v2: Find nearest triangle (not max penetration)
     // ========================================
-    float NearestDistance = 1e10f;           // 가장 가까운 삼각형까지 거리
-    float NearestSignedDist = 1e10f;         // 그 삼각형에 대한 signed distance
+    float NearestDistance = 1e10f;           // Distance to nearest triangle
+    float NearestSignedDist = 1e10f;         // Signed distance to that triangle
     float3 NearestPushDirection = float3(0, 0, 0);
     bool bFoundNearbyTriangle = false;
 
@@ -405,17 +397,17 @@ void LayerPenetrationCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         TriNormal /= TriNormalLen;
 
         // ========================================
-        // v5: 삼각형-버텍스 방향 기반 필터 (RadialAlignment 대체)
+        // v5: Triangle-vertex direction based filter (replaces RadialAlignment)
         // ========================================
-        // 기존 RadialAlignment는 Ring 축 기준이라 Z 확장 영역에서 부정확
-        // 대신: 삼각형 노멀이 버텍스를 향하는지 확인
-        // → 버텍스가 삼각형 "앞"에 있어야 침투 검사가 의미 있음
+        // Original RadialAlignment was based on Ring axis, inaccurate for Z-extended regions
+        // Instead: Check if triangle normal faces the vertex
+        // -> Penetration check is only meaningful if vertex is "in front of" triangle
         float3 TriToVertex = VertexPos - TriCenter;
         float FacingAlignment = dot(normalize(TriToVertex), TriNormal);
 
-        // FacingAlignment > 0: 버텍스가 삼각형 앞에 있음 (침투 가능)
-        // FacingAlignment < 0: 버텍스가 삼각형 뒤에 있음 (이 삼각형은 관련 없음)
-        // -0.3으로 약간의 여유를 줌 (거의 평행한 경우도 허용)
+        // FacingAlignment > 0: Vertex is in front of triangle (penetration possible)
+        // FacingAlignment < 0: Vertex is behind triangle (this triangle is irrelevant)
+        // -0.3 allows some tolerance (nearly parallel cases)
         if (FacingAlignment < -0.3f)
             continue;
 
@@ -427,22 +419,22 @@ void LayerPenetrationCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         float SignedDist = SignedDistanceToPlane(VertexPos, V0, TriNormal);
 
         // ========================================
-        // v2: 실제 거리 기반으로 가장 가까운 삼각형 찾기
+        // v2: Find nearest triangle based on actual distance
         // ========================================
-        // 삼각형까지의 실제 3D 거리 계산
+        // Calculate actual 3D distance to triangle
         float ActualDistance;
         if (DistToEdge < LAYER_EPSILON)
         {
-            // 삼각형 영역 내부 투영
+            // Projected inside triangle area
             ActualDistance = abs(SignedDist);
         }
         else
         {
-            // 삼각형 외부 - 가장 가까운 점까지 거리
+            // Outside triangle - distance to closest point
             ActualDistance = length(VertexPos - ClosestPoint);
         }
 
-        // 검색 반경 내에서 가장 가까운 삼각형 선택
+        // Select nearest triangle within search radius
         if (ActualDistance < SearchRadius && ActualDistance < NearestDistance)
         {
             NearestDistance = ActualDistance;
@@ -464,7 +456,7 @@ void LayerPenetrationCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     }
 
     // ========================================
-    // v2: 침투 해결 로직 개선
+    // v2: Improved penetration resolution logic
     // ========================================
     if (bFoundNearbyTriangle)
     {
@@ -472,28 +464,28 @@ void LayerPenetrationCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
         if (NearestSignedDist < 0.0f)
         {
-            // Case 1: 실제 침투 (버텍스가 삼각형 뒤에 있음)
-            // 삼각형 앞으로 + 동적 분리만큼 이동
+            // Case 1: Actual penetration (vertex is behind triangle)
+            // Move in front of triangle + dynamic separation
             PushAmount = abs(NearestSignedDist) + DynamicSeparation;
         }
         else if (NearestSignedDist < DynamicSeparation)
         {
-            // Case 2: 침투는 아니지만 동적 분리보다 가까움
-            // 동적 분리 위치까지만 살짝 밀어냄
+            // Case 2: Not penetrating but closer than dynamic separation
+            // Push slightly to dynamic separation position
             PushAmount = DynamicSeparation - NearestSignedDist;
         }
-        // else: Case 3: 충분히 떨어져 있음 - 아무것도 안 함
+        // else: Case 3: Sufficiently far away - do nothing
 
-        // 푸시 적용
+        // Apply push
         if (PushAmount > LAYER_EPSILON)
         {
-            // 최대 푸시 제한 (MaxPushDistance 파라미터 사용, 기본 2cm)
+            // Limit to max push (using MaxPushDistance parameter, default 2cm)
             PushAmount = min(PushAmount, MaxPushDistance);
 
-            // OuterLayerPushRatio 적용
+            // Apply OuterLayerPushRatio
             float FinalPush = PushAmount * OuterLayerPushRatio;
 
-            // 새 위치 계산
+            // Calculate new position
             float3 NewPos = VertexPos + NearestPushDirection * FinalPush;
             WritePosition(VertexIdx, NewPos);
         }

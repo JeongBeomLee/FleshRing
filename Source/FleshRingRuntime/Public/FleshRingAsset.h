@@ -182,7 +182,7 @@ public:
 	/**
 	 * Get layer type by material slot index
 	 * @param MaterialSlotIndex - Material slot index to query
-	 * @return Layer type of the slot (Unknown if no mapping)
+	 * @return Layer type of the slot (Other if no mapping)
 	 */
 	UFUNCTION(BlueprintPure, Category = "Material Layer Settings")
 	EFleshRingLayerType GetLayerTypeForMaterialSlot(int32 MaterialSlotIndex) const;

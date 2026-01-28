@@ -1,0 +1,256 @@
+// ============================================================================
+// FleshRingHopPropagateCS.usf - Hop-based Deformation Propagation Compute Shader
+// ============================================================================
+// Purpose: Propagate deformation from seed vertices outward with falloff
+//          Creates smooth curved surfaces instead of Laplacian's flattening
+//
+// Algorithm: K-Nearest Seeds Blending with Distance-based Delta Propagation
+//   For each extended vertex:
+//     For k = 0..K-1:
+//       seedDelta[k] = SeedDeformedPos[k] - SeedOriginalPos[k]
+//       weight[k] = ComputeWeight(hopDist[k])
+//     blendedDelta = sum(seedDelta[k] * weight[k]) / sum(weight[k])
+//     NewPos = MyOriginalPos + blendedDelta * Influence
+//
+// Key Insight:
+//   - Single seed reference causes wobbling at seed boundaries
+//   - K-nearest blending smooths transitions between seed influence regions
+//
+// Weight Functions:
+//   - InverseLinear: 1/(d+1)
+//   - InverseSquare: 1/(d+1)^2
+//   - Gaussian: exp(-d/sigma)
+// ============================================================================
+
+#include "/Engine/Public/Platform.ush"
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+#ifndef THREADGROUP_SIZE
+#define THREADGROUP_SIZE 64
+#endif
+
+// Weight type constants (must match ESeedBlendWeightType enum)
+#define WEIGHT_TYPE_INVERSE_LINEAR 0
+#define WEIGHT_TYPE_INVERSE_SQUARE 1
+#define WEIGHT_TYPE_GAUSSIAN 2
+
+// Invalid seed marker
+#define INVALID_SEED_INDEX 0xFFFFFFFF
+
+// ============================================================================
+// Buffer Declarations
+// ============================================================================
+
+// Input: Original bind pose positions (before any deformation)
+Buffer<float> OriginalPositions;
+
+// Input: Tightened positions (seeds already deformed by TightnessCS)
+Buffer<float> TightenedPositions;
+
+// Output: Propagated positions
+RWBuffer<float> OutputPositions;
+
+// Input: Extended region vertex indices (absolute mesh indices)
+StructuredBuffer<uint> ExtendedIndices;
+
+// Input: Influence per extended vertex (falloff from hop distance)
+StructuredBuffer<float> ExtendedInfluences;
+
+// Input: Nearest seed thread index for each extended vertex (fallback)
+StructuredBuffer<uint> NearestSeedIndices;
+
+// Input: K-Nearest seeds packed data
+// Format: [SeedThreadIdx0, HopDist0, SeedThreadIdx1, HopDist1, ...] per extended vertex
+StructuredBuffer<uint> KNearestPacked;
+
+// ============================================================================
+// Parameters
+// ============================================================================
+
+// Number of vertices in extended region
+uint NumExtendedVertices;
+
+// Total mesh vertex count (for bounds checking)
+uint NumTotalVertices;
+
+// Number of seed vertices (first N vertices in ExtendedIndices are seeds)
+uint NumSeedVertices;
+
+// K-Nearest blending parameters
+uint KNearestCount;         // K value (number of seeds to blend)
+uint SeedBlendWeightType;   // Weight type (0=InverseLinear, 1=InverseSquare, 2=Gaussian)
+float GaussianSigma;        // Sigma for Gaussian mode
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+// Read vertex position from buffer (3 floats per vertex)
+float3 ReadPosition(Buffer<float> PositionBuffer, uint VertexIndex)
+{
+    uint BaseIndex = VertexIndex * 3;
+    return float3(
+        PositionBuffer[BaseIndex + 0],
+        PositionBuffer[BaseIndex + 1],
+        PositionBuffer[BaseIndex + 2]
+    );
+}
+
+// Write vertex position to buffer (3 floats per vertex)
+void WritePosition(uint VertexIndex, float3 Pos)
+{
+    uint BaseIndex = VertexIndex * 3;
+    OutputPositions[BaseIndex + 0] = Pos.x;
+    OutputPositions[BaseIndex + 1] = Pos.y;
+    OutputPositions[BaseIndex + 2] = Pos.z;
+}
+
+// Compute blending weight based on hop distance
+float ComputeBlendWeight(uint HopDist, uint WeightType, float Sigma)
+{
+    float d = (float)HopDist;
+
+    if (WeightType == WEIGHT_TYPE_INVERSE_LINEAR)
+    {
+        // 1 / (d + 1)
+        return 1.0f / (d + 1.0f);
+    }
+    else if (WeightType == WEIGHT_TYPE_INVERSE_SQUARE)
+    {
+        // 1 / (d + 1)^2
+        float denom = d + 1.0f;
+        return 1.0f / (denom * denom);
+    }
+    else // WEIGHT_TYPE_GAUSSIAN
+    {
+        // exp(-d / sigma)
+        float safeSigma = max(Sigma, 0.001f);
+        return exp(-d / safeSigma);
+    }
+}
+
+// ============================================================================
+// Main Compute Shader
+// ============================================================================
+
+[numthreads(THREADGROUP_SIZE, 1, 1)]
+void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    uint ThreadIndex = DispatchThreadId.x;
+
+    // Bounds check
+    if (ThreadIndex >= NumExtendedVertices)
+    {
+        return;
+    }
+
+    // Get my vertex index and influence
+    uint MyVertexIndex = ExtendedIndices[ThreadIndex];
+    float MyInfluence = ExtendedInfluences[ThreadIndex];
+
+    // Safety check
+    if (MyVertexIndex >= NumTotalVertices)
+    {
+        return;
+    }
+
+    // Read my original position
+    float3 MyOriginalPos = ReadPosition(OriginalPositions, MyVertexIndex);
+
+    // =========================================================================
+    // K-Nearest Seeds Blending
+    // =========================================================================
+    //
+    // Instead of using a single nearest seed (which causes wobbling),
+    // blend deltas from K nearest seeds with distance-based weights.
+    // =========================================================================
+
+    float3 BlendedDelta = float3(0, 0, 0);
+    float TotalWeight = 0.0f;
+    uint ValidSeedCount = 0;
+
+    // Calculate base index in KNearestPacked for this thread
+    uint PackedStride = KNearestCount * 2;  // [SeedIdx, HopDist] pairs
+    uint PackedBase = ThreadIndex * PackedStride;
+
+    // Iterate through K nearest seeds
+    for (uint k = 0; k < KNearestCount; ++k)
+    {
+        uint SeedIdxOffset = PackedBase + k * 2;
+        uint HopDistOffset = PackedBase + k * 2 + 1;
+
+        uint SeedThreadIdx = KNearestPacked[SeedIdxOffset];
+        uint HopDist = KNearestPacked[HopDistOffset];
+
+        // Check for invalid seed (padding)
+        if (SeedThreadIdx == INVALID_SEED_INDEX)
+        {
+            continue;
+        }
+
+        // Safety check for seed index
+        if (SeedThreadIdx >= NumSeedVertices)
+        {
+            continue;
+        }
+
+        // Get seed's vertex index
+        uint SeedVertexIndex = ExtendedIndices[SeedThreadIdx];
+
+        // Safety check
+        if (SeedVertexIndex >= NumTotalVertices)
+        {
+            continue;
+        }
+
+        // Read seed's original and deformed positions
+        float3 SeedOriginalPos = ReadPosition(OriginalPositions, SeedVertexIndex);
+        float3 SeedDeformedPos = ReadPosition(TightenedPositions, SeedVertexIndex);
+
+        // Compute seed's deformation delta
+        float3 SeedDelta = SeedDeformedPos - SeedOriginalPos;
+
+        // Compute weight based on hop distance
+        float Weight = ComputeBlendWeight(HopDist, SeedBlendWeightType, GaussianSigma);
+
+        // Accumulate weighted delta
+        BlendedDelta += SeedDelta * Weight;
+        TotalWeight += Weight;
+        ValidSeedCount++;
+    }
+
+    // Fallback to single nearest seed if K-nearest failed
+    if (ValidSeedCount == 0 || TotalWeight < 0.0001f)
+    {
+        uint NearestSeedThreadIdx = NearestSeedIndices[ThreadIndex];
+
+        if (NearestSeedThreadIdx < NumSeedVertices)
+        {
+            uint SeedVertexIndex = ExtendedIndices[NearestSeedThreadIdx];
+
+            if (SeedVertexIndex < NumTotalVertices)
+            {
+                float3 SeedOriginalPos = ReadPosition(OriginalPositions, SeedVertexIndex);
+                float3 SeedDeformedPos = ReadPosition(TightenedPositions, SeedVertexIndex);
+                BlendedDelta = SeedDeformedPos - SeedOriginalPos;
+                TotalWeight = 1.0f;
+            }
+        }
+    }
+
+    // Normalize blended delta
+    if (TotalWeight > 0.0001f)
+    {
+        BlendedDelta /= TotalWeight;
+    }
+
+    // Apply propagated deformation
+    // NewPos = OriginalPos + BlendedDelta * Influence
+    float3 NewPos = MyOriginalPos + BlendedDelta * MyInfluence;
+
+    // Write output
+    WritePosition(MyVertexIndex, NewPos);
+}

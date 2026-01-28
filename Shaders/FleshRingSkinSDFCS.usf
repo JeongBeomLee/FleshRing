@@ -3,18 +3,18 @@
 // ============================================================================
 // FleshRingSkinSDFCS.usf - Skin SDF Based Layer Separation
 // ============================================================================
-// 스킨 버텍스들의 위치/노멀로 implicit surface를 정의하고,
-// 스타킹 버텍스가 스킨 안쪽에 있으면 바깥으로 밀어냄
+// Define implicit surface from skin vertex positions/normals,
+// push stocking vertices outward if they are inside the skin
 //
-// 핵심 알고리즘:
-// 1. 각 스타킹 버텍스에 대해 가장 가까운 스킨 버텍스 찾기
+// Core Algorithm:
+// 1. For each stocking vertex, find the nearest skin vertex
 // 2. SignedDist = dot(stocking_pos - skin_pos, skin_normal)
-// 3. SignedDist < MinSeparation이면 바깥으로 밀어냄
+// 3. If SignedDist < MinSeparation, push outward
 //
-// 장점:
-// - 삼각형 검색보다 간단하고 빠름
-// - 노멀 기반으로 안쪽/바깥쪽 확실히 판단
-// - 완전한 레이어 상하관계 보장
+// Advantages:
+// - Simpler and faster than triangle search
+// - Normal-based reliable inside/outside determination
+// - Guarantees complete layer hierarchy
 // ============================================================================
 
 #include "/Engine/Public/Platform.ush"
@@ -29,27 +29,27 @@
 // Buffer Declarations
 // ============================================================================
 
-// 버텍스 위치 (읽기/쓰기)
+// Vertex positions (read/write)
 RWBuffer<float> PositionsRW;
 
-// 스킨 버텍스 인덱스
+// Skin vertex indices
 Buffer<uint> SkinVertexIndices;
 
-// 스킨 버텍스 노멀 (변형 후, 또는 방사 방향 사용)
+// Skin vertex normals (after deformation, or use radial direction)
 Buffer<float> SkinNormals;
 
-// 스타킹 버텍스 인덱스
+// Stocking vertex indices
 Buffer<uint> StockingVertexIndices;
 
-// 파라미터
+// Parameters
 uint NumStockingVertices;
 uint NumSkinVertices;
 uint NumTotalVertices;
-float MinSeparation;      // 최소 분리 거리 (이 아래로 관통 시 밀어냄)
-float TargetSeparation;   // 목표 분리 거리 (접촉 유지용)
-float MaxPushDistance;    // 최대 밀어내기 거리 (per iteration)
-float MaxPullDistance;    // 최대 당기기 거리 (부유 방지)
-uint MaxIterations;       // 최대 반복 횟수 (조기 종료 가능)
+float MinSeparation;      // Minimum separation distance (push if penetrating below this)
+float TargetSeparation;   // Target separation distance (for maintaining contact)
+float MaxPushDistance;    // Maximum push distance (per iteration)
+float MaxPullDistance;    // Maximum pull distance (prevent floating)
+uint MaxIterations;       // Maximum iteration count (can terminate early)
 float3 RingAxis;
 float3 RingCenter;
 
@@ -77,7 +77,7 @@ float3 ReadSkinNormal(uint SkinIdx)
     return float3(SkinNormals[Base], SkinNormals[Base + 1], SkinNormals[Base + 2]);
 }
 
-// Ring 축 기준 방사 방향 계산
+// Calculate radial direction relative to Ring axis
 float3 GetRadialDirection(float3 Point)
 {
     float3 ToPoint = Point - RingCenter;
@@ -108,20 +108,20 @@ void SkinSDFLayerSeparationCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     uint StockingVertIdx = StockingVertexIndices[StockingIdx];
     float3 StockingPos = ReadPosition(StockingVertIdx);
 
-    // 스타킹의 축 방향 높이 및 반경
+    // Stocking's axial height and radius
     float3 ToStocking = StockingPos - RingCenter;
     float StockingHeight = dot(ToStocking, RingAxis);
     float StockingRadius = length(ToStocking - RingAxis * StockingHeight);
 
-    // Push 방향 = 방사 방향
+    // Push direction = radial direction
     float3 PushDir = GetRadialDirection(StockingPos);
     if (length(PushDir) < EPSILON)
         return;
 
     // ========================================
-    // 같은 높이 범위의 스킨 중 가장 큰 반경 찾기
+    // Find maximum skin radius at same height range
     // ========================================
-    float HeightTolerance = 1.0f;  // 높이 허용 범위 (cm)
+    float HeightTolerance = 1.0f;  // Height tolerance (cm)
     float MaxSkinRadius = 0.0f;
     bool bFoundValidSkin = false;
 
@@ -133,14 +133,14 @@ void SkinSDFLayerSeparationCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         float3 ToSkin = SkinPos - RingCenter;
         float SkinHeight = dot(ToSkin, RingAxis);
 
-        // 높이 차이가 너무 크면 스킵
+        // Skip if height difference is too large
         float HeightDiff = abs(SkinHeight - StockingHeight);
         if (HeightDiff > HeightTolerance)
             continue;
 
         float SkinRadius = length(ToSkin - RingAxis * SkinHeight);
 
-        // 같은 높이 범위에서 가장 큰 반경
+        // Find maximum radius at same height range
         if (SkinRadius > MaxSkinRadius)
         {
             MaxSkinRadius = SkinRadius;
@@ -152,7 +152,7 @@ void SkinSDFLayerSeparationCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         return;
 
     // ========================================
-    // 분리 판정 (스타킹 반경 vs 최대 스킨 반경)
+    // Separation check (stocking radius vs max skin radius)
     // ========================================
     float RadialDist = StockingRadius - MaxSkinRadius;
 

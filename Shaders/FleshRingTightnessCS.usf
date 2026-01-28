@@ -1,9 +1,7 @@
 ﻿// Copyright 2026 LgThx. All Rights Reserved.
 
 // Purpose: Pull vertices toward Ring center axis (Tightness effect)
-// 목적: 버텍스를 링 중심축 방향으로 안쪽으로 당김 (조이기 효과)
 // This shader processes only AffectedVertices (not all mesh vertices) for performance optimization.
-// 성능 최적화를 위해 영향받는 버텍스만 처리 (전체 메시 버텍스 X)
 
 #include "/Engine/Public/Platform.ush"
 #include "/Engine/Private/GpuSkinCommon.ush"
@@ -12,66 +10,58 @@
 /**
  * Buffer Declarations
  */
-Buffer<float> SourcePositions;              // 메시의 원본 정점 위치(바인드 포즈 컴포넌트 스페이스)
-StructuredBuffer<uint> AffectedIndices;     // 영향받는 정점 인덱스 (출력용)
-// Influence는 GPU에서 직접 계산 (CalculateVirtualRingInfluence, CalculateVirtualBandInfluence)
-StructuredBuffer<uint> RepresentativeIndices; // UV seam 용접용 대표 정점 인덱스 (입력용)
-RWBuffer<float> OutputPositions;            // 출력: 변형된 정점 위치
-RWBuffer<uint> VolumeAccumBuffer;           // 출력: Bulge 패스용 부피 누적 버퍼 (Atomic 연산)
-RWBuffer<float> DebugInfluences;            // 출력: 디버그용 Influence 값 (ThreadIndex당 1 float)
-// DebugPointBuffer는 DebugPointOutputCS에서 최종 위치 기반으로 출력
+Buffer<float> SourcePositions;              // Original vertex positions (bind pose, component space)
+StructuredBuffer<uint> AffectedIndices;     // Affected vertex indices (for output)
+// Influence is computed directly on GPU (CalculateVirtualRingInfluence, CalculateVirtualBandInfluence)
+StructuredBuffer<uint> RepresentativeIndices; // Representative vertex indices for UV seam welding (input)
+RWBuffer<float> OutputPositions;            // Output: deformed vertex positions
+RWBuffer<uint> VolumeAccumBuffer;           // Output: volume accumulation buffer for Bulge pass (atomic ops)
+RWBuffer<float> DebugInfluences;            // Output: debug Influence values (1 float per ThreadIndex)
+// DebugPointBuffer is output in DebugPointOutputCS based on final positions
 
 // ============================================================================
 // Skinning Data (from GpuSkinCommon.ush pattern)
-// 스키닝 데이터 (GpuSkinCommon.ush 패턴)
 // ============================================================================
 
 // Bone matrices buffer (3 float4 per bone = 3x4 matrix)
-// 본 행렬 버퍼 (본당 3개의 float4 = 3x4 행렬)
 Buffer<float4> BoneMatrices;
 
 // Packed bone indices + weights (LOD-wide)
-// 패킹된 본 인덱스 + 웨이트 (LOD 전체)
 Buffer<uint> InputWeightStream;
 
 // Skinning parameters
-// 스키닝 파라미터
-uint InputWeightStride;     // Stride in bytes / 바이트 단위 스트라이드
+uint InputWeightStride;     // Stride in bytes
 uint InputWeightIndexSize;  // BoneIndexByteSize | (BoneWeightByteSize << 8)
-uint NumBoneInfluences;     // Number of bone influences per vertex / 버텍스당 본 영향 수
+uint NumBoneInfluences;     // Number of bone influences per vertex
 
 // Flag to enable/disable skinning (0 = bind pose, 1 = skinned)
-// 스키닝 활성화 플래그 (0 = 바인드 포즈, 1 = 스키닝 적용)
 uint bEnableSkinning;
 
 // ============================================================================
 // Ring Parameters
-// 링 파라미터
 // ============================================================================
 
 float3 RingCenter;          // Ring center position (component space)
-                            // 링 중심 위치 (컴포넌트 스페이스)
 float3 RingAxis;            // Ring axis direction (normalized)
-                            // 링 축 방향 (정규화됨)
-float TightnessStrength;    // 조이기 변형 강도
+float TightnessStrength;    // Tightness deformation strength
 
-// VirtualRing 모드 GPU Influence 계산용 파라미터
-float RingRadius;           // 링 내부 반지름
-float RingHeight;            // 링 높이 (축 방향)
-float RingThickness;        // 링 두께 (Radial falloff 범위)
-uint FalloffType;           // Falloff 타입 (0=Linear, 1=Quadratic, 2=Hermite)
-uint InfluenceMode;         // Influence 모드 (0=Auto/SDF, 1=VirtualRing, 2=VirtualBand)
+// VirtualRing mode GPU Influence calculation parameters
+float RingRadius;           // Ring inner radius
+float RingHeight;           // Ring height (axial direction)
+float RingThickness;        // Ring thickness (radial falloff range)
+uint FalloffType;           // Falloff type (0=Linear, 1=Quadratic, 2=Hermite)
+uint InfluenceMode;         // Influence mode (0=Auto/SDF, 1=VirtualRing, 2=VirtualBand)
 
 // ============================================================================
-// VirtualBand (Virtual Band) Parameters - 가변 반경 GPU Influence 계산용
+// VirtualBand Parameters - Variable radius GPU Influence calculation
 // ============================================================================
-float LowerRadius;          // 하단 끝 반경
-float MidLowerRadius;       // 밴드 하단 반경
-float MidUpperRadius;       // 밴드 상단 반경
-float UpperRadius;          // 상단 끝 반경
-float LowerHeight;          // Lower Section 높이
-float BandSectionHeight;    // Band Section 높이
-float UpperHeight;          // Upper Section 높이
+float LowerRadius;          // Lower end radius
+float MidLowerRadius;       // Band lower radius
+float MidUpperRadius;       // Band upper radius
+float UpperRadius;          // Upper end radius
+float LowerHeight;          // Lower Section height
+float BandSectionHeight;    // Band Section height
+float UpperHeight;          // Upper Section height
 
 // ============================================================================
 // SDF Parameters
@@ -82,10 +72,10 @@ SamplerState SDFSampler;
 float3 SDFBoundsMin;
 float3 SDFBoundsMax;
 uint bUseSDFInfluence;              // 0 = VirtualRing, 1 = SDF
-float4x4 ComponentToSDFLocal;       // Component → SDF Local (row vector 곱셈 사용)
-float4x4 SDFLocalToComponent;       // SDF Local → Component (스케일 포함 정확한 역변환)
+float4x4 ComponentToSDFLocal;       // Component -> SDF Local (row vector multiplication)
+float4x4 SDFLocalToComponent;       // SDF Local -> Component (exact inverse with scale)
 
-// Ring Center/Axis (SDF Local Space) - 바운드 확장 시에도 정확한 위치 전달
+// Ring Center/Axis (SDF Local Space) - Accurate position even with bounds expansion
 float3 SDFLocalRingCenter;
 float3 SDFLocalRingAxis;
 
@@ -95,17 +85,17 @@ float3 SDFLocalRingAxis;
 
 uint NumAffectedVertices;
 uint NumTotalVertices;
-uint bAccumulateVolume;     // Bulge용 부피 누적 활성화
-float FixedPointScale;      // float → uint 변환 스케일
-uint RingIndex;             // VolumeAccumBuffer 슬롯
-uint bOutputDebugInfluences; // 디버그 Influence 출력 활성화
-uint DebugPointBaseOffset;   // 디버그 버퍼 오프셋 (다중 링 지원, DebugInfluences에 사용)
-// DebugPoint 출력은 DebugPointOutputCS에서 처리
+uint bAccumulateVolume;     // Enable volume accumulation for Bulge
+float FixedPointScale;      // float -> uint conversion scale
+uint RingIndex;             // VolumeAccumBuffer slot
+uint bOutputDebugInfluences; // Enable debug Influence output
+uint DebugPointBaseOffset;   // Debug buffer offset (multi-ring support, used for DebugInfluences)
+// DebugPoint output is handled in DebugPointOutputCS
 
-// Z축 상단 확장 거리 (절대값, cm) - 스무딩 영역 확장용
+// Z-axis top expansion distance (absolute, cm) - for smoothing region expansion
 float BoundsZTop;
 
-// Z축 하단 확장 거리 (절대값, cm) - 스무딩 영역 확장용
+// Z-axis bottom expansion distance (absolute, cm) - for smoothing region expansion
 float BoundsZBottom;
 
 // Thread Group Size
@@ -115,11 +105,9 @@ float BoundsZBottom;
 
 // ============================================================================
 // Skinning Helper Functions (from FleshRingWave.usf)
-// 스키닝 헬퍼 함수 (FleshRingWave.usf에서 가져옴)
 // ============================================================================
 
 // Get bone matrix from buffer (3 float4 = 3x4 matrix)
-// 버퍼에서 본 행렬 가져오기 (3 float4 = 3x4 행렬)
 float3x4 GetBoneMatrix(uint BoneIndex)
 {
     uint BufferIndex = BoneIndex * 3;
@@ -131,7 +119,6 @@ float3x4 GetBoneMatrix(uint BoneIndex)
 }
 
 // Transform position by 3x4 matrix
-// 3x4 행렬로 위치 변환
 float3 TransformByMatrix(float3x4 Matrix, float3 Position)
 {
     float4 Pos4 = float4(Position, 1.0f);
@@ -143,19 +130,15 @@ float3 TransformByMatrix(float3x4 Matrix, float3 Position)
 }
 
 // Compute blended skinning matrix for a vertex
-// 버텍스의 블렌딩된 스키닝 행렬 계산
 float3x4 ComputeSkinnedMatrix(uint VertexIndex)
 {
     // Calculate stream offset for this vertex
-    // 이 버텍스의 스트림 오프셋 계산
     uint StreamOffset = VertexIndex * (InputWeightStride / 4);
 
     // Initialize indices and weights
-    // 인덱스와 웨이트 초기화
     FGPUSkinIndexAndWeight IndicesAndWeights = (FGPUSkinIndexAndWeight)0;
 
     // Get first 4 bone influences
-    // 첫 4개 본 영향 가져오기
     if (NumBoneInfluences > 0)
     {
         IndicesAndWeights.BlendIndices = GetBlendIndices(InputWeightStream, StreamOffset, 0);
@@ -163,7 +146,6 @@ float3x4 ComputeSkinnedMatrix(uint VertexIndex)
     }
 
     // Get additional 4 bone influences (if 8-bone skinning)
-    // 추가 4개 본 영향 가져오기 (8본 스키닝인 경우)
     if (NumBoneInfluences > 4)
     {
         IndicesAndWeights.BlendIndices2 = GetBlendIndices(InputWeightStream, StreamOffset, 1);
@@ -171,17 +153,14 @@ float3x4 ComputeSkinnedMatrix(uint VertexIndex)
     }
 
     // Compute blended bone matrix
-    // 블렌딩된 본 행렬 계산
     return ComputeBoneMatrixWithLimitedInfluences(BoneMatrices, IndicesAndWeights, NumBoneInfluences > 4);
 }
 
 // ============================================================================
 // Position Read/Write Helper Functions
-// 위치 읽기/쓰기 헬퍼 함수
 // ============================================================================
 
 // Read vertex position from buffer (3 floats per vertex)
-// 버퍼에서 버텍스 위치 읽기 (버텍스당 3 float)
 float3 ReadPosition(uint VertexIndex)
 {
     uint BaseIndex = VertexIndex * 3;
@@ -193,7 +172,6 @@ float3 ReadPosition(uint VertexIndex)
 }
 
 // Write vertex position to buffer (3 floats per vertex)
-// 버퍼에 버텍스 위치 쓰기 (버텍스당 3 float)
 void WritePosition(uint VertexIndex, float3 Pos)
 {
     uint BaseIndex = VertexIndex * 3;
@@ -204,18 +182,17 @@ void WritePosition(uint VertexIndex, float3 Pos)
 
 // ============================================================================
 // VirtualRing Mode GPU Influence Calculation Functions
-// VirtualRing 모드 GPU Influence 계산 함수
 // ============================================================================
 
-// CPU의 CalculateFalloff() 동일 로직
-// Falloff 계산: 거리에 따라 0~1 사이의 가중치 반환
+// Same logic as CPU CalculateFalloff()
+// Falloff calculation: returns weight between 0~1 based on distance
 float CalculateFalloff(float Distance, float MaxDistance, uint InFalloffType)
 {
     if (MaxDistance <= 0.0)
         return 1.0;
 
     float NormalizedDist = saturate(Distance / MaxDistance);
-    float T = 1.0 - NormalizedDist;  // 가까울수록 높은 influence
+    float T = 1.0 - NormalizedDist;  // Closer = higher influence
 
     switch (InFalloffType)
     {
@@ -230,90 +207,89 @@ float CalculateFalloff(float Distance, float MaxDistance, uint InFalloffType)
 }
 
 // ============================================================================
-// VirtualRing 모드용 GPU Influence 계산
-// CPU의 FDistanceBasedVertexSelector::SelectVertices() VirtualRing 분기와 동일 로직
+// VirtualRing Mode GPU Influence Calculation
+// Same logic as CPU FDistanceBasedVertexSelector::SelectVertices() VirtualRing branch
 // ============================================================================
 //
-// [Influence 계산 흐름]
+// [Influence Calculation Flow]
 //
-//  1. 버텍스 위치 → 링 중심 기준 분해
-//     - AxisDist: 축 방향 거리 (링 위/아래 얼마나 떨어졌나)
-//     - RadialDist: 반경 방향 거리 (링 축에서 얼마나 떨어졌나)
+//  1. Vertex position -> decompose relative to ring center
+//     - AxisDist: axial distance (how far above/below the ring)
+//     - RadialDist: radial distance (how far from ring axis)
 //
-//  2. 범위 체크 (Zone)
-//     - RadialDist > MaxDistance 또는 AxisDist > HalfWidth → 영향권 밖
+//  2. Range check (Zone)
+//     - RadialDist > MaxDistance or AxisDist > HalfWidth -> outside influence
 //
-//  3. Falloff 계산
-//     - RadialInfluence: 링 표면(RingRadius)에서 멀수록 감소
-//     - AxialInfluence: 링 중심 높이에서 멀수록 감소
+//  3. Falloff calculation
+//     - RadialInfluence: decreases with distance from ring surface (RingRadius)
+//     - AxialInfluence: decreases with distance from ring center height
 //
-//  4. 최종 Influence = RadialInfluence × AxialInfluence
+//  4. Final Influence = RadialInfluence * AxialInfluence
 //
-// [문제점]
-//  - 링 내부표면(RingRadius) 위치에 따라 Skin/Stocking의 Influence가 다름
-//  - 링이 Stocking 위치에 있으면 → Stocking이 내부표면에 가까움 → 더 높은 Influence
-//  - → Stocking이 더 많이 이동 → 레이어 역전!
+// [Known Issue]
+//  - Skin/Stocking have different Influence based on ring inner surface (RingRadius) position
+//  - If ring is at Stocking position -> Stocking is closer to inner surface -> higher Influence
+//  - -> Stocking moves more -> layer inversion!
 //
 // ============================================================================
 float CalculateVirtualRingInfluence(float3 VertexPos)
 {
-    // Step 1: 버텍스 위치를 링 좌표계로 분해
+    // Step 1: Decompose vertex position in ring coordinate system
     float3 ToVertex = VertexPos - RingCenter;
 
-    // 축 방향 성분 (링 위/아래 방향)
+    // Axial component (up/down direction relative to ring)
     float AxisDist = dot(ToVertex, RingAxis);
 
-    // 반경 방향 벡터 (축에 수직, 바깥 방향)
+    // Radial vector (perpendicular to axis, outward direction)
     float3 RadialVec = ToVertex - RingAxis * AxisDist;
     float RadialDist = length(RadialVec);
 
-    // Step 2: 영향 범위(Zone) 체크
-    float MaxDistance = RingRadius + RingThickness;     // 수평 범위
-    float HalfHeight = RingHeight * 0.5;                // 수직 범위
+    // Step 2: Influence zone check
+    float MaxDistance = RingRadius + RingThickness;     // Horizontal range
+    float HalfHeight = RingHeight * 0.5;                // Vertical range
 
-    // 수평 범위 or 수직 범위 초과 -> influence = 0 
-    // TODO: RadialDist < RingRadius (링 구멍 안쪽) 체크 없는 상태임. 우선순위 하
+    // Outside horizontal or vertical range -> influence = 0
+    // TODO: No check for RadialDist < RingRadius (inside ring hole). Low priority
     if (RadialDist > MaxDistance || abs(AxisDist) > HalfHeight)
         return 0.0;
 
-    // Step 3: Falloff 계산
-    // 링 내부표면(RingRadius = 내부 반지름)으로부터의 거리
-    // → 내부표면 위에 있으면 0, 멀수록 증가
-    // TODO: abs() 때문에 구멍 안쪽 버텍스도 내부 표면에 가까우면 높은 Influence를 받는 상태임. 수정 필요할 수도
+    // Step 3: Falloff calculation
+    // Distance from ring inner surface (RingRadius = inner radius)
+    // -> 0 if on inner surface, increases with distance
+    // TODO: Due to abs(), vertices inside hole also get high Influence if close to inner surface. May need fix
     float DistFromSurface = abs(RadialDist - RingRadius);
 
-    // RadialInfluence: 내부표면에 가까울수록 1.0, RingThickness 거리에서 0.0
+    // RadialInfluence: 1.0 at inner surface, 0.0 at RingThickness distance
     float RadialInfluence = CalculateFalloff(DistFromSurface, RingThickness, FalloffType);
 
-    // AxialInfluence: 링 중심 높이에 가까울수록 1.0, HalfHeight 거리에서 0.0
+    // AxialInfluence: 1.0 at ring center height, 0.0 at HalfHeight distance
     float AxialInfluence = CalculateFalloff(abs(AxisDist), HalfHeight, FalloffType);
 
     // ========================================
-    // Step 4: 최종 Influence (곱셈 조합)
+    // Step 4: Final Influence (multiplicative)
     // ========================================
     return RadialInfluence * AxialInfluence;
 }
 
 // ============================================================================
 // VirtualBand Mode GPU Influence Calculation Functions
-// 가상 밴드 모드 GPU Influence 계산 함수
 // ============================================================================
 
-// CPU의 FVirtualBandSettings::GetRadiusAtHeight()와 동일 로직
-// Catmull-Rom 스플라인으로 높이별 반경 계산
-// 새 좌표계: Z=0이 Mid Band 중심
+// Same logic as CPU FVirtualBandSettings::GetRadiusAtHeight()
+// Calculate radius at height using Catmull-Rom spline
+// New coordinate system: Z=0 is Mid Band center
 float GetRadiusAtHeight_VirtualBand(float LocalZ)
 {
     float TotalHeight = LowerHeight + BandSectionHeight + UpperHeight;
     if (TotalHeight <= 0.0001)
         return MidLowerRadius;
 
-    // 새 좌표계 → 내부 좌표계 변환
-    // 내부: Z=0이 Lower 하단, Z=TotalHeight가 Upper 상단
+    // New coordinate system -> internal coordinate system conversion
+    // Internal: Z=0 is Lower bottom, Z=TotalHeight is Upper top
     float MidOffset = LowerHeight + BandSectionHeight * 0.5;
     float InternalZ = LocalZ + MidOffset;
 
-    // 4개 제어점 (높이, 반경) - 내부 좌표계 기준
+    // 4 control points (height, radius) - internal coordinate system
     float H[4];
     H[0] = 0.0;
     H[1] = LowerHeight;
@@ -326,26 +302,26 @@ float GetRadiusAtHeight_VirtualBand(float LocalZ)
     R[2] = MidUpperRadius;
     R[3] = UpperRadius;
 
-    // InternalZ 클램프 (내부 좌표계 범위)
+    // Clamp InternalZ (internal coordinate system range)
     float Z = clamp(InternalZ, 0.0, TotalHeight);
 
-    // 어느 구간인지 찾기 (0: H0~H1, 1: H1~H2, 2: H2~H3)
+    // Find which segment (0: H0~H1, 1: H1~H2, 2: H2~H3)
     int Segment = 0;
     if (Z >= H[2]) Segment = 2;
     else if (Z >= H[1]) Segment = 1;
 
-    // 구간 내 정규화된 t 계산
+    // Calculate normalized t within segment
     float SegmentLength = H[Segment + 1] - H[Segment];
     float t = (SegmentLength > 0.0001) ? (Z - H[Segment]) / SegmentLength : 0.0;
 
-    // Catmull-Rom에 필요한 4개 반경 (P0, P1, P2, P3)
-    // P1~P2 구간을 보간, P0과 P3는 이웃 제어점 (끝점은 복제)
+    // 4 radii needed for Catmull-Rom (P0, P1, P2, P3)
+    // Interpolate P1~P2 segment, P0 and P3 are neighbor control points (endpoints duplicated)
     float P0, P1, P2, P3;
     if (Segment == 0)      { P0 = R[0]; P1 = R[0]; P2 = R[1]; P3 = R[2]; }
     else if (Segment == 1) { P0 = R[0]; P1 = R[1]; P2 = R[2]; P3 = R[3]; }
     else                   { P0 = R[1]; P1 = R[2]; P2 = R[3]; P3 = R[3]; }
 
-    // Catmull-Rom 스플라인 계산
+    // Catmull-Rom spline calculation
     float t2 = t * t;
     float t3 = t2 * t;
     float Result = 0.5 * (
@@ -355,15 +331,15 @@ float GetRadiusAtHeight_VirtualBand(float LocalZ)
         (-P0 + 3.0 * P1 - 3.0 * P2 + P3) * t3
     );
 
-    // 오버슈트 방지 클램프
+    // Clamp to prevent overshoot
     float MinR = min(min(R[0], R[1]), min(R[2], R[3]));
     float MaxR = max(max(R[0], R[1]), max(R[2], R[3]));
     return clamp(Result, MinR, MaxR);
 }
 
-// VirtualBand 모드용 GPU Influence 계산
-// CPU의 FVirtualBandVertexSelector와 유사한 로직 (Tightness 영역 계산)
-// 새 좌표계: Z=0이 Mid Band 중심
+// VirtualBand mode GPU Influence calculation
+// Similar logic to CPU FVirtualBandVertexSelector (Tightness region calculation)
+// New coordinate system: Z=0 is Mid Band center
 float CalculateVirtualBandInfluence(float3 VertexPos)
 {
     float3 ToVertex = VertexPos - RingCenter;
@@ -373,26 +349,26 @@ float CalculateVirtualBandInfluence(float3 VertexPos)
 
     float TotalHeight = LowerHeight + BandSectionHeight + UpperHeight;
 
-    // Band Section 범위 (Tightness 적용 영역)
-    // 새 좌표계: Z=0이 Mid Band 중심이므로 BandSection은 -BandHeight/2 ~ +BandHeight/2
+    // Band Section range (Tightness application region)
+    // New coordinate system: Z=0 is Mid Band center, so BandSection is -BandHeight/2 ~ +BandHeight/2
     float BandZMin = -BandSectionHeight * 0.5;
     float BandZMax = BandSectionHeight * 0.5;
 
-    // Band Section 외부는 Tightness 없음
+    // Outside Band Section = no Tightness
     if (AxisDist < BandZMin || AxisDist > BandZMax)
         return 0.0;
 
-    // 해당 높이에서의 밴드 반경 (Catmull-Rom)
+    // Band radius at this height (Catmull-Rom)
     float BandRadius = GetRadiusAtHeight_VirtualBand(AxisDist);
 
-    // 밴드 표면보다 안쪽이면 영향 없음
+    // Inside band surface = no influence
     if (RadialDist <= BandRadius)
         return 0.0;
 
-    // 밴드 표면과의 거리
+    // Distance from band surface
     float DistFromSurface = RadialDist - BandRadius;
 
-    // TightnessFalloffRange: 반경 차이에서 파생 (Bulge 영역과 유사)
+    // TightnessFalloffRange: derived from radius difference (similar to Bulge region)
     float UpperBulge = UpperRadius - MidUpperRadius;
     float LowerBulge = LowerRadius - MidLowerRadius;
     float FalloffRange = max(max(UpperBulge, LowerBulge), 1.0);
@@ -403,7 +379,7 @@ float CalculateVirtualBandInfluence(float3 VertexPos)
     // Radial Falloff
     float RadialInfluence = CalculateFalloff(DistFromSurface, FalloffRange, FalloffType);
 
-    // Axial Falloff (Band 경계 근처에서 감쇠)
+    // Axial Falloff (attenuate near band boundary)
     float AxialFalloffRange = BandSectionHeight * 0.2;
     float AxialInfluence = 1.0;
     if (AxisDist < BandZMin + AxialFalloffRange)
@@ -424,7 +400,7 @@ float CalculateVirtualBandInfluence(float3 VertexPos)
 // Tightness Deformation Functions
 // ============================================================================
 
-// VirtualRing 모드: 단순 반경 방향 내부 변위
+// VirtualRing mode: simple radial inward displacement
 float3 ApplyTightnessDeformation(float3 Pos, float3 Center, float3 Axis, float Influence, float Strength)
 {
     float3 ToVertex = Pos - Center;
@@ -442,66 +418,66 @@ float3 ApplyTightnessDeformation(float3 Pos, float3 Center, float3 Axis, float I
 // ============================================================================
 // Ray-AABB Intersection (Slab Method)
 // ============================================================================
-// Ray가 AABB와 교차하는지 확인하고, 교차점(진입점)을 반환
-// Reference: "An Efficient and Robust Ray–Box Intersection Algorithm" (Williams et al.)
+// Check if ray intersects AABB and return entry point
+// Reference: "An Efficient and Robust Ray-Box Intersection Algorithm" (Williams et al.)
 //
-// RayOrigin: 레이 시작점
-// RayDir: 레이 방향 (정규화 필수)
-// BoundsMin/Max: AABB 바운드
-// OutEntryPoint: [out] 교차 시 진입점
-// 반환값: 교차 여부
+// RayOrigin: ray start point
+// RayDir: ray direction (must be normalized)
+// BoundsMin/Max: AABB bounds
+// OutEntryPoint: [out] entry point if intersection occurs
+// Returns: whether intersection occurred
 bool RayAABBIntersection(float3 RayOrigin, float3 RayDir, float3 BoundsMin, float3 BoundsMax, out float3 OutEntryPoint)
 {
     OutEntryPoint = RayOrigin;
 
-    // 0으로 나누기 방지 (벡터용 select 사용)
+    // Prevent division by zero (use vector select)
     float3 SafeDir = select(abs(RayDir) > 0.0001, RayDir, sign(RayDir) * 0.0001 + 0.0001);
     float3 InvDir = 1.0 / SafeDir;
 
-    // 각 축별 진입/탈출 t값 계산
+    // Calculate entry/exit t values for each axis
     float3 t1 = (BoundsMin - RayOrigin) * InvDir;
     float3 t2 = (BoundsMax - RayOrigin) * InvDir;
 
-    // 각 축별 min/max 정렬
+    // Sort min/max for each axis
     float3 tMin = min(t1, t2);
     float3 tMax = max(t1, t2);
 
-    // 전체 진입/탈출 t값
+    // Overall entry/exit t values
     float tEnter = max(max(tMin.x, tMin.y), tMin.z);
     float tExit = min(min(tMax.x, tMax.y), tMax.z);
 
-    // 교차 조건: tEnter < tExit && tExit > 0
-    // tEnter < 0이면 레이 시작점이 이미 박스 안에 있음
+    // Intersection condition: tEnter < tExit && tExit > 0
+    // If tEnter < 0, ray origin is already inside the box
     if (tEnter > tExit || tExit < 0.0)
         return false;
 
-    // 진입점 계산 (tEnter가 음수면 이미 내부 → 시작점 반환)
+    // Calculate entry point (if tEnter is negative, already inside -> return origin)
     float t = max(tEnter, 0.0);
     OutEntryPoint = RayOrigin + RayDir * t;
 
     return true;
 }
 
-// 버텍스가 SDF 바운드 내부에 있는지 체크
+// Check if vertex is inside SDF bounds
 bool IsInsideBounds(float3 LocalPos, float3 BoundsMin, float3 BoundsMax)
 {
     return all(LocalPos >= BoundsMin) && all(LocalPos <= BoundsMax);
 }
 
-// SDF 모드: Two-Phase 방사형 레이마칭
-// Phase 1: 바운드 외부 버텍스 → Ray-Box로 진입점 찾기
-// Phase 2: 진입점에서 SDF 표면까지 레이마칭
+// SDF mode: Two-Phase radial raymarching
+// Phase 1: Vertex outside bounds -> find entry point via Ray-Box intersection
+// Phase 2: Raymarch from entry point to SDF surface
 float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
 {
-    // STEP 1: Component → SDF Local 좌표 변환
+    // STEP 1: Component -> SDF Local coordinate transform
     float3 LocalPos = mul(float4(BindPos, 1.0), ComponentToSDFLocal).xyz;
     float3 BoundsSize = SDFBoundsMax - SDFBoundsMin;
 
-    // CPU에서 전달받은 Ring Center/Axis (SDF Local Space)
+    // Ring Center/Axis passed from CPU (SDF Local Space)
     float3 LocalRingCenter = SDFLocalRingCenter;
     float3 LocalRingAxis = SDFLocalRingAxis;
 
-    // STEP 2: 방사형 방향 계산 (안쪽으로)
+    // STEP 2: Calculate radial direction (inward)
     float3 fromCenter = LocalPos - LocalRingCenter;
     float axialDist = dot(fromCenter, LocalRingAxis);
     float3 outwardRadial = fromCenter - LocalRingAxis * axialDist;
@@ -510,53 +486,53 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
     if (radialLen < 0.0001)
         return Pos;
 
-    float3 inwardDir = -outwardRadial / radialLen;  // 안쪽 방향
+    float3 inwardDir = -outwardRadial / radialLen;  // Inward direction
 
-    // STEP 2.5: Z 범위 체크 (Entry Point 탐색 전에 필터링)
-    // Z 범위 밖 버텍스는 XY 방사형 레이가 AABB를 못 맞추므로 조기 종료
-    // 마진 없이 정확히 AABB Z 범위로 체크 (마진 시 어차피 Ray-AABB 실패)
+    // STEP 2.5: Z range check (filter before entry point search)
+    // Vertices outside Z range won't hit AABB with XY radial ray, so early exit
+    // Check exactly against AABB Z range (no margin, Ray-AABB would fail anyway)
     float originalZ_UV = (LocalPos.z - SDFBoundsMin.z) / BoundsSize.z;
     if (originalZ_UV < 0.0 || originalZ_UV > 1.0)
         return Pos;
 
-    // STEP 3: 레이마칭 시작점 결정 (Two-Phase)
+    // STEP 3: Determine raymarch start point (Two-Phase)
     float3 RaymarchStart;
     bool bOutsideBounds = !IsInsideBounds(LocalPos, SDFBoundsMin, SDFBoundsMax);
 
     if (bOutsideBounds)
     {
-        // Phase 1: 바운드 외부 → Ray-Box Intersection으로 진입점 찾기
-        // Z 범위 체크를 통과했으므로, XY 방사형 레이는 반드시 AABB와 교차
+        // Phase 1: Outside bounds -> find entry point via Ray-Box Intersection
+        // Since Z range check passed, XY radial ray must intersect AABB
         float3 EntryPoint;
         bool bHit = RayAABBIntersection(LocalPos, inwardDir, SDFBoundsMin, SDFBoundsMax, EntryPoint);
 
         if (!bHit)
         {
-            // Z 범위 내인데도 실패 → 이론상 발생 불가, 안전장치
+            // Z range passed but still failed -> theoretically impossible, safety fallback
             return Pos;
         }
         RaymarchStart = EntryPoint;
     }
     else
     {
-        // 바운드 내부 → 현재 위치에서 시작
+        // Inside bounds -> start from current position
         RaymarchStart = LocalPos;
     }
 
-    // STEP 4: 시작점의 SDF 체크 (이미 내부면 패스)
-    // < 사용: SDF == 0 (표면 정확히)일 때도 레이마칭 진행
-    // 탄젠트 영역(바운드 경계와 링 표면이 맞닿는 부분) 대응
+    // STEP 4: Check SDF at start point (skip if already inside)
+    // Use <: proceed with raymarching even when SDF == 0 (exactly on surface)
+    // Handles tangent regions (where bounds edge meets ring surface)
     float3 StartUV = (RaymarchStart - SDFBoundsMin) / BoundsSize;
     float StartDist = SDFTexture.SampleLevel(SDFSampler, saturate(StartUV), 0).r;
     if (StartDist < 0.0)
     {
-        // 이미 SDF 내부 → 변형 불필요 (또는 진입점이 이미 표면)
-        if (bOutsideBounds)  
+        // Already inside SDF -> no deformation needed (or entry point is already surface)
+        if (bOutsideBounds)
         {
-            // 바운드 외부였는데 진입점이 이미 내부 = 진입점까지만 이동
+            // Was outside bounds but entry point already inside = move only to entry point
             float3 DisplacementLocal = RaymarchStart - LocalPos;
 
-            // SDF Local → Component Space 변환 (SDFLocalToComponent 사용)
+            // SDF Local -> Component Space transform (using SDFLocalToComponent)
             float3 DisplacementComponent = mul(DisplacementLocal, (float3x3)SDFLocalToComponent);
 
             return Pos + DisplacementComponent * Strength;
@@ -564,19 +540,19 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
         return Pos;
     }
 
-    // STEP 5: Phase 2 - SDF 레이마칭 (진입점에서 표면까지)
-    // (기존 Z 범위 체크는 STEP 2.5로 이동됨)
+    // STEP 5: Phase 2 - SDF raymarching (from entry point to surface)
+    // (Z range check moved to STEP 2.5)
     float3 CurrentPos = RaymarchStart;
     float epsilon = max(BoundsSize.x, max(BoundsSize.y, BoundsSize.z)) / 64.0;
     float3 lastDir = inwardDir;
 
     // ========================================================================
-    // Coarse Phase: 기존 레이마칭으로 경계 근처까지 빠르게 접근
+    // Coarse Phase: Existing raymarching to quickly approach boundary
     // ========================================================================
-    bool bEnteredBounds = false;  // 바운드 진입 여부 추적
-    float3 LastPositivePos = RaymarchStart;  // 마지막 양수(SDF >= 0) 위치
-    float LastPositiveSDF = StartDist;       // 마지막 양수 SDF 값
-    bool bFoundBoundary = false;             // 경계(음수) 발견 여부
+    bool bEnteredBounds = false;  // Track bounds entry
+    float3 LastPositivePos = RaymarchStart;  // Last positive (SDF >= 0) position
+    float LastPositiveSDF = StartDist;       // Last positive SDF value
+    bool bFoundBoundary = false;             // Whether boundary (negative) was found
 
     for (int i = 0; i < 47; i++)
     {
@@ -586,9 +562,9 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
         if (bInsideBounds)
             bEnteredBounds = true;
         else if (bEnteredBounds)
-            break;  // 바운드 안에 있다가 밖으로 나감 = 관통, 멈춤
+            break;  // Was inside then went outside = penetrated through, stop
 
-        // 방사형 방향 재계산 (현재 위치 기준)
+        // Recalculate radial direction (based on current position)
         float3 curFromCenter = CurrentPos - LocalRingCenter;
         float curAxialDist = dot(curFromCenter, LocalRingAxis);
         float3 curOutwardRadial = curFromCenter - LocalRingAxis * curAxialDist;
@@ -600,75 +576,75 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
         float3 dir = -curOutwardRadial / curRadialLen;
         lastDir = dir;
 
-        // 바운드 밖이면 SDF 샘플링 건너뛰고 방향만 진행
+        // If outside bounds, skip SDF sampling and just advance direction
         if (!bInsideBounds)
         {
-            CurrentPos += dir * epsilon * 2.0;  // 고정 스텝으로 바운드 쪽으로 이동
+            CurrentPos += dir * epsilon * 2.0;  // Fixed step toward bounds
             continue;
         }
 
         float CurDist = SDFTexture.SampleLevel(SDFSampler, CurUV, 0).r;
 
-        // 링 구멍(음수 영역) 감지 → 경계 발견
+        // Ring hole (negative region) detected -> boundary found
         if (CurDist < 0.0)
         {
             bFoundBoundary = true;
             break;
         }
 
-        // 양수 위치 백업 (경계 교차 직전 위치)
+        // Backup positive position (position just before boundary crossing)
         LastPositivePos = CurrentPos;
         LastPositiveSDF = CurDist;
 
-        // SDF 거리 기반 스텝 + 최소 스텝 보장
+        // SDF distance-based step + ensure minimum step
         float stepScale = (CurDist < 1.0) ? 1.0 : 1.3;
         float stepSize = max(CurDist * stepScale, epsilon * 0.5);
         CurrentPos += dir * stepSize;
     }
 
     // ========================================================================
-    // Refinement Phase: Binary Search로 정밀 경계 수렴
+    // Refinement Phase: Binary Search for precise boundary convergence
     // ========================================================================
     if (bFoundBoundary)
     {
-        // Binary search 구간: [LastPositivePos, CurrentPos]
-        // LastPositivePos: SDF >= 0 (외부/표면)
-        // CurrentPos: SDF < 0 (내부)
-        float3 PosA = LastPositivePos;  // 양수 끝점
-        float3 PosB = CurrentPos;       // 음수 끝점
+        // Binary search interval: [LastPositivePos, CurrentPos]
+        // LastPositivePos: SDF >= 0 (outside/surface)
+        // CurrentPos: SDF < 0 (inside)
+        float3 PosA = LastPositivePos;  // Positive endpoint
+        float3 PosB = CurrentPos;       // Negative endpoint
 
-        // 4회 이분 탐색: 오차를 1/16로 감소
+        // 4 iterations of binary search: reduces error to 1/16
         [unroll]
         for (int refineIter = 0; refineIter < 4; refineIter++)
         {
-            // 중간점 계산
+            // Calculate midpoint
             float3 MidPos = (PosA + PosB) * 0.5;
             float3 MidUV = saturate((MidPos - SDFBoundsMin) / BoundsSize);
             float MidSDF = SDFTexture.SampleLevel(SDFSampler, MidUV, 0).r;
 
-            // 중간점의 SDF 부호에 따라 구간 절반으로 축소
+            // Narrow interval by half based on midpoint SDF sign
             if (MidSDF >= 0.0)
             {
-                // 중간점이 양수 → 경계는 [MidPos, PosB] 구간에 존재
+                // Midpoint is positive -> boundary is in [MidPos, PosB] interval
                 PosA = MidPos;
             }
             else
             {
-                // 중간점이 음수 → 경계는 [PosA, MidPos] 구간에 존재
+                // Midpoint is negative -> boundary is in [PosA, MidPos] interval
                 PosB = MidPos;
             }
         }
 
         // ====================================================================
-        // Final Interpolation: Linear interpolation으로 정확히 SDF=0 지점 계산
+        // Final Interpolation: Linear interpolation to find exact SDF=0 point
         // ====================================================================
-        // 최종 구간 [PosA, PosB]에서 양 끝점의 SDF 값을 이용하여 선형 보간
+        // Use SDF values at both endpoints of final interval [PosA, PosB] for linear interpolation
         float3 FinalUV_A = saturate((PosA - SDFBoundsMin) / BoundsSize);
         float3 FinalUV_B = saturate((PosB - SDFBoundsMin) / BoundsSize);
         float FinalSDF_A = SDFTexture.SampleLevel(SDFSampler, FinalUV_A, 0).r;
         float FinalSDF_B = SDFTexture.SampleLevel(SDFSampler, FinalUV_B, 0).r;
 
-        // Linear interpolation factor: SDF = 0을 만족하는 t 계산
+        // Linear interpolation factor: calculate t where SDF = 0
         // SDF(t) = SDF_A * (1-t) + SDF_B * t = 0
         // t = SDF_A / (SDF_A - SDF_B)
         float denom = FinalSDF_A - FinalSDF_B;
@@ -679,41 +655,41 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
         }
         else
         {
-            // 구간이 거의 평평 (SDF gradient ≈ 0) → 중간점 사용
+            // Interval is nearly flat (SDF gradient ~ 0) -> use midpoint
             CurrentPos = (PosA + PosB) * 0.5;
         }
     }
-    // bFoundBoundary == false인 경우:
-    // 레이마칭이 경계를 찾지 못하고 종료 (CurrentPos는 마지막 유효 위치)
+    // If bFoundBoundary == false:
+    // Raymarching terminated without finding boundary (CurrentPos is last valid position)
 
-    // STEP 7: 사후 검증
+    // STEP 7: Post-validation
     if (length(lastDir) <= 0.0001)
         return Pos;
 
-    // Probe 체크: 표면 너머가 구멍인지 확인
-    // - 구멍으로 가는 입구 vs 링 옆면 구분
-    // - probePos에서 SDF < 0.6이면 구멍, 아니면 외부
+    // Probe check: verify if beyond surface is a hole
+    // - Distinguish between hole entrance vs ring side surface
+    // - If SDF < 0.6 at probePos, it's a hole; otherwise external
     float3 probePos = CurrentPos + lastDir * epsilon * 8.0;
     float3 probeUV = saturate((probePos - SDFBoundsMin) / BoundsSize);
     float probeSDF = SDFTexture.SampleLevel(SDFSampler, probeUV, 0).r;
     if (probeSDF > 0.6)
         return Pos;
 
-    // STEP 8: 변위 계산 및 적용
+    // STEP 8: Calculate and apply displacement
     float3 DisplacementLocal = CurrentPos - LocalPos;
 
-    // 안전 검증: 변위 방향이 안쪽(inward)인지 확인
+    // Safety validation: verify displacement direction is inward
     float dispLen = length(DisplacementLocal);
     if (dispLen > 0.001)
     {
         float3 dispDir = DisplacementLocal / dispLen;
-        float alignment = dot(dispDir, inwardDir);  // 시작 시점의 inward 방향과 비교
+        float alignment = dot(dispDir, inwardDir);  // Compare with initial inward direction
 
-        // 변위가 바깥쪽(outward)이면 잘못된 것 → 변형 포기
+        // If displacement is outward, something is wrong -> abandon deformation
         if (alignment < 0.0)
             return Pos;
 
-        // 이동 거리 제한: 초기 radialLen의 90%까지만 허용 (링 중심 통과 방지)
+        // Limit movement distance: allow up to 90% of initial radialLen (prevent passing through ring center)
         float maxDispLen = radialLen * 0.9;
         if (dispLen > maxDispLen)
         {
@@ -721,11 +697,11 @@ float3 ApplyTightnessDeformation_SDF(float3 Pos, float3 BindPos, float Strength)
         }
     }
 
-    // Z축 변위 제한 (링 위/아래 버텍스가 구멍으로 들어가는 것 방지)
+    // Limit Z-axis displacement (prevent vertices above/below ring from entering hole)
     if (abs(DisplacementLocal.z) > BoundsSize.z * 0.5)
         return Pos;
 
-    // SDF Local → Component Space 변환 (SDFLocalToComponent 사용)
+    // SDF Local -> Component Space transform (using SDFLocalToComponent)
     float3 DisplacementComponent = mul(DisplacementLocal, (float3x3)SDFLocalToComponent);
 
     return Pos + DisplacementComponent * Strength;
@@ -741,109 +717,101 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     uint ThreadIndex = DispatchThreadId.x;
 
     // Bounds check: Only process affected vertices
-    // 범위 체크: 영향받는 버텍스만 처리
     if (ThreadIndex >= NumAffectedVertices)
     {
         return;
     }
 
     // ================================================================
-    // UV Seam Welding: 대표 버텍스 기반 읽기/쓰기 분리
+    // UV Seam Welding: Separate read/write based on representative vertex
     // ================================================================
-    // - WriteIndex: 실제 버텍스 인덱스 (출력에 사용)
-    // - ReadIndex: 대표 버텍스 인덱스 (입력에 사용)
-    // 같은 위치의 UV 중복 버텍스들은 동일한 대표를 공유하므로
-    // 모두 동일한 위치를 읽어서 동일한 변형 결과를 계산함
+    // - WriteIndex: actual vertex index (used for output)
+    // - ReadIndex: representative vertex index (used for input)
+    // UV duplicate vertices at same position share the same representative,
+    // so they all read from the same position and compute identical deformation
     // ================================================================
 
     // Get the actual vertex index for writing output
-    // 출력 쓰기용 실제 버텍스 인덱스 가져오기
     uint WriteIndex = AffectedIndices[ThreadIndex];
 
     // Get the representative vertex index for reading input
-    // 입력 읽기용 대표 버텍스 인덱스 가져오기
     uint ReadIndex = RepresentativeIndices[ThreadIndex];
 
     // Safety check: Ensure vertex indices are valid
-    // 안전 체크: 버텍스 인덱스 유효성 확인
     if (WriteIndex >= NumTotalVertices || ReadIndex >= NumTotalVertices)
     {
         return;
     }
 
     // Read bind pose position from REPRESENTATIVE vertex
-    // 대표 버텍스에서 바인드 포즈 위치 읽기
-    // UV 중복 버텍스들은 같은 대표를 공유하므로 동일한 위치를 읽음
+    // UV duplicate vertices share same representative, so they read identical position
     float3 BindPos = ReadPosition(ReadIndex);
 
     // ========================================
     // Step 1: Apply GPU Skinning (if enabled)
-    // 1단계: GPU 스키닝 적용 (활성화된 경우)
     // ========================================
     float3 Pos;
     if (bEnableSkinning != 0)
     {
-        // Apply skinning: BindPos → SkinnedPos (animated component space)
-        // 스키닝 적용: 바인드 포즈 → 스킨된 포즈 (애니메이션된 컴포넌트 스페이스)
-        // NOTE: 스키닝은 대표 버텍스 인덱스(ReadIndex)를 사용하여
-        //       UV 중복 버텍스들이 동일한 스키닝 결과를 받도록 함
+        // Apply skinning: BindPos -> SkinnedPos (animated component space)
+        // NOTE: Skinning uses representative vertex index (ReadIndex)
+        //       so UV duplicate vertices receive identical skinning result
         float3x4 SkinMatrix = ComputeSkinnedMatrix(ReadIndex);
         Pos = TransformByMatrix(SkinMatrix, BindPos);
     }
     else
     {
         // No skinning: use bind pose directly
-        // 스키닝 없음: 바인드 포즈 직접 사용
         Pos = BindPos;
     }
 
     // Step 2: Apply Tightness Deformation
     float3 NewPos;
-    float Influence = 0.0;  // Influence 값 (디버그 출력용)
+    float Influence = 0.0;  // Influence value (for debug output)
 
     if(bUseSDFInfluence != 0)
     {
-        // SDF 모드 : Gradient 기반 변형 (Auto 또는 VirtualBand + SDF 유효)
+        // SDF mode: Gradient-based deformation (Auto or VirtualBand + SDF valid)
         //float3 LocalPos = TransformToSDFLocal(BindPos);
         NewPos = ApplyTightnessDeformation_SDF(Pos, BindPos, TightnessStrength);
 
-        // SDF 모드에서는 변위 크기로 Influence 추정 (디버그용)
-        // Influence ≈ displacement / TightnessStrength (0~1 범위로 클램프)
+        // In SDF mode, estimate Influence from displacement magnitude (for debug)
+        // Influence ~ displacement / TightnessStrength (clamped to 0~1 range)
         float displacement = length(NewPos - Pos);
         Influence = (TightnessStrength > 0.001) ? saturate(displacement / TightnessStrength) : 0.0;
     }
     else if (InfluenceMode == 2)
     {
-        // ===== VirtualBand 모드: GPU에서 가변 반경 기반 Influence 계산 =====
-        // SDF가 없는 VirtualBand 모드 (거리 기반 Catmull-Rom 스플라인)
+        // ===== VirtualBand mode: GPU calculates Influence based on variable radius =====
+        // VirtualBand mode without SDF (distance-based Catmull-Rom spline)
         Influence = CalculateVirtualBandInfluence(BindPos);
     }
     else
     {
-        // ===== VirtualRing 모드: GPU에서 고정 반경 기반 Influence 계산 =====
-        // GPU에서 BindPos 기준으로 Influence 직접 계산 (CPU Influences 버퍼 사용 안함)
+        // ===== VirtualRing mode: GPU calculates Influence based on fixed radius =====
+        // Calculate Influence directly on GPU based on BindPos (no CPU Influences buffer)
         Influence = CalculateVirtualRingInfluence(BindPos);
     }
 
-    // ===== SDF가 아닌 모드 공통 처리 (VirtualRing/VirtualBand) =====
+    // ===== Common processing for non-SDF modes (VirtualRing/VirtualBand) =====
     if (bUseSDFInfluence == 0)
     {
 
         // Skip if influence is negligible
         if (Influence < 0.001)
         {
-            // 디버그 출력: 영향 없는 버텍스도 0 기록
+            // Debug output: record 0 even for unaffected vertices
             if (bOutputDebugInfluences != 0)
             {
                 DebugInfluences[DebugPointBaseOffset + ThreadIndex] = 0.0;
             }
-            // DebugPointBuffer는 DebugPointOutputCS에서 처리
+            // DebugPointBuffer is handled in DebugPointOutputCS
             WritePosition(WriteIndex, Pos);
             return;
         }
 
-        // 토러스 블렌딩 테스트: 기존 함수 대신 _TorusBlend 버전 사용
-        // 테스트 후 원복하려면 ApplyTightnessDeformation으로 변경
+        // Torus blending test: using _TorusBlend version instead of original function
+        // To revert after testing, change to ApplyTightnessDeformation
         NewPos = ApplyTightnessDeformation(
             Pos,
             RingCenter,
@@ -854,41 +822,39 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     }
 
     // ========================================
-    // Debug Output: Influence 값 기록
+    // Debug Output: Record Influence value
     // ========================================
     if (bOutputDebugInfluences != 0)
     {
         DebugInfluences[DebugPointBaseOffset + ThreadIndex] = Influence;
     }
-    
+
     // ========================================
     // Step 3: Volume Accumulation (for Bulge pass)
-    // 3단계: 부피 누적 (Bulge 패스용)
     // ========================================
-    // Tightness로 눌린 양을 Atomic으로 Ring별 누적
-    // 각 Ring의 압축량이 VolumeAccumBuffer[RingIndex]에 저장됨
-    // BulgeCS에서 자신의 Ring 슬롯을 읽어서 Bulge 적용
+    // Accumulate compression from Tightness using atomics per Ring
+    // Each Ring's compression amount stored in VolumeAccumBuffer[RingIndex]
+    // BulgeCS reads its own Ring slot to apply Bulge
     if (bAccumulateVolume != 0)
     {
-        // 압축량 = 이동 거리
+        // Compression amount = movement distance
         float compressionAmount = length(NewPos - Pos);
 
-        // 압축량이 있을 때만 누적 (성능 최적화)
+        // Only accumulate if there's compression (performance optimization)
         if (compressionAmount > 0.0001)
         {
-            // Float → Fixed-point (예: 0.5 * 1000 = 500)
+            // Float -> Fixed-point (e.g., 0.5 * 1000 = 500)
             uint compressedFixed = uint(compressionAmount * FixedPointScale);
 
-            // Atomic 연산으로 Ring별 슬롯에 누적
+            // Atomic operation to accumulate in per-Ring slot
             InterlockedAdd(VolumeAccumBuffer[RingIndex], compressedFixed);
         }
     }
 
     // ========================================
     // Step 4: Write Output to ACTUAL vertex index
-    // 4단계: 실제 버텍스 인덱스에 출력 쓰기
     // ========================================
-    // UV seam welding: 대표에서 계산한 결과를 자신의 인덱스에 기록
-    // 모든 UV 중복 버텍스가 동일한 결과를 각자의 위치에 기록함
+    // UV seam welding: write result computed from representative to own index
+    // All UV duplicate vertices write identical result to their respective positions
     WritePosition(WriteIndex, NewPos);
 }

@@ -1,14 +1,14 @@
 ﻿// Copyright 2026 LgThx. All Rights Reserved.
 
 // FleshRing2DSliceFlood.usf
-// 2D Slice Flood Fill - 각 Z 슬라이스에서 XY 경계부터 flood하여 도넛홀 감지
-// 도달 못한 "외부" 영역 = 도넛홀 = 내부로 변환
+// 2D Slice Flood Fill - Flood from XY boundary in each Z slice to detect donut holes
+// Unreached "outside" regions = donut holes = convert to inside
 
 #include "/Engine/Public/Platform.ush"
 
-// Pass 1: 2D Flood 초기화
-// 각 Z 슬라이스에서 XY 경계를 "외부 시드"로 마킹
-// SDF > 0 (외부)인 복셀만 전파 대상
+// Pass 1: 2D Flood initialization
+// Mark XY boundaries as "outside seeds" in each Z slice
+// Only voxels with SDF > 0 (outside) are propagation targets
 Texture3D<float> InputSDF;
 RWTexture3D<uint> FloodMask;
 int3 GridResolution;
@@ -21,23 +21,23 @@ void Initialize2DFloodCS(uint3 ThreadId : SV_DispatchThreadID)
 
     float sdf = InputSDF[ThreadId];
 
-    // XY 경계면이고 SDF > 0 (외부)이면 시드로 마킹
+    // Mark as seed if on XY boundary and SDF > 0 (outside)
     bool isXYBoundary =
         ThreadId.x == 0 || ThreadId.x == (uint)(GridResolution.x - 1) ||
         ThreadId.y == 0 || ThreadId.y == (uint)(GridResolution.y - 1);
 
     if (isXYBoundary && sdf > 0.0f)
     {
-        FloodMask[ThreadId] = 1u;  // 외부에서 도달 가능
+        FloodMask[ThreadId] = 1u;  // Reachable from outside
     }
     else
     {
-        FloodMask[ThreadId] = 0u;  // 미정
+        FloodMask[ThreadId] = 0u;  // Undetermined
     }
 }
 
-// Pass 2-N: 2D Flood 전파 (Z 슬라이스별로 독립적)
-// 같은 Z에서 4방향(상하좌우) 이웃만 확인
+// Pass 2-N: 2D Flood propagation (independent per Z slice)
+// Check only 4-direction neighbors (up, down, left, right) within same Z
 Texture3D<uint> FloodMaskInput;
 RWTexture3D<uint> FloodMaskOutput;
 Texture3D<float> SDFForFlood;
@@ -48,7 +48,7 @@ void Flood2DPassCS(uint3 ThreadId : SV_DispatchThreadID)
     if (any(ThreadId >= (uint3)GridResolution))
         return;
 
-    // 이미 외부로 마킹된 경우 그대로 유지
+    // Already marked as outside - keep as is
     uint currentMask = FloodMaskInput[ThreadId];
     if (currentMask == 1u)
     {
@@ -56,7 +56,7 @@ void Flood2DPassCS(uint3 ThreadId : SV_DispatchThreadID)
         return;
     }
 
-    // SDF <= 0 (내부/표면)이면 전파 안 됨
+    // SDF <= 0 (inside/surface) - no propagation
     float sdf = SDFForFlood[ThreadId];
     if (sdf <= 0.0f)
     {
@@ -64,13 +64,13 @@ void Flood2DPassCS(uint3 ThreadId : SV_DispatchThreadID)
         return;
     }
 
-    // 4방향 이웃 확인 (같은 Z 슬라이스에서만!)
-    // 상(+Y), 하(-Y), 좌(-X), 우(+X)
+    // Check 4-direction neighbors (same Z slice only!)
+    // Up(+Y), Down(-Y), Left(-X), Right(+X)
     int2 neighbors[4] = {
-        int2( 0,  1),  // 상
-        int2( 0, -1),  // 하
-        int2(-1,  0),  // 좌
-        int2( 1,  0)   // 우
+        int2( 0,  1),  // Up
+        int2( 0, -1),  // Down
+        int2(-1,  0),  // Left
+        int2( 1,  0)   // Right
     };
 
     [unroll]
@@ -79,29 +79,29 @@ void Flood2DPassCS(uint3 ThreadId : SV_DispatchThreadID)
         int3 neighborPos = int3(
             (int)ThreadId.x + neighbors[i].x,
             (int)ThreadId.y + neighbors[i].y,
-            (int)ThreadId.z  // Z는 고정!
+            (int)ThreadId.z  // Z is fixed!
         );
 
-        // 범위 체크
+        // Range check
         if (all(neighborPos >= 0) && all(neighborPos < GridResolution))
         {
             if (FloodMaskInput[neighborPos] == 1u)
             {
-                // 외부에서 도달 가능 → 외부로 마킹
+                // Reachable from outside -> mark as outside
                 FloodMaskOutput[ThreadId] = 1u;
                 return;
             }
         }
     }
 
-    // 도달 불가 → 미정 유지
+    // Unreachable -> keep undetermined
     FloodMaskOutput[ThreadId] = 0u;
 }
 
-// Pass Z-Vote: Z축 투표로 도넛홀 전파
-// 각 XY 좌표에서 모든 Z의 FloodMask를 확인
-// 과반수가 "내부(0)"이면 해당 XY의 모든 Z를 "내부(0)"로 설정
-// 이렇게 하면 중앙 슬라이스의 도넛홀 판정이 상/하단으로 전파됨
+// Pass Z-Vote: Propagate donut hole via Z-axis voting
+// For each XY coordinate, check FloodMask across all Z
+// If majority is "inside(0)", set all Z at that XY to "inside(0)"
+// This propagates donut hole detection from center slices to top/bottom
 Texture3D<uint> VoteMaskInput;
 RWTexture3D<uint> VoteMaskOutput;
 Texture3D<float> SDFForVote;
@@ -109,32 +109,32 @@ Texture3D<float> SDFForVote;
 [numthreads(8, 8, 1)]
 void ZAxisVoteCS(uint3 ThreadId : SV_DispatchThreadID)
 {
-    // XY만 처리 (Z는 전체 순회)
+    // Process XY only (iterate through all Z)
     if (ThreadId.x >= (uint)GridResolution.x || ThreadId.y >= (uint)GridResolution.y)
         return;
 
-    // 이 XY 좌표에서 모든 Z의 투표 집계
-    int insideVotes = 0;   // 내부(0) 투표
-    int outsideVotes = 0;  // 외부(1) 투표
+    // Tally votes for all Z at this XY coordinate
+    int insideVotes = 0;   // Inside(0) votes
+    int outsideVotes = 0;  // Outside(1) votes
 
     for (int z = 0; z < GridResolution.z; z++)
     {
         int3 pos = int3(ThreadId.x, ThreadId.y, z);
         float sdf = SDFForVote[pos];
 
-        // SDF > 0 (외부 영역)인 복셀만 투표 참여
-        // SDF <= 0 (메시 내부)는 투표에서 제외
+        // Only voxels with SDF > 0 (outside region) participate in voting
+        // SDF <= 0 (inside mesh) is excluded from voting
         if (sdf > 0.0f)
         {
             uint mask = VoteMaskInput[pos];
             if (mask == 0u)
-                insideVotes++;   // 2D Flood에서 도달 못함 = 도넛홀 후보
+                insideVotes++;   // Unreached in 2D Flood = donut hole candidate
             else
-                outsideVotes++;  // 2D Flood에서 도달함 = 진짜 외부
+                outsideVotes++;  // Reached in 2D Flood = true outside
         }
     }
 
-    // 투표 결과 적용: 과반수가 "내부"면 이 XY의 모든 Z를 내부로
+    // Apply voting result: If majority is "inside", set all Z at this XY to inside
     bool majorityInside = (insideVotes > outsideVotes) && (insideVotes > 0);
 
     for (int z2 = 0; z2 < GridResolution.z; z2++)
@@ -144,21 +144,21 @@ void ZAxisVoteCS(uint3 ThreadId : SV_DispatchThreadID)
 
         if (majorityInside && sdf > 0.0f)
         {
-            // 이 XY는 도넛홀 → 모든 Z에서 내부(0)로 설정
+            // This XY is donut hole -> set inside(0) for all Z
             VoteMaskOutput[pos] = 0u;
         }
         else
         {
-            // 원본 유지
+            // Keep original
             VoteMaskOutput[pos] = VoteMaskInput[pos];
         }
     }
 }
 
-// Pass Final: 부호 최종 결정
-// 1. 도넛홀 (미도달 + 원본 양수) = 살 공간 = 음수로 변환
-// 2. 튜브 내부 (원본 음수) = 단단한 링 = 양수로 변환
-// 3. 외부 (도달 + 원본 양수) = 공기 = 양수 유지
+// Pass Final: Final sign determination
+// 1. Donut hole (unreached + original positive) = flesh space = convert to negative
+// 2. Tube inside (original negative) = solid ring = convert to positive
+// 3. Outside (reached + original positive) = air = keep positive
 Texture3D<uint> FinalFloodMask;
 Texture3D<float> OriginalSDF;
 RWTexture3D<float> OutputSDF;
@@ -172,17 +172,17 @@ void Finalize2DFloodCS(uint3 ThreadId : SV_DispatchThreadID)
     float sdf = OriginalSDF[ThreadId];
     uint mask = FinalFloodMask[ThreadId];
 
-    // 1. 도넛홀: 미도달(0) + 외부(SDF > 0) = 살이 들어갈 공간 → 음수로 변환
+    // 1. Donut hole: Unreached(0) + Outside(SDF > 0) = flesh space -> convert to negative
     if (mask == 0u && sdf > 0.0f)
     {
         OutputSDF[ThreadId] = -sdf;
     }
-    // 2. 튜브 내부: 원본이 음수 (Ray Casting이 내부로 판정) = 단단한 링 자체 → 양수로 변환
+    // 2. Tube inside: Original negative (ray casting determined as inside) = solid ring itself -> set to zero (surface)
     else if (sdf < 0.0f)
     {
-        OutputSDF[ThreadId] = 0u;
+        OutputSDF[ThreadId] = 0.0f;
     }
-    // 3. 외부: 도달(1) + 외부(SDF > 0) = 공기 → 양수 유지
+    // 3. Outside: Reached(1) + Outside(SDF > 0) = air -> keep positive
     else
     {
         OutputSDF[ThreadId] = sdf;

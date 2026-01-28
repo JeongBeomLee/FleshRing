@@ -2,20 +2,15 @@
 
 // ============================================================================
 // FleshRing Normal Recompute Compute Shader
-// FleshRing 노멀 재계산 컴퓨트 셰이더
 // ============================================================================
 // Purpose: Recompute vertex normals using various methods
-// 목적: 다양한 방식으로 버텍스 노멀 재계산
 //
 // Supported Methods:
-// 지원 방식:
 // - Geometric (0): Face Normal average - TBN accurate
 // - SurfaceRotation (1): Rotate original normal by face normal change
 //
 // This shader runs AFTER TightnessCS and BulgeCS, using the final deformed positions
 // to calculate accurate normals for affected vertices only.
-// TightnessCS와 BulgeCS 이후에 실행되며, 최종 변형된 위치를 사용하여
-// 영향받은 버텍스에 대해서만 정확한 노멀을 계산합니다.
 // ============================================================================
 
 #include "/Engine/Public/Platform.ush"
@@ -23,83 +18,60 @@
 
 // ============================================================================
 // Mode Constants
-// 모드 상수
 // ============================================================================
 #define MODE_GEOMETRIC          0
 #define MODE_SURFACE_ROTATION   1
 
 // ============================================================================
 // Buffer Declarations
-// 버퍼 선언
 // ============================================================================
 
 // Input: Deformed vertex positions (from TightnessCS/BulgeCS)
-// 입력: 변형된 버텍스 위치 (TightnessCS/BulgeCS 결과)
 Buffer<float> DeformedPositions;
 
 // Input: Original vertex positions (bind pose) - for calculating original face normals
-// 입력: 원본 버텍스 위치 (바인드 포즈) - 원본 Face Normal 계산용
 Buffer<float> OriginalPositions;
 
 // Input: Affected vertex indices to process
-// 입력: 처리할 영향받는 버텍스 인덱스
 StructuredBuffer<uint> AffectedVertexIndices;
 
 // Input: Adjacency offsets - AdjacencyOffsets[i] = start index in AdjacencyTriangles for vertex i
-// 입력: 인접 오프셋 - 각 버텍스의 인접 삼각형 시작 인덱스
 // AdjacencyOffsets[i] to AdjacencyOffsets[i+1] = range of adjacent triangles for vertex i
 StructuredBuffer<uint> AdjacencyOffsets;
 
 // Input: Flattened list of adjacent triangle indices
-// 입력: 인접 삼각형 인덱스의 평탄화된 리스트
 StructuredBuffer<uint> AdjacencyTriangles;
 
 // Input: Mesh index buffer (3 indices per triangle)
-// 입력: 메시 인덱스 버퍼 (삼각형당 3개 인덱스)
 Buffer<uint> IndexBuffer;
 
 // Input: Original tangent buffer (contains normals) - packed SNORM8x4 format
-// 입력: 원본 탄젠트 버퍼 (노멀 포함) - 패킹된 SNORM8x4 포맷
 // Format: TangentX (Index 0), TangentZ=Normal+BinormalSign (Index 1) per vertex
 Buffer<float4> OriginalTangents;
 
 // Output: Recomputed normals (float3 per vertex)
-// 출력: 재계산된 노멀 (버텍스당 float3)
 RWBuffer<float> OutputNormals;
 
 // Input: Hop distances for each affected vertex (optional, for blending)
-// 입력: 각 영향받는 버텍스의 홉 거리 (블렌딩용, 선택적)
 StructuredBuffer<int> HopDistances;
 
 // Input: Representative vertex indices for UV seam welding (optional)
-// 입력: UV seam welding용 대표 버텍스 인덱스 (선택적)
 // Maps each affected vertex to its representative (same position, different UV)
-// 각 affected 버텍스를 대표 버텍스에 매핑 (같은 위치, 다른 UV)
 StructuredBuffer<uint> RepresentativeIndices;
 
 // ============================================================================
 // Parameters
-// 파라미터
 // ============================================================================
 
 uint NumAffectedVertices;   // Number of affected vertices to process
-                            // 처리할 영향받는 버텍스 수
 uint NumTotalVertices;      // Total mesh vertex count (for bounds check)
-                            // 전체 메시 버텍스 수 (범위 체크용)
 uint NormalRecomputeMode;   // 0 = Geometric, 1 = SurfaceRotation
-                            // 0 = 지오메트릭, 1 = 표면 회전
 uint bEnableHopBlending;    // 0 = off, 1 = on (blend with original at boundary)
-                            // 홉 기반 블렌딩: 경계에서 원본 노멀과 블렌드
 uint MaxHops;               // Maximum hop distance (for blend factor calculation)
-                            // 최대 홉 거리 (블렌드 계수 계산용)
 uint FalloffType;           // 0 = Linear, 1 = Quadratic, 2 = Hermite
-                            // falloff 타입: 0=선형, 1=2차곡선, 2=Hermite
 uint bEnableUVSeamWelding;  // 0 = off, 1 = on (use RepresentativeIndices for UV seam)
-                            // UV seam welding: 대표 버텍스의 노멀을 복사
 uint bEnableDisplacementBlending;  // 0 = off, 1 = on (blend based on vertex displacement)
-                                   // 변위 기반 블렌딩: 버텍스 이동량에 따라 블렌드
-float MaxDisplacement;      // Maximum displacement for blend (cm)
-                            // 최대 변위 거리 (cm) - 이 거리 이상 이동 시 100% 재계산된 노멀 사용
+float MaxDisplacement;      // Maximum displacement for blend (cm) - 100% recomputed normal beyond this distance
 
 // Thread Group Size
 #ifndef THREADGROUP_SIZE
@@ -108,16 +80,13 @@ float MaxDisplacement;      // Maximum displacement for blend (cm)
 
 // ============================================================================
 // Helper Functions
-// 헬퍼 함수
 // ============================================================================
 
 // Apply falloff curve to normalized distance t [0, 1]
-// 정규화된 거리 t [0, 1]에 falloff 곡선 적용
 // FalloffType: 0 = Linear, 1 = Quadratic, 2 = Hermite (smoothstep)
 float ApplyFalloff(float t, uint InFalloffType)
 {
     // t: 0 at center (HopDist=0), 1 at boundary (HopDist=MaxHops)
-    // t: 중심(HopDist=0)에서 0, 경계(HopDist=MaxHops)에서 1
     t = saturate(t);
 
     if (InFalloffType == 0)  // Linear
@@ -136,7 +105,6 @@ float ApplyFalloff(float t, uint InFalloffType)
 }
 
 // Read deformed vertex position from buffer (3 floats per vertex)
-// 버퍼에서 변형된 버텍스 위치 읽기 (버텍스당 3 float)
 float3 ReadDeformedPosition(uint VertexIndex)
 {
     uint BaseIndex = VertexIndex * 3;
@@ -148,7 +116,6 @@ float3 ReadDeformedPosition(uint VertexIndex)
 }
 
 // Read original vertex position from buffer (3 floats per vertex)
-// 버퍼에서 원본 버텍스 위치 읽기 (버텍스당 3 float)
 float3 ReadOriginalPosition(uint VertexIndex)
 {
     uint BaseIndex = VertexIndex * 3;
@@ -160,19 +127,16 @@ float3 ReadOriginalPosition(uint VertexIndex)
 }
 
 // Read original normal from tangent buffer (packed SNORM8x4 format)
-// 탄젠트 버퍼에서 원본 노멀 읽기 (패킹된 SNORM8x4 포맷)
 // Format: TangentX at Index 0, TangentZ (Normal + binormal sign) at Index 1
 float3 ReadOriginalNormal(uint VertexIndex)
 {
     // TangentZ is at Index 1 (2 float4 per vertex)
-    // TangentZ는 Index 1에 있음 (버텍스당 2개의 float4)
     uint BaseIndex = VertexIndex * 2;
     float4 TangentZ = TangentBias_SkinCache(OriginalTangents[BaseIndex + 1]);
     return TangentZ.xyz;  // xyz = normal, w = binormal sign
 }
 
 // Write vertex normal to buffer (3 floats per vertex)
-// 버퍼에 버텍스 노멀 쓰기 (버텍스당 3 float)
 void WriteNormal(uint VertexIndex, float3 Normal)
 {
     uint BaseIndex = VertexIndex * 3;
@@ -182,29 +146,21 @@ void WriteNormal(uint VertexIndex, float3 Normal)
 }
 
 // Compute face normal for a triangle (CCW winding = front face in UE)
-// 삼각형의 Face Normal 계산 (UE에서 CCW 와인딩 = front face)
 // Returns unnormalized normal (length = 2 * triangle area) for area-weighted average
-// 면적 가중 평균을 위해 정규화되지 않은 노멀 반환 (길이 = 2 * 삼각형 면적)
 //
 // IMPORTANT: UE uses LEFT-HANDED coordinate system!
-// 중요: UE는 왼손 좌표계를 사용합니다!
 // In left-handed system with CCW winding:
 // - cross(Edge1, Edge2) points INWARD (wrong direction)
 // - cross(Edge2, Edge1) points OUTWARD (correct direction)
-// 왼손 좌표계 + CCW 와인딩:
-// - cross(Edge1, Edge2) = 내부 방향 (틀림)
-// - cross(Edge2, Edge1) = 외부 방향 (맞음)
 float3 ComputeFaceNormal(float3 P0, float3 P1, float3 P2)
 {
     float3 Edge1 = P1 - P0;
     float3 Edge2 = P2 - P0;
     // Use cross(Edge2, Edge1) for outward normal in UE's left-handed system
-    // UE 왼손 좌표계에서 외부 방향 노멀을 위해 cross(Edge2, Edge1) 사용
     return cross(Edge2, Edge1);
 }
 
 // Safe normalize with fallback
-// 안전한 정규화 (0 벡터 시 기본값 반환)
 float3 SafeNormalize(float3 V, float3 Default)
 {
     float LenSq = dot(V, V);
@@ -212,65 +168,51 @@ float3 SafeNormalize(float3 V, float3 Default)
 }
 
 // Calculate displacement-based blend factor
-// 변위 기반 블렌드 계수 계산
 // Returns: 0.0 at zero displacement, 1.0 at MaxDisplacement or beyond
-// 반환: 변위 0에서 0.0, MaxDisplacement 이상에서 1.0
 float CalculateDisplacementBlendFactor(float3 OrigPos, float3 DefPos)
 {
     float Displacement = length(DefPos - OrigPos);
     // Linear interpolation from 0 to MaxDisplacement
-    // 0에서 MaxDisplacement까지 선형 보간
     return saturate(Displacement / max(MaxDisplacement, 0.01f));
 }
 
 // ============================================================================
 // Rotation Functions (Rodrigues' Rotation Formula)
-// 회전 함수 (로드리게스 회전 공식)
 // ============================================================================
 // Given two unit vectors (From, To), rotate vector V by the same rotation
 // that would align From to To.
-// 두 단위 벡터(From, To)가 주어지면, From을 To로 정렬하는 것과 동일한
-// 회전을 벡터 V에 적용합니다.
 
 // Rotate vector V such that direction From maps to direction To
-// From 방향이 To 방향으로 매핑되도록 벡터 V를 회전
 float3 RotateVectorByNormalChange(float3 V, float3 From, float3 To)
 {
     // Calculate cosine of angle between normals
-    // 두 노멀 사이의 각도 코사인 계산
     float cosAngle = dot(From, To);
 
     // If nearly parallel (no rotation needed)
-    // 거의 평행한 경우 (회전 불필요)
     if (cosAngle > 0.9999f)
     {
         return V;
     }
 
     // If nearly anti-parallel (180 degree rotation)
-    // 거의 반대 방향인 경우 (180도 회전)
     if (cosAngle < -0.9999f)
     {
         // Find a perpendicular axis for 180 degree rotation
-        // 180도 회전을 위한 수직 축 찾기
         float3 axis = abs(From.x) < 0.9f ?
             normalize(cross(From, float3(1, 0, 0))) :
             normalize(cross(From, float3(0, 1, 0)));
-        // Rotate 180 degrees around axis: V -> -V + 2*(V·axis)*axis
-        // 축 주위로 180도 회전: V -> -V + 2*(V·axis)*axis
+        // Rotate 180 degrees around axis: V -> -V + 2*(V.axis)*axis
         return 2.0f * dot(V, axis) * axis - V;
     }
 
     // Standard case: Rodrigues' rotation formula
-    // 일반 경우: 로드리게스 회전 공식
-    // R(v) = v*cos(θ) + (k×v)*sin(θ) + k*(k·v)*(1-cos(θ))
-    // where k is the normalized rotation axis (From × To normalized)
+    // R(v) = v*cos(theta) + (k x v)*sin(theta) + k*(k.v)*(1-cos(theta))
+    // where k is the normalized rotation axis (From x To normalized)
 
     float3 crossProduct = cross(From, To);
     float sinAngle = length(crossProduct);
 
     // If sin is too small, no significant rotation
-    // sin이 너무 작으면 유의미한 회전 없음
     if (sinAngle < 1e-6f)
     {
         return V;
@@ -279,7 +221,6 @@ float3 RotateVectorByNormalChange(float3 V, float3 From, float3 To)
     float3 axis = crossProduct / sinAngle;  // Normalized rotation axis
 
     // Rodrigues' formula
-    // 로드리게스 공식
     float3 vRotated = V * cosAngle
                     + cross(axis, V) * sinAngle
                     + axis * dot(axis, V) * (1.0f - cosAngle);
@@ -289,7 +230,6 @@ float3 RotateVectorByNormalChange(float3 V, float3 From, float3 To)
 
 // ============================================================================
 // Main Compute Shader
-// 메인 컴퓨트 셰이더
 // ============================================================================
 
 [numthreads(THREADGROUP_SIZE, 1, 1)]
@@ -298,50 +238,44 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     uint ThreadIndex = DispatchThreadId.x;
 
     // Bounds check: Only process affected vertices
-    // 범위 체크: 영향받는 버텍스만 처리
     if (ThreadIndex >= NumAffectedVertices)
     {
         return;
     }
 
     // Get the actual vertex index
-    // 실제 버텍스 인덱스 가져오기
     uint VertexIndex = AffectedVertexIndices[ThreadIndex];
 
     // Safety check: Ensure vertex index is valid
-    // 안전 체크: 버텍스 인덱스 유효성 확인
     if (VertexIndex >= NumTotalVertices)
     {
         return;
     }
 
     // Get adjacent triangle range
-    // 인접 삼각형 범위 가져오기
-    // 주의: AdjacencyOffsets는 항상 ThreadIndex로 인덱싱 (VertexIndex가 아님!)
-    // RepresentativeIndices는 VertexIndex를 반환하므로 adjacency 접근에 사용하면 안됨
+    // NOTE: AdjacencyOffsets is always indexed by ThreadIndex (not VertexIndex!)
+    // RepresentativeIndices returns VertexIndex so it should not be used for adjacency access
     uint AdjStart = AdjacencyOffsets[ThreadIndex];
     uint AdjEnd = AdjacencyOffsets[ThreadIndex + 1];
 
-    // UV seam welding: 대표 버텍스의 원본 노멀을 사용하여 모든 중복 버텍스가 같은 기준점에서 시작
-    // (adjacency는 각자의 것을 사용 - deformed positions가 이미 welding되어 있으므로 결과는 동일)
+    // UV seam welding: Use representative vertex's original normal so all duplicate vertices start from the same reference
+    // (adjacency uses each vertex's own data - deformed positions are already welded so results are identical)
     uint OriginalNormalReadIndex = (bEnableUVSeamWelding != 0) ? RepresentativeIndices[ThreadIndex] : VertexIndex;
 
     // ========================================
     // Branch by mode for optimal performance
-    // 최적 성능을 위해 모드별 분기
     // ========================================
 
     if (NormalRecomputeMode == MODE_GEOMETRIC)
     {
         // ========================================
         // Geometric Method: Deformed face normal average only
-        // 지오메트릭 방식: 변형된 Face Normal 평균만 계산
         // ========================================
-        // Original 데이터 읽기/계산 완전 생략 → 메모리 대역폭 절약
+        // Skip reading/computing original data -> saves memory bandwidth
 
         // ========================================
-        // Zero-displacement early-out: 변형이 없으면 원본 노멀 반환
-        // 변형이 없는데 Face Normal 평균을 사용하면 원본 스무스 노멀과 달라짐
+        // Zero-displacement early-out: Return original normal if no deformation
+        // Using face normal average when undeformed would differ from original smooth normal
         // ========================================
         {
             float3 OrigPos = ReadOriginalPosition(VertexIndex);
@@ -349,7 +283,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
             float DisplacementSq = dot(DefPos - OrigPos, DefPos - OrigPos);
             if (DisplacementSq < 1e-10f)
             {
-                // 변형 없음 - 원본 스무스 노멀 그대로 반환
+                // No deformation - return original smooth normal as-is
                 float3 OriginalNormal = SafeNormalize(ReadOriginalNormal(OriginalNormalReadIndex), float3(0, 0, 1));
                 WriteNormal(VertexIndex, OriginalNormal);
                 return;
@@ -357,7 +291,6 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         }
 
         // No adjacent triangles - use default normal
-        // 인접 삼각형 없음 - 기본 노멀 사용
         if (AdjStart >= AdjEnd)
         {
             WriteNormal(VertexIndex, float3(0, 0, 1));
@@ -379,7 +312,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
                 continue;
             }
 
-            // Deformed positions only (Original 생략)
+            // Deformed positions only (skip original)
             float3 DefP0 = ReadDeformedPosition(I0);
             float3 DefP1 = ReadDeformedPosition(I1);
             float3 DefP2 = ReadDeformedPosition(I2);
@@ -400,43 +333,35 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
         // ========================================
         // Blending: Hop-based + Displacement-based
-        // 블렌딩: 홉 기반 + 변위 기반
         // ========================================
         // Both blending methods can be combined:
         // - Hop blending: fade out at boundary (HopDist near MaxHops)
         // - Displacement blending: fade in with vertex movement
         // Combined: FinalBlendFactor = HopBlendFactor * DisplacementBlendFactor
-        // 두 블렌딩 방식 병행 가능:
-        // - 홉 블렌딩: 경계(HopDist가 MaxHops에 가까울수록)에서 페이드 아웃
-        // - 변위 블렌딩: 버텍스 이동량에 따라 페이드 인
-        // 결합: FinalBlendFactor = HopBlendFactor * DisplacementBlendFactor
 
         bool bNeedsBlending = (bEnableHopBlending != 0 && MaxHops > 0) || (bEnableDisplacementBlending != 0);
 
         if (bNeedsBlending)
         {
-            // UV seam welding: 대표 버텍스의 원본 노멀 사용
+            // UV seam welding: Use representative vertex's original normal
             float3 OriginalNormal = SafeNormalize(ReadOriginalNormal(OriginalNormalReadIndex), float3(0, 0, 1));
             float BlendFactor = 1.0;  // Default: 100% recomputed normal
 
             // Hop-based blending
-            // 홉 기반 블렌딩
             if (bEnableHopBlending != 0 && MaxHops > 0)
             {
-                // HopDistances는 항상 ThreadIndex로 인덱싱
+                // HopDistances is always indexed by ThreadIndex
                 int HopDist = HopDistances[ThreadIndex];
                 // BlendFactor: 1.0 at center (HopDist=0), 0.0 at boundary (HopDist=MaxHops)
-                // 블렌드 계수: 중심(HopDist=0)에서 1.0, 경계(HopDist=MaxHops)에서 0.0
                 float t = saturate((float)HopDist / (float)MaxHops);
                 float HopBlendFactor = 1.0 - ApplyFalloff(t, FalloffType);
                 BlendFactor *= HopBlendFactor;
             }
 
             // Displacement-based blending
-            // 변위 기반 블렌딩
             if (bEnableDisplacementBlending != 0)
             {
-                // 현재 버텍스의 원본/변형 위치로 변위 계산
+                // Calculate displacement using current vertex's original/deformed positions
                 float3 OrigPos = ReadOriginalPosition(VertexIndex);
                 float3 DefPos = ReadDeformedPosition(VertexIndex);
                 float DisplacementBlendFactor = CalculateDisplacementBlendFactor(OrigPos, DefPos);
@@ -451,12 +376,12 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     else // MODE_SURFACE_ROTATION
     {
         // ========================================
-        // Surface Rotation Method: Original + Deformed 모두 필요
-        // 표면 회전 방식: 원본과 변형 Face Normal 비교하여 회전량 계산
+        // Surface Rotation Method: Needs both Original + Deformed
         // ========================================
+        // Compare original and deformed face normals to calculate rotation amount
 
-        // Get original smooth vertex normal (회전시킬 대상)
-        // UV seam welding: 대표 버텍스의 원본 노멀 사용
+        // Get original smooth vertex normal (the vector to rotate)
+        // UV seam welding: Use representative vertex's original normal
         float3 OriginalVertexNormal = ReadOriginalNormal(OriginalNormalReadIndex);
 
         // If original normal is invalid, fallback
@@ -469,8 +394,8 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         OriginalVertexNormal = normalize(OriginalVertexNormal);
 
         // ========================================
-        // Zero-displacement early-out: 변형이 없으면 원본 노멀 반환
-        // 수치 오차로 인한 미세한 회전 방지
+        // Zero-displacement early-out: Return original normal if no deformation
+        // Prevents tiny rotations due to numerical errors
         // ========================================
         {
             float3 OrigPos = ReadOriginalPosition(VertexIndex);
@@ -478,7 +403,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
             float DisplacementSq = dot(DefPos - OrigPos, DefPos - OrigPos);
             if (DisplacementSq < 1e-10f)
             {
-                // 변형 없음 - 원본 스무스 노멀 그대로 반환
+                // No deformation - return original smooth normal as-is
                 WriteNormal(VertexIndex, OriginalVertexNormal);
                 return;
             }
@@ -508,7 +433,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
                 continue;
             }
 
-            // Original positions (Surface Rotation에서만 필요)
+            // Original positions (only needed for Surface Rotation)
             float3 OrigP0 = ReadOriginalPosition(I0);
             float3 OrigP1 = ReadOriginalPosition(I1);
             float3 OrigP2 = ReadOriginalPosition(I2);
@@ -554,16 +479,11 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
         // ========================================
         // Blending: Hop-based + Displacement-based
-        // 블렌딩: 홉 기반 + 변위 기반
         // ========================================
         // Both blending methods can be combined:
         // - Hop blending: fade out at boundary (HopDist near MaxHops)
         // - Displacement blending: fade in with vertex movement
         // Combined: FinalBlendFactor = HopBlendFactor * DisplacementBlendFactor
-        // 두 블렌딩 방식 병행 가능:
-        // - 홉 블렌딩: 경계(HopDist가 MaxHops에 가까울수록)에서 페이드 아웃
-        // - 변위 블렌딩: 버텍스 이동량에 따라 페이드 인
-        // 결합: FinalBlendFactor = HopBlendFactor * DisplacementBlendFactor
 
         bool bNeedsBlending = (bEnableHopBlending != 0 && MaxHops > 0) || (bEnableDisplacementBlending != 0);
 
@@ -572,23 +492,20 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
             float BlendFactor = 1.0;  // Default: 100% recomputed normal
 
             // Hop-based blending
-            // 홉 기반 블렌딩
             if (bEnableHopBlending != 0 && MaxHops > 0)
             {
-                // HopDistances는 항상 ThreadIndex로 인덱싱
+                // HopDistances is always indexed by ThreadIndex
                 int HopDist = HopDistances[ThreadIndex];
                 // BlendFactor: 1.0 at center (HopDist=0), 0.0 at boundary (HopDist=MaxHops)
-                // 블렌드 계수: 중심(HopDist=0)에서 1.0, 경계(HopDist=MaxHops)에서 0.0
                 float t = saturate((float)HopDist / (float)MaxHops);
                 float HopBlendFactor = 1.0 - ApplyFalloff(t, FalloffType);
                 BlendFactor *= HopBlendFactor;
             }
 
             // Displacement-based blending
-            // 변위 기반 블렌딩
             if (bEnableDisplacementBlending != 0)
             {
-                // 현재 버텍스의 원본/변형 위치로 변위 계산
+                // Calculate displacement using current vertex's original/deformed positions
                 float3 OrigPos = ReadOriginalPosition(VertexIndex);
                 float3 DefPos = ReadDeformedPosition(VertexIndex);
                 float DisplacementBlendFactor = CalculateDisplacementBlendFactor(OrigPos, DefPos);

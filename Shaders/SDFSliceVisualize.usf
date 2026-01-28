@@ -1,45 +1,45 @@
 ﻿// Copyright 2026 LgThx. All Rights Reserved.
 
 // SDFSliceVisualize.usf
-// 3D SDF 텍스처에서 Z 슬라이스를 추출하고 색상 매핑하여 2D 텍스처로 출력
+// Extract Z slice from 3D SDF texture and output as color-mapped 2D texture
 
 #include "/Engine/Public/Platform.ush"
 
-// 입력: SDF 3D 텍스처
+// Input: SDF 3D texture
 Texture3D<float> SDFTexture;
 SamplerState SDFSampler;
 
-// 출력: 색상 매핑된 2D 텍스처
+// Output: Color-mapped 2D texture
 RWTexture2D<float4> OutputSlice;
 
-// 파라미터
-int3 SDFResolution;     // SDF 텍스처 해상도
-int SliceZ;             // 추출할 Z 인덱스
-float MaxDisplayDist;   // 색상 매핑 최대 거리 (이 거리에서 완전 빨강/파랑)
+// Parameters
+int3 SDFResolution;     // SDF texture resolution
+int SliceZ;             // Z index to extract
+float MaxDisplayDist;   // Maximum distance for color mapping (fully red/blue at this distance)
 
-// SDF 값을 색상으로 변환
-// 음수(내부) = 파랑, 0(표면) = 검정, 양수(외부) = 빨강
+// Convert SDF value to color
+// Negative (inside) = Blue, 0 (surface) = Black, Positive (outside) = Red
 float4 SDFToColor(float sdf)
 {
-    // 정규화: -MaxDisplayDist ~ +MaxDisplayDist → -1 ~ +1
+    // Normalize: -MaxDisplayDist ~ +MaxDisplayDist -> -1 ~ +1
     float normalized = clamp(sdf / MaxDisplayDist, -1.0f, 1.0f);
 
-    // 더 극단적인 색상을 위해 pow 적용 (빠르게 채도 상승)
+    // Apply pow for more extreme colors (faster saturation ramp)
     float t = pow(abs(normalized), 0.4f);
 
     float3 color;
     if (normalized < 0.0f)
     {
-        // 내부 (음수): 진한 파랑
+        // Inside (negative): Deep blue
         color = lerp(float3(0.2, 0.2, 0.2), float3(0, 0.3, 1), t);
     }
     else
     {
-        // 외부 (양수): 진한 빨강
+        // Outside (positive): Deep red
         color = lerp(float3(0.2, 0.2, 0.2), float3(1, 0.1, 0), t);
     }
 
-    // 표면 근처 (SDF ≈ 0) 강조: 검은 윤곽선
+    // Highlight surface area (SDF approx 0): Black outline
     float surfaceThreshold = 0.03f;
     if (abs(normalized) < surfaceThreshold)
     {
@@ -52,17 +52,17 @@ float4 SDFToColor(float sdf)
 [numthreads(8, 8, 1)]
 void MainCS(uint3 ThreadId : SV_DispatchThreadID)
 {
-    // 범위 체크
+    // Range check
     if (ThreadId.x >= (uint)SDFResolution.x || ThreadId.y >= (uint)SDFResolution.y)
         return;
 
-    // Z 슬라이스 범위 체크
+    // Z slice range check
     int clampedZ = clamp(SliceZ, 0, SDFResolution.z - 1);
 
-    // 3D 텍스처에서 SDF 값 읽기
+    // Read SDF value from 3D texture
     int3 texCoord = int3(ThreadId.x, ThreadId.y, clampedZ);
     float sdf = SDFTexture.Load(int4(texCoord, 0));
 
-    // 색상 변환 후 출력
+    // Convert to color and output
     OutputSlice[ThreadId.xy] = SDFToColor(sdf);
 }

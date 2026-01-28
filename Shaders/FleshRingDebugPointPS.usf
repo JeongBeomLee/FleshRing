@@ -1,48 +1,44 @@
 ﻿// Copyright 2026 LgThx. All Rights Reserved.
 
 // FleshRing Debug Point Pixel Shader
-// GPU 원형 디버그 포인트 렌더링
+// GPU circular debug point rendering
 //
 // Purpose: Render circular points with influence-based color gradient
-// 목적: Influence 기반 색상 그라데이션으로 원형 포인트 렌더링
 
 #include "/Engine/Private/Common.ush"
 
 // Pixel shader input (from vertex shader)
-// 픽셀 셰이더 입력 (버텍스 셰이더에서)
 struct FPSInput
 {
     float4 Position : SV_POSITION;
     float2 UV : TEXCOORD0;
     float Influence : TEXCOORD1;
-    nointerpolation uint ColorMode : TEXCOORD2;  // 색상 모드: 0 = Tightness, 1 = Bulge
-    nointerpolation uint RingIndex : TEXCOORD3;  // Ring 인덱스 (가시성 필터링용)
+    nointerpolation uint ColorMode : TEXCOORD2;  // Color mode: 0 = Tightness, 1 = Bulge
+    nointerpolation uint RingIndex : TEXCOORD3;  // Ring index (for visibility filtering)
 };
 
 // Visibility mask for ring filtering (unlimited ring support)
-// Ring 가시성 필터링용 비트마스크 배열 (무제한 링 지원)
-// 각 uint32 요소는 32개 Ring의 가시성 비트마스크
-// 요소[0] = Ring 0-31, 요소[1] = Ring 32-63, ...
+// Bitmask array for ring visibility filtering
+// Each uint32 element is a visibility bitmask for 32 rings
+// Element[0] = Ring 0-31, Element[1] = Ring 32-63, ...
 StructuredBuffer<uint> RingVisibilityMask;
 uint NumVisibilityMaskElements;
 
 // Main pixel shader
-// 메인 픽셀 셰이더
 void MainPS(
     FPSInput Input,
     out float4 OutColor : SV_Target0)
 {
     // ========================================
     // Step 0: Ring visibility check (unlimited ring support)
-    // 0단계: Ring 가시성 체크 (무제한 링 지원)
     // ========================================
-    // 각 uint32 요소는 32개 Ring의 가시성 비트마스크
+    // Each uint32 element is a visibility bitmask for 32 rings
     // MaskIndex = RingIndex / 32, BitIndex = RingIndex % 32
     uint RingIndex = Input.RingIndex;
     uint MaskIndex = RingIndex / 32u;
     uint BitIndex = RingIndex % 32u;
 
-    // 마스크 배열 범위 체크 및 가시성 필터링
+    // Mask array range check and visibility filtering
     if (MaskIndex < NumVisibilityMaskElements)
     {
         uint VisibleMask = RingVisibilityMask[MaskIndex];
@@ -55,16 +51,14 @@ void MainPS(
     }
     else
     {
-        // 마스크 배열 범위 밖이면 비가시 처리
+        // Outside mask array range - treat as invisible
         discard;
     }
 
     // ========================================
     // Step 0.5: Invalid point check
-    // 0.5단계: 무효 포인트 체크
     // ========================================
     // Influence <= 0 means invalid/skip (e.g., early return in BulgeCS)
-    // Influence <= 0이면 무효/스킵 (예: BulgeCS에서 early return)
     if (Input.Influence <= 0.0)
     {
         discard;
@@ -72,15 +66,12 @@ void MainPS(
 
     // ========================================
     // Step 1: Circular mask
-    // 1단계: 원형 마스크
     // ========================================
     // UV is 0~1, center is (0.5, 0.5)
-    // UV는 0~1, 중심은 (0.5, 0.5)
     float2 Center = float2(0.5, 0.5);
     float Dist = length(Input.UV - Center);
 
     // Discard pixels outside the circle
-    // 원 밖의 픽셀 버림
     if (Dist > 0.5)
     {
         discard;
@@ -88,45 +79,38 @@ void MainPS(
 
     // ========================================
     // Step 2: Influence-based color gradient
-    // 2단계: Influence 기반 색상 그라데이션
     // ========================================
-    // ColorMode 0: Tightness - Blue (0) → Green (0.5) → Red (1)
-    // ColorMode 1: Bulge - Cyan (0) → Magenta (1)
+    // ColorMode 0: Tightness - Blue (0) -> Green (0.5) -> Red (1)
+    // ColorMode 1: Bulge - Cyan (0) -> Magenta (1)
     float3 FillColor;
     float Influence = saturate(Input.Influence);
 
     if (Input.ColorMode == 0)
     {
-        // Tightness mode: Blue → Green → Red
-        // 조임 모드: 파랑 → 초록 → 빨강
+        // Tightness mode: Blue -> Green -> Red
         if (Influence < 0.5)
         {
-            // Blue → Green (0.0 ~ 0.5)
-            // 파랑 → 초록
+            // Blue -> Green (0.0 ~ 0.5)
             float T = Influence * 2.0;  // 0~1 range
             FillColor = lerp(float3(0.0, 0.0, 1.0), float3(0.0, 1.0, 0.0), T);
         }
         else
         {
-            // Green → Red (0.5 ~ 1.0)
-            // 초록 → 빨강
+            // Green -> Red (0.5 ~ 1.0)
             float T = (Influence - 0.5) * 2.0;  // 0~1 range
             FillColor = lerp(float3(0.0, 1.0, 0.0), float3(1.0, 0.0, 0.0), T);
         }
     }
     else
     {
-        // Bulge mode: Cyan → Magenta
-        // 팽창 모드: 청록 → 마젠타
+        // Bulge mode: Cyan -> Magenta
         FillColor = lerp(float3(0.0, 1.0, 1.0), float3(1.0, 0.0, 1.0), Influence);
     }
 
     // ========================================
     // Step 3: Black outline (outer edge)
-    // 3단계: 검정 테두리 (바깥 가장자리)
     // ========================================
     // Outline at outer edge (0.38 ~ 0.48 radius)
-    // 바깥 가장자리에 테두리
     float3 OutlineColor = float3(0.0, 0.0, 0.0);
     float OutlineStart = 0.38;
 
@@ -135,6 +119,5 @@ void MainPS(
     float3 Color = lerp(FillColor, OutlineColor, OutlineFactor);
 
     // Output final color (solid edge, no fade)
-    // 최종 색상 출력 (페이드 없이 선명한 가장자리)
     OutColor = float4(Color, 1.0);
 }

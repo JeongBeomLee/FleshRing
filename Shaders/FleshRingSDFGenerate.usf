@@ -1,27 +1,27 @@
 ﻿// Copyright 2026 LgThx. All Rights Reserved.
 
 // FleshRingSDFGenerate.usf
-// 메시 삼각형들로부터 SDF(Signed Distance Field)를 생성하는 Compute Shader
-// 부호 결정: Multiple Ray Casting (12방향 다수결로 내부/외부 판별)
-// 참조: SDFGenerator (https://github.com/AirGuanZ/SDFGenerator)
+// Compute Shader to generate SDF (Signed Distance Field) from mesh triangles
+// Sign determination: Multiple Ray Casting (12-direction majority voting for inside/outside)
+// Reference: SDFGenerator (https://github.com/AirGuanZ/SDFGenerator)
 
 #include "/Engine/Public/Platform.ush"
 
-// 입력 데이터 (CPU에서 업로드)
-StructuredBuffer<float3> MeshVertices;      // 버텍스 위치 배열
-StructuredBuffer<uint3> MeshIndices;        // 삼각형 인덱스 (v0, v1, v2)
-uint TriangleCount;                         // 총 삼각형 개수
+// Input data (uploaded from CPU)
+StructuredBuffer<float3> MeshVertices;      // Vertex position array
+StructuredBuffer<uint3> MeshIndices;        // Triangle indices (v0, v1, v2)
+uint TriangleCount;                         // Total triangle count
 
-// 출력
-RWTexture3D<float> OutputSDF;               // SDF 3D 텍스처
+// Output
+RWTexture3D<float> OutputSDF;               // SDF 3D texture
 
-// 파라미터
-float3 SDFBoundsMin;                        // SDF 바운딩 박스 최소점
-float3 SDFBoundsMax;                        // SDF 바운딩 박스 최대점
-int3 SDFResolution;                         // SDF 해상도 (예: 64x64x64)
+// Parameters
+float3 SDFBoundsMin;                        // SDF bounding box minimum
+float3 SDFBoundsMax;                        // SDF bounding box maximum
+int3 SDFResolution;                         // SDF resolution (e.g., 64x64x64)
 
-// Ray-Triangle 교차 테스트 (Moller-Trumbore 알고리즘)
-// Return: 교차하면 true, 아니면 false
+// Ray-Triangle intersection test (Moller-Trumbore algorithm)
+// Return: true if intersects, false otherwise
 bool RayTriangleIntersect(float3 RayOrigin, float3 RayDir, float3 V0, float3 V1, float3 V2)
 {
     const float EPSILON = 0.0000001f;
@@ -32,7 +32,7 @@ bool RayTriangleIntersect(float3 RayOrigin, float3 RayDir, float3 V0, float3 V1,
     float3 H = cross(RayDir, Edge2);
     float A = dot(Edge1, H);
 
-    // 광선이 삼각형과 평행한 경우
+    // Ray is parallel to triangle
     if (A > -EPSILON && A < EPSILON)
         return false;
 
@@ -40,28 +40,28 @@ bool RayTriangleIntersect(float3 RayOrigin, float3 RayDir, float3 V0, float3 V1,
     float3 S = RayOrigin - V0;
     float U = F * dot(S, H);
 
-    // U 범위 체크 (0~1)
+    // U range check (0~1)
     if (U < 0.0f || U > 1.0f)
         return false;
 
     float3 Q = cross(S, Edge1);
     float V = F * dot(RayDir, Q);
 
-    // V 범위 체크, U+V <= 1
+    // V range check, U+V <= 1
     if (V < 0.0f || U + V > 1.0f)
         return false;
 
-    // 교차점까지의 거리 (T)
+    // Distance to intersection point (T)
     float T = F * dot(Edge2, Q);
 
-    // 광선 방향으로 교차 (T > 0)
+    // Intersection in ray direction (T > 0)
     return T > EPSILON;
 }
 
-// 구 표면에 균일 분포된 12방향 (Icosahedron 꼭짓점 기반)
+// Uniformly distributed 12 directions on sphere surface (icosahedron vertex based)
 static const float3 RayDirections[12] =
 {
-    // 정이십면체 꼭짓점 방향 (황금비 기반)
+    // Icosahedron vertex directions (golden ratio based)
     normalize(float3( 0.000f,  0.526f,  0.851f)),
     normalize(float3( 0.000f,  0.526f, -0.851f)),
     normalize(float3( 0.000f, -0.526f,  0.851f)),
@@ -78,7 +78,7 @@ static const float3 RayDirections[12] =
 
 static const int NumRayDirections = 12;
 
-// 단일 방향 Ray Casting (교차 횟수 반환)
+// Single direction Ray Casting (returns intersection count)
 int CountRayIntersections(float3 VoxelPos, float3 RayDir)
 {
     int IntersectionCount = 0;
@@ -99,20 +99,20 @@ int CountRayIntersections(float3 VoxelPos, float3 RayDir)
     return IntersectionCount;
 }
 
-// Multiple Ray Casting - 다수결로 내부/외부 판정
-// 여러 방향으로 광선 발사 -> 다수결로 판정
-// 참조: SDFGenerator (12 rays default)
+// Multiple Ray Casting - Majority voting for inside/outside
+// Cast rays in multiple directions -> determine by majority
+// Reference: SDFGenerator (12 rays default)
 float DetermineSignByMultipleRayCasting(float3 VoxelPos)
 {
     int InsideVotes = 0;
     int OutsideVotes = 0;
 
-    // 12방향으로 ray 발사
+    // Cast rays in 12 directions
     for (int r = 0; r < NumRayDirections; r++)
     {
         int intersections = CountRayIntersections(VoxelPos, RayDirections[r]);
 
-        // 홀수 교차 = 내부, 짝수 교차 = 외부
+        // Odd intersections = inside, even intersections = outside
         if (intersections % 2 == 1)
         {
             InsideVotes++;
@@ -123,33 +123,33 @@ float DetermineSignByMultipleRayCasting(float3 VoxelPos)
         }
     }
 
-    // 다수결: 과반수가 내부면 -1, 외부면 +1
+    // Majority: -1 if majority inside, +1 if majority outside
     return (InsideVotes > OutsideVotes) ? -1.0f : 1.0f;
 }
 
-// Point-to-Triangle 최단 거리 계산
-// 참조: Real-Time Collision Detection (Christer Ericson)
+// Point-to-Triangle shortest distance calculation
+// Reference: Real-Time Collision Detection (Christer Ericson)
 float PointToTriangleDistance(float3 P, float3 A, float3 B, float3 C)
 {
-    // 삼각형 변 벡터
+    // Triangle edge vectors
     float3 AB = B - A;
     float3 AC = C - A;
     float3 AP = P - A;
-    
-    // A 꼭짓점 영역 체크
+
+    // Vertex A region check
     float d1 = dot(AB, AP);
     float d2 = dot(AC, AP);
     if (d1 <= 0.0f && d2 <= 0.0f)
         return length(P - A);
 
-    // B 꼭짓점 영역 체크
+    // Vertex B region check
     float3 BP = P - B;
     float d3 = dot(AB, BP);
     float d4 = dot(AC, BP);
     if (d3 >= 0.0f && d4 <= d3)
         return length(P - B);
 
-    // AB 변 영역 체크
+    // Edge AB region check
     float vc = d1 * d4 - d3 * d2;
     if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f)
     {
@@ -157,14 +157,14 @@ float PointToTriangleDistance(float3 P, float3 A, float3 B, float3 C)
         return length(P - (A + v * AB));
     }
 
-    // C 꼭짓점 영역 체크
+    // Vertex C region check
     float3 CP = P - C;
     float d5 = dot(AB, CP);
     float d6 = dot(AC, CP);
     if (d6 >= 0.0f && d5 <= d6)
         return length(P - C);
 
-    // AC 변 영역 체크
+    // Edge AC region check
     float vb = d5 * d2 - d1 * d6;
     if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f)
     {
@@ -172,7 +172,7 @@ float PointToTriangleDistance(float3 P, float3 A, float3 B, float3 C)
         return length(P - (A + w * AC));
     }
 
-    // BC 변 영역 체크
+    // Edge BC region check
     float va = d3 * d6 - d5 * d4;
     if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f)
     {
@@ -180,7 +180,7 @@ float PointToTriangleDistance(float3 P, float3 A, float3 B, float3 C)
         return length(P - (B + w * (C - B)));
     }
 
-    // 삼각형 내부에 투영되는 경우
+    // Projects inside triangle
     float denom = 1.0f / (va + vb + vc);
     float v = vb * denom;
     float w = vc * denom;
@@ -188,19 +188,19 @@ float PointToTriangleDistance(float3 P, float3 A, float3 B, float3 C)
     return length(P - ClosestPoint);
 }
 
-// 메인 Compute Shader
+// Main Compute Shader
 [numthreads(8, 8, 8)]
 void MainCS(uint3 ThreadId : SV_DispatchThreadID)
 {
-    // 범위 체크
+    // Range check
     if (any(ThreadId >= (uint3)SDFResolution))
         return;
 
-    // 복셀 중심의 월드 좌표 계산
+    // Calculate voxel center world coordinate
     float3 VoxelUVW = (float3(ThreadId) + 0.5f) / float3(SDFResolution);
     float3 VoxelWorldPos = SDFBoundsMin + VoxelUVW * (SDFBoundsMax - SDFBoundsMin);
 
-    // 1. 거리 계산: 모든 삼각형과의 최소 거리
+    // 1. Distance calculation: minimum distance to all triangles
     float MinDistance = 999999.0f;
 
     for (uint i = 0; i < TriangleCount; i++)
@@ -214,10 +214,10 @@ void MainCS(uint3 ThreadId : SV_DispatchThreadID)
         MinDistance = min(MinDistance, Dist);
     }
 
-    // 2. 부호 결정: Multiple Ray Casting (12방향 다수결)
+    // 2. Sign determination: Multiple Ray Casting (12-direction majority)
     float Sign = DetermineSignByMultipleRayCasting(VoxelWorldPos);
 
-    // 3. SDF 값 저장 (부호 * 거리)
-    // 도넛홀 보정은 2D Slice Flood Fill 후처리에서 수행
+    // 3. Store SDF value (sign * distance)
+    // Donut hole correction is performed in 2D Slice Flood Fill post-processing
     OutputSDF[ThreadId] = Sign * MinDistance;
 }

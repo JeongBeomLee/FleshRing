@@ -2,15 +2,11 @@
 
 // ============================================================================
 // FleshRing Tangent Recompute Compute Shader
-// FleshRing 탄젠트 재계산 컴퓨트 셰이더
 // ============================================================================
 // Purpose: Recompute tangents using Gram-Schmidt orthonormalization
-// 목적: Gram-Schmidt 정규직교화를 사용하여 탄젠트 재계산
 //
 // This shader runs AFTER NormalRecomputeCS, using recomputed normals
 // to orthonormalize tangents for TBN matrix consistency.
-// NormalRecomputeCS 이후에 실행되며, 재계산된 노멀을 사용하여
-// TBN 매트릭스 일관성을 위해 탄젠트를 재계산합니다.
 //
 // Algorithm (Gram-Schmidt):
 // T' = T - (T·N)N  (make T orthogonal to N)
@@ -22,35 +18,27 @@
 
 // ============================================================================
 // Buffer Declarations
-// 버퍼 선언
 // ============================================================================
 
 // Input: Recomputed normals from NormalRecomputeCS (3 floats per vertex)
-// 입력: NormalRecomputeCS에서 재계산된 노멀 (버텍스당 3 float)
 Buffer<float> RecomputedNormals;
 
 // Input: Original tangent buffer (TangentX, TangentZ per vertex)
-// 입력: 원본 탄젠트 버퍼
 // Format: 2 x SNORM8x4 per vertex (like StaticMeshVertexBuffer)
 Buffer<float4> OriginalTangents;
 
 // Input: Affected vertex indices to process
-// 입력: 처리할 영향받는 버텍스 인덱스
 StructuredBuffer<uint> AffectedVertexIndices;
 
 // Output: Recomputed tangents (8 floats per vertex: TangentX.xyzw, TangentZ.xyzw)
-// 출력: 재계산된 탄젠트 (버텍스당 8 float: TangentX.xyzw, TangentZ.xyzw)
 RWBuffer<float> OutputTangents;
 
 // ============================================================================
 // Parameters
-// 파라미터
 // ============================================================================
 
 uint NumAffectedVertices;   // Number of affected vertices to process
-                            // 처리할 영향받는 버텍스 수
 uint NumTotalVertices;      // Total mesh vertex count (for bounds check)
-                            // 전체 메시 버텍스 수 (범위 체크용)
 
 // Thread Group Size
 #ifndef THREADGROUP_SIZE
@@ -59,11 +47,9 @@ uint NumTotalVertices;      // Total mesh vertex count (for bounds check)
 
 // ============================================================================
 // Helper Functions
-// 헬퍼 함수
 // ============================================================================
 
 // Read recomputed normal from buffer (3 floats per vertex)
-// 버퍼에서 재계산된 노멀 읽기 (버텍스당 3 float)
 float3 ReadRecomputedNormal(uint VertexIndex)
 {
     uint BaseIndex = VertexIndex * 3;
@@ -75,11 +61,8 @@ float3 ReadRecomputedNormal(uint VertexIndex)
 }
 
 // Read original tangent data from buffer
-// 버퍼에서 원본 탄젠트 데이터 읽기
 // NOTE: UE5's StaticMeshVertexBuffer stores:
 // Index0=Tangent(TangentX), Index1=Normal+sign(TangentZ)
-// 참고: UE5 StaticMeshVertexBuffer는
-// Index0=탄젠트(TangentX), Index1=노멀+sign(TangentZ)를 저장
 void ReadOriginalTangents(uint VertexIndex, out float3 OutOriginalNormal, out float4 OutOriginalTangent)
 {
     uint BaseIndex = VertexIndex * 2;
@@ -93,7 +76,6 @@ void ReadOriginalTangents(uint VertexIndex, out float3 OutOriginalNormal, out fl
 }
 
 // Write recomputed tangents to buffer (8 floats per vertex)
-// 버퍼에 재계산된 탄젠트 쓰기 (버텍스당 8 float)
 // NOTE: SkinningCS reads Index0-3 as "Normal" but uses it as Tangent
 // To maintain consistency with SourceTangents path:
 // - Index 0-3 = actual Tangent
@@ -117,8 +99,7 @@ void WriteTangents(uint VertexIndex, float4 TangentX, float4 TangentZ)
     OutputTangents[BaseIndex + 7] = TangentZ.w;  // binormal sign
 }
 
-// Safe normalize with fallback
-// 안전한 정규화 (0 벡터 시 기본값 반환)
+// Safe normalize with fallback (returns default if zero vector)
 float3 SafeNormalize(float3 V, float3 Default)
 {
     float LenSq = dot(V, V);
@@ -126,7 +107,6 @@ float3 SafeNormalize(float3 V, float3 Default)
 }
 
 // Check if vector is valid (not zero)
-// 벡터가 유효한지 확인 (0이 아닌지)
 bool IsVectorValid(float3 V)
 {
     return dot(V, V) > 1e-8f;
@@ -134,7 +114,6 @@ bool IsVectorValid(float3 V)
 
 // ============================================================================
 // Gram-Schmidt Orthonormalization
-// Gram-Schmidt 정규직교화
 // ============================================================================
 // Given normal N and tangent T:
 // T' = T - (T·N)N  (make T orthogonal to N)
@@ -148,17 +127,14 @@ bool IsVectorValid(float3 V)
 float3 GramSchmidtOrthonormalize(float3 N, float3 T)
 {
     // Project out N component from T
-    // T에서 N 성분 제거
     float3 T_ortho = T - dot(T, N) * N;
 
     // Normalize result
-    // 결과 정규화
     return SafeNormalize(T_ortho, float3(1, 0, 0));
 }
 
 // ============================================================================
 // Main Compute Shader
-// 메인 컴퓨트 셰이더
 // ============================================================================
 
 [numthreads(THREADGROUP_SIZE, 1, 1)]
@@ -167,18 +143,15 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     uint ThreadIndex = DispatchThreadId.x;
 
     // Bounds check: Only process affected vertices
-    // 범위 체크: 영향받는 버텍스만 처리
     if (ThreadIndex >= NumAffectedVertices)
     {
         return;
     }
 
     // Get the actual vertex index
-    // 실제 버텍스 인덱스 가져오기
     uint VertexIndex = AffectedVertexIndices[ThreadIndex];
 
     // Safety check: Ensure vertex index is valid
-    // 안전 체크: 버텍스 인덱스 유효성 확인
     if (VertexIndex >= NumTotalVertices)
     {
         return;
@@ -186,12 +159,10 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
     // ========================================
     // Step 1: Read recomputed normal
-    // 1단계: 재계산된 노멀 읽기
     // ========================================
     float3 RecomputedN = ReadRecomputedNormal(VertexIndex);
 
     // If recomputed normal is zero (not recomputed), use original
-    // 재계산된 노멀이 0이면 (재계산 안됨), 원본 사용
     float3 OriginalNormal;
     float4 OriginalTangent;
     ReadOriginalTangents(VertexIndex, OriginalNormal, OriginalTangent);
@@ -204,26 +175,22 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     else
     {
         // Fallback to original normal
-        // 원본 노멀로 폴백
         FinalNormal = SafeNormalize(OriginalNormal, float3(0, 0, 1));
     }
 
     // ========================================
     // Step 2: Read original tangent
-    // 2단계: 원본 탄젠트 읽기
     // ========================================
     float3 OriginalT = OriginalTangent.xyz;
     float BinormalSign = OriginalTangent.w;
 
     // ========================================
     // Step 3: Compute tangent using Gram-Schmidt
-    // 3단계: Gram-Schmidt로 탄젠트 계산
     // ========================================
     float3 FinalTangent = GramSchmidtOrthonormalize(FinalNormal, OriginalT);
 
     // ========================================
     // Step 4: Write output
-    // 4단계: 출력 쓰기
     // ========================================
     // TangentX = Normal (W = 0)
     float4 OutputTangentX = float4(FinalNormal, 0.0f);
