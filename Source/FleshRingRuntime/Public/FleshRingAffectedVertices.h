@@ -239,6 +239,19 @@ struct FRingAffectedData
      */
     int32 MaxSmoothingHops = 0;
 
+    // =========== Bulge Region Data ===========
+
+    /**
+     * GPU buffer: Bulge region vertex indices
+     * Vertices affected by Bulge deformation (outside Ring boundary, within AxialRange/RadialRange)
+     */
+    TArray<uint32> BulgeIndices;
+
+    /**
+     * GPU buffer: Bulge influence weights for each vertex
+     */
+    TArray<float> BulgeInfluences;
+
     // =========== Skin SDF Layer Separation Data ===========
 
     /**

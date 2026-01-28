@@ -1108,6 +1108,7 @@ namespace SubdivisionHelpers
 		// Conditional collection based on Ring settings:
 		// - bEnablePostProcess == false → PackedIndices only
 		// - bEnablePostProcess == true → PackedIndices + SmoothingRegionIndices (unified)
+		// - bEnableBulge == true → Add Bulge region vertices
 		TSet<uint32> DIAffectedIndices;
 		const int32 NumRings = FMath::Min(AllRingData->Num(), Asset->Rings.Num());
 
@@ -1129,6 +1130,22 @@ namespace SubdivisionHelpers
 				{
 					if (Idx < DIVertexCount) DIAffectedIndices.Add(Idx);
 				}
+			}
+
+			// 3. Collect Bulge region vertices (use pre-calculated BulgeIndices - same as Show Bulge Heatmap)
+			if (RingSettings.bEnableBulge && RingData.BulgeIndices.Num() > 0)
+			{
+				const int32 PrevCount = DIAffectedIndices.Num();
+
+				for (uint32 Idx : RingData.BulgeIndices)
+				{
+					if (Idx < DIVertexCount) DIAffectedIndices.Add(Idx);
+				}
+
+				UE_LOG(LogFleshRingAsset, Log, TEXT("ExtractAffectedTrianglesFromDI: Ring[%d] Bulge - BulgeIndices=%d (new=%d)"),
+					RingIdx,
+					RingData.BulgeIndices.Num(),
+					DIAffectedIndices.Num() - PrevCount);
 			}
 		}
 
@@ -1240,6 +1257,79 @@ namespace SubdivisionHelpers
 		}
 
 		return OutTriangleIndices.Num() > 0;
+	}
+
+	/**
+	 * Select Bulge region vertices (VirtualRing mode calculation)
+	 * Same logic as FVirtualRingBulgeProvider::CalculateBulgeRegion
+	 *
+	 * @param Ring - Ring settings
+	 * @param Positions - All vertex positions
+	 * @param BoneTransform - Bone transform in component space
+	 * @param OutBulgeVertices - Output: Bulge vertex indices
+	 */
+	void SelectBulgeVertices(
+		const FFleshRingSettings& Ring,
+		const TArray<FVector>& Positions,
+		const FTransform& BoneTransform,
+		TSet<uint32>& OutBulgeVertices)
+	{
+		if (!Ring.bEnableBulge)
+		{
+			return;
+		}
+
+		// Calculate Ring geometry in component space
+		const FVector RingCenter = BoneTransform.GetLocation() + BoneTransform.GetRotation().RotateVector(Ring.RingOffset);
+		const FVector RingAxis = BoneTransform.GetRotation().RotateVector(FVector::UpVector).GetSafeNormal();
+		const float RingRadiusVal = Ring.RingRadius + Ring.RingThickness * 0.5f;
+		const float RingHeightVal = Ring.RingHeight;
+
+		// Bulge parameters
+		const float BulgeAxialRange = Ring.BulgeAxialRange;
+		const float BulgeRadialRange = Ring.BulgeRadialRange;
+
+		// Bulge start distance (Ring boundary)
+		const float BulgeStartDist = RingHeightVal * 0.5f;
+
+		// Range limits
+		const float AxialLimit = BulgeStartDist + RingHeightVal * 0.5f * BulgeAxialRange;
+		const float RadialLimit = RingRadiusVal * BulgeRadialRange;
+
+		// Select vertices in Bulge region
+		for (int32 i = 0; i < Positions.Num(); ++i)
+		{
+			const FVector& VertexPos = Positions[i];
+			const FVector ToVertex = VertexPos - RingCenter;
+
+			// 1. Axial distance
+			const float AxialComponent = FVector::DotProduct(ToVertex, RingAxis);
+			const float AxialDist = FMath::Abs(AxialComponent);
+
+			// Exclude inside Ring boundary (Tightness region)
+			if (AxialDist < BulgeStartDist)
+			{
+				continue;
+			}
+
+			// Exclude beyond axial limit
+			if (AxialDist > AxialLimit)
+			{
+				continue;
+			}
+
+			// 2. Radial distance
+			const FVector RadialVec = ToVertex - RingAxis * AxialComponent;
+			const float RadialDist = RadialVec.Size();
+
+			// Exclude beyond radial limit
+			if (RadialDist > RadialLimit)
+			{
+				continue;
+			}
+
+			OutBulgeVertices.Add(static_cast<uint32>(i));
+		}
 	}
 
 } // namespace SubdivisionHelpers
@@ -1874,7 +1964,12 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 					ExpandByHops(AffectedVertices, AdjacencyMap, Ring.MaxSmoothingHops, ExtendedVertices);
 				}
 
-				// 3. UV Seam handling: Also add same-position vertices of selected vertices
+				// 3. Select Bulge vertices (Union with smoothing region)
+				TSet<uint32> BulgeVertices;
+				SelectBulgeVertices(Ring, SourcePositions, BoneTransform, BulgeVertices);
+				ExtendedVertices.Append(BulgeVertices);
+
+				// 4. UV Seam handling: Also add same-position vertices of selected vertices
 				AddPositionDuplicates(ExtendedVertices, SourcePositions, PositionGroups);
 
 				// Add to union set
