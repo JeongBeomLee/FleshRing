@@ -76,27 +76,24 @@ void ReadOriginalTangents(uint VertexIndex, out float3 OutOriginalNormal, out fl
 }
 
 // Write recomputed tangents to buffer (8 floats per vertex)
-// NOTE: SkinningCS reads Index0-3 as "Normal" but uses it as Tangent
-// To maintain consistency with SourceTangents path:
-// - Index 0-3 = actual Tangent
-// - Index 4-7 = actual Normal
-void WriteTangents(uint VertexIndex, float4 TangentX, float4 TangentZ)
+// Output layout for SkinningCS:
+// - Index 0-3: Tangent direction (xyz), W unused
+// - Index 4-7: Normal direction (xyz) + binormal sign (w)
+void WriteTangents(uint VertexIndex, float4 Normal, float4 Tangent)
 {
-    // TangentX parameter = FinalNormal (from MainCS)
-    // TangentZ parameter = OrthonormalizedT + BinormalSign (from MainCS)
     uint BaseIndex = VertexIndex * 8;
 
-    // Index 0-3: Write actual Tangent (TangentZ.xyz) so SkinningCS flows it correctly
-    OutputTangents[BaseIndex + 0] = TangentZ.x;  // OrthonormalizedT.x
-    OutputTangents[BaseIndex + 1] = TangentZ.y;  // OrthonormalizedT.y
-    OutputTangents[BaseIndex + 2] = TangentZ.z;  // OrthonormalizedT.z
-    OutputTangents[BaseIndex + 3] = 0.0f;        // W unused for tangent
+    // Index 0-3: Tangent
+    OutputTangents[BaseIndex + 0] = Tangent.x;
+    OutputTangents[BaseIndex + 1] = Tangent.y;
+    OutputTangents[BaseIndex + 2] = Tangent.z;
+    OutputTangents[BaseIndex + 3] = 0.0f;
 
-    // Index 4-7: Write actual Normal (TangentX.xyz) + binormal sign
-    OutputTangents[BaseIndex + 4] = TangentX.x;  // FinalNormal.x
-    OutputTangents[BaseIndex + 5] = TangentX.y;  // FinalNormal.y
-    OutputTangents[BaseIndex + 6] = TangentX.z;  // FinalNormal.z
-    OutputTangents[BaseIndex + 7] = TangentZ.w;  // binormal sign
+    // Index 4-7: Normal + binormal sign
+    OutputTangents[BaseIndex + 4] = Normal.x;
+    OutputTangents[BaseIndex + 5] = Normal.y;
+    OutputTangents[BaseIndex + 6] = Normal.z;
+    OutputTangents[BaseIndex + 7] = Tangent.w;
 }
 
 // Safe normalize with fallback (returns default if zero vector)
@@ -192,11 +189,8 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     // ========================================
     // Step 4: Write output
     // ========================================
-    // TangentX = Normal (W = 0)
-    float4 OutputTangentX = float4(FinalNormal, 0.0f);
+    float4 OutputNormal = float4(FinalNormal, 0.0f);
+    float4 OutputTangent = float4(FinalTangent, BinormalSign);
 
-    // TangentZ = Tangent (W = binormal sign, preserved from original)
-    float4 OutputTangentZ = float4(FinalTangent, BinormalSign);
-
-    WriteTangents(VertexIndex, OutputTangentX, OutputTangentZ);
+    WriteTangents(VertexIndex, OutputNormal, OutputTangent);
 }
