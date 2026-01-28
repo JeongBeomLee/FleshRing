@@ -1363,8 +1363,10 @@ void UFleshRingComponent::SetupRingMeshes()
 
 		// Create FleshRingMeshComponent (higher picking priority than bones in editor)
 		// Prevent name collision in multi-FleshRingComponent environment: include component name
+		// RF_Transient: Prevent serialization into Blueprint (recreated dynamically each time)
+		// Outer is 'this' (not Owner) to avoid affecting Actor's component structure and prevent Reconstruction
 		FName ComponentName = FName(*FString::Printf(TEXT("%s_RingMesh_%d"), *GetName(), RingIndex));
-		UFleshRingMeshComponent* MeshComp = NewObject<UFleshRingMeshComponent>(Owner, ComponentName);
+		UFleshRingMeshComponent* MeshComp = NewObject<UFleshRingMeshComponent>(this, ComponentName, RF_Transient);
 		if (!MeshComp)
 		{
 			UE_LOG(LogFleshRingComponent, Error, TEXT("FleshRingComponent: Failed to create FleshRingMeshComponent for Ring[%d]"), RingIndex);
