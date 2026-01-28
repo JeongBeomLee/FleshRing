@@ -81,3 +81,47 @@ struct FLESHRINGRUNTIME_API FFleshRingMergeOutput
 	/** Returns true if merge succeeded */
 	bool Succeeded() const { return Result == EFleshRingMergeResult::Success; }
 };
+
+/**
+ * Result of modular swap operation (Leader Pose / Copy Pose)
+ */
+UENUM(BlueprintType)
+enum class EFleshRingModularResult : uint8
+{
+	/** Operation completed successfully */
+	Success,
+	/** FleshRingComponent argument was null */
+	InvalidComponent,
+	/** SkeletalMeshComponent argument was null */
+	InvalidMeshComponent,
+	/** NewAsset has no BakedMesh (baking required before runtime swap) */
+	NoBakedMesh,
+	/** FleshRingComponent could not resolve its target SkeletalMeshComponent */
+	TargetMeshNotResolved,
+	/** BakedMesh skeleton does not match current mesh skeleton */
+	SkeletonMismatch,
+	/** SkeletalMeshComponent has no owning Actor */
+	NoOwner,
+};
+
+/**
+ * Output of modular swap operations
+ * @see UFleshRingModularLibrary::SwapModularRingAsset
+ * @see UFleshRingModularLibrary::SwapModularPartMesh
+ */
+USTRUCT(BlueprintType)
+struct FLESHRINGRUNTIME_API FFleshRingModularResult
+{
+	GENERATED_BODY()
+
+	/** Operation result */
+	UPROPERTY(BlueprintReadOnly, Category = "FleshRing")
+	EFleshRingModularResult Result = EFleshRingModularResult::Success;
+
+	/** Error message (populated on failure) */
+	UPROPERTY(BlueprintReadOnly, Category = "FleshRing")
+	FString ErrorMessage;
+
+	/** Returns true if operation succeeded */
+	bool Succeeded() const { return Result == EFleshRingModularResult::Success; }
+};

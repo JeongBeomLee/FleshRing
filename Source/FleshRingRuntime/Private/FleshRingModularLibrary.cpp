@@ -125,32 +125,60 @@ FFleshRingMergeOutput UFleshRingModularLibrary::RebuildMergedMesh(
 // Leader Pose / Copy Pose API
 //==========================================================================
 
-bool UFleshRingModularLibrary::SwapModularRingAsset(
+FFleshRingModularResult UFleshRingModularLibrary::SwapModularRingAsset(
 	UFleshRingComponent* InFleshRingComponent,
 	UFleshRingAsset* InNewAsset,
 	bool bPreserveLeaderPose)
 {
 	if (!InFleshRingComponent)
 	{
-		return false;
+		FFleshRingModularResult Output;
+		Output.Result = EFleshRingModularResult::InvalidComponent;
+		Output.ErrorMessage = TEXT("FleshRingComponent is null");
+		return Output;
 	}
 
 	return InFleshRingComponent->Internal_SwapModularRingAsset(InNewAsset, bPreserveLeaderPose);
 }
 
-bool UFleshRingModularLibrary::SwapModularPartMesh(
+FFleshRingModularResult UFleshRingModularLibrary::SwapModularPartMesh(
 	USkeletalMeshComponent* InSkeletalMeshComponent,
 	USkeletalMesh* InNewMesh)
 {
 	if (!InSkeletalMeshComponent)
 	{
-		return false;
+		FFleshRingModularResult Output;
+		Output.Result = EFleshRingModularResult::InvalidMeshComponent;
+		Output.ErrorMessage = TEXT("SkeletalMeshComponent is null");
+		return Output;
 	}
 
 	AActor* Owner = InSkeletalMeshComponent->GetOwner();
 	if (!Owner)
 	{
-		return false;
+		FFleshRingModularResult Output;
+		Output.Result = EFleshRingModularResult::NoOwner;
+		Output.ErrorMessage = TEXT("SkeletalMeshComponent has no owning Actor");
+		return Output;
+	}
+
+	// Skeleton compatibility check (only when Leader Pose is configured)
+	if (USkinnedMeshComponent* Leader = InSkeletalMeshComponent->LeaderPoseComponent.Get())
+	{
+		USkeletalMesh* LeaderMesh = Cast<USkeletalMesh>(Leader->GetSkinnedAsset());
+		USkeleton* LeaderSkeleton = LeaderMesh ? LeaderMesh->GetSkeleton() : nullptr;
+		USkeleton* NewSkeleton = InNewMesh ? InNewMesh->GetSkeleton() : nullptr;
+
+		if (LeaderSkeleton && NewSkeleton && LeaderSkeleton != NewSkeleton)
+		{
+			FFleshRingModularResult Output;
+			Output.Result = EFleshRingModularResult::SkeletonMismatch;
+			Output.ErrorMessage = FString::Printf(
+				TEXT("Skeleton mismatch - Leader: '%s', NewMesh: '%s'"),
+				*LeaderSkeleton->GetName(),
+				*NewSkeleton->GetName());
+			return Output;
+		}
 	}
 
 	// 1. Find FleshRingComponents targeting this SkeletalMeshComponent
@@ -176,7 +204,9 @@ bool UFleshRingModularLibrary::SwapModularPartMesh(
 	// 3. Apply new modular part
 	InSkeletalMeshComponent->SetSkeletalMeshAsset(InNewMesh);
 
-	return true;
+	FFleshRingModularResult Output;
+	Output.Result = EFleshRingModularResult::Success;
+	return Output;
 }
 
 //==========================================================================

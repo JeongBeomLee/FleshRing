@@ -10,6 +10,7 @@
 #include "FleshRingDeformer.h"
 #include "FleshRingAffectedVertices.h"
 #include "FleshRingDebugPointComponent.h"
+#include "FleshRingModularTypes.h"
 #include "RenderGraphResources.h"
 #include "FleshRingComponent.generated.h"
 
@@ -156,7 +157,7 @@ public:
 	 * Internal: Swaps ring asset at runtime for modular characters.
 	 * @see UFleshRingModularLibrary::SwapModularRingAsset
 	 */
-	bool Internal_SwapModularRingAsset(UFleshRingAsset* NewAsset, bool bPreserveLeaderPose = true);
+	FFleshRingModularResult Internal_SwapModularRingAsset(UFleshRingAsset* NewAsset, bool bPreserveLeaderPose = true);
 
 	/**
 	 * Internal: Detaches ring asset and removes ring meshes.

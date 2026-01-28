@@ -52,29 +52,37 @@ public:
 	/**
 	 * Swaps ring asset on a modular part at runtime.
 	 * Preserves Leader Pose setup automatically.
+	 * Requires BakedMesh to be present on the new asset.
 	 *
 	 * @param InFleshRingComponent Target FleshRingComponent
 	 * @param InNewAsset New FleshRingAsset (nullptr = remove ring effect + restore original mesh)
 	 * @param bPreserveLeaderPose Whether to preserve LeaderPoseComponent setting
-	 * @return true on success
+	 * @return Operation result with error details on failure
 	 */
-	UFUNCTION(BlueprintCallable, Category = "FleshRing|Modular|Leader Pose")
-	static bool SwapModularRingAsset(
+	UFUNCTION(BlueprintCallable, Category = "FleshRing|Modular|Leader Pose",
+		meta = (DisplayName = "Swap Modular Ring Asset",
+			ToolTip = "Swaps the Ring Asset on a Leader Pose modular part at runtime.\nRequires the new asset to have a BakedMesh.\n\nPass nullptr as NewAsset to remove the ring effect and restore the original mesh.",
+			Keywords = "swap change replace ring modular leader pose"))
+	static FFleshRingModularResult SwapModularRingAsset(
 		UFleshRingComponent* InFleshRingComponent,
 		UFleshRingAsset* InNewAsset,
 		bool bPreserveLeaderPose = true);
 
 	/**
 	 * Swaps skeletal mesh on a modular part with ring cleanup.
-	 * Detaches any attached ring assets before applying new mesh.
+	 * Detaches the ring asset effect from the target mesh before applying new mesh.
+	 * Validates skeleton compatibility with Leader when Leader Pose is configured.
 	 * Preserves Leader Pose setup automatically.
 	 *
 	 * @param InSkeletalMeshComponent SkeletalMeshComponent to swap mesh on
-	 * @param InNewMesh New modular part mesh (without ring effect)
-	 * @return true on success
+	 * @param InNewMesh New modular part mesh (must use same skeleton as Leader)
+	 * @return Operation result with error details on failure
 	 */
-	UFUNCTION(BlueprintCallable, Category = "FleshRing|Modular|Leader Pose")
-	static bool SwapModularPartMesh(
+	UFUNCTION(BlueprintCallable, Category = "FleshRing|Modular|Leader Pose",
+		meta = (DisplayName = "Swap Modular Part Mesh",
+			ToolTip = "Detaches the ring asset effect from the target mesh, then applies the new skeletal mesh.\nValidates skeleton compatibility when Leader Pose is configured.\n\nLeader Pose setup is preserved automatically.",
+			Keywords = "swap change replace part mesh modular leader pose skeletal"))
+	static FFleshRingModularResult SwapModularPartMesh(
 		USkeletalMeshComponent* InSkeletalMeshComponent,
 		USkeletalMesh* InNewMesh);
 

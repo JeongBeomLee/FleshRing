@@ -1070,15 +1070,20 @@ void UFleshRingComponent::SwapFleshRingAsset(UFleshRingAsset* NewAsset)
 	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Swapped to baked asset '%s'"), *NewAsset->GetName());
 }
 
-bool UFleshRingComponent::Internal_SwapModularRingAsset(UFleshRingAsset* NewAsset, bool bPreserveLeaderPose)
+FFleshRingModularResult UFleshRingComponent::Internal_SwapModularRingAsset(UFleshRingAsset* NewAsset, bool bPreserveLeaderPose)
 {
+	FFleshRingModularResult Output;
+
 	// 1. BakedMesh check (validate before state change)
 	if (NewAsset && !NewAsset->HasBakedMesh())
 	{
 		UE_LOG(LogFleshRingComponent, Warning,
 			TEXT("[%s] Internal_SwapModularRingAsset: NewAsset '%s' has no BakedMesh, cannot apply at runtime"),
 			*GetName(), *NewAsset->GetName());
-		return false;
+		Output.Result = EFleshRingModularResult::NoBakedMesh;
+		Output.ErrorMessage = FString::Printf(
+			TEXT("Asset '%s' has no BakedMesh"), *NewAsset->GetName());
+		return Output;
 	}
 
 	// 2. Edge case: Started without FleshRingAsset
@@ -1095,7 +1100,10 @@ bool UFleshRingComponent::Internal_SwapModularRingAsset(UFleshRingAsset* NewAsse
 	{
 		UE_LOG(LogFleshRingComponent, Warning,
 			TEXT("[%s] Internal_SwapModularRingAsset: No target mesh resolved"), *GetName());
-		return false;
+		Output.Result = EFleshRingModularResult::TargetMeshNotResolved;
+		Output.ErrorMessage = FString::Printf(
+			TEXT("Component '%s' could not resolve target mesh"), *GetName());
+		return Output;
 	}
 
 	// Skeleton compatibility verification (modular system prerequisite)
@@ -1116,7 +1124,12 @@ bool UFleshRingComponent::Internal_SwapModularRingAsset(UFleshRingAsset* NewAsse
 					*GetName(),
 					CurrentSkeleton ? *CurrentSkeleton->GetName() : TEXT("null"),
 					NewSkeleton ? *NewSkeleton->GetName() : TEXT("null"));
-				return false;
+				Output.Result = EFleshRingModularResult::SkeletonMismatch;
+				Output.ErrorMessage = FString::Printf(
+					TEXT("Skeleton mismatch - Current: '%s', BakedMesh: '%s'"),
+					CurrentSkeleton ? *CurrentSkeleton->GetName() : TEXT("null"),
+					NewSkeleton ? *NewSkeleton->GetName() : TEXT("null"));
+				return Output;
 			}
 		}
 	}
@@ -1162,7 +1175,8 @@ bool UFleshRingComponent::Internal_SwapModularRingAsset(UFleshRingAsset* NewAsse
 			TargetMesh->SetLeaderPoseComponent(CachedLeaderPose.Get());
 		}
 
-		return true;
+		Output.Result = EFleshRingModularResult::Success;
+		return Output;
 	}
 
 	// 6. Apply new asset (already assigned in bNeedRetarget case)
@@ -1191,7 +1205,8 @@ bool UFleshRingComponent::Internal_SwapModularRingAsset(UFleshRingAsset* NewAsse
 	SetupRingMeshes();
 	ApplyBakedRingTransforms();
 
-	return true;
+	Output.Result = EFleshRingModularResult::Success;
+	return Output;
 }
 
 void UFleshRingComponent::Internal_DetachModularRingAsset(bool bPreserveLeaderPose)
