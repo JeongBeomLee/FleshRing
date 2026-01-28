@@ -601,24 +601,7 @@ void FSubdivisionSettingsCustomization::CleanupAsyncBake(bool bRestorePreviewMes
 		TickerHandle.Reset();
 	}
 
-	// Hide overlay
-	if (AsyncBakeAsset.IsValid() && GEditor)
-	{
-		UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
-		if (AssetEditorSubsystem)
-		{
-			TArray<IAssetEditorInstance*> Editors = AssetEditorSubsystem->FindEditorsForAsset(AsyncBakeAsset.Get());
-			for (IAssetEditorInstance* Editor : Editors)
-			{
-				FFleshRingAssetEditor* FleshRingEditor = static_cast<FFleshRingAssetEditor*>(Editor);
-				if (FleshRingEditor)
-				{
-					FleshRingEditor->ShowBakeOverlay(false);
-					break;
-				}
-			}
-		}
-	}
+	// NOTE: Overlay is hidden AFTER SaveAsset completes (keep input blocked until save finishes)
 
 	// Restore original preview mesh
 	if (bRestorePreviewMesh && AsyncBakeComponent.IsValid() && OriginalPreviewMesh.IsValid())
@@ -712,6 +695,25 @@ void FSubdivisionSettingsCustomization::CleanupAsyncBake(bool bRestorePreviewMes
 
 	// Auto-save (includes Perforce checkout prompt)
 	SaveAsset(AsyncBakeAsset.Get());
+
+	// Hide overlay AFTER save completes (prevent user interaction during cleanup/save)
+	if (AsyncBakeAsset.IsValid() && GEditor)
+	{
+		UAssetEditorSubsystem* AssetEditorSubsystem = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
+		if (AssetEditorSubsystem)
+		{
+			TArray<IAssetEditorInstance*> Editors = AssetEditorSubsystem->FindEditorsForAsset(AsyncBakeAsset.Get());
+			for (IAssetEditorInstance* Editor : Editors)
+			{
+				FFleshRingAssetEditor* FleshRingEditor = static_cast<FFleshRingAssetEditor*>(Editor);
+				if (FleshRingEditor)
+				{
+					FleshRingEditor->ShowBakeOverlay(false);
+					break;
+				}
+			}
+		}
+	}
 
 	// Reset state
 	bAsyncBakeInProgress = false;
