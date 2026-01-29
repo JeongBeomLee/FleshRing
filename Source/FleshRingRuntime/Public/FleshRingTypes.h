@@ -673,7 +673,7 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	 * - 0: No Bulge, 1: Default, 2+: Exaggerated effect
 	 * - Recommended: 0.8~1.2
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bEnableBulge", ClampMin = "0.0", ClampMax = "100.0"))
 	float BulgeIntensity = 1.0f;
 
 	/**

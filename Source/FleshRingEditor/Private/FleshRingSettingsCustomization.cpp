@@ -1431,10 +1431,10 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
 						float Value;
 						Handle->GetValue(Value);
-						return !FMath::IsNearlyEqual(Value, 1.0f);
+						return !FMath::IsNearlyEqual(Value, 1.5f);
 					}),
 					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-						Handle->SetValue(1.0f);
+						Handle->SetValue(1.5f);
 					})
 				)
 			);
@@ -1447,10 +1447,10 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
 						uint8 Value;
 						Handle->GetValue(Value);
-						return Value != static_cast<uint8>(EFalloffType::Linear);
+						return Value != static_cast<uint8>(EFalloffType::Hermite);
 					}),
 					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-						Handle->SetValue(static_cast<uint8>(EFalloffType::Linear));
+						Handle->SetValue(static_cast<uint8>(EFalloffType::Hermite));
 					})
 				)
 			);
@@ -1465,10 +1465,10 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
 						float Value;
 						Handle->GetValue(Value);
-						return !FMath::IsNearlyZero(Value);
+						return !FMath::IsNearlyEqual(Value, 1.0f);
 					}),
 					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-						Handle->SetValue(0.0f);
+						Handle->SetValue(1.0f);
 					})
 				)
 			);
@@ -1482,10 +1482,10 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
 						float Value;
 						Handle->GetValue(Value);
-						return !FMath::IsNearlyZero(Value);
+						return !FMath::IsNearlyEqual(Value, 1.0f);
 					}),
 					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-						Handle->SetValue(0.0f);
+						Handle->SetValue(1.0f);
 					})
 				)
 			);
@@ -1642,7 +1642,19 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	// Volume mode selection
 	if (SmoothingVolumeModeHandle.IsValid())
 	{
-		SmoothingVolumeGroup.AddPropertyRow(SmoothingVolumeModeHandle.ToSharedRef());
+		SmoothingVolumeGroup.AddPropertyRow(SmoothingVolumeModeHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						uint8 Value;
+						Handle->GetValue(Value);
+						return static_cast<ESmoothingVolumeMode>(Value) != ESmoothingVolumeMode::HopBased;
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(static_cast<uint8>(ESmoothingVolumeMode::HopBased));
+					})
+				)
+			);
 	}
 	// HopBased settings (only shown when SmoothingVolumeMode == HopBased)
 	if (MaxSmoothingHopsHandle.IsValid())
@@ -1653,10 +1665,10 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
 						int32 Value;
 						Handle->GetValue(Value);
-						return Value != 5;
+						return Value != 10;
 					}),
 					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-						Handle->SetValue(5);
+						Handle->SetValue(10);
 					})
 				)
 			);
@@ -1686,10 +1698,10 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
 						float Value;
 						Handle->GetValue(Value);
-						return !FMath::IsNearlyEqual(Value, 0.0f);
+						return !FMath::IsNearlyEqual(Value, 5.0f);
 					}),
 					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-						Handle->SetValue(0.0f);
+						Handle->SetValue(5.0f);
 					})
 				)
 			);
@@ -1743,7 +1755,19 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	IDetailGroup& HeatPropagationGroup = SmoothingGroup.AddGroup(TEXT("DeformationSpread"), LOCTEXT("DeformationSpreadGroup", "Deformation Spread"));
 	if (bEnableHeatPropagationHandle.IsValid())
 	{
-		HeatPropagationGroup.AddPropertyRow(bEnableHeatPropagationHandle.ToSharedRef());
+		HeatPropagationGroup.AddPropertyRow(bEnableHeatPropagationHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						bool bValue;
+						Handle->GetValue(bValue);
+						return bValue != false;
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(false);
+					})
+				)
+			);
 	}
 	if (HeatPropagationIterationsHandle.IsValid())
 	{
@@ -1808,10 +1832,10 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
 						float Value;
 						Handle->GetValue(Value);
-						return !FMath::IsNearlyEqual(Value, 1.0f);
+						return !FMath::IsNearlyEqual(Value, 0.8f);
 					}),
 					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-						Handle->SetValue(1.0f);
+						Handle->SetValue(0.8f);
 					})
 				)
 			);
@@ -1842,10 +1866,10 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
 						float Value;
 						Handle->GetValue(Value);
-						return !FMath::IsNearlyEqual(Value, 1.0f);
+						return !FMath::IsNearlyEqual(Value, 0.5f);
 					}),
 					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-						Handle->SetValue(1.0f);
+						Handle->SetValue(0.5f);
 					})
 				)
 			);
@@ -1866,10 +1890,10 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
 						int32 Value;
 						Handle->GetValue(Value);
-						return Value != 2;
+						return Value != 20;
 					}),
 					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-						Handle->SetValue(2);
+						Handle->SetValue(20);
 					})
 				)
 			);
@@ -1882,10 +1906,10 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
 						float Value;
 						Handle->GetValue(Value);
-						return !FMath::IsNearlyEqual(Value, 0.5f);
+						return !FMath::IsNearlyEqual(Value, 0.8f);
 					}),
 					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
-						Handle->SetValue(0.5f);
+						Handle->SetValue(0.8f);
 					})
 				)
 			);
@@ -1893,7 +1917,19 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	// Algorithm selection
 	if (LaplacianSmoothingTypeHandle.IsValid())
 	{
-		LaplacianGroup.AddPropertyRow(LaplacianSmoothingTypeHandle.ToSharedRef());
+		LaplacianGroup.AddPropertyRow(LaplacianSmoothingTypeHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						uint8 Value;
+						Handle->GetValue(Value);
+						return static_cast<ELaplacianSmoothingType>(Value) != ELaplacianSmoothingType::Laplacian;
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(static_cast<uint8>(ELaplacianSmoothingType::Laplacian));
+					})
+				)
+			);
 	}
 	// Anchor mode (pin directly deformed vertices)
 	if (bAnchorDeformedVerticesHandle.IsValid())
@@ -1945,7 +1981,19 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 
 	if (bEnablePBDEdgeConstraintHandle.IsValid())
 	{
-		PBDGroup.AddPropertyRow(bEnablePBDEdgeConstraintHandle.ToSharedRef());
+		PBDGroup.AddPropertyRow(bEnablePBDEdgeConstraintHandle.ToSharedRef())
+			.OverrideResetToDefault(
+				FResetToDefaultOverride::Create(
+					FIsResetToDefaultVisible::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						bool bValue;
+						Handle->GetValue(bValue);
+						return bValue != true;
+					}),
+					FResetToDefaultHandler::CreateLambda([](TSharedPtr<IPropertyHandle> Handle) {
+						Handle->SetValue(true);
+					})
+				)
+			);
 	}
 	if (bPBDAnchorAffectedVerticesHandle.IsValid())
 	{

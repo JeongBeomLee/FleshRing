@@ -138,8 +138,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FleshRing Asset")
 	TObjectPtr<UFleshRingAsset> FleshRingAsset;
 
-	/** Called when asset is changed */
-	UFUNCTION(BlueprintCallable, Category = "FleshRing")
+	/** Called when asset is changed (internal use) */
 	void ApplyAsset();
 
 	/**
