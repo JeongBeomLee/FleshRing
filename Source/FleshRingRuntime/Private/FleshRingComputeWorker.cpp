@@ -626,6 +626,15 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					continue;
 				}
 
+				// Skip if no actual deformation (TightnessStrength=0 and no effective Bulge)
+				const bool bHasDeformation =
+					DispatchData.Params.TightnessStrength > KINDA_SMALL_NUMBER ||
+					(DispatchData.bEnableBulge && DispatchData.BulgeStrength > KINDA_SMALL_NUMBER && DispatchData.BulgeIndices.Num() > 0);
+				if (!bHasDeformation)
+				{
+					continue;
+				}
+
 				// Skip if no slice data
 				if (DispatchData.SlicePackedData.Num() == 0 || DispatchData.OriginalBoneDistances.Num() == 0)
 				{
@@ -749,6 +758,15 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 
 				// Heat Propagation enable condition: bEnableHeatPropagation && HopBased mode && SmoothingRegion data exists
 				if (!DispatchData.bEnableHeatPropagation || DispatchData.SmoothingExpandMode != ESmoothingVolumeMode::HopBased)
+				{
+					continue;
+				}
+
+				// Skip if no actual deformation (TightnessStrength=0 and no Bulge)
+				const bool bHasDeformation =
+					DispatchData.Params.TightnessStrength > KINDA_SMALL_NUMBER ||
+					(DispatchData.bEnableBulge && DispatchData.BulgeStrength > KINDA_SMALL_NUMBER && DispatchData.BulgeIndices.Num() > 0);
+				if (!bHasDeformation)
 				{
 					continue;
 				}
@@ -1047,6 +1065,15 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					continue;
 				}
 
+				// Skip if no actual deformation (TightnessStrength=0 and no Bulge)
+				const bool bHasDeformation =
+					DispatchData.Params.TightnessStrength > KINDA_SMALL_NUMBER ||
+					(DispatchData.bEnableBulge && DispatchData.BulgeStrength > KINDA_SMALL_NUMBER && DispatchData.BulgeIndices.Num() > 0);
+				if (!bHasDeformation)
+				{
+					continue;
+				}
+
 				// ===== PBD region selection (use unified SmoothingRegion) =====
 				const bool bUseSmoothingRegion =
 					DispatchData.SmoothingRegionIndices.Num() > 0 &&
@@ -1214,6 +1241,16 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 
 				// Skip if Laplacian smoothing is disabled
 				if (!DispatchData.bEnableLaplacianSmoothing)
+				{
+					continue;
+				}
+
+				// Skip if no actual deformation (TightnessStrength=0 and no Bulge)
+				// Smoothing is meaningless when mesh has no deformation
+				const bool bHasDeformation =
+					DispatchData.Params.TightnessStrength > KINDA_SMALL_NUMBER ||
+					(DispatchData.bEnableBulge && DispatchData.BulgeStrength > KINDA_SMALL_NUMBER && DispatchData.BulgeIndices.Num() > 0);
+				if (!bHasDeformation)
 				{
 					continue;
 				}
@@ -1684,6 +1721,15 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				{
 					const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
 
+					// Skip if no actual deformation (TightnessStrength=0 and no Bulge)
+					const bool bHasDeformation =
+						DispatchData.Params.TightnessStrength > KINDA_SMALL_NUMBER ||
+						(DispatchData.bEnableBulge && DispatchData.BulgeStrength > KINDA_SMALL_NUMBER && DispatchData.BulgeIndices.Num() > 0);
+					if (!bHasDeformation)
+					{
+						continue;
+					}
+
 					// ===== Normal Recompute region selection =====
 					// Priority: SmoothingRegion > Original
 					const bool bAnySmoothingEnabled =
@@ -1914,6 +1960,15 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
 				{
 					const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
+
+					// Skip if no actual deformation (TightnessStrength=0 and no Bulge)
+					const bool bHasDeformation =
+						DispatchData.Params.TightnessStrength > KINDA_SMALL_NUMBER ||
+						(DispatchData.bEnableBulge && DispatchData.BulgeStrength > KINDA_SMALL_NUMBER && DispatchData.BulgeIndices.Num() > 0);
+					if (!bHasDeformation)
+					{
+						continue;
+					}
 
 					// ===== Tangent Recompute region selection =====
 					// Priority: SmoothingRegion > Original

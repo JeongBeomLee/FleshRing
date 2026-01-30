@@ -542,6 +542,12 @@ void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
     OutRingData.SmoothingRegionInfluences.Reset();
     OutRingData.SmoothingRegionIsAnchor.Reset();
 
+    // No smoothing region if no affected vertices (no deformation = no smoothing needed)
+    if (AffectedVertices.Num() == 0)
+    {
+        return;
+    }
+
     // Set for fast lookup of original Affected Vertices (for anchor determination)
     TSet<uint32> AffectedSet;
     AffectedSet.Reserve(AffectedVertices.Num());
@@ -862,6 +868,12 @@ void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
     OutRingData.SmoothingRegionInfluences.Reset();
     OutRingData.SmoothingRegionIsAnchor.Reset();
 
+    // No smoothing region if no affected vertices (no deformation = no smoothing needed)
+    if (AffectedVertices.Num() == 0)
+    {
+        return;
+    }
+
     if (!Context.SDFCache || !Context.SDFCache->IsValid())
     {
         return;
@@ -1163,6 +1175,12 @@ void FVirtualBandVertexSelector::SelectSmoothingRegionVertices(
     OutRingData.SmoothingRegionIndices.Reset();
     OutRingData.SmoothingRegionInfluences.Reset();
     OutRingData.SmoothingRegionIsAnchor.Reset();
+
+    // No smoothing region if no affected vertices (no deformation = no smoothing needed)
+    if (AffectedVertices.Num() == 0)
+    {
+        return;
+    }
 
     // Set for fast lookup of original Affected Vertices (for anchor determination)
     TSet<uint32> AffectedSet;
