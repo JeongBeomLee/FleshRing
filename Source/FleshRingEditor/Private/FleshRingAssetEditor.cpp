@@ -9,6 +9,9 @@
 #include "SFleshRingEditorViewport.h"
 #include "FleshRingEditorViewportClient.h"
 #include "FleshRingPreviewScene.h"
+#include "FleshRingEditorCommands.h"
+#include "FleshRingEdMode.h"
+#include "EditorModeRegistry.h"
 #include "SAdvancedPreviewDetailsTab.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "Widgets/SBoxPanel.h"
@@ -24,6 +27,7 @@
 #include "Widgets/Images/SThrobber.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Styling/AppStyle.h"
+#include "EditorModeManager.h"
 
 #define LOCTEXT_NAMESPACE "FleshRingAssetEditor"
 
@@ -95,6 +99,9 @@ void FFleshRingAssetEditor::InitFleshRingAssetEditor(
 	TArray<UObject*> ObjectsToEdit;
 	ObjectsToEdit.Add(InAsset);
 
+	// Create EditorModeManager BEFORE InitAssetEditor (tabs are spawned during InitAssetEditor)
+	CreateEditorModeManager();
+
 	// Initialize editor
 	InitAssetEditor(
 		Mode,
@@ -119,6 +126,10 @@ void FFleshRingAssetEditor::InitFleshRingAssetEditor(
 		EditingAsset->OnRingSelectionChanged.AddRaw(
 			this, &FFleshRingAssetEditor::OnRingSelectionChangedFromDetails);
 	}
+
+	// Register and bind editor commands (QWER shortcuts)
+	FFleshRingEditorCommands::Register();
+	BindCommands();
 }
 
 
@@ -238,9 +249,10 @@ TSharedRef<SDockTab> FFleshRingAssetEditor::SpawnTab_SkeletonTree(const FSpawnTa
 
 TSharedRef<SDockTab> FFleshRingAssetEditor::SpawnTab_Viewport(const FSpawnTabArgs& Args)
 {
-	// Create viewport widget
+	// Create viewport widget (pass ModeTools from toolkit)
 	ViewportWidget = SNew(SFleshRingEditorViewport)
-		.Asset(EditingAsset);
+		.Asset(EditingAsset)
+		.ModeTools(&GetEditorModeManager());
 
 	// Clear skeleton tree selection when bone selection is cleared in viewport
 	if (TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient())
@@ -1078,6 +1090,220 @@ void FFleshRingAssetEditor::ShowBakeOverlay(bool bShow, const FText& Message)
 		}
 
 		bBakeOverlayVisible = false;
+	}
+}
+
+void FFleshRingAssetEditor::CreateEditorModeManager()
+{
+	// Call parent to create EditorModeManager
+	FAssetEditorToolkit::CreateEditorModeManager();
+
+	// Register EdMode to global registry (if not already registered)
+	if (!FEditorModeRegistry::Get().GetFactoryMap().Contains(FFleshRingEdMode::EM_FleshRingEdModeId))
+	{
+		FEditorModeRegistry::Get().RegisterMode<FFleshRingEdMode>(FFleshRingEdMode::EM_FleshRingEdModeId);
+	}
+
+	// Setup EditorModeManager with FleshRing EdMode
+	GetEditorModeManager().SetDefaultMode(FFleshRingEdMode::EM_FleshRingEdModeId);
+	GetEditorModeManager().ActivateDefaultMode();
+	GetEditorModeManager().SetWidgetMode(UE::Widget::WM_Translate);
+}
+
+void FFleshRingAssetEditor::BindCommands()
+{
+	const FFleshRingEditorCommands& Commands = FFleshRingEditorCommands::Get();
+
+	ToolkitCommands->MapAction(
+		Commands.SetWidgetModeNone,
+		FExecuteAction::CreateSP(this, &FFleshRingAssetEditor::SetWidgetMode, UE::Widget::WM_None));
+
+	ToolkitCommands->MapAction(
+		Commands.SetWidgetModeTranslate,
+		FExecuteAction::CreateSP(this, &FFleshRingAssetEditor::SetWidgetMode, UE::Widget::WM_Translate));
+
+	ToolkitCommands->MapAction(
+		Commands.SetWidgetModeRotate,
+		FExecuteAction::CreateSP(this, &FFleshRingAssetEditor::SetWidgetMode, UE::Widget::WM_Rotate));
+
+	ToolkitCommands->MapAction(
+		Commands.SetWidgetModeScale,
+		FExecuteAction::CreateSP(this, &FFleshRingAssetEditor::SetWidgetMode, UE::Widget::WM_Scale));
+
+	ToolkitCommands->MapAction(
+		Commands.ToggleCoordSystem,
+		FExecuteAction::CreateSP(this, &FFleshRingAssetEditor::ToggleCoordSystem));
+
+	// Debug Visualization (number keys)
+	ToolkitCommands->MapAction(Commands.ToggleDebugVisualization,
+		FExecuteAction::CreateSP(this, &FFleshRingAssetEditor::OnToggleDebugVisualization));
+	ToolkitCommands->MapAction(Commands.ToggleSdfVolume,
+		FExecuteAction::CreateSP(this, &FFleshRingAssetEditor::OnToggleSdfVolume));
+	ToolkitCommands->MapAction(Commands.ToggleAffectedVertices,
+		FExecuteAction::CreateSP(this, &FFleshRingAssetEditor::OnToggleAffectedVertices));
+	ToolkitCommands->MapAction(Commands.ToggleBulgeHeatmap,
+		FExecuteAction::CreateSP(this, &FFleshRingAssetEditor::OnToggleBulgeHeatmap));
+
+	// Show toggles (Shift+number)
+	ToolkitCommands->MapAction(Commands.ToggleSkeletalMesh,
+		FExecuteAction::CreateSP(this, &FFleshRingAssetEditor::OnToggleSkeletalMesh));
+	ToolkitCommands->MapAction(Commands.ToggleRingGizmos,
+		FExecuteAction::CreateSP(this, &FFleshRingAssetEditor::OnToggleRingGizmos));
+	ToolkitCommands->MapAction(Commands.ToggleRingMeshes,
+		FExecuteAction::CreateSP(this, &FFleshRingAssetEditor::OnToggleRingMeshes));
+	ToolkitCommands->MapAction(Commands.ToggleBulgeRange,
+		FExecuteAction::CreateSP(this, &FFleshRingAssetEditor::OnToggleBulgeRange));
+
+	// Debug options (Ctrl+number)
+	ToolkitCommands->MapAction(Commands.ToggleSDFSlice,
+		FExecuteAction::CreateSP(this, &FFleshRingAssetEditor::OnToggleSDFSlice));
+	ToolkitCommands->MapAction(Commands.ToggleBulgeArrows,
+		FExecuteAction::CreateSP(this, &FFleshRingAssetEditor::OnToggleBulgeArrows));
+}
+
+void FFleshRingAssetEditor::SetWidgetMode(UE::Widget::EWidgetMode Mode)
+{
+	// Use toolkit's EditorModeManager directly (shared with viewport)
+	GetEditorModeManager().SetWidgetMode(Mode);
+
+	// Invalidate viewport to reflect change
+	if (ViewportWidget.IsValid())
+	{
+		if (TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient())
+		{
+			ViewportClient->Invalidate();
+		}
+	}
+}
+
+void FFleshRingAssetEditor::ToggleCoordSystem()
+{
+	if (ViewportWidget.IsValid())
+	{
+		if (TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient())
+		{
+			ViewportClient->ToggleLocalCoordSystem();
+		}
+	}
+}
+
+void FFleshRingAssetEditor::OnToggleDebugVisualization()
+{
+	if (ViewportWidget.IsValid())
+	{
+		if (TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient())
+		{
+			ViewportClient->ToggleShowDebugVisualization();
+			ViewportClient->Invalidate();
+		}
+	}
+}
+
+void FFleshRingAssetEditor::OnToggleSdfVolume()
+{
+	if (ViewportWidget.IsValid())
+	{
+		if (TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient())
+		{
+			ViewportClient->ToggleShowSdfVolume();
+			ViewportClient->Invalidate();
+		}
+	}
+}
+
+void FFleshRingAssetEditor::OnToggleAffectedVertices()
+{
+	if (ViewportWidget.IsValid())
+	{
+		if (TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient())
+		{
+			ViewportClient->ToggleShowAffectedVertices();
+			ViewportClient->Invalidate();
+		}
+	}
+}
+
+void FFleshRingAssetEditor::OnToggleBulgeHeatmap()
+{
+	if (ViewportWidget.IsValid())
+	{
+		if (TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient())
+		{
+			ViewportClient->ToggleShowBulgeHeatmap();
+			ViewportClient->Invalidate();
+		}
+	}
+}
+
+void FFleshRingAssetEditor::OnToggleSkeletalMesh()
+{
+	if (ViewportWidget.IsValid())
+	{
+		if (TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient())
+		{
+			ViewportClient->ToggleShowSkeletalMesh();
+			ViewportClient->Invalidate();
+		}
+	}
+}
+
+void FFleshRingAssetEditor::OnToggleRingGizmos()
+{
+	if (ViewportWidget.IsValid())
+	{
+		if (TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient())
+		{
+			ViewportClient->ToggleShowRingGizmos();
+			ViewportClient->Invalidate();
+		}
+	}
+}
+
+void FFleshRingAssetEditor::OnToggleRingMeshes()
+{
+	if (ViewportWidget.IsValid())
+	{
+		if (TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient())
+		{
+			ViewportClient->ToggleShowRingMeshes();
+			ViewportClient->Invalidate();
+		}
+	}
+}
+
+void FFleshRingAssetEditor::OnToggleBulgeRange()
+{
+	if (ViewportWidget.IsValid())
+	{
+		if (TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient())
+		{
+			ViewportClient->ToggleShowBulgeRange();
+			ViewportClient->Invalidate();
+		}
+	}
+}
+
+void FFleshRingAssetEditor::OnToggleSDFSlice()
+{
+	if (ViewportWidget.IsValid())
+	{
+		if (TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient())
+		{
+			ViewportClient->ToggleShowSDFSlice();
+			ViewportClient->Invalidate();
+		}
+	}
+}
+
+void FFleshRingAssetEditor::OnToggleBulgeArrows()
+{
+	if (ViewportWidget.IsValid())
+	{
+		if (TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient())
+		{
+			ViewportClient->ToggleShowBulgeArrows();
+			ViewportClient->Invalidate();
+		}
 	}
 }
 

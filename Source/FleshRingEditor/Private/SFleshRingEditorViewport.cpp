@@ -21,23 +21,7 @@
 void SFleshRingEditorViewport::Construct(const FArguments& InArgs)
 {
 	EditingAsset = InArgs._Asset;
-
-	// Register EdMode to global registry (if not already registered)
-	if (!FEditorModeRegistry::Get().GetFactoryMap().Contains(FFleshRingEdMode::EM_FleshRingEdModeId))
-	{
-		FEditorModeRegistry::Get().RegisterMode<FFleshRingEdMode>(FFleshRingEdMode::EM_FleshRingEdModeId);
-	}
-
-	// Create ModeTools and activate EdMode
-	ModeTools = MakeShared<FEditorModeTools>();
-	ModeTools->SetDefaultMode(FFleshRingEdMode::EM_FleshRingEdModeId);
-	ModeTools->ActivateDefaultMode();
-
-	// Cache EdMode (using static instance)
-	FleshRingEdMode = FFleshRingEdMode::CurrentInstance;
-
-	// Set default widget mode
-	ModeTools->SetWidgetMode(UE::Widget::WM_Translate);
+	ModeTools = InArgs._ModeTools;
 
 	// Create preview scene
 	FAdvancedPreviewScene::ConstructionValues CVS;
@@ -63,12 +47,7 @@ SFleshRingEditorViewport::~SFleshRingEditorViewport()
 		ViewportClient->Viewport = nullptr;
 	}
 
-	// Clean up ModeTools
-	if (ModeTools.IsValid())
-	{
-		ModeTools->DeactivateAllModes();
-		ModeTools.Reset();
-	}
+	// ModeTools is owned by FAssetEditorToolkit, no cleanup needed here
 }
 
 void SFleshRingEditorViewport::SetAsset(UFleshRingAsset* InAsset)
@@ -195,14 +174,19 @@ void SFleshRingEditorViewport::OnFloatingButtonClicked()
 TSharedRef<FEditorViewportClient> SFleshRingEditorViewport::MakeEditorViewportClient()
 {
 	ViewportClient = MakeShared<FFleshRingEditorViewportClient>(
-		ModeTools.Get(),
+		ModeTools,
 		PreviewScene.Get(),
 		SharedThis(this));
 
-	// Connect ViewportClient to EdMode
-	if (FleshRingEdMode)
+	// Connect ViewportClient to EdMode (get from ModeTools, not static instance)
+	if (ModeTools)
 	{
-		FleshRingEdMode->SetViewportClient(ViewportClient.Get());
+		FEdMode* ActiveMode = ModeTools->GetActiveMode(FFleshRingEdMode::EM_FleshRingEdModeId);
+		FleshRingEdMode = static_cast<FFleshRingEdMode*>(ActiveMode);
+		if (FleshRingEdMode)
+		{
+			FleshRingEdMode->SetViewportClient(ViewportClient.Get());
+		}
 	}
 
 	if (EditingAsset.IsValid())

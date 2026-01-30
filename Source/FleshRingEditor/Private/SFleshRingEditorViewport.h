@@ -21,6 +21,7 @@ class SFleshRingEditorViewport : public SEditorViewport, public ICommonEditorVie
 public:
 	SLATE_BEGIN_ARGS(SFleshRingEditorViewport) {}
 		SLATE_ARGUMENT(UFleshRingAsset*, Asset)
+		SLATE_ARGUMENT(FEditorModeTools*, ModeTools)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
@@ -66,8 +67,8 @@ private:
 	/** Viewport client */
 	TSharedPtr<FFleshRingEditorViewportClient> ViewportClient;
 
-	/** Editor Mode Tools */
-	TSharedPtr<FEditorModeTools> ModeTools;
+	/** Editor Mode Tools (owned by FAssetEditorToolkit) */
+	FEditorModeTools* ModeTools = nullptr;
 
 	/** FleshRing EdMode */
 	FFleshRingEdMode* FleshRingEdMode = nullptr;

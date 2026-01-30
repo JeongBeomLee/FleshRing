@@ -6,6 +6,7 @@
 #include "Toolkits/AssetEditorToolkit.h"
 #include "UObject/UObjectGlobals.h"
 #include "FleshRingEditorViewportClient.h"
+#include "FleshRingEditorCommands.h"
 
 class UFleshRingAsset;
 class UFleshRingComponent;
@@ -42,6 +43,9 @@ public:
 	virtual void RegisterTabSpawners(const TSharedRef<FTabManager>& TabManager) override;
 	virtual void UnregisterTabSpawners(const TSharedRef<FTabManager>& TabManager) override;
 
+	// FAssetEditorToolkit interface
+	virtual void CreateEditorModeManager() override;
+
 	/** Return the Asset being edited */
 	UFleshRingAsset* GetEditingAsset() const { return EditingAsset; }
 
@@ -73,6 +77,31 @@ public:
 	TSharedPtr<SFleshRingEditorViewport> GetViewportWidget() const { return ViewportWidget; }
 
 private:
+	/** Bind editor commands (QWER shortcuts) */
+	void BindCommands();
+
+	/** Set widget mode (gizmo type) */
+	void SetWidgetMode(UE::Widget::EWidgetMode Mode);
+
+	/** Toggle Local/World coordinate system */
+	void ToggleCoordSystem();
+
+	// Debug Visualization toggles
+	void OnToggleDebugVisualization();
+	void OnToggleSdfVolume();
+	void OnToggleAffectedVertices();
+	void OnToggleBulgeHeatmap();
+
+	// Show toggles
+	void OnToggleSkeletalMesh();
+	void OnToggleRingGizmos();
+	void OnToggleRingMeshes();
+	void OnToggleBulgeRange();
+
+	// Debug options
+	void OnToggleSDFSlice();
+	void OnToggleBulgeArrows();
+
 	/** Spawn Skeleton Tree tab */
 	TSharedRef<SDockTab> SpawnTab_SkeletonTree(const FSpawnTabArgs& Args);
 
