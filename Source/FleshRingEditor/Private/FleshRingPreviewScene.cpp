@@ -184,22 +184,8 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	{
 		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Mesh unchanged, skipping full refresh (preserving DeformerInstance caches)"));
 
-		// Update only Ring meshes (reflect parameter changes like Tightness)
-		if (FleshRingComponent)
-		{
-			FleshRingComponent->FleshRingAsset = InAsset;
-			// Perform lightweight update instead of ApplyAsset()
-			FleshRingComponent->UpdateRingTransforms();
-			// Regenerate Ring meshes + SDF to reflect RingMesh changes
-			FleshRingComponent->RefreshRingMeshes();
-			FleshRingComponent->RefreshSDF();
-
-			// Invalidate DeformerInstance's Tightness cache (reflect parameter changes)
-			if (UFleshRingDeformerInstance* DeformerInstance = Cast<UFleshRingDeformerInstance>(SkeletalMeshComponent->GetMeshDeformerInstance()))
-			{
-				DeformerInstance->InvalidateTightnessCache();
-			}
-		}
+		// FleshRingComponent handles its own update via OnAssetChanged delegate
+		// (Already processed in FleshRingComponent::OnFleshRingAssetChanged -> ApplyAsset -> RefreshWithDeformerReuse)
 
 		// Update Ring meshes (only when FleshRingComponent is disabled)
 		// If bEnableFleshRing=true, FleshRingComponent manages Ring Mesh, PreviewScene only cleans up
