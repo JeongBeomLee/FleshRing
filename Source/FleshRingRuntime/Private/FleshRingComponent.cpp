@@ -967,6 +967,15 @@ void UFleshRingComponent::ApplyAsset()
 		return;
 	}
 
+#if WITH_EDITOR
+	// Ensure delegate is bound (may not be bound if FleshRingAsset was set after OnRegister)
+	// This happens in PreviewScene where FleshRingAsset is assigned directly after component creation
+	if (!AssetChangedDelegateHandle.IsValid())
+	{
+		BindToAssetDelegate();
+	}
+#endif
+
 	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Applying asset '%s'"), *FleshRingAsset->GetName());
 
 	// Reuse existing Deformer if available (prevents GPU memory leak)
@@ -1348,15 +1357,6 @@ void UFleshRingComponent::SetupRingMeshes()
 	for (int32 RingIndex = 0; RingIndex < FleshRingAsset->Rings.Num(); ++RingIndex)
 	{
 		const FFleshRingSettings& Ring = FleshRingAsset->Rings[RingIndex];
-
-		// VirtualBand mode: Pick via gizmo (same approach as VirtualRing mode)
-		// SDF generation is handled directly in GenerateSDF(), so no mesh component created here
-		if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
-		{
-			RingMeshComponents.Add(nullptr);
-			SkinnedRingMeshComponents.Add(nullptr);
-			continue;
-		}
 
 		// Check if skinned ring mesh is available for this ring
 		USkeletalMesh* SkinnedRingMesh = bHasSkinnedRings &&

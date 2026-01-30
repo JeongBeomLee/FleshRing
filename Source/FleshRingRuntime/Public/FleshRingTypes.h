@@ -807,12 +807,21 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	// ===== Skinned Ring Mesh (For Runtime Deformation) =====
 
 	/**
+	 * Generate skinned ring mesh for runtime deformation
+	 * - ON: Ring mesh deforms with character animation (follows twist bones)
+	 * - OFF: Ring mesh stays static (attached to single bone only)
+	 * - Requires ring mesh to be set (works with all influence modes)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (DisplayName = "Enable Skinned Ring Mesh"))
+	bool bGenerateSkinnedRingMesh = true;
+
+	/**
 	 * Skinned ring mesh sampling radius (cm)
 	 * - Radius to search for nearby skin vertices when generating skinned ring mesh
 	 * - Larger = smoother weight blending, Smaller = sharper weight boundaries
 	 * - Recommended: 1.0~3.0 cm
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform", meta = (ClampMin = "0.5", ClampMax = "10.0", DisplayName = "Ring Skin Sampling Radius"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (EditCondition = "bGenerateSkinnedRingMesh", ClampMin = "0.5", ClampMax = "10.0", DisplayName = "Ring Skin Sampling Radius"))
 	float RingSkinSamplingRadius = 2.0f;
 
 	// ===== Post Process (Overall Post-processing Control) =====

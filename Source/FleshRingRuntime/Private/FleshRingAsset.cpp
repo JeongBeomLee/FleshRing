@@ -2992,13 +2992,15 @@ void UFleshRingAsset::GenerateSkinnedRingMeshes(USkeletalMesh* SourceMesh)
 	{
 		const FFleshRingSettings& Ring = Rings[RingIndex];
 
-		// VirtualBand/VirtualRing modes don't have ring mesh
-		if (Ring.InfluenceMode != EFleshRingInfluenceMode::MeshBased)
+		// Skip if skinned ring mesh generation is disabled
+		if (!Ring.bGenerateSkinnedRingMesh)
 		{
 			SubdivisionSettings.BakedSkinnedRingMeshes.Add(nullptr);
 			continue;
 		}
 
+		// Works with all influence modes (MeshBased, VirtualRing, VirtualBand)
+		// as long as a ring mesh is set
 		UStaticMesh* RingMesh = Ring.RingMesh.LoadSynchronous();
 		if (!RingMesh)
 		{
