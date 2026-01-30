@@ -1404,7 +1404,10 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 			PropName == GET_MEMBER_NAME_CHECKED(FSubdivisionSettings, bEnableSubdivision) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RingMesh) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, BoneName) ||
-			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, InfluenceMode))
+			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, InfluenceMode) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshOffset) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshRotation) ||
+			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, MeshScale))
 		{
 			bNeedsFullRefresh = true;
 
