@@ -11,6 +11,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "GameFramework/Actor.h"
+#include "AssetThumbnail.h"
 
 #define LOCTEXT_NAMESPACE "FleshRingDetailCustomization"
 
@@ -79,6 +80,8 @@ void FFleshRingDetailCustomization::CustomizeDetails(IDetailLayoutBuilder& Detai
 				.AllowedClass(UFleshRingAsset::StaticClass())
 				.OnShouldFilterAsset(this, &FFleshRingDetailCustomization::OnShouldFilterAsset)
 				.AllowClear(true)
+				.DisplayThumbnail(true)
+				.ThumbnailPool(DetailBuilder.GetThumbnailPool())
 		];
 
 	// =====================================

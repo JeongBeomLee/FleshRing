@@ -9,6 +9,7 @@ class IDetailLayoutBuilder;
 class IPropertyHandle;
 class UFleshRingComponent;
 class USkeletalMesh;
+class FAssetThumbnailPool;
 struct FAssetData;
 
 /**
