@@ -256,6 +256,15 @@ public:
 	/** Clear baked mesh */
 	void ClearBakedMesh();
 
+	/**
+	 * Generate skinned ring meshes for runtime deformation
+	 * Ring meshes are converted to SkeletalMesh with bone weights sampled from nearby skin vertices
+	 * This allows ring meshes to deform with twist bones like skin vertices
+	 *
+	 * @param SourceMesh - Character's SkeletalMesh to sample bone weights from
+	 */
+	void GenerateSkinnedRingMeshes(USkeletalMesh* SourceMesh);
+
 	/** Check if bake regeneration needed due to parameter changes */
 	bool NeedsBakeRegeneration() const;
 

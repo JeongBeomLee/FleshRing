@@ -408,6 +408,15 @@ private:
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UFleshRingMeshComponent>> RingMeshComponents;
 
+	/**
+	 * Per-Ring skinned SkeletalMeshComponent array (for runtime deformation)
+	 * - Created when BakedSkinnedRingMeshes are available
+	 * - Uses SetLeaderPoseComponent() to follow main character animation
+	 * - Allows ring mesh to deform with twist bones like skin vertices
+	 */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<USkeletalMeshComponent>> SkinnedRingMeshComponents;
+
 	/** Search for target SkeletalMeshComponent only (no mesh change) */
 	void FindTargetMeshOnly();
 

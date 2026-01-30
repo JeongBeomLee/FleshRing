@@ -1337,7 +1337,14 @@ void UFleshRingComponent::SetupRingMeshes()
 
 	USkeletalMeshComponent* SkelMesh = ResolvedTargetMesh.Get();
 
-	// Create StaticMeshComponent for each Ring
+	// Check if baked skinned ring meshes are available
+	// Only use skinned meshes at runtime (game world), not in editor preview
+	// In editor, we need StaticMeshComponent (UFleshRingMeshComponent) for picking
+	const bool bIsGameWorld = GetWorld() && GetWorld()->IsGameWorld();
+	const bool bHasSkinnedRings = bIsGameWorld &&
+		FleshRingAsset->SubdivisionSettings.BakedSkinnedRingMeshes.Num() > 0;
+
+	// Create mesh components for each Ring
 	for (int32 RingIndex = 0; RingIndex < FleshRingAsset->Rings.Num(); ++RingIndex)
 	{
 		const FFleshRingSettings& Ring = FleshRingAsset->Rings[RingIndex];
@@ -1347,14 +1354,72 @@ void UFleshRingComponent::SetupRingMeshes()
 		if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 		{
 			RingMeshComponents.Add(nullptr);
+			SkinnedRingMeshComponents.Add(nullptr);
 			continue;
 		}
 
-		// Skip if no RingMesh
+		// Check if skinned ring mesh is available for this ring
+		USkeletalMesh* SkinnedRingMesh = bHasSkinnedRings &&
+			FleshRingAsset->SubdivisionSettings.BakedSkinnedRingMeshes.IsValidIndex(RingIndex)
+			? FleshRingAsset->SubdivisionSettings.BakedSkinnedRingMeshes[RingIndex]
+			: nullptr;
+
+		// Use skinned ring mesh if available (runtime deformation support)
+		if (SkinnedRingMesh)
+		{
+			FName ComponentName = FName(*FString::Printf(TEXT("%s_SkinnedRing_%d"), *GetName(), RingIndex));
+			USkeletalMeshComponent* SkinnedComp = NewObject<USkeletalMeshComponent>(this, ComponentName, RF_Transient);
+
+			if (SkinnedComp)
+			{
+				SkinnedComp->SetSkeletalMesh(SkinnedRingMesh);
+
+				// Set Leader Pose to follow main character animation
+				// This allows ring mesh to deform with twist bones like skin vertices
+				SkinnedComp->SetLeaderPoseComponent(SkelMesh);
+
+				SkinnedComp->CreationMethod = EComponentCreationMethod::Native;
+				SkinnedComp->bIsEditorOnly = false;
+				SkinnedComp->SetCastShadow(true);
+				SkinnedComp->SetVisibility(bShowRingMesh);
+
+				SkinnedComp->RegisterComponent();
+
+				// Attach to skeletal mesh root with identity transform
+				// Skinning handles ALL positioning based on bone weights
+				// DO NOT attach to specific bone or set transform - this causes double-positioning
+				SkinnedComp->AttachToComponent(SkelMesh, FAttachmentTransformRules::SnapToTargetIncludingScale);
+
+				// Apply materials from original StaticMesh AFTER RegisterComponent
+				// SkeletalMeshComponent requires registration before material assignment works properly
+				UStaticMesh* OriginalRingMesh = Ring.RingMesh.LoadSynchronous();
+				if (OriginalRingMesh)
+				{
+					const TArray<FStaticMaterial>& StaticMaterials = OriginalRingMesh->GetStaticMaterials();
+					for (int32 MatIdx = 0; MatIdx < StaticMaterials.Num(); ++MatIdx)
+					{
+						if (StaticMaterials[MatIdx].MaterialInterface)
+						{
+							SkinnedComp->SetMaterial(MatIdx, StaticMaterials[MatIdx].MaterialInterface);
+						}
+					}
+					SkinnedComp->MarkRenderStateDirty();
+				}
+
+				SkinnedRingMeshComponents.Add(SkinnedComp);
+				RingMeshComponents.Add(nullptr);  // No static mesh component needed
+
+				UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Using skinned ring mesh for Ring[%d]"), RingIndex);
+				continue;
+			}
+		}
+
+		// Fallback to static mesh component (editor preview or no baked skinned mesh)
 		UStaticMesh* RingMesh = Ring.RingMesh.LoadSynchronous();
 		if (!RingMesh)
 		{
 			RingMeshComponents.Add(nullptr);
+			SkinnedRingMeshComponents.Add(nullptr);
 			continue;
 		}
 
@@ -1363,6 +1428,7 @@ void UFleshRingComponent::SetupRingMeshes()
 		{
 			UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: Ring[%d] has no BoneName"), RingIndex);
 			RingMeshComponents.Add(nullptr);
+			SkinnedRingMeshComponents.Add(nullptr);
 			continue;
 		}
 
@@ -1373,6 +1439,7 @@ void UFleshRingComponent::SetupRingMeshes()
 			UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: Ring[%d] bone '%s' not found"),
 				RingIndex, *Ring.BoneName.ToString());
 			RingMeshComponents.Add(nullptr);
+			SkinnedRingMeshComponents.Add(nullptr);
 			continue;
 		}
 
@@ -1386,6 +1453,7 @@ void UFleshRingComponent::SetupRingMeshes()
 		{
 			UE_LOG(LogFleshRingComponent, Error, TEXT("FleshRingComponent: Failed to create FleshRingMeshComponent for Ring[%d]"), RingIndex);
 			RingMeshComponents.Add(nullptr);
+			SkinnedRingMeshComponents.Add(nullptr);
 			continue;
 		}
 
@@ -1416,6 +1484,7 @@ void UFleshRingComponent::SetupRingMeshes()
 		MeshComp->SetRelativeScale3D(Ring.MeshScale);
 
 		RingMeshComponents.Add(MeshComp);
+		SkinnedRingMeshComponents.Add(nullptr);
 	}
 
 	// Apply Visibility based on bShowRingMesh state (sync with editor Show Flag)
@@ -1424,24 +1493,36 @@ void UFleshRingComponent::SetupRingMeshes()
 
 void UFleshRingComponent::CleanupRingMeshes()
 {
-	if (RingMeshComponents.Num() > 0)
+	// Wait for render thread to finish using component resources
+	if (RingMeshComponents.Num() > 0 || SkinnedRingMeshComponents.Num() > 0)
 	{
-		// Wait for render thread to finish using component resources
 		FlushRenderingCommands();
-
-		for (UStaticMeshComponent* MeshComp : RingMeshComponents)
-		{
-			if (MeshComp)
-			{
-				MeshComp->DestroyComponent();
-			}
-		}
-		RingMeshComponents.Empty();
 	}
+
+	// Cleanup static mesh components
+	for (UStaticMeshComponent* MeshComp : RingMeshComponents)
+	{
+		if (MeshComp)
+		{
+			MeshComp->DestroyComponent();
+		}
+	}
+	RingMeshComponents.Empty();
+
+	// Cleanup skinned mesh components
+	for (USkeletalMeshComponent* SkinnedComp : SkinnedRingMeshComponents)
+	{
+		if (SkinnedComp)
+		{
+			SkinnedComp->DestroyComponent();
+		}
+	}
+	SkinnedRingMeshComponents.Empty();
 }
 
 void UFleshRingComponent::UpdateRingMeshVisibility()
 {
+	// Update static mesh components visibility
 	for (int32 i = 0; i < RingMeshComponents.Num(); ++i)
 	{
 		UStaticMeshComponent* MeshComp = RingMeshComponents[i];
@@ -1458,6 +1539,26 @@ void UFleshRingComponent::UpdateRingMeshVisibility()
 #endif
 
 			MeshComp->SetVisibility(bShouldShow);
+		}
+	}
+
+	// Update skinned mesh components visibility
+	for (int32 i = 0; i < SkinnedRingMeshComponents.Num(); ++i)
+	{
+		USkeletalMeshComponent* SkinnedComp = SkinnedRingMeshComponents[i];
+		if (SkinnedComp)
+		{
+			bool bShouldShow = bShowRingMesh;
+
+#if WITH_EDITOR
+			// Check per-Ring visibility in editor
+			if (FleshRingAsset && FleshRingAsset->Rings.IsValidIndex(i))
+			{
+				bShouldShow &= FleshRingAsset->Rings[i].bEditorVisible;
+			}
+#endif
+
+			SkinnedComp->SetVisibility(bShouldShow);
 		}
 	}
 }

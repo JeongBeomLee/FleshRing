@@ -278,6 +278,15 @@ struct FLESHRINGRUNTIME_API FSubdivisionSettings
 	TArray<FTransform> BakedRingTransforms;
 
 	/**
+	 * Baked skinned ring mesh array (for runtime deformation)
+	 * - Ring meshes converted to SkeletalMesh with bone weights sampled from nearby skin vertices
+	 * - Uses SetLeaderPoseComponent() to follow main character animation
+	 * - Prevents ring mesh from staying static while skin deforms with twist bones
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Baked Mesh", NonTransactional)
+	TArray<TObjectPtr<USkeletalMesh>> BakedSkinnedRingMeshes;
+
+	/**
 	 * Parameter hash at bake time
 	 * Includes all parameters: Ring settings, Tightness, Bulge, etc.
 	 * For determining if regeneration needed
@@ -794,6 +803,17 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 	/** Mesh scale */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform", meta = (ClampMin = "0.01"))
 	FVector MeshScale = FVector::OneVector;
+
+	// ===== Skinned Ring Mesh (For Runtime Deformation) =====
+
+	/**
+	 * Skinned ring mesh sampling radius (cm)
+	 * - Radius to search for nearby skin vertices when generating skinned ring mesh
+	 * - Larger = smoother weight blending, Smaller = sharper weight boundaries
+	 * - Recommended: 1.0~3.0 cm
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Transform", meta = (ClampMin = "0.5", ClampMax = "10.0", DisplayName = "Ring Skin Sampling Radius"))
+	float RingSkinSamplingRadius = 2.0f;
 
 	// ===== Post Process (Overall Post-processing Control) =====
 

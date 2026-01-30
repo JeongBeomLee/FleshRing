@@ -6,6 +6,7 @@
 #include "Rendering/SkeletalMeshRenderData.h"
 #include "Rendering/SkeletalMeshLODRenderData.h"
 #include "FleshRingSubdivisionProcessor.h"
+#include "FleshRingSkinnedMeshGenerator.h"
 
 #if WITH_EDITOR
 #include "UObject/ObjectSaveContext.h"
@@ -2890,6 +2891,10 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 	UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Success - %d vertices, %d rings, Hash=%u"),
 		SourceVertexCount, Rings.Num(), SubdivisionSettings.BakeParamsHash);
 
+	// Generate skinned ring meshes for runtime deformation
+	// This allows ring meshes to deform with twist bones like skin vertices
+	GenerateSkinnedRingMeshes(SourceMesh);
+
 	// SubdividedMesh cleanup is performed in CleanupAsyncBake
 	// (Safely cleaned up after preview mesh is restored to original)
 
@@ -2934,10 +2939,125 @@ void UFleshRingAsset::ClearBakedMesh()
 
 		UE_LOG(LogFleshRingAsset, Log, TEXT("ClearBakedMesh: Cleanup complete"));
 	}
+
+	// Cleanup skinned ring meshes
+	for (USkeletalMesh* SkinnedRingMesh : SubdivisionSettings.BakedSkinnedRingMeshes)
+	{
+		if (SkinnedRingMesh)
+		{
+			SkinnedRingMesh->ReleaseResources();
+			SkinnedRingMesh->ReleaseResourcesFence.Wait();
+			FlushRenderingCommands();
+
+			SkinnedRingMesh->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);
+			SkinnedRingMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
+			SkinnedRingMesh->SetFlags(RF_Transient);
+			SkinnedRingMesh->MarkAsGarbage();
+		}
+	}
+	SubdivisionSettings.BakedSkinnedRingMeshes.Empty();
+
 	SubdivisionSettings.BakedRingTransforms.Empty();
 	SubdivisionSettings.BakeParamsHash = 0;
 
 	MarkPackageDirty();
+}
+
+void UFleshRingAsset::GenerateSkinnedRingMeshes(USkeletalMesh* SourceMesh)
+{
+	// Clear existing skinned ring meshes
+	for (USkeletalMesh* OldMesh : SubdivisionSettings.BakedSkinnedRingMeshes)
+	{
+		if (OldMesh)
+		{
+			OldMesh->ReleaseResources();
+			OldMesh->ReleaseResourcesFence.Wait();
+			FlushRenderingCommands();
+			OldMesh->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);
+			OldMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
+			OldMesh->SetFlags(RF_Transient);
+			OldMesh->MarkAsGarbage();
+		}
+	}
+	SubdivisionSettings.BakedSkinnedRingMeshes.Empty();
+
+	if (!SourceMesh)
+	{
+		UE_LOG(LogFleshRingAsset, Warning, TEXT("GenerateSkinnedRingMeshes: SourceMesh is null"));
+		return;
+	}
+
+	// Generate skinned ring mesh for each ring
+	for (int32 RingIndex = 0; RingIndex < Rings.Num(); ++RingIndex)
+	{
+		const FFleshRingSettings& Ring = Rings[RingIndex];
+
+		// VirtualBand/VirtualRing modes don't have ring mesh
+		if (Ring.InfluenceMode != EFleshRingInfluenceMode::MeshBased)
+		{
+			SubdivisionSettings.BakedSkinnedRingMeshes.Add(nullptr);
+			continue;
+		}
+
+		UStaticMesh* RingMesh = Ring.RingMesh.LoadSynchronous();
+		if (!RingMesh)
+		{
+			SubdivisionSettings.BakedSkinnedRingMeshes.Add(nullptr);
+			continue;
+		}
+
+		// Get ring's bone-relative transform from baked transforms
+		FTransform RingRelativeTransform = SubdivisionSettings.BakedRingTransforms.IsValidIndex(RingIndex)
+			? SubdivisionSettings.BakedRingTransforms[RingIndex]
+			: FTransform::Identity;
+
+		// Get the bone's component space transform from RefSkeleton
+		// This is needed to convert ring position from bone-local to component space
+		// Uses same calculation pattern as SDFBoundsSelector (line ~1838) and CalculateBoneTransform
+		const FReferenceSkeleton& RefSkeleton = SourceMesh->GetRefSkeleton();
+		const TArray<FTransform>& RefBonePose = RefSkeleton.GetRefBonePose();
+		const int32 BoneIndex = RefSkeleton.FindBoneIndex(Ring.BoneName);
+		FTransform BoneComponentTransform = SubdivisionHelpers::CalculateBoneTransform(BoneIndex, RefSkeleton, RefBonePose);
+
+		if (BoneIndex == INDEX_NONE)
+		{
+			UE_LOG(LogFleshRingAsset, Warning, TEXT("GenerateSkinnedRingMeshes: Bone '%s' not found for Ring[%d]"),
+				*Ring.BoneName.ToString(), RingIndex);
+		}
+
+		// Full transform: first RingRelative (mesh-local to bone-local), then BoneComponent (bone-local to component-space)
+		// UE convention for A * B: "first A, then B" transformation
+		// Same pattern as SDFBoundsSelector: LocalToComponent = MeshTransform * BoneTransform
+		FTransform RingTransform = RingRelativeTransform * BoneComponentTransform;
+
+		// Generate skinned ring mesh
+		FString MeshName = FString::Printf(TEXT("%s_SkinnedRing_%d"), *GetName(), RingIndex);
+
+		USkeletalMesh* SkinnedRingMesh = FFleshRingSkinnedMeshGenerator::GenerateSkinnedRingMesh(
+			RingMesh,
+			SourceMesh,
+			RingTransform,
+			Ring.RingSkinSamplingRadius,
+			this,  // Outer = this asset for permanent storage
+			MeshName
+		);
+
+		if (SkinnedRingMesh)
+		{
+			// Clear transactional flag to prevent undo issues
+			SkinnedRingMesh->ClearFlags(RF_Transactional);
+			UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateSkinnedRingMeshes: Created skinned ring mesh for Ring[%d]"), RingIndex);
+		}
+		else
+		{
+			UE_LOG(LogFleshRingAsset, Warning, TEXT("GenerateSkinnedRingMeshes: Failed to create skinned ring mesh for Ring[%d]"), RingIndex);
+		}
+
+		SubdivisionSettings.BakedSkinnedRingMeshes.Add(SkinnedRingMesh);
+	}
+
+	UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateSkinnedRingMeshes: Generated %d skinned ring meshes"),
+		SubdivisionSettings.BakedSkinnedRingMeshes.Num());
 }
 
 bool UFleshRingAsset::NeedsBakeRegeneration() const
