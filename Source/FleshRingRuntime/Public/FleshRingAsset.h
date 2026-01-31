@@ -66,10 +66,11 @@ public:
 	TArray<FMaterialLayerMapping> MaterialLayerMappings;
 
 	/**
+	 * [Reserved for future use]
 	 * Enable layer penetration resolution
 	 * If disabled, applies pure deformation without layer order correction
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Material Layer Settings")
+	UPROPERTY()
 	bool bEnableLayerPenetrationResolution = true;
 
 	// =====================================
