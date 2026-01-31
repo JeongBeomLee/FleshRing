@@ -91,6 +91,7 @@ private:
 	void OnToggleSdfVolume();
 	void OnToggleAffectedVertices();
 	void OnToggleBulgeHeatmap();
+	void OnToggleRingSkinSamplingRadius();
 
 	// Show toggles
 	void OnToggleSkeletalMesh();

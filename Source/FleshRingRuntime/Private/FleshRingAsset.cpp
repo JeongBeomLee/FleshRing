@@ -3031,7 +3031,7 @@ void UFleshRingAsset::GenerateSkinnedRingMeshes(USkeletalMesh* SourceMesh)
 		// Same pattern as SDFBoundsSelector: LocalToComponent = MeshTransform * BoneTransform
 		FTransform RingTransform = RingRelativeTransform * BoneComponentTransform;
 
-		// Generate skinned ring mesh
+		// Generate skinned ring mesh (with bone chain filtering to prevent sampling from unrelated bones)
 		FString MeshName = FString::Printf(TEXT("%s_SkinnedRing_%d"), *GetName(), RingIndex);
 
 		USkeletalMesh* SkinnedRingMesh = FFleshRingSkinnedMeshGenerator::GenerateSkinnedRingMesh(
@@ -3039,6 +3039,7 @@ void UFleshRingAsset::GenerateSkinnedRingMeshes(USkeletalMesh* SourceMesh)
 			SourceMesh,
 			RingTransform,
 			Ring.RingSkinSamplingRadius,
+			BoneIndex,  // AttachBoneIndex for bone chain filtering
 			this,  // Outer = this asset for permanent storage
 			MeshName
 		);

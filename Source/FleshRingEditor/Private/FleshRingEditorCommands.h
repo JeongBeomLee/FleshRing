@@ -46,6 +46,7 @@ public:
 	TSharedPtr<FUICommandInfo> ToggleSdfVolume;           // 2
 	TSharedPtr<FUICommandInfo> ToggleAffectedVertices;    // 3
 	TSharedPtr<FUICommandInfo> ToggleBulgeHeatmap;        // 4
+	TSharedPtr<FUICommandInfo> ToggleRingSkinSamplingRadius;  // 5
 
 	// Show toggles (Shift+number)
 	TSharedPtr<FUICommandInfo> ToggleSkeletalMesh;        // Shift+1

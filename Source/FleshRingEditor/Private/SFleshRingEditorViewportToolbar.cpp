@@ -696,6 +696,40 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 			EUserInterfaceActionType::ToggleButton
 		);
 
+		// Show Ring Skin Sampling Radius
+		MenuBuilder.AddMenuEntry(
+			LOCTEXT("ShowRingSkinSamplingRadius", "Show Ring Skin Sampling Radius"),
+			LOCTEXT("ShowRingSkinSamplingRadiusTooltip", "Show/Hide ring skin sampling radius spheres (5)"),
+			FSlateIcon(),
+			FUIAction(
+				FExecuteAction::CreateLambda([WeakViewportClient]()
+				{
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+					{
+						Client->ToggleShowRingSkinSamplingRadius();
+					}
+				}),
+				FCanExecuteAction::CreateLambda([WeakViewportClient]()
+				{
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+					{
+						return Client->ShouldShowDebugVisualization();
+					}
+					return false;
+				}),
+				FIsActionChecked::CreateLambda([WeakViewportClient]()
+				{
+					if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+					{
+						return Client->ShouldShowRingSkinSamplingRadius();
+					}
+					return false;
+				})
+			),
+			NAME_None,
+			EUserInterfaceActionType::ToggleButton
+		);
+
 		// Show SDF Slice
 		MenuBuilder.AddMenuEntry(
 			LOCTEXT("ShowSDFSlice", "Show SDF Slice"),

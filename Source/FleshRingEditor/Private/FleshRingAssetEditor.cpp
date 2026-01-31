@@ -1143,6 +1143,8 @@ void FFleshRingAssetEditor::BindCommands()
 		FExecuteAction::CreateSP(this, &FFleshRingAssetEditor::OnToggleAffectedVertices));
 	ToolkitCommands->MapAction(Commands.ToggleBulgeHeatmap,
 		FExecuteAction::CreateSP(this, &FFleshRingAssetEditor::OnToggleBulgeHeatmap));
+	ToolkitCommands->MapAction(Commands.ToggleRingSkinSamplingRadius,
+		FExecuteAction::CreateSP(this, &FFleshRingAssetEditor::OnToggleRingSkinSamplingRadius));
 
 	// Show toggles (Shift+number)
 	ToolkitCommands->MapAction(Commands.ToggleSkeletalMesh,
@@ -1230,6 +1232,18 @@ void FFleshRingAssetEditor::OnToggleBulgeHeatmap()
 		if (TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient())
 		{
 			ViewportClient->ToggleShowBulgeHeatmap();
+			ViewportClient->Invalidate();
+		}
+	}
+}
+
+void FFleshRingAssetEditor::OnToggleRingSkinSamplingRadius()
+{
+	if (ViewportWidget.IsValid())
+	{
+		if (TSharedPtr<FFleshRingEditorViewportClient> ViewportClient = ViewportWidget->GetViewportClient())
+		{
+			ViewportClient->ToggleShowRingSkinSamplingRadius();
 			ViewportClient->Invalidate();
 		}
 	}

@@ -17,6 +17,7 @@ void FFleshRingEditorCommands::RegisterCommands()
 	UI_COMMAND(ToggleSdfVolume, "Toggle SDF Volume", "Toggle SDF volume display (2)", EUserInterfaceActionType::Button, FInputChord(EKeys::Two));
 	UI_COMMAND(ToggleAffectedVertices, "Toggle Affected Vertices", "Toggle affected vertices display (3)", EUserInterfaceActionType::Button, FInputChord(EKeys::Three));
 	UI_COMMAND(ToggleBulgeHeatmap, "Toggle Bulge Heatmap", "Toggle bulge heatmap display (4)", EUserInterfaceActionType::Button, FInputChord(EKeys::Four));
+	UI_COMMAND(ToggleRingSkinSamplingRadius, "Toggle Ring Skin Sampling Radius", "Toggle ring skin sampling radius spheres (5)", EUserInterfaceActionType::Button, FInputChord(EKeys::Five));
 
 	// Show toggles (Shift+number)
 	UI_COMMAND(ToggleSkeletalMesh, "Toggle Skeletal Mesh", "Toggle skeletal mesh visibility (Shift+1)", EUserInterfaceActionType::Button, FInputChord(EModifierKey::Shift, EKeys::One));

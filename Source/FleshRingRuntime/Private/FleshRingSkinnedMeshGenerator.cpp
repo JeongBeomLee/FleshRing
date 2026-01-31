@@ -11,6 +11,7 @@
 #include "MeshAttributes.h"
 #include "SkeletalMeshAttributes.h"
 #include "BoneWeights.h"
+#include "ReferenceSkeleton.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogFleshRingSkinnedMesh, Log, All);
 
@@ -19,6 +20,7 @@ USkeletalMesh* FFleshRingSkinnedMeshGenerator::GenerateSkinnedRingMesh(
 	USkeletalMesh* SourceSkeletalMesh,
 	const FTransform& RingTransform,
 	float SamplingRadius,
+	int32 AttachBoneIndex,
 	UObject* OuterObject,
 	const FString& MeshName)
 {
@@ -62,7 +64,18 @@ USkeletalMesh* FFleshRingSkinnedMeshGenerator::GenerateSkinnedRingMesh(
 	FVertexSpatialHash SpatialHash;
 	SpatialHash.Build(SkinVertices, SamplingRadius);
 
-	// 4. Transform ring vertices to component space and sample bone weights
+	// 4. Build bone chain filter (attach bone + ancestors + descendants)
+	// This prevents sampling weights from unrelated bones (e.g., wing when ring is on thigh)
+	const FReferenceSkeleton& RefSkeleton = SourceSkeletalMesh->GetRefSkeleton();
+	TSet<int32> AllowedBoneIndices = BuildBoneChainSet(RefSkeleton, AttachBoneIndex);
+
+	if (AllowedBoneIndices.Num() > 0)
+	{
+		UE_LOG(LogFleshRingSkinnedMesh, Log, TEXT("GenerateSkinnedRingMesh: Bone chain filter enabled - %d allowed bones from bone index %d"),
+			AllowedBoneIndices.Num(), AttachBoneIndex);
+	}
+
+	// 5. Transform ring vertices to component space and sample bone weights
 	TArray<TArray<uint16>> RingBoneIndices;
 	TArray<TArray<uint8>> RingBoneWeights;
 	RingBoneIndices.SetNum(RingVertexCount);
@@ -73,19 +86,20 @@ USkeletalMesh* FFleshRingSkinnedMeshGenerator::GenerateSkinnedRingMesh(
 		// Transform ring vertex from mesh local to component space
 		FVector WorldPos = RingTransform.TransformPosition(RingPositions[i]);
 
-		// Sample bone weights from nearby skin vertices
+		// Sample bone weights from nearby skin vertices (filtered by bone chain)
 		SampleBoneWeightsAtPosition(
 			WorldPos,
 			SkinVertices,
 			SkinBoneInfluences,
 			SpatialHash,
 			SamplingRadius,
+			AllowedBoneIndices,
 			RingBoneIndices[i],
 			RingBoneWeights[i]
 		);
 	}
 
-	// 5. Create SkeletalMesh by duplicating source (to copy skeleton and ImportedModel structure)
+	// 6. Create SkeletalMesh by duplicating source (to copy skeleton and ImportedModel structure)
 	USkeletalMesh* SkinnedRingMesh = DuplicateObject<USkeletalMesh>(
 		SourceSkeletalMesh,
 		OuterObject,
@@ -108,7 +122,7 @@ USkeletalMesh* FFleshRingSkinnedMeshGenerator::GenerateSkinnedRingMesh(
 	// Get number of LODs
 	const int32 NumLODs = SkinnedRingMesh->GetLODNum();
 
-	// 6. Set materials BEFORE building mesh (so Build() can reference them)
+	// 7. Set materials BEFORE building mesh (so Build() can reference them)
 	SkinnedRingMesh->GetMaterials().Empty();
 
 	FName MaterialSlotName = TEXT("RingMaterial");
@@ -138,7 +152,7 @@ USkeletalMesh* FFleshRingSkinnedMeshGenerator::GenerateSkinnedRingMesh(
 		}
 	}
 
-	// 7. Build ring geometry for ALL LODs (prevents material index collision)
+	// 8. Build ring geometry for ALL LODs (prevents material index collision)
 	// Ring mesh is small, so we use the same geometry for all LODs
 	const int32 MaxBoneInfluences = FVertexBoneInfluence::MAX_INFLUENCES;
 	const int32 NumIndices = RingIndices.Num();
@@ -272,10 +286,13 @@ void FFleshRingSkinnedMeshGenerator::SampleBoneWeightsAtPosition(
 	const TArray<FVertexBoneInfluence>& SkinBoneInfluences,
 	const FVertexSpatialHash& SpatialHash,
 	float SamplingRadius,
+	const TSet<int32>& AllowedBoneIndices,
 	TArray<uint16>& OutBoneIndices,
 	TArray<uint8>& OutBoneWeights)
 {
 	const int32 MaxInfluences = FVertexBoneInfluence::MAX_INFLUENCES;
+	const bool bUseBoneFilter = AllowedBoneIndices.Num() > 0;
+
 	OutBoneIndices.SetNum(MaxInfluences);
 	OutBoneWeights.SetNum(MaxInfluences);
 
@@ -310,12 +327,22 @@ void FFleshRingSkinnedMeshGenerator::SampleBoneWeightsAtPosition(
 
 		if (ClosestVertex != INDEX_NONE)
 		{
-			// Copy weights from closest vertex
+			// Copy weights from closest vertex (with bone filter)
 			const FVertexBoneInfluence& Influence = SkinBoneInfluences[ClosestVertex];
-			for (int32 i = 0; i < MaxInfluences; ++i)
+			int32 OutIdx = 0;
+			for (int32 i = 0; i < MaxInfluences && OutIdx < MaxInfluences; ++i)
 			{
-				OutBoneIndices[i] = Influence.BoneIndices[i];
-				OutBoneWeights[i] = Influence.BoneWeights[i];
+				if (Influence.BoneWeights[i] > 0)
+				{
+					// Apply bone filter if enabled
+					if (bUseBoneFilter && !AllowedBoneIndices.Contains(Influence.BoneIndices[i]))
+					{
+						continue;
+					}
+					OutBoneIndices[OutIdx] = Influence.BoneIndices[i];
+					OutBoneWeights[OutIdx] = Influence.BoneWeights[i];
+					++OutIdx;
+				}
 			}
 		}
 		return;
@@ -345,12 +372,17 @@ void FFleshRingSkinnedMeshGenerator::SampleBoneWeightsAtPosition(
 		float DistanceWeight = FMath::Square(1.0f - NormalizedDistance);  // Quadratic falloff
 		TotalDistanceWeight += DistanceWeight;
 
-		// Accumulate bone weights
+		// Accumulate bone weights (with bone filter)
 		const FVertexBoneInfluence& Influence = SkinBoneInfluences[VertexIdx];
 		for (int32 i = 0; i < MaxInfluences; ++i)
 		{
 			if (Influence.BoneWeights[i] > 0)
 			{
+				// Apply bone filter if enabled
+				if (bUseBoneFilter && !AllowedBoneIndices.Contains(Influence.BoneIndices[i]))
+				{
+					continue;
+				}
 				float NormalizedBoneWeight = Influence.BoneWeights[i] / 255.0f;
 				AccumulatedWeights.FindOrAdd(Influence.BoneIndices[i]) += NormalizedBoneWeight * DistanceWeight;
 			}
@@ -558,4 +590,72 @@ bool FFleshRingSkinnedMeshGenerator::ExtractSkeletalMeshBoneWeights(
 	}
 
 	return true;
+}
+
+TSet<int32> FFleshRingSkinnedMeshGenerator::BuildBoneChainSet(
+	const FReferenceSkeleton& RefSkeleton,
+	int32 BoneIndex)
+{
+	TSet<int32> BoneChain;
+
+	if (BoneIndex == INDEX_NONE)
+	{
+		return BoneChain;
+	}
+
+	const int32 NumBones = RefSkeleton.GetNum();
+	if (BoneIndex < 0 || BoneIndex >= NumBones)
+	{
+		return BoneChain;
+	}
+
+	// 1. Add the attach bone itself
+	BoneChain.Add(BoneIndex);
+
+	// 2. Add all ancestors (parents up to root)
+	int32 CurrentBone = BoneIndex;
+	while (CurrentBone != INDEX_NONE)
+	{
+		int32 ParentBone = RefSkeleton.GetParentIndex(CurrentBone);
+		if (ParentBone != INDEX_NONE)
+		{
+			BoneChain.Add(ParentBone);
+		}
+		CurrentBone = ParentBone;
+	}
+
+	// 3. Add all descendants (children recursively)
+	// Build parent-to-children map first for efficient traversal
+	TMultiMap<int32, int32> ParentToChildren;
+	for (int32 i = 0; i < NumBones; ++i)
+	{
+		int32 ParentIdx = RefSkeleton.GetParentIndex(i);
+		if (ParentIdx != INDEX_NONE)
+		{
+			ParentToChildren.Add(ParentIdx, i);
+		}
+	}
+
+	// BFS to collect all descendants
+	TArray<int32> Queue;
+	Queue.Add(BoneIndex);
+
+	while (Queue.Num() > 0)
+	{
+		int32 Current = Queue.Pop(EAllowShrinking::No);
+
+		TArray<int32> Children;
+		ParentToChildren.MultiFind(Current, Children);
+
+		for (int32 ChildBone : Children)
+		{
+			if (!BoneChain.Contains(ChildBone))
+			{
+				BoneChain.Add(ChildBone);
+				Queue.Add(ChildBone);
+			}
+		}
+	}
+
+	return BoneChain;
 }

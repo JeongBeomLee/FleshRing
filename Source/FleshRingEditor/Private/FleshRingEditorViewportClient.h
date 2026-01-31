@@ -159,6 +159,7 @@ public:
 	void ToggleShowBulgeHeatmap();
 	void ToggleShowBulgeArrows();
 	void ToggleShowBulgeRange();
+	void ToggleShowRingSkinSamplingRadius() { bShowRingSkinSamplingRadius = !bShowRingSkinSamplingRadius; Invalidate(); }
 
 	// Debug visualization state
 	bool ShouldShowDebugVisualization() const;
@@ -168,6 +169,7 @@ public:
 	bool ShouldShowBulgeHeatmap() const;
 	bool ShouldShowBulgeArrows() const;
 	bool ShouldShowBulgeRange() const;
+	bool ShouldShowRingSkinSamplingRadius() const { return bShowRingSkinSamplingRadius; }
 
 	// Debug Slice Z
 	int32 GetDebugSliceZ() const;
@@ -234,6 +236,9 @@ private:
 
 	/** Draw Ring gizmos */
 	void DrawRingGizmos(FPrimitiveDrawInterface* PDI);
+
+	/** Draw Ring skin sampling radius spheres */
+	void DrawRingSkinSamplingRadius(FPrimitiveDrawInterface* PDI);
 
 	/** Preview scene */
 	FFleshRingPreviewScene* PreviewScene;
@@ -314,6 +319,7 @@ private:
 	bool bCachedShowBulgeHeatmap = false;
 	bool bCachedShowBulgeArrows = true;  // Default on
 	bool bCachedShowBulgeRange = false;
+	bool bShowRingSkinSamplingRadius = false;  // Show ring vertex sampling radius spheres
 	int32 CachedDebugSliceZ = 32;
 
 	// Local/World coordinate system flag (custom managed)

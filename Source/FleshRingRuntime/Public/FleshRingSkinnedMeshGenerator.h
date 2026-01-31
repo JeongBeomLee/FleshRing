@@ -8,6 +8,7 @@
 class UStaticMesh;
 class USkeletalMesh;
 class FVertexSpatialHash;
+struct FReferenceSkeleton;
 
 /**
  * Utility class for generating skinned ring meshes
@@ -25,6 +26,7 @@ public:
 	 * @param SourceSkeletalMesh - Character's SkeletalMesh to sample bone weights from
 	 * @param RingTransform - Ring mesh transform in component space
 	 * @param SamplingRadius - Radius (cm) to search for nearby skin vertices for weight sampling
+	 * @param AttachBoneIndex - Index of the bone the ring is attached to (for bone chain filtering)
 	 * @param OuterObject - Outer object for the created SkeletalMesh (typically FleshRingAsset)
 	 * @param MeshName - Name for the created mesh
 	 * @return Generated SkeletalMesh with bone weights, or nullptr on failure
@@ -34,6 +36,7 @@ public:
 		USkeletalMesh* SourceSkeletalMesh,
 		const FTransform& RingTransform,
 		float SamplingRadius,
+		int32 AttachBoneIndex,
 		UObject* OuterObject,
 		const FString& MeshName
 	);
@@ -42,12 +45,14 @@ private:
 	/**
 	 * Samples bone weights at a given position from nearby skin vertices
 	 * Uses distance-weighted average of nearby vertices' bone weights
+	 * Filters to only include bones in the allowed set (bone chain filtering)
 	 *
 	 * @param RingVertexPosition - Position to sample weights at (component space)
 	 * @param SkinVertices - Array of skin mesh vertex positions
 	 * @param SkinBoneInfluences - Array of skin mesh bone influences
 	 * @param SpatialHash - Spatial hash for fast nearest neighbor lookup
 	 * @param SamplingRadius - Search radius in cm
+	 * @param AllowedBoneIndices - Set of bone indices to allow (empty = allow all)
 	 * @param OutBoneIndices - Output bone indices (MAX_INFLUENCES elements)
 	 * @param OutBoneWeights - Output bone weights (MAX_INFLUENCES elements, 0-255 normalized)
 	 */
@@ -57,6 +62,7 @@ private:
 		const TArray<FVertexBoneInfluence>& SkinBoneInfluences,
 		const FVertexSpatialHash& SpatialHash,
 		float SamplingRadius,
+		const TSet<int32>& AllowedBoneIndices,
 		TArray<uint16>& OutBoneIndices,
 		TArray<uint8>& OutBoneWeights
 	);
@@ -93,5 +99,19 @@ private:
 		USkeletalMesh* SkeletalMesh,
 		TArray<FVector3f>& OutVertices,
 		TArray<FVertexBoneInfluence>& OutBoneInfluences
+	);
+
+	/**
+	 * Builds a set of allowed bone indices from a bone chain
+	 * Includes the specified bone, all its ancestors (parents), and all its descendants (children)
+	 * This prevents sampling bone weights from unrelated parts (e.g., wings when ring is on thigh)
+	 *
+	 * @param RefSkeleton - Reference skeleton for bone hierarchy
+	 * @param BoneIndex - Starting bone index
+	 * @return Set of all bone indices in the chain
+	 */
+	static TSet<int32> BuildBoneChainSet(
+		const FReferenceSkeleton& RefSkeleton,
+		int32 BoneIndex
 	);
 };

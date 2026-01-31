@@ -231,6 +231,12 @@ void FFleshRingEditorViewportClient::Draw(const FSceneView* View, FPrimitiveDraw
 	{
 		DrawRingGizmos(PDI);
 	}
+
+	// Draw Ring skin sampling radius (debug visualization - requires master switch)
+	if (bCachedShowDebugVisualization && bShowRingSkinSamplingRadius)
+	{
+		DrawRingSkinSamplingRadius(PDI);
+	}
 }
 
 void FFleshRingEditorViewportClient::DrawCanvas(FViewport& InViewport, FSceneView& View, FCanvas& Canvas)
@@ -1170,6 +1176,86 @@ void FFleshRingEditorViewportClient::DrawRingGizmos(FPrimitiveDrawInterface* PDI
 
 		// Clear HitProxy
 		PDI->SetHitProxy(nullptr);
+	}
+}
+
+void FFleshRingEditorViewportClient::DrawRingSkinSamplingRadius(FPrimitiveDrawInterface* PDI)
+{
+	if (!PreviewScene || !EditingAsset.IsValid())
+	{
+		return;
+	}
+
+	USkeletalMeshComponent* SkelMeshComp = PreviewScene->GetSkeletalMeshComponent();
+	if (!SkelMeshComp || !SkelMeshComp->GetSkeletalMeshAsset())
+	{
+		return;
+	}
+
+	const TArray<FFleshRingSettings>& Rings = EditingAsset->Rings;
+	const int32 SelectedIndex = PreviewScene->GetSelectedRingIndex();
+
+	// Color for sampling radius visualization
+	const FLinearColor SamplingRadiusColor(0.2f, 0.8f, 0.2f, 0.5f);  // Green with alpha
+	const FLinearColor SelectedRadiusColor(1.0f, 0.5f, 0.0f, 0.7f);  // Orange for selected
+
+	for (int32 i = 0; i < Rings.Num(); ++i)
+	{
+		const FFleshRingSettings& Ring = Rings[i];
+
+		// Skip if skinned ring mesh is disabled
+		if (!Ring.bGenerateSkinnedRingMesh)
+		{
+			continue;
+		}
+
+		// Skip hidden Rings
+		if (!Ring.bEditorVisible)
+		{
+			continue;
+		}
+
+		// Load ring mesh
+		UStaticMesh* RingMesh = Ring.RingMesh.LoadSynchronous();
+		if (!RingMesh)
+		{
+			continue;
+		}
+
+		// Get bone Transform
+		int32 BoneIndex = SkelMeshComp->GetBoneIndex(Ring.BoneName);
+		if (BoneIndex == INDEX_NONE)
+		{
+			continue;
+		}
+
+		FTransform BoneTransform = SkelMeshComp->GetBoneTransform(BoneIndex);
+
+		// Calculate ring mesh transform (same as runtime)
+		FTransform MeshTransform;
+		MeshTransform.SetLocation(Ring.MeshOffset);
+		MeshTransform.SetRotation(Ring.MeshRotation);
+		MeshTransform.SetScale3D(Ring.MeshScale);
+		FTransform RingWorldTransform = MeshTransform * BoneTransform;
+
+		// Get ring mesh vertex positions
+		const FStaticMeshLODResources& LODResource = RingMesh->GetRenderData()->LODResources[0];
+		const FPositionVertexBuffer& PositionBuffer = LODResource.VertexBuffers.PositionVertexBuffer;
+		const uint32 NumVertices = PositionBuffer.GetNumVertices();
+
+		// Sampling radius from ring settings
+		const float Radius = Ring.RingSkinSamplingRadius;
+		const FLinearColor& Color = (i == SelectedIndex) ? SelectedRadiusColor : SamplingRadiusColor;
+
+		// Draw wireframe sphere at each vertex position
+		for (uint32 VertIdx = 0; VertIdx < NumVertices; ++VertIdx)
+		{
+			FVector LocalPos = FVector(PositionBuffer.VertexPosition(VertIdx));
+			FVector WorldPos = RingWorldTransform.TransformPosition(LocalPos);
+
+			// Draw wireframe sphere
+			DrawWireSphere(PDI, WorldPos, Color, Radius, 12, SDPG_World);
+		}
 	}
 }
 
@@ -2127,6 +2213,7 @@ void FFleshRingEditorViewportClient::SaveSettings()
 	GConfig->SetBool(*SectionName, TEXT("ShowBulgeHeatmap"), bCachedShowBulgeHeatmap, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowBulgeArrows"), bCachedShowBulgeArrows, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowBulgeRange"), bCachedShowBulgeRange, GEditorPerProjectIni);
+	GConfig->SetBool(*SectionName, TEXT("ShowRingSkinSamplingRadius"), bShowRingSkinSamplingRadius, GEditorPerProjectIni);
 	GConfig->SetInt(*SectionName, TEXT("DebugSliceZ"), CachedDebugSliceZ, GEditorPerProjectIni);
 
 	// Save to config file immediately
@@ -2314,6 +2401,7 @@ void FFleshRingEditorViewportClient::LoadSettings()
 	GConfig->GetBool(*SectionName, TEXT("ShowBulgeHeatmap"), bCachedShowBulgeHeatmap, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowBulgeArrows"), bCachedShowBulgeArrows, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowBulgeRange"), bCachedShowBulgeRange, GEditorPerProjectIni);
+	GConfig->GetBool(*SectionName, TEXT("ShowRingSkinSamplingRadius"), bShowRingSkinSamplingRadius, GEditorPerProjectIni);
 	GConfig->GetInt(*SectionName, TEXT("DebugSliceZ"), CachedDebugSliceZ, GEditorPerProjectIni);
 
 	// Apply cached values to FleshRingComponent
