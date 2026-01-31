@@ -705,9 +705,10 @@ void FSubdivisionSettingsCustomization::CleanupAsyncBake(bool bRestorePreviewMes
 			TArray<IAssetEditorInstance*> Editors = AssetEditorSubsystem->FindEditorsForAsset(AsyncBakeAsset.Get());
 			for (IAssetEditorInstance* Editor : Editors)
 			{
-				FFleshRingAssetEditor* FleshRingEditor = static_cast<FFleshRingAssetEditor*>(Editor);
-				if (FleshRingEditor)
+				// Verify editor type before casting (static_cast doesn't return nullptr for wrong types)
+				if (Editor && Editor->GetEditorName() == FName("FleshRingAssetEditor"))
 				{
+					FFleshRingAssetEditor* FleshRingEditor = static_cast<FFleshRingAssetEditor*>(Editor);
 					FleshRingEditor->ShowBakeOverlay(false);
 					break;
 				}
