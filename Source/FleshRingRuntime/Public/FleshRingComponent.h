@@ -183,8 +183,8 @@ public:
 	/**
 	 * Manual target mesh setting (for special cases like preview, merged mesh)
 	 * If not set, auto-searches Owner for component matching FleshRingAsset->TargetSkeletalMesh
+	 * Internal use only: Called by UFleshRingModularLibrary
 	 */
-	UFUNCTION(BlueprintCallable, Category = "FleshRing")
 	void SetTargetMesh(USkeletalMeshComponent* InTargetMesh);
 
 	// =====================================
@@ -246,48 +246,46 @@ public:
 	// Blueprint Callable Functions
 	// =====================================
 
-	/** Manual SDF update */
-	UFUNCTION(BlueprintCallable, Category = "FleshRing")
+	/** Manual SDF regeneration (normally auto-generated). Editor internal use only. */
 	void UpdateSDF();
 
-	/** Get resolved SkeletalMeshComponent to apply deformation */
-	UFUNCTION(BlueprintCallable, Category = "FleshRing")
+	/** Get resolved SkeletalMeshComponent that deformation is applied to */
+	UFUNCTION(BlueprintPure, Category = "FleshRing")
 	USkeletalMeshComponent* GetResolvedTargetMesh() const { return ResolvedTargetMesh.Get(); }
 
-	/** Get internal Deformer */
-	UFUNCTION(BlueprintCallable, Category = "FleshRing")
+	/** Get internal Deformer (internal use only) */
 	UFleshRingDeformer* GetDeformer() const { return InternalDeformer; }
 
 	/**
 	 * Reinitialize Deformer (reallocate GPU buffers when mesh changes)
 	 * Call when mesh is changed (e.g., baking) to reallocate Deformer's GPU buffers
 	 * to match the new mesh size.
+	 * Editor internal use only.
 	 */
 #if WITH_EDITOR
-	UFUNCTION(BlueprintCallable, Category = "FleshRing|Editor")
 	void ReinitializeDeformer();
 #endif
 
 	/**
 	 * Initialize Deformer for editor preview environment.
 	 * Used in editor environment where BeginPlay() is not called.
+	 * Editor internal use only.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "FleshRing|Editor")
 	void InitializeForEditorPreview();
 
 	/**
 	 * Force reinitialize editor preview (even if already initialized)
 	 * Used for Deformer setup when baking with subdivision OFF
+	 * Editor internal use only.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "FleshRing|Editor")
 	void ForceInitializeForEditorPreview();
 
 	/**
 	 * Update Ring transforms only (keep Deformer, keep SDF textures)
 	 * For real-time update without flickering during gizmo drag or property changes
+	 * Editor internal use only.
 	 * @param DirtyRingIndex - Update specific Ring only (-1 for all)
 	 */
-	UFUNCTION(BlueprintCallable, Category = "FleshRing|Editor")
 	void UpdateRingTransforms(int32 DirtyRingIndex = -1);
 
 	/**

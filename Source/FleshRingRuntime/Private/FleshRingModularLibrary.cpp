@@ -148,10 +148,10 @@ FFleshRingMergeOutput UFleshRingModularLibrary::RebuildMergedMesh(
 //==========================================================================
 
 FFleshRingModularResult UFleshRingModularLibrary::SwapModularRingAsset(
-	UFleshRingComponent* InFleshRingComponent,
-	UFleshRingAsset* InNewAsset)
+	UFleshRingComponent* FleshRingComponent,
+	UFleshRingAsset* NewAsset)
 {
-	if (!InFleshRingComponent)
+	if (!FleshRingComponent)
 	{
 		FFleshRingModularResult Output;
 		Output.Result = EFleshRingModularResult::InvalidComponent;
@@ -159,14 +159,14 @@ FFleshRingModularResult UFleshRingModularLibrary::SwapModularRingAsset(
 		return Output;
 	}
 
-	return InFleshRingComponent->Internal_SwapModularRingAsset(InNewAsset, /*bPreserveLeaderPose=*/true);
+	return FleshRingComponent->Internal_SwapModularRingAsset(NewAsset, /*bPreserveLeaderPose=*/true);
 }
 
 FFleshRingModularResult UFleshRingModularLibrary::SwapModularPartMesh(
-	USkeletalMeshComponent* InSkeletalMeshComponent,
-	USkeletalMesh* InNewMesh)
+	USkeletalMeshComponent* SkeletalMeshComponent,
+	USkeletalMesh* NewMesh)
 {
-	if (!InSkeletalMeshComponent)
+	if (!SkeletalMeshComponent)
 	{
 		FFleshRingModularResult Output;
 		Output.Result = EFleshRingModularResult::InvalidMeshComponent;
@@ -174,7 +174,7 @@ FFleshRingModularResult UFleshRingModularLibrary::SwapModularPartMesh(
 		return Output;
 	}
 
-	AActor* Owner = InSkeletalMeshComponent->GetOwner();
+	AActor* Owner = SkeletalMeshComponent->GetOwner();
 	if (!Owner)
 	{
 		FFleshRingModularResult Output;
@@ -184,11 +184,11 @@ FFleshRingModularResult UFleshRingModularLibrary::SwapModularPartMesh(
 	}
 
 	// Skeleton compatibility check (only when Leader Pose is configured)
-	if (USkinnedMeshComponent* Leader = InSkeletalMeshComponent->LeaderPoseComponent.Get())
+	if (USkinnedMeshComponent* Leader = SkeletalMeshComponent->LeaderPoseComponent.Get())
 	{
 		USkeletalMesh* LeaderMesh = Cast<USkeletalMesh>(Leader->GetSkinnedAsset());
 		USkeleton* LeaderSkeleton = LeaderMesh ? LeaderMesh->GetSkeleton() : nullptr;
-		USkeleton* NewSkeleton = InNewMesh ? InNewMesh->GetSkeleton() : nullptr;
+		USkeleton* NewSkeleton = NewMesh ? NewMesh->GetSkeleton() : nullptr;
 
 		if (LeaderSkeleton && NewSkeleton && LeaderSkeleton != NewSkeleton)
 		{
@@ -213,7 +213,7 @@ FFleshRingModularResult UFleshRingModularLibrary::SwapModularPartMesh(
 			continue;
 		}
 
-		const bool bIsTarget = (RingComp->GetResolvedTargetMesh() == InSkeletalMeshComponent);
+		const bool bIsTarget = (RingComp->GetResolvedTargetMesh() == SkeletalMeshComponent);
 
 		if (bIsTarget)
 		{
@@ -223,7 +223,7 @@ FFleshRingModularResult UFleshRingModularLibrary::SwapModularPartMesh(
 	}
 
 	// 3. Apply new modular part
-	InSkeletalMeshComponent->SetSkeletalMeshAsset(InNewMesh);
+	SkeletalMeshComponent->SetSkeletalMeshAsset(NewMesh);
 
 	FFleshRingModularResult Output;
 	Output.Result = EFleshRingModularResult::Success;
@@ -235,23 +235,23 @@ FFleshRingModularResult UFleshRingModularLibrary::SwapModularPartMesh(
 //==========================================================================
 
 TArray<UFleshRingComponent*> UFleshRingModularLibrary::AttachRingVisuals(
-	USkeletalMeshComponent* InMergedMeshComponent,
-	const TArray<UFleshRingAsset*>& InRingAssets)
+	USkeletalMeshComponent* MergedMeshComponent,
+	const TArray<UFleshRingAsset*>& RingAssets)
 {
 	TArray<UFleshRingComponent*> CreatedComponents;
 
-	if (!InMergedMeshComponent)
+	if (!MergedMeshComponent)
 	{
 		return CreatedComponents;
 	}
 
-	AActor* Owner = InMergedMeshComponent->GetOwner();
+	AActor* Owner = MergedMeshComponent->GetOwner();
 	if (!Owner)
 	{
 		return CreatedComponents;
 	}
 
-	for (UFleshRingAsset* Asset : InRingAssets)
+	for (UFleshRingAsset* Asset : RingAssets)
 	{
 		if (!Asset)
 		{
@@ -269,7 +269,7 @@ TArray<UFleshRingComponent*> UFleshRingModularLibrary::AttachRingVisuals(
 		RingComp->FleshRingAsset = Asset;
 
 		// Set target mesh (merged SKM as target)
-		RingComp->SetTargetMesh(InMergedMeshComponent);
+		RingComp->SetTargetMesh(MergedMeshComponent);
 		RingComp->Internal_SetCreatedForMergedMesh(true);  // Explicit flag for merged mesh mode
 
 		// Register component (OnRegister -> FindTargetMeshOnly + SetupRingMeshes)
@@ -286,14 +286,14 @@ TArray<UFleshRingComponent*> UFleshRingModularLibrary::AttachRingVisuals(
 }
 
 int32 UFleshRingModularLibrary::DetachAllRingVisuals(
-	USkeletalMeshComponent* InMergedMeshComponent)
+	USkeletalMeshComponent* MergedMeshComponent)
 {
-	if (!InMergedMeshComponent)
+	if (!MergedMeshComponent)
 	{
 		return 0;
 	}
 
-	AActor* Owner = InMergedMeshComponent->GetOwner();
+	AActor* Owner = MergedMeshComponent->GetOwner();
 	if (!Owner)
 	{
 		return 0;
@@ -308,7 +308,7 @@ int32 UFleshRingModularLibrary::DetachAllRingVisuals(
 	// Remove only components targeting this merged mesh
 	for (UFleshRingComponent* RingComp : RingComponents)
 	{
-		if (RingComp && RingComp->GetResolvedTargetMesh() == InMergedMeshComponent)
+		if (RingComp && RingComp->GetResolvedTargetMesh() == MergedMeshComponent)
 		{
 			RingComp->DestroyComponent();
 			RemovedCount++;
