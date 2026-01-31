@@ -231,7 +231,7 @@ public:
 	 * Called via button in DetailCustomization
 	 *
 	 * @param SourceComponent - Component providing AffectedVertices data (editor preview)
-	 *                          Includes Extended/PostProcessing areas based on SmoothingVolumeMode
+	 *                          Includes Extended/Refinement areas based on SmoothingVolumeMode
 	 *                          Falls back to OBB-based area if nullptr
 	 */
 	void GenerateSubdividedMesh(UFleshRingComponent* SourceComponent = nullptr);

@@ -367,8 +367,8 @@ uint32 UFleshRingAsset::CalculateSubdivisionParamsHash() const
 		Hash = HashCombine(Hash, GetTypeHash(Ring.RingOffset.ToString()));
 		Hash = HashCombine(Hash, GetTypeHash(Ring.RingRotation.ToString()));
 
-		// Region expansion parameters (PostProcess, Smoothing Volume)
-		Hash = HashCombine(Hash, GetTypeHash(Ring.bEnablePostProcess));
+		// Region expansion parameters (Refinement, Smoothing Volume)
+		Hash = HashCombine(Hash, GetTypeHash(Ring.bEnableRefinement));
 		Hash = HashCombine(Hash, GetTypeHash(static_cast<uint8>(Ring.SmoothingVolumeMode)));
 		Hash = HashCombine(Hash, GetTypeHash(Ring.MaxSmoothingHops));
 	}
@@ -569,7 +569,7 @@ namespace SubdivisionHelpers
 		OutRingBounds = FBox(EForceInit::ForceInit);
 		OutRingTransform = FTransform::Identity;
 
-		// Default margin: ensure minimum slack even when PostProcess is OFF
+		// Default margin: ensure minimum slack even when Refinement is OFF
 		// Prevents deformation boundary region polygons from being too coarse
 		constexpr float DefaultZMargin = 3.0f;  // cm
 		constexpr float DefaultRadialMargin = 1.5f;  // cm (for VirtualRing mode)
@@ -1107,8 +1107,8 @@ namespace SubdivisionHelpers
 
 		// Collect DI's AffectedVertices indices
 		// Conditional collection based on Ring settings:
-		// - bEnablePostProcess == false → PackedIndices only
-		// - bEnablePostProcess == true → PackedIndices + SmoothingRegionIndices (unified)
+		// - bEnableRefinement == false → PackedIndices only
+		// - bEnableRefinement == true → PackedIndices + SmoothingRegionIndices (unified)
 		// - bEnableBulge == true → Add Bulge region vertices
 		TSet<uint32> DIAffectedIndices;
 		const int32 NumRings = FMath::Min(AllRingData->Num(), Asset->Rings.Num());
@@ -1124,8 +1124,8 @@ namespace SubdivisionHelpers
 				if (Idx < DIVertexCount) DIAffectedIndices.Add(Idx);
 			}
 
-			// 2. Collect smoothing region only when PostProcess is enabled (unified SmoothingRegionIndices)
-			if (RingSettings.bEnablePostProcess)
+			// 2. Collect smoothing region only when Refinement is enabled (unified SmoothingRegionIndices)
+			if (RingSettings.bEnableRefinement)
 			{
 				for (uint32 Idx : RingData.SmoothingRegionIndices)
 				{
@@ -1447,7 +1447,7 @@ void UFleshRingAsset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 		// Rebuild SmoothingRegion when smoothing enable flags change
 		// BuildHopDistanceData() is called conditionally on bAnySmoothingEnabled
 		// so cache invalidation is needed when these flags change
-		if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnablePostProcess) ||
+		if (PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableRefinement) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableLaplacianSmoothing) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnablePBDEdgeConstraint) ||
 			PropName == GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableHeatPropagation))
@@ -1954,7 +1954,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 				// 2. Expansion based on SmoothingVolumeMode
 				TSet<uint32> ExtendedVertices;
 
-				if (!Ring.bEnablePostProcess)
+				if (!Ring.bEnableRefinement)
 				{
 					ExtendedVertices = AffectedVertices;
 				}
@@ -3098,7 +3098,7 @@ uint32 UFleshRingAsset::CalculateBakeParamsHash() const
 		Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(Ring.BulgeRadialRange * 100)));
 
 		// Smoothing settings
-		Hash = HashCombine(Hash, GetTypeHash(Ring.bEnablePostProcess));
+		Hash = HashCombine(Hash, GetTypeHash(Ring.bEnableRefinement));
 		Hash = HashCombine(Hash, GetTypeHash(Ring.bEnableSmoothing));
 		Hash = HashCombine(Hash, GetTypeHash(Ring.SmoothingIterations));
 		Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(Ring.SmoothingLambda * 1000)));

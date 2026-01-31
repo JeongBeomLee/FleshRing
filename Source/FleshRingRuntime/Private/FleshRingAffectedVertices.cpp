@@ -531,7 +531,7 @@ float FDistanceBasedVertexSelector::CalculateFalloff(
 }
 
 // ============================================================================
-// SelectSmoothingRegionVertices - Post-processing vertex selection for VirtualRing mode
+// SelectSmoothingRegionVertices - Refinement vertex selection for VirtualRing mode
 // ============================================================================
 void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
     const FVertexSelectionContext& Context,
@@ -576,7 +576,7 @@ void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
         }
 
         UE_LOG(LogFleshRingVertices, Log,
-            TEXT("PostProcessing (VirtualRing): Smoothing disabled, using %d affected vertices"),
+            TEXT("Refinement (VirtualRing): Smoothing disabled, using %d affected vertices"),
             OutRingData.SmoothingRegionIndices.Num());
         return;
     }
@@ -601,7 +601,7 @@ void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
         }
 
         UE_LOG(LogFleshRingVertices, Log,
-            TEXT("PostProcessing (VirtualRing): No Z extension, using %d affected vertices"),
+            TEXT("Refinement (VirtualRing): No Z extension, using %d affected vertices"),
             OutRingData.SmoothingRegionIndices.Num());
         return;
     }
@@ -677,7 +677,7 @@ void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
     }
 
     UE_LOG(LogFleshRingVertices, Log,
-        TEXT("PostProcessing (VirtualRing): Selected %d vertices (Core=%d, ZExtended=%d, Anchors=%d) for Ring[%d], ZExtend=[%.1f, %.1f]"),
+        TEXT("Refinement (VirtualRing): Selected %d vertices (Core=%d, ZExtended=%d, Anchors=%d) for Ring[%d], ZExtend=[%.1f, %.1f]"),
         OutRingData.SmoothingRegionIndices.Num(), CoreCount, ExtendedCount, AnchorCount,
         Context.RingIndex, BoundsZBottom, BoundsZTop);
 }
@@ -909,7 +909,7 @@ void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
         }
 
         UE_LOG(LogFleshRingVertices, Log,
-            TEXT("PostProcessing: Smoothing disabled, using %d affected vertices (no Z extension)"),
+            TEXT("Refinement: Smoothing disabled, using %d affected vertices (no Z extension)"),
             OutRingData.SmoothingRegionIndices.Num());
         return;
     }
@@ -933,7 +933,7 @@ void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
         }
 
         UE_LOG(LogFleshRingVertices, Log,
-            TEXT("PostProcessing: No Z extension, using %d affected vertices"),
+            TEXT("Refinement: No Z extension, using %d affected vertices"),
             OutRingData.SmoothingRegionIndices.Num());
         return;
     }
@@ -957,7 +957,7 @@ void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
     OutRingData.SmoothingRegionIndices.Reserve(AllVertices.Num() / 4);
     OutRingData.SmoothingRegionInfluences.Reserve(AllVertices.Num() / 4);
     OutRingData.SmoothingRegionIsAnchor.Reserve(AllVertices.Num() / 4);
-    // Note: PostProcessingLayerTypes removed - using FullMeshLayerTypes for GPU direct lookup
+    // Note: RefinementLayerTypes removed - using FullMeshLayerTypes for GPU direct lookup
 
     int32 CoreCount = 0;
     int32 ExtendedCount = 0;
@@ -1009,7 +1009,7 @@ void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
     }
 
     UE_LOG(LogFleshRingVertices, Log,
-        TEXT("PostProcessing: Selected %d vertices (Core=%d, ZExtended=%d, Anchors=%d) for Ring[%d], ZExtend=[%.1f, %.1f]"),
+        TEXT("Refinement: Selected %d vertices (Core=%d, ZExtended=%d, Anchors=%d) for Ring[%d], ZExtend=[%.1f, %.1f]"),
         OutRingData.SmoothingRegionIndices.Num(), CoreCount, ExtendedCount, AnchorCount,
         Context.RingIndex, BoundsZBottom, BoundsZTop);
 }
@@ -1210,7 +1210,7 @@ void FVirtualBandVertexSelector::SelectSmoothingRegionVertices(
         }
 
         UE_LOG(LogFleshRingVertices, Log,
-            TEXT("PostProcessing (VirtualBand): Smoothing disabled, using %d affected vertices"),
+            TEXT("Refinement (VirtualBand): Smoothing disabled, using %d affected vertices"),
             OutRingData.SmoothingRegionIndices.Num());
         return;
     }
@@ -1236,7 +1236,7 @@ void FVirtualBandVertexSelector::SelectSmoothingRegionVertices(
         }
 
         UE_LOG(LogFleshRingVertices, Log,
-            TEXT("PostProcessing (VirtualBand): No Z extension, using %d affected vertices"),
+            TEXT("Refinement (VirtualBand): No Z extension, using %d affected vertices"),
             OutRingData.SmoothingRegionIndices.Num());
         return;
     }
@@ -1346,7 +1346,7 @@ void FVirtualBandVertexSelector::SelectSmoothingRegionVertices(
     }
 
     UE_LOG(LogFleshRingVertices, Log,
-        TEXT("PostProcessing (VirtualBand): Selected %d vertices (Core=%d, Extended=%d) for Ring[%d]"),
+        TEXT("Refinement (VirtualBand): Selected %d vertices (Core=%d, Extended=%d) for Ring[%d]"),
         OutRingData.SmoothingRegionIndices.Num(), CoreCount, ExtendedCount, Context.RingIndex);
 }
 
@@ -1672,11 +1672,11 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         RingSelector->SelectVertices(Context, RingData.Vertices);
 
         // ================================================================
-        // Select post-processing vertices (Z-extended range)
+        // Select refinement vertices (Z-extended range)
         // ================================================================
         // Design:
         // - Affected Vertices (PackedIndices) = original AABB → Tightness deformation target
-        // - Post-Processing Vertices = original AABB + SmoothingBoundsZTop/Bottom → smoothing/penetration resolution etc.
+        // - Refinement Vertices = original AABB + SmoothingBoundsZTop/Bottom → smoothing/penetration resolution etc.
         if (bUseSDFForThisRing)
         {
             // SDF mode: Z extension based on SDF bounds
@@ -1711,7 +1711,7 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         {
             BuildAdjacencyData(RingData, CachedMeshIndices);
 
-            // Also build normal adjacency data for post-processing vertices (Z-extended range)
+            // Also build normal adjacency data for refinement vertices (Z-extended range)
             if (RingData.SmoothingRegionIndices.Num() > 0)
             {
                 BuildSmoothingRegionNormalAdjacency(RingData, CachedMeshIndices);
@@ -1723,7 +1723,7 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             {
                 BuildLaplacianAdjacencyData(RingData, CachedMeshIndices, MeshVertices, VertexLayerTypes);
 
-                // Also build Laplacian adjacency data for post-processing vertices (Z-extended range)
+                // Also build Laplacian adjacency data for refinement vertices (Z-extended range)
                 if (RingData.SmoothingRegionIndices.Num() > 0)
                 {
                     BuildSmoothingRegionLaplacianAdjacency(RingData, CachedMeshIndices, MeshVertices, VertexLayerTypes);
@@ -1735,7 +1735,7 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             {
                 BuildPBDAdjacencyData(RingData, CachedMeshIndices, MeshVertices, MeshVertices.Num());
 
-                // Also build PBD adjacency data for post-processing vertices (Z-extended range)
+                // Also build PBD adjacency data for refinement vertices (Z-extended range)
                 if (RingData.SmoothingRegionIndices.Num() > 0)
                 {
                     BuildSmoothingRegionPBDAdjacency(RingData, CachedMeshIndices, MeshVertices, MeshVertices.Num());
@@ -2594,7 +2594,7 @@ void FFleshRingAffectedVerticesManager::BuildLaplacianAdjacencyData(
 }
 
 // ============================================================================
-// BuildSmoothingRegionLaplacianAdjacency - build Laplacian adjacency data for post-processing vertices
+// BuildSmoothingRegionLaplacianAdjacency - build Laplacian adjacency data for refinement vertices
 // ============================================================================
 // Builds Laplacian adjacency data based on SmoothingRegionIndices.
 // Provides adjacency info so vertices in Z-extended range can be smoothed.
@@ -2609,39 +2609,39 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency(
     constexpr int32 MAX_NEIGHBORS = 12;
     constexpr int32 PACKED_SIZE = 1 + MAX_NEIGHBORS;  // Count + 12 indices = 13
 
-    const int32 NumPostProcessing = RingData.SmoothingRegionIndices.Num();
-    if (NumPostProcessing == 0 || MeshIndices.Num() == 0)
+    const int32 NumRefinement = RingData.SmoothingRegionIndices.Num();
+    if (NumRefinement == 0 || MeshIndices.Num() == 0)
     {
         RingData.SmoothingRegionLaplacianAdjacency.Reset();
         return;
     }
 
     // ================================================================
-    // Step 1: Build PostProcessing vertex lookup set
+    // Step 1: Build Refinement vertex lookup set
     // ================================================================
     // Note: topology cache is already built in RegisterAffectedVertices() early stage
-    TSet<uint32> PostProcessingVertexSet;
-    PostProcessingVertexSet.Reserve(NumPostProcessing);
-    for (int32 i = 0; i < NumPostProcessing; ++i)
+    TSet<uint32> RefinementVertexSet;
+    RefinementVertexSet.Reserve(NumRefinement);
+    for (int32 i = 0; i < NumRefinement; ++i)
     {
-        PostProcessingVertexSet.Add(RingData.SmoothingRegionIndices[i]);
+        RefinementVertexSet.Add(RingData.SmoothingRegionIndices[i]);
     }
 
     // ================================================================
-    // Step 2: Build adjacency for each post-processing vertex using cached topology
+    // Step 2: Build adjacency for each refinement vertex using cached topology
     // ================================================================
-    RingData.SmoothingRegionLaplacianAdjacency.Reset(NumPostProcessing * PACKED_SIZE);
-    RingData.SmoothingRegionLaplacianAdjacency.AddZeroed(NumPostProcessing * PACKED_SIZE);
+    RingData.SmoothingRegionLaplacianAdjacency.Reset(NumRefinement * PACKED_SIZE);
+    RingData.SmoothingRegionLaplacianAdjacency.AddZeroed(NumRefinement * PACKED_SIZE);
 
     int32 CrossLayerSkipped = 0;
 
-    for (int32 PPIdx = 0; PPIdx < NumPostProcessing; ++PPIdx)
+    for (int32 PPIdx = 0; PPIdx < NumRefinement; ++PPIdx)
     {
         const uint32 VertIdx = RingData.SmoothingRegionIndices[PPIdx];
         const int32 BaseOffset = PPIdx * PACKED_SIZE;
 
         // Get my layer type (direct lookup from global cache - same as Extended)
-        // [Optimization] Use global cache instead of PostProcessingLayerTypes
+        // [Optimization] Use global cache instead of RefinementLayerTypes
         EFleshRingLayerType MyLayerType = EFleshRingLayerType::Other;
         if (VertexLayerTypes.IsValidIndex(static_cast<int32>(VertIdx)))
         {
@@ -2683,22 +2683,22 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency(
             // ================================================================
             uint32 NeighborIdx = UINT32_MAX;
 
-            // Priority 1: Use representative index (better if inside PostProcessing)
+            // Priority 1: Use representative index (better if inside Refinement)
             const uint32* RepresentativeIdx = CachedPositionToRepresentative.Find(NeighborPosKey);
             if (RepresentativeIdx)
             {
                 NeighborIdx = *RepresentativeIdx;
             }
 
-            // Priority 2: If no representative or not in PostProcessing, select minimum index within PostProcessing
+            // Priority 2: If no representative or not in Refinement, select minimum index within Refinement
             // Important: use "minimum index" not "first found" for consistency
             // So all UV duplicates at same position reference identical neighbor index
-            if (NeighborIdx == UINT32_MAX || !PostProcessingVertexSet.Contains(NeighborIdx))
+            if (NeighborIdx == UINT32_MAX || !RefinementVertexSet.Contains(NeighborIdx))
             {
                 uint32 MinPostProcIdx = UINT32_MAX;
                 for (uint32 CandidateIdx : *VerticesAtNeighborPos)
                 {
-                    if (PostProcessingVertexSet.Contains(CandidateIdx))
+                    if (RefinementVertexSet.Contains(CandidateIdx))
                     {
                         MinPostProcIdx = FMath::Min(MinPostProcIdx, CandidateIdx);
                     }
@@ -2751,11 +2751,11 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionLaplacianAdjacency(
 
     UE_LOG(LogFleshRingVertices, Verbose,
         TEXT("BuildSmoothingRegionLaplacianAdjacency (Cached): %d vertices, %d packed uints, %d cross-layer skipped"),
-        NumPostProcessing, RingData.SmoothingRegionLaplacianAdjacency.Num(), CrossLayerSkipped);
+        NumRefinement, RingData.SmoothingRegionLaplacianAdjacency.Num(), CrossLayerSkipped);
 }
 
 // ============================================================================
-// BuildSmoothingRegionPBDAdjacency - build PBD adjacency data for post-processing vertices
+// BuildSmoothingRegionPBDAdjacency - build PBD adjacency data for refinement vertices
 // ============================================================================
 // Builds PBD adjacency data based on SmoothingRegionIndices.
 // Same as BuildPBDAdjacencyData but uses extended range.
@@ -2766,8 +2766,8 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionPBDAdjacency(
     const TArray<FVector3f>& AllVertices,
     int32 TotalVertexCount)
 {
-    const int32 NumPostProcessing = RingData.SmoothingRegionIndices.Num();
-    if (NumPostProcessing == 0 || MeshIndices.Num() < 3)
+    const int32 NumRefinement = RingData.SmoothingRegionIndices.Num();
+    if (NumRefinement == 0 || MeshIndices.Num() < 3)
     {
         RingData.SmoothingRegionPBDAdjacency.Reset();
         return;
@@ -2775,7 +2775,7 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionPBDAdjacency(
 
     // Step 1: Build VertexIndex → ThreadIndex lookup
     TMap<uint32, int32> VertexToThreadIndex;
-    for (int32 ThreadIdx = 0; ThreadIdx < NumPostProcessing; ++ThreadIdx)
+    for (int32 ThreadIdx = 0; ThreadIdx < NumRefinement; ++ThreadIdx)
     {
         VertexToThreadIndex.Add(RingData.SmoothingRegionIndices[ThreadIdx], ThreadIdx);
     }
@@ -2783,12 +2783,12 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionPBDAdjacency(
     // Step 2: Build per-vertex neighbor set with rest lengths
     // Cache optimization: look up neighbors from CachedVertexNeighbors, calculate rest length on-demand
     TArray<TMap<uint32, float>> VertexNeighborsWithRestLen;
-    VertexNeighborsWithRestLen.SetNum(NumPostProcessing);
+    VertexNeighborsWithRestLen.SetNum(NumRefinement);
 
     if (bTopologyCacheBuilt && CachedVertexNeighbors.Num() > 0)
     {
         // Cached path: O(PP × avg_neighbors_per_vertex)
-        for (int32 ThreadIdx = 0; ThreadIdx < NumPostProcessing; ++ThreadIdx)
+        for (int32 ThreadIdx = 0; ThreadIdx < NumRefinement; ++ThreadIdx)
         {
             const uint32 VertexIndex = RingData.SmoothingRegionIndices[ThreadIdx];
             const TSet<uint32>* NeighborsPtr = CachedVertexNeighbors.Find(VertexIndex);
@@ -2849,10 +2849,10 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionPBDAdjacency(
 
     // Step 3: Pack adjacency data with rest lengths
     const int32 PackedSizePerVertex = FRingAffectedData::PBD_ADJACENCY_PACKED_SIZE;
-    RingData.SmoothingRegionPBDAdjacency.Reset(NumPostProcessing * PackedSizePerVertex);
-    RingData.SmoothingRegionPBDAdjacency.AddZeroed(NumPostProcessing * PackedSizePerVertex);
+    RingData.SmoothingRegionPBDAdjacency.Reset(NumRefinement * PackedSizePerVertex);
+    RingData.SmoothingRegionPBDAdjacency.AddZeroed(NumRefinement * PackedSizePerVertex);
 
-    for (int32 ThreadIdx = 0; ThreadIdx < NumPostProcessing; ++ThreadIdx)
+    for (int32 ThreadIdx = 0; ThreadIdx < NumRefinement; ++ThreadIdx)
     {
         const TMap<uint32, float>& NeighborsMap = VertexNeighborsWithRestLen[ThreadIdx];
         const int32 NeighborCount = FMath::Min(NeighborsMap.Num(), FRingAffectedData::PBD_MAX_NEIGHBORS);
@@ -2883,7 +2883,7 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionPBDAdjacency(
 
     UE_LOG(LogFleshRingVertices, Verbose,
         TEXT("BuildSmoothingRegionPBDAdjacency: %d vertices, %d packed uints"),
-        NumPostProcessing, RingData.SmoothingRegionPBDAdjacency.Num());
+        NumRefinement, RingData.SmoothingRegionPBDAdjacency.Num());
 }
 
 // ============================================================================
@@ -2965,7 +2965,7 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionPBDAdjacency_HopBase
 }
 
 // ============================================================================
-// BuildSmoothingRegionNormalAdjacency - build normal adjacency data for post-processing vertices
+// BuildSmoothingRegionNormalAdjacency - build normal adjacency data for refinement vertices
 // ============================================================================
 // Builds adjacency data for normal recomputation based on SmoothingRegionIndices.
 // Same as BuildAdjacencyData but uses extended range.
@@ -2974,8 +2974,8 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionNormalAdjacency(
     FRingAffectedData& RingData,
     const TArray<uint32>& MeshIndices)
 {
-    const int32 NumPostProcessing = RingData.SmoothingRegionIndices.Num();
-    if (NumPostProcessing == 0 || MeshIndices.Num() == 0)
+    const int32 NumRefinement = RingData.SmoothingRegionIndices.Num();
+    if (NumRefinement == 0 || MeshIndices.Num() == 0)
     {
         RingData.SmoothingRegionAdjacencyOffsets.Reset();
         RingData.SmoothingRegionAdjacencyTriangles.Reset();
@@ -2990,14 +2990,14 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionNormalAdjacency(
 
         // Fallback: iterate all triangles (legacy method)
         TMap<uint32, int32> VertexToIndex;
-        VertexToIndex.Reserve(NumPostProcessing);
-        for (int32 PPIdx = 0; PPIdx < NumPostProcessing; ++PPIdx)
+        VertexToIndex.Reserve(NumRefinement);
+        for (int32 PPIdx = 0; PPIdx < NumRefinement; ++PPIdx)
         {
             VertexToIndex.Add(RingData.SmoothingRegionIndices[PPIdx], PPIdx);
         }
 
         TArray<int32> AdjCounts;
-        AdjCounts.SetNumZeroed(NumPostProcessing);
+        AdjCounts.SetNumZeroed(NumRefinement);
 
         const int32 NumTriangles = MeshIndices.Num() / 3;
         for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
@@ -3011,19 +3011,19 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionNormalAdjacency(
             if (const int32* Idx = VertexToIndex.Find(I2)) { AdjCounts[*Idx]++; }
         }
 
-        RingData.SmoothingRegionAdjacencyOffsets.SetNum(NumPostProcessing + 1);
+        RingData.SmoothingRegionAdjacencyOffsets.SetNum(NumRefinement + 1);
         RingData.SmoothingRegionAdjacencyOffsets[0] = 0;
-        for (int32 i = 0; i < NumPostProcessing; ++i)
+        for (int32 i = 0; i < NumRefinement; ++i)
         {
             RingData.SmoothingRegionAdjacencyOffsets[i + 1] = RingData.SmoothingRegionAdjacencyOffsets[i] + AdjCounts[i];
         }
 
-        const uint32 TotalAdjacencies = RingData.SmoothingRegionAdjacencyOffsets[NumPostProcessing];
+        const uint32 TotalAdjacencies = RingData.SmoothingRegionAdjacencyOffsets[NumRefinement];
         RingData.SmoothingRegionAdjacencyTriangles.SetNum(TotalAdjacencies);
 
         TArray<uint32> WritePos;
-        WritePos.SetNum(NumPostProcessing);
-        for (int32 i = 0; i < NumPostProcessing; ++i)
+        WritePos.SetNum(NumRefinement);
+        for (int32 i = 0; i < NumRefinement; ++i)
         {
             WritePos[i] = RingData.SmoothingRegionAdjacencyOffsets[i];
         }
@@ -3045,11 +3045,11 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionNormalAdjacency(
     // Optimized path using cache: O(PP × avg_triangles_per_vertex)
     // ================================================================
 
-    // Step 1: Count triangles for each post-processing vertex (O(1) lookup from cache)
+    // Step 1: Count triangles for each refinement vertex (O(1) lookup from cache)
     TArray<int32> AdjCounts;
-    AdjCounts.SetNumZeroed(NumPostProcessing);
+    AdjCounts.SetNumZeroed(NumRefinement);
 
-    for (int32 PPIdx = 0; PPIdx < NumPostProcessing; ++PPIdx)
+    for (int32 PPIdx = 0; PPIdx < NumRefinement; ++PPIdx)
     {
         const uint32 VertexIndex = RingData.SmoothingRegionIndices[PPIdx];
         const TArray<uint32>* TrianglesPtr = CachedVertexTriangles.Find(VertexIndex);
@@ -3060,20 +3060,20 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionNormalAdjacency(
     }
 
     // Step 2: Build offset array (cumulative sum)
-    RingData.SmoothingRegionAdjacencyOffsets.SetNum(NumPostProcessing + 1);
+    RingData.SmoothingRegionAdjacencyOffsets.SetNum(NumRefinement + 1);
     RingData.SmoothingRegionAdjacencyOffsets[0] = 0;
 
-    for (int32 i = 0; i < NumPostProcessing; ++i)
+    for (int32 i = 0; i < NumRefinement; ++i)
     {
         RingData.SmoothingRegionAdjacencyOffsets[i + 1] = RingData.SmoothingRegionAdjacencyOffsets[i] + AdjCounts[i];
     }
 
-    const uint32 TotalAdjacencies = RingData.SmoothingRegionAdjacencyOffsets[NumPostProcessing];
+    const uint32 TotalAdjacencies = RingData.SmoothingRegionAdjacencyOffsets[NumRefinement];
 
     // Step 3: Fill triangle array (direct copy from cache)
     RingData.SmoothingRegionAdjacencyTriangles.SetNum(TotalAdjacencies);
 
-    for (int32 PPIdx = 0; PPIdx < NumPostProcessing; ++PPIdx)
+    for (int32 PPIdx = 0; PPIdx < NumRefinement; ++PPIdx)
     {
         const uint32 VertexIndex = RingData.SmoothingRegionIndices[PPIdx];
         const TArray<uint32>* TrianglesPtr = CachedVertexTriangles.Find(VertexIndex);
@@ -3091,7 +3091,7 @@ void FFleshRingAffectedVerticesManager::BuildSmoothingRegionNormalAdjacency(
 
     UE_LOG(LogFleshRingVertices, Verbose,
         TEXT("BuildSmoothingRegionNormalAdjacency (Cached): %d vertices, %d offsets, %d triangles"),
-        NumPostProcessing, RingData.SmoothingRegionAdjacencyOffsets.Num(), TotalAdjacencies);
+        NumRefinement, RingData.SmoothingRegionAdjacencyOffsets.Num(), TotalAdjacencies);
 }
 
 // ============================================================================
@@ -3671,15 +3671,15 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
         // Set UV duplicate flag for optimization (skip UV Sync if no duplicates)
         RingData.bHasUVDuplicates = (NumWelded > 0);
 
-        // ===== RepresentativeIndices for PostProcessing Vertices (using cache) =====
-        const int32 NumPostProcessing = RingData.SmoothingRegionIndices.Num();
-        if (NumPostProcessing > 0)
+        // ===== RepresentativeIndices for Refinement Vertices (using cache) =====
+        const int32 NumRefinement = RingData.SmoothingRegionIndices.Num();
+        if (NumRefinement > 0)
         {
-            RingData.SmoothingRegionRepresentativeIndices.Reset(NumPostProcessing);
-            RingData.SmoothingRegionRepresentativeIndices.AddUninitialized(NumPostProcessing);
+            RingData.SmoothingRegionRepresentativeIndices.Reset(NumRefinement);
+            RingData.SmoothingRegionRepresentativeIndices.AddUninitialized(NumRefinement);
 
             int32 PPNumWelded = 0;
-            for (int32 i = 0; i < NumPostProcessing; ++i)
+            for (int32 i = 0; i < NumRefinement; ++i)
             {
                 const uint32 VertIdx = RingData.SmoothingRegionIndices[i];
 
@@ -3702,19 +3702,19 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
                 }
             }
 
-            // Set UV duplicate flag for PostProcessing
+            // Set UV duplicate flag for Refinement
             RingData.bSmoothingRegionHasUVDuplicates = (PPNumWelded > 0);
 
             UE_LOG(LogFleshRingVertices, Verbose,
-                TEXT("BuildRepresentativeIndices (cached): Affected=%d (welded=%d), PostProcessing=%d (welded=%d)"),
-                NumAffected, NumWelded, NumPostProcessing, PPNumWelded);
+                TEXT("BuildRepresentativeIndices (cached): Affected=%d (welded=%d), Refinement=%d (welded=%d)"),
+                NumAffected, NumWelded, NumRefinement, PPNumWelded);
         }
         else
         {
             RingData.bSmoothingRegionHasUVDuplicates = false;
 
             UE_LOG(LogFleshRingVertices, Verbose,
-                TEXT("BuildRepresentativeIndices (cached): Affected=%d (welded=%d), PostProcessing=0"),
+                TEXT("BuildRepresentativeIndices (cached): Affected=%d (welded=%d), Refinement=0"),
                 NumAffected, NumWelded);
         }
 
@@ -3780,9 +3780,9 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
     // Set UV duplicate flag for optimization (skip UV Sync if no duplicates)
     RingData.bHasUVDuplicates = (NumWelded > 0);
 
-    // Step 3: Build RepresentativeIndices for PostProcessing Vertices
-    const int32 NumPostProcessing = RingData.SmoothingRegionIndices.Num();
-    if (NumPostProcessing > 0)
+    // Step 3: Build RepresentativeIndices for Refinement Vertices
+    const int32 NumRefinement = RingData.SmoothingRegionIndices.Num();
+    if (NumRefinement > 0)
     {
         TMap<FIntVector, uint32> PPPositionToRepresentative;
 
@@ -3807,11 +3807,11 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
             }
         }
 
-        RingData.SmoothingRegionRepresentativeIndices.Reset(NumPostProcessing);
-        RingData.SmoothingRegionRepresentativeIndices.AddUninitialized(NumPostProcessing);
+        RingData.SmoothingRegionRepresentativeIndices.Reset(NumRefinement);
+        RingData.SmoothingRegionRepresentativeIndices.AddUninitialized(NumRefinement);
 
         int32 PPNumWelded = 0;
-        for (int32 i = 0; i < NumPostProcessing; ++i)
+        for (int32 i = 0; i < NumRefinement; ++i)
         {
             const uint32 VertIdx = RingData.SmoothingRegionIndices[i];
             const FVector3f& Pos = AllVertices[VertIdx];
@@ -3831,19 +3831,19 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
             }
         }
 
-        // Set UV duplicate flag for PostProcessing
+        // Set UV duplicate flag for Refinement
         RingData.bSmoothingRegionHasUVDuplicates = (PPNumWelded > 0);
 
         UE_LOG(LogFleshRingVertices, Log,
-            TEXT("BuildRepresentativeIndices (fallback): Affected=%d (welded=%d), PostProcessing=%d (welded=%d)"),
-            NumAffected, NumWelded, NumPostProcessing, PPNumWelded);
+            TEXT("BuildRepresentativeIndices (fallback): Affected=%d (welded=%d), Refinement=%d (welded=%d)"),
+            NumAffected, NumWelded, NumRefinement, PPNumWelded);
     }
     else
     {
         RingData.bSmoothingRegionHasUVDuplicates = false;
 
         UE_LOG(LogFleshRingVertices, Log,
-            TEXT("BuildRepresentativeIndices (fallback): Affected=%d (welded=%d), PostProcessing=0"),
+            TEXT("BuildRepresentativeIndices (fallback): Affected=%d (welded=%d), Refinement=0"),
             NumAffected, NumWelded);
     }
 }

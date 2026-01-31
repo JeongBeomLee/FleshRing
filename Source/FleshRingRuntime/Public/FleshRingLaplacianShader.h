@@ -4,7 +4,7 @@
 // FleshRing Laplacian Smoothing Shader
 // ============================================================================
 // Purpose: Smooth jagged boundaries from tightness deformation
-// Applies Laplacian smoothing as post-process after TightnessCS
+// Applies Laplacian smoothing as refinement after TightnessCS
 //
 // Problem Solved:
 //   TightnessCS moves vertices independently based on SDF

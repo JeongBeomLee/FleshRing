@@ -135,7 +135,7 @@ struct FFleshRingWorkItem
 		bool bAnchorDeformedVertices = false;
 
 		// ===== Unified smoothing region data =====
-		// Consolidates former PostProcessing~ (BoundsExpand) and Extended~ (HopBased) variables
+		// Consolidates former Refinement~ (BoundsExpand) and Extended~ (HopBased) variables
 		// Filled with appropriate data from DeformerInstance based on SmoothingExpandMode
 		ESmoothingVolumeMode SmoothingExpandMode = ESmoothingVolumeMode::BoundsExpand;
 		TArray<uint32> SmoothingRegionIndices;           // Smoothing region vertex indices
@@ -184,10 +184,10 @@ struct FFleshRingWorkItem
 
 		// ===== Full mesh layer types (for direct GPU upload) =====
 		// Full mesh vertex layer types - index by VertexIndex directly
-		// No need to expand from reduced (PostProcessingLayerTypes) to full (FullVertexLayerTypes)
+		// No need to expand from reduced (RefinementLayerTypes) to full (FullVertexLayerTypes)
 		TArray<uint32> FullMeshLayerTypes;
 
-		// Note: PostProcessing~ variables are consolidated into SmoothingRegion~ (see above)
+		// Note: Refinement~ variables are consolidated into SmoothingRegion~ (see above)
 
 		// ===== Data for Skin SDF based layer separation =====
 		// Skin vertex indices (within SmoothingRegion, LayerType=Skin)

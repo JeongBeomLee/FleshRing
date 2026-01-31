@@ -159,7 +159,7 @@ struct FRingAffectedData
     // =========== Unified Smoothing Region Data ===========
     //
     // [Design]
-    // - Unified variables from PostProcessing~ (BoundsExpand) and Extended~ (HopBased)
+    // - Unified variables from Refinement~ (BoundsExpand) and Extended~ (HopBased)
     // - Filled appropriately at build time based on SmoothingExpandMode
     // - ComputeWorker uses same variables without branching
     //
@@ -587,9 +587,9 @@ public:
     }
 
     /**
-     * Select post-processing vertices for VirtualRing mode (Z-extended range)
+     * Select refinement vertices for VirtualRing mode (Z-extended range)
      *
-     * Selects post-processing vertices based on Ring parameters (RingCenter, RingAxis, RingHeight).
+     * Selects refinement vertices based on Ring parameters (RingCenter, RingAxis, RingHeight).
      * Calculates directly in Component Space without SDF.
      *
      * @param Context - Vertex selection context
@@ -628,9 +628,9 @@ public:
     }
 
     /**
-     * Select post-processing vertices (Z-extended range)
+     * Select refinement vertices (Z-extended range)
      *
-     * Selects vertices in the Z-extended range for post-processing passes.
+     * Selects vertices in the Z-extended range for refinement passes.
      * Core vertices (inside original AABB) get influence 1.0.
      * Extended vertices get falloff-based influence.
      *
@@ -667,7 +667,7 @@ public:
     }
 
     /**
-     * Select post-processing vertices for Virtual Band mode (Z-extended range)
+     * Select refinement vertices for Virtual Band mode (Z-extended range)
      *
      * Selects vertices in full Virtual Band height + BoundsZTop/Bottom extended range.
      * Uses same logic pattern as VirtualRing Mode.
@@ -965,7 +965,7 @@ private:
         const TArray<EFleshRingLayerType>& VertexLayerTypes);
 
     /**
-     * Build Laplacian adjacency data for post-processing vertices (Z-extended range)
+     * Build Laplacian adjacency data for refinement vertices (Z-extended range)
      *
      * Similar to BuildLaplacianAdjacencyData but for SmoothingRegionIndices.
      *

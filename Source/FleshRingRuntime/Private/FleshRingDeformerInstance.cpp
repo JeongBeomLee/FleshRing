@@ -540,8 +540,8 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIndex))
 		{
 			const FFleshRingSettings& Settings = (*RingSettingsPtr)[RingIndex];
-			// Disable all smoothing if bEnablePostProcess/bEnableSmoothing is false
-			DispatchData.bEnableRadialSmoothing = Settings.bEnablePostProcess && Settings.bEnableSmoothing && Settings.bEnableRadialSmoothing;
+			// Disable all smoothing if bEnableRefinement/bEnableSmoothing is false
+			DispatchData.bEnableRadialSmoothing = Settings.bEnableRefinement && Settings.bEnableSmoothing && Settings.bEnableRadialSmoothing;
 			DispatchData.RadialBlendStrength = Settings.RadialBlendStrength;
 			DispatchData.RadialSliceHeight = Settings.RadialSliceHeight;
 		}
@@ -550,8 +550,8 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIndex))
 		{
 			const FFleshRingSettings& Settings = (*RingSettingsPtr)[RingIndex];
-			// Disable all smoothing if bEnablePostProcess/bEnableSmoothing is false
-			DispatchData.bEnableLaplacianSmoothing = Settings.bEnablePostProcess && Settings.bEnableSmoothing && Settings.bEnableLaplacianSmoothing;
+			// Disable all smoothing if bEnableRefinement/bEnableSmoothing is false
+			DispatchData.bEnableLaplacianSmoothing = Settings.bEnableRefinement && Settings.bEnableSmoothing && Settings.bEnableLaplacianSmoothing;
 			DispatchData.bUseTaubinSmoothing = (Settings.LaplacianSmoothingType == ELaplacianSmoothingType::Taubin);
 			DispatchData.SmoothingLambda = Settings.SmoothingLambda;
 			DispatchData.TaubinMu = Settings.TaubinMu;
@@ -569,7 +569,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			// HopBased exclusive data: HopDistances, SeedThreadIndices accessed directly from RingData
 
 			// Heat Propagation settings copy (only valid in HopBased mode)
-			DispatchData.bEnableHeatPropagation = Settings.bEnablePostProcess &&
+			DispatchData.bEnableHeatPropagation = Settings.bEnableRefinement &&
 				Settings.SmoothingVolumeMode == ESmoothingVolumeMode::HopBased &&
 				Settings.bEnableHeatPropagation;
 			DispatchData.HeatPropagationIterations = Settings.HeatPropagationIterations;
@@ -581,8 +581,8 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIndex))
 		{
 			const FFleshRingSettings& Settings = (*RingSettingsPtr)[RingIndex];
-			// Disable all post-processing if bEnablePostProcess is false
-			DispatchData.bEnablePBDEdgeConstraint = Settings.bEnablePostProcess && Settings.bEnablePBDEdgeConstraint;
+			// Disable all refinement if bEnableRefinement is false
+			DispatchData.bEnablePBDEdgeConstraint = Settings.bEnableRefinement && Settings.bEnablePBDEdgeConstraint;
 			DispatchData.PBDStiffness = Settings.PBDStiffness;
 			DispatchData.PBDIterations = Settings.PBDIterations;
 			DispatchData.PBDTolerance = Settings.PBDTolerance;

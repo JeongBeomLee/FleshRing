@@ -864,8 +864,8 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	VirtualBandGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, VirtualBand));
 
 	// Get Smoothing property handles individually
-	// Post Process master toggle
-	TSharedPtr<IPropertyHandle> bEnablePostProcessHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnablePostProcess));
+	// Refinement master toggle
+	TSharedPtr<IPropertyHandle> bEnableRefinementHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableRefinement));
 
 	TSharedPtr<IPropertyHandle> bEnableSmoothingHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableSmoothing));
 	TSharedPtr<IPropertyHandle> bEnableRadialSmoothingHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableRadialSmoothing));
@@ -888,9 +888,9 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	TSharedPtr<IPropertyHandle> HeatPropagationLambdaHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, HeatPropagationLambda));
 	TSharedPtr<IPropertyHandle> bIncludeBulgeVerticesAsSeedsHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bIncludeBulgeVerticesAsSeeds));
 
-	// Property names to go into Post Process group
+	// Property names to go into Refinement group
 	TSet<FName> SmoothingGroupProperties;
-	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnablePostProcess));
+	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableRefinement));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableSmoothing));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, bEnableRadialSmoothing));
 	SmoothingGroupProperties.Add(GET_MEMBER_NAME_CHECKED(FFleshRingSettings, RadialBlendStrength));
@@ -1620,24 +1620,24 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 			);
 	}
 
-	// ===== Post Process group (topmost) =====
-	IDetailGroup& PostProcessGroup = ChildBuilder.AddGroup(TEXT("PostProcess"), LOCTEXT("PostProcessGroup", "Post Process"));
-	PostProcessGroup.HeaderRow()
+	// ===== Refinement group (topmost) =====
+	IDetailGroup& RefinementGroup = ChildBuilder.AddGroup(TEXT("Refinement"), LOCTEXT("RefinementGroup", "Refinement"));
+	RefinementGroup.HeaderRow()
 		.NameContent()
 		[
 			SNew(STextBlock)
-			.Text(LOCTEXT("PostProcessHeader", "Post Process"))
+			.Text(LOCTEXT("RefinementHeader", "Refinement"))
 			.Font(IDetailLayoutBuilder::GetDetailFontBold())
 		];
 
-	// Post Process master toggle
-	if (bEnablePostProcessHandle.IsValid())
+	// Refinement master toggle
+	if (bEnableRefinementHandle.IsValid())
 	{
-		PostProcessGroup.AddPropertyRow(bEnablePostProcessHandle.ToSharedRef());
+		RefinementGroup.AddPropertyRow(bEnableRefinementHandle.ToSharedRef());
 	}
 
 	// ===== Smoothing Volume subgroup =====
-	IDetailGroup& SmoothingVolumeGroup = PostProcessGroup.AddGroup(TEXT("SmoothingVolume"), LOCTEXT("SmoothingVolumeGroup", "Smoothing Volume"));
+	IDetailGroup& SmoothingVolumeGroup = RefinementGroup.AddGroup(TEXT("SmoothingVolume"), LOCTEXT("SmoothingVolumeGroup", "Smoothing Volume"));
 
 	// Volume mode selection
 	if (SmoothingVolumeModeHandle.IsValid())
@@ -1743,7 +1743,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	}
 
 	// ===== Smoothing subgroup =====
-	IDetailGroup& SmoothingGroup = PostProcessGroup.AddGroup(TEXT("Smoothing"), LOCTEXT("SmoothingGroup", "Smoothing"));
+	IDetailGroup& SmoothingGroup = RefinementGroup.AddGroup(TEXT("Smoothing"), LOCTEXT("SmoothingGroup", "Smoothing"));
 
 	// Smoothing master toggle
 	if (bEnableSmoothingHandle.IsValid())
@@ -1977,7 +1977,7 @@ void FFleshRingSettingsCustomization::CustomizeChildren(
 	}
 
 	// ===== Edge Length Preservation subgroup =====
-	IDetailGroup& PBDGroup = PostProcessGroup.AddGroup(TEXT("EdgeLengthPreservation"), LOCTEXT("EdgeLengthPreservationGroup", "Edge Length Preservation"));
+	IDetailGroup& PBDGroup = RefinementGroup.AddGroup(TEXT("EdgeLengthPreservation"), LOCTEXT("EdgeLengthPreservationGroup", "Edge Length Preservation"));
 
 	if (bEnablePBDEdgeConstraintHandle.IsValid())
 	{
