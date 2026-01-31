@@ -246,6 +246,8 @@ struct FFleshRingWorkItem
 	uint32 NormalRecomputeMode = 1;  // Default: SurfaceRotation
 	// Whether hop-based blending is enabled (blends with original normals at boundary)
 	bool bEnableNormalHopBlending = true;
+	// Normal blending falloff type (0=Linear, 1=Quadratic, 2=Hermite)
+	uint32 NormalBlendFalloffType = 2;
 	// Whether displacement-based blending is enabled (blends based on vertex movement)
 	bool bEnableDisplacementBlending = false;
 	// Max displacement distance for blending (cm) - uses 100% recomputed normal beyond this distance
@@ -256,6 +258,17 @@ struct FFleshRingWorkItem
 	// ===== Mesh index buffer for Normal Recomputation =====
 	// Mesh index buffer shared by all Rings (3 indices per triangle)
 	TSharedPtr<TArray<uint32>> MeshIndicesPtr;
+
+	// ===== Unified Normal/Tangent Recompute data (merged from all Rings) =====
+	// NormalRecomputeCS and TangentRecomputeCS should run ONCE with unified data
+	// to avoid overlapping regions being overwritten by the last Ring's results
+	TSharedPtr<TArray<uint32>> UnionAffectedIndicesPtr;        // Merged affected vertex indices
+	TSharedPtr<TArray<uint32>> UnionAdjacencyOffsetsPtr;       // Adjacency offsets for merged region
+	TSharedPtr<TArray<uint32>> UnionAdjacencyTrianglesPtr;     // Adjacency triangles for merged region
+	TSharedPtr<TArray<uint32>> UnionRepresentativeIndicesPtr;  // Representative indices for UV seam welding
+	TSharedPtr<TArray<int32>> UnionHopDistancesPtr;            // Hop distances for blending (optional)
+	int32 UnionMaxHops = 0;                                    // Max hop distance (for blend calculation)
+	bool bUnionHasUVDuplicates = false;                        // Whether UV duplicates exist in merged region
 
 	// Caching state
 	bool bNeedTightnessCaching = false;

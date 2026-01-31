@@ -2433,6 +2433,136 @@ void FFleshRingAffectedVerticesManager::BuildAdjacencyData(
 }
 
 // ============================================================================
+// BuildAdjacencyDataFromIndices - build adjacency from raw vertex indices
+// ============================================================================
+// Used for unified Normal/Tangent recompute across all Rings
+void FFleshRingAffectedVerticesManager::BuildAdjacencyDataFromIndices(
+    const TArray<uint32>& VertexIndices,
+    const TArray<uint32>& MeshIndices,
+    TArray<uint32>& OutAdjacencyOffsets,
+    TArray<uint32>& OutAdjacencyTriangles)
+{
+    const int32 NumVertices = VertexIndices.Num();
+    if (NumVertices == 0 || MeshIndices.Num() == 0)
+    {
+        OutAdjacencyOffsets.Reset();
+        OutAdjacencyTriangles.Reset();
+        return;
+    }
+
+    // Use topology cache if available (optimized path)
+    if (bTopologyCacheBuilt && CachedVertexTriangles.Num() > 0)
+    {
+        // Step 1: Count triangles for each vertex
+        TArray<int32> AdjCounts;
+        AdjCounts.SetNumZeroed(NumVertices);
+
+        for (int32 Idx = 0; Idx < NumVertices; ++Idx)
+        {
+            const uint32 VertexIndex = VertexIndices[Idx];
+            const TArray<uint32>* TrianglesPtr = CachedVertexTriangles.Find(VertexIndex);
+            if (TrianglesPtr)
+            {
+                AdjCounts[Idx] = TrianglesPtr->Num();
+            }
+        }
+
+        // Step 2: Build offset array (cumulative sum)
+        OutAdjacencyOffsets.SetNum(NumVertices + 1);
+        OutAdjacencyOffsets[0] = 0;
+        for (int32 i = 0; i < NumVertices; ++i)
+        {
+            OutAdjacencyOffsets[i + 1] = OutAdjacencyOffsets[i] + AdjCounts[i];
+        }
+
+        const uint32 TotalAdjacencies = OutAdjacencyOffsets[NumVertices];
+
+        // Step 3: Fill triangle array
+        OutAdjacencyTriangles.SetNum(TotalAdjacencies);
+        for (int32 Idx = 0; Idx < NumVertices; ++Idx)
+        {
+            const uint32 VertexIndex = VertexIndices[Idx];
+            const TArray<uint32>* TrianglesPtr = CachedVertexTriangles.Find(VertexIndex);
+
+            if (TrianglesPtr && TrianglesPtr->Num() > 0)
+            {
+                const uint32 Offset = OutAdjacencyOffsets[Idx];
+                FMemory::Memcpy(
+                    &OutAdjacencyTriangles[Offset],
+                    TrianglesPtr->GetData(),
+                    TrianglesPtr->Num() * sizeof(uint32)
+                );
+            }
+        }
+
+        UE_LOG(LogFleshRingVertices, Verbose,
+            TEXT("BuildAdjacencyDataFromIndices (Cached): %d vertices, %d total adjacencies (avg %.1f triangles/vertex)"),
+            NumVertices, TotalAdjacencies,
+            NumVertices > 0 ? static_cast<float>(TotalAdjacencies) / NumVertices : 0.0f);
+    }
+    else
+    {
+        // Fallback: brute force (iterate all triangles)
+        UE_LOG(LogFleshRingVertices, Warning,
+            TEXT("BuildAdjacencyDataFromIndices: Topology cache not built, falling back to brute force"));
+
+        TMap<uint32, int32> VertexToIndex;
+        VertexToIndex.Reserve(NumVertices);
+        for (int32 Idx = 0; Idx < NumVertices; ++Idx)
+        {
+            VertexToIndex.Add(VertexIndices[Idx], Idx);
+        }
+
+        TArray<int32> AdjCounts;
+        AdjCounts.SetNumZeroed(NumVertices);
+
+        const int32 NumTriangles = MeshIndices.Num() / 3;
+        for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+        {
+            const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
+            const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
+            const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
+
+            if (const int32* Idx = VertexToIndex.Find(I0)) { AdjCounts[*Idx]++; }
+            if (const int32* Idx = VertexToIndex.Find(I1)) { AdjCounts[*Idx]++; }
+            if (const int32* Idx = VertexToIndex.Find(I2)) { AdjCounts[*Idx]++; }
+        }
+
+        OutAdjacencyOffsets.SetNum(NumVertices + 1);
+        OutAdjacencyOffsets[0] = 0;
+        for (int32 i = 0; i < NumVertices; ++i)
+        {
+            OutAdjacencyOffsets[i + 1] = OutAdjacencyOffsets[i] + AdjCounts[i];
+        }
+
+        const uint32 TotalAdjacencies = OutAdjacencyOffsets[NumVertices];
+        OutAdjacencyTriangles.SetNum(TotalAdjacencies);
+
+        TArray<uint32> WritePos;
+        WritePos.SetNum(NumVertices);
+        for (int32 i = 0; i < NumVertices; ++i)
+        {
+            WritePos[i] = OutAdjacencyOffsets[i];
+        }
+
+        for (int32 TriIdx = 0; TriIdx < NumTriangles; ++TriIdx)
+        {
+            const uint32 I0 = MeshIndices[TriIdx * 3 + 0];
+            const uint32 I1 = MeshIndices[TriIdx * 3 + 1];
+            const uint32 I2 = MeshIndices[TriIdx * 3 + 2];
+
+            if (const int32* Idx = VertexToIndex.Find(I0)) { OutAdjacencyTriangles[WritePos[*Idx]++] = TriIdx; }
+            if (const int32* Idx = VertexToIndex.Find(I1)) { OutAdjacencyTriangles[WritePos[*Idx]++] = TriIdx; }
+            if (const int32* Idx = VertexToIndex.Find(I2)) { OutAdjacencyTriangles[WritePos[*Idx]++] = TriIdx; }
+        }
+
+        UE_LOG(LogFleshRingVertices, Verbose,
+            TEXT("BuildAdjacencyDataFromIndices (Brute): %d vertices, %d total adjacencies"),
+            NumVertices, TotalAdjacencies);
+    }
+}
+
+// ============================================================================
 // BuildLaplacianAdjacencyData - build neighbor data for Laplacian smoothing
 // ============================================================================
 // Improvement: includes only neighbors of same layer (no mixing at stocking-skin boundary)

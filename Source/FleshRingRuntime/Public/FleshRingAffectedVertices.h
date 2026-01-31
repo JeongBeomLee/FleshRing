@@ -825,6 +825,21 @@ public:
      */
     const TArray<EFleshRingLayerType>& GetCachedVertexLayerTypes() const { return CachedVertexLayerTypes; }
 
+    /**
+     * Build adjacency data from raw vertex indices (public interface)
+     * Used for unified Normal/Tangent recompute across all Rings
+     *
+     * @param VertexIndices - Input vertex indices
+     * @param MeshIndices - Mesh index buffer (3 indices per triangle)
+     * @param OutAdjacencyOffsets - Output adjacency offsets (size = VertexIndices.Num() + 1)
+     * @param OutAdjacencyTriangles - Output flattened triangle indices
+     */
+    void BuildAdjacencyDataFromIndices(
+        const TArray<uint32>& VertexIndices,
+        const TArray<uint32>& MeshIndices,
+        TArray<uint32>& OutAdjacencyOffsets,
+        TArray<uint32>& OutAdjacencyTriangles);
+
 private:
     /**
      * Current vertex selector strategy

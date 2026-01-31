@@ -1050,6 +1050,254 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 		WorkItem.MeshIndicesPtr = MakeShared<TArray<uint32>>(MeshIndices);
 	}
 
+	// ===== Build unified Normal/Tangent Recompute data (merged from all Rings) =====
+	// Merge all Ring indices to run NormalRecomputeCS/TangentRecomputeCS ONCE
+	// This prevents overlapping regions from being overwritten by the last Ring's results
+	if (RingDispatchDataPtr.IsValid() && RingDispatchDataPtr->Num() > 0 && MeshIndices.Num() > 0)
+	{
+		// Collect all indices from all Rings
+		TSet<uint32> UnionIndexSet;
+		TMap<uint32, int32> VertexToMaxHop;  // Track max hop distance per vertex
+		TMap<uint32, uint32> VertexToRepresentative;  // Track representative per vertex
+		int32 UnionMaxHops = 0;
+
+		for (const FFleshRingWorkItem::FRingDispatchData& DispatchData : *RingDispatchDataPtr)
+		{
+			// Skip if no actual deformation
+			const bool bHasDeformation =
+				DispatchData.Params.TightnessStrength > KINDA_SMALL_NUMBER ||
+				(DispatchData.bEnableBulge && DispatchData.BulgeStrength > KINDA_SMALL_NUMBER && DispatchData.BulgeIndices.Num() > 0);
+			if (!bHasDeformation)
+			{
+				continue;
+			}
+
+			// Determine which indices to use (SmoothingRegion > Original)
+			const bool bAnySmoothingEnabled =
+				DispatchData.bEnableRadialSmoothing ||
+				DispatchData.bEnableLaplacianSmoothing ||
+				DispatchData.bEnablePBDEdgeConstraint;
+
+			const bool bUseSmoothingRegion = bAnySmoothingEnabled &&
+				DispatchData.SmoothingRegionIndices.Num() > 0 &&
+				DispatchData.SmoothingRegionAdjacencyOffsets.Num() > 0;
+
+			const TArray<uint32>& IndicesSource = bUseSmoothingRegion
+				? DispatchData.SmoothingRegionIndices : DispatchData.Indices;
+			const TArray<uint32>& RepSource = bUseSmoothingRegion
+				? DispatchData.SmoothingRegionRepresentativeIndices : DispatchData.RepresentativeIndices;
+			const TArray<int32>& HopSource = bUseSmoothingRegion
+				? DispatchData.SmoothingRegionHopDistances : TArray<int32>();
+
+			const bool bIsHopBased = (DispatchData.SmoothingExpandMode == ESmoothingVolumeMode::HopBased);
+
+			// Only consider MaxSmoothingHops from HopBased rings
+			if (bIsHopBased)
+			{
+				UnionMaxHops = FMath::Max(UnionMaxHops, DispatchData.MaxSmoothingHops);
+			}
+
+			// ===== BoundsExpand depth calculation =====
+			// For BoundsExpand mode, calculate pseudo-hop based on distance from SDF bounds
+			// Vertices inside SDF → depth=0 (100% recomputed normal)
+			// Vertices at expanded boundary → depth=1 (100% original normal)
+			constexpr int32 BoundsExpandVirtualMaxHops = 10;
+			TMap<uint32, int32> BoundsExpandDepthMap;
+
+			if (!bIsHopBased && bUseSmoothingRegion && DispatchData.bHasValidSDF && IndicesSource.Num() > 0)
+			{
+				UnionMaxHops = FMath::Max(UnionMaxHops, BoundsExpandVirtualMaxHops);
+
+				const FVector SDFMin(DispatchData.SDFBoundsMin);
+				const FVector SDFMax(DispatchData.SDFBoundsMax);
+
+				// Component to SDF local transform
+				const FTransform ComponentToSDFLocal = DispatchData.SDFLocalToComponent.Inverse();
+
+				const TArray<float>& Positions = CurrentLODData.CachedSourcePositions;
+
+				// Lambda: check if point is inside SDF box
+				auto IsInsideSDFBox = [&SDFMin, &SDFMax](const FVector& Point) -> bool
+				{
+					return Point.X >= SDFMin.X && Point.X <= SDFMax.X &&
+						   Point.Y >= SDFMin.Y && Point.Y <= SDFMax.Y &&
+						   Point.Z >= SDFMin.Z && Point.Z <= SDFMax.Z;
+				};
+
+				// Lambda: compute distance to SDF box
+				auto DistanceToSDFBox = [&SDFMin, &SDFMax](const FVector& Point) -> float
+				{
+					FVector Clamped;
+					Clamped.X = FMath::Clamp(Point.X, SDFMin.X, SDFMax.X);
+					Clamped.Y = FMath::Clamp(Point.Y, SDFMin.Y, SDFMax.Y);
+					Clamped.Z = FMath::Clamp(Point.Z, SDFMin.Z, SDFMax.Z);
+					return FVector::Dist(Point, Clamped);
+				};
+
+				// First pass: find max distance to SDF box
+				float MaxDistanceToBox = 0.0f;
+				for (int32 i = 0; i < IndicesSource.Num(); ++i)
+				{
+					const uint32 VertexIndex = IndicesSource[i];
+					if (VertexIndex * 3 + 2 >= static_cast<uint32>(Positions.Num())) continue;
+
+					FVector VertexPosComponent(
+						Positions[VertexIndex * 3 + 0],
+						Positions[VertexIndex * 3 + 1],
+						Positions[VertexIndex * 3 + 2]
+					);
+
+					// Transform to SDF local space
+					FVector VertexPosLocal = ComponentToSDFLocal.TransformPosition(VertexPosComponent);
+
+					if (!IsInsideSDFBox(VertexPosLocal))
+					{
+						float Dist = DistanceToSDFBox(VertexPosLocal);
+						MaxDistanceToBox = FMath::Max(MaxDistanceToBox, Dist);
+					}
+				}
+
+				// Second pass: calculate depth for each vertex
+				if (MaxDistanceToBox > KINDA_SMALL_NUMBER)
+				{
+					for (int32 i = 0; i < IndicesSource.Num(); ++i)
+					{
+						const uint32 VertexIndex = IndicesSource[i];
+						if (VertexIndex * 3 + 2 >= static_cast<uint32>(Positions.Num())) continue;
+
+						FVector VertexPosComponent(
+							Positions[VertexIndex * 3 + 0],
+							Positions[VertexIndex * 3 + 1],
+							Positions[VertexIndex * 3 + 2]
+						);
+
+						FVector VertexPosLocal = ComponentToSDFLocal.TransformPosition(VertexPosComponent);
+
+						float Depth = 0.0f;
+						if (!IsInsideSDFBox(VertexPosLocal))
+						{
+							float Dist = DistanceToSDFBox(VertexPosLocal);
+							Depth = FMath::Clamp(Dist / MaxDistanceToBox, 0.0f, 1.0f);
+						}
+
+						int32 PseudoHop = FMath::RoundToInt(Depth * BoundsExpandVirtualMaxHops);
+						BoundsExpandDepthMap.Add(VertexIndex, PseudoHop);
+					}
+				}
+			}
+
+			for (int32 i = 0; i < IndicesSource.Num(); ++i)
+			{
+				const uint32 VertexIndex = IndicesSource[i];
+				UnionIndexSet.Add(VertexIndex);
+
+				// Track representative (first encountered wins)
+				if (RepSource.IsValidIndex(i) && !VertexToRepresentative.Contains(VertexIndex))
+				{
+					VertexToRepresentative.Add(VertexIndex, RepSource[i]);
+				}
+
+				// Track hop distance (minimum hop wins for blending)
+				int32 HopValue = INDEX_NONE;
+
+				if (bIsHopBased && HopSource.IsValidIndex(i))
+				{
+					HopValue = HopSource[i];
+				}
+				else if (const int32* DepthPtr = BoundsExpandDepthMap.Find(VertexIndex))
+				{
+					HopValue = *DepthPtr;
+				}
+
+				if (HopValue != INDEX_NONE)
+				{
+					if (int32* ExistingHop = VertexToMaxHop.Find(VertexIndex))
+					{
+						*ExistingHop = FMath::Min(*ExistingHop, HopValue);
+					}
+					else
+					{
+						VertexToMaxHop.Add(VertexIndex, HopValue);
+					}
+				}
+			}
+		}
+
+		// Build unified arrays
+		if (UnionIndexSet.Num() > 0)
+		{
+			TArray<uint32> UnionIndices = UnionIndexSet.Array();
+			UnionIndices.Sort();  // Sorted for consistent ordering
+
+			TArray<uint32> UnionRepresentatives;
+			TArray<int32> UnionHopDistances;
+			bool bHasUVDuplicates = false;
+
+			UnionRepresentatives.Reserve(UnionIndices.Num());
+			if (VertexToMaxHop.Num() > 0)
+			{
+				UnionHopDistances.Reserve(UnionIndices.Num());
+			}
+
+			for (const uint32 VertexIndex : UnionIndices)
+			{
+				// Representative
+				if (const uint32* RepPtr = VertexToRepresentative.Find(VertexIndex))
+				{
+					UnionRepresentatives.Add(*RepPtr);
+					if (*RepPtr != VertexIndex)
+					{
+						bHasUVDuplicates = true;
+					}
+				}
+				else
+				{
+					UnionRepresentatives.Add(VertexIndex);
+				}
+
+				// Hop distance
+				if (VertexToMaxHop.Num() > 0)
+				{
+					if (const int32* HopPtr = VertexToMaxHop.Find(VertexIndex))
+					{
+						UnionHopDistances.Add(*HopPtr);
+					}
+					else
+					{
+						UnionHopDistances.Add(0);  // Default to seed (hop=0)
+					}
+				}
+			}
+
+			// Build unified adjacency data
+			TArray<uint32> UnionAdjacencyOffsets;
+			TArray<uint32> UnionAdjacencyTriangles;
+			CurrentLODData.AffectedVerticesManager.BuildAdjacencyDataFromIndices(
+				UnionIndices,
+				MeshIndices,
+				UnionAdjacencyOffsets,
+				UnionAdjacencyTriangles
+			);
+
+			// Store in WorkItem
+			WorkItem.UnionAffectedIndicesPtr = MakeShared<TArray<uint32>>(MoveTemp(UnionIndices));
+			WorkItem.UnionAdjacencyOffsetsPtr = MakeShared<TArray<uint32>>(MoveTemp(UnionAdjacencyOffsets));
+			WorkItem.UnionAdjacencyTrianglesPtr = MakeShared<TArray<uint32>>(MoveTemp(UnionAdjacencyTriangles));
+			WorkItem.UnionRepresentativeIndicesPtr = MakeShared<TArray<uint32>>(MoveTemp(UnionRepresentatives));
+			WorkItem.bUnionHasUVDuplicates = bHasUVDuplicates;
+			WorkItem.UnionMaxHops = UnionMaxHops;
+
+			if (UnionHopDistances.Num() > 0)
+			{
+				WorkItem.UnionHopDistancesPtr = MakeShared<TArray<int32>>(MoveTemp(UnionHopDistances));
+			}
+
+			UE_LOG(LogFleshRing, Verbose,
+				TEXT("Unified NormalRecompute data: %d vertices from %d Rings"),
+				WorkItem.UnionAffectedIndicesPtr->Num(), RingDispatchDataPtr->Num());
+		}
+	}
+
 	WorkItem.bNeedTightnessCaching = bNeedTightnessCaching;
 	WorkItem.bInvalidatePreviousPosition = bInvalidatePreviousPosition;
 	WorkItem.CachedBufferSharedPtr = CurrentLODData.CachedTightenedBindPoseShared;  // TSharedPtr copy (ref count increase)
@@ -1106,6 +1354,8 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			static_cast<uint32>(FleshRingComponent->FleshRingAsset->NormalRecomputeMethod);
 		WorkItem.bEnableNormalHopBlending =
 			FleshRingComponent->FleshRingAsset->bEnableNormalHopBlending;
+		WorkItem.NormalBlendFalloffType =
+			static_cast<uint32>(FleshRingComponent->FleshRingAsset->NormalBlendFalloffType);
 		WorkItem.bEnableDisplacementBlending =
 			FleshRingComponent->FleshRingAsset->bEnableDisplacementBlending;
 		WorkItem.MaxDisplacementForBlend =

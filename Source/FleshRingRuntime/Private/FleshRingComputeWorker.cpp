@@ -1663,31 +1663,34 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 			}
 		}
 
-		// ===== NormalRecomputeCS Dispatch (after BulgeCS) =====
-		// Recompute normals by averaging Face Normals for deformed positions
-		if (WorkItem.bEnableNormalRecompute && WorkItem.RingDispatchDataPtr.IsValid() && WorkItem.MeshIndicesPtr.IsValid())
+		// ===== NormalRecomputeCS Dispatch (Unified - after all deformations) =====
+		// Recompute normals ONCE using unified data merged from all Rings
+		// This prevents overlapping regions from being overwritten by the last Ring's results
+		if (WorkItem.bEnableNormalRecompute && WorkItem.MeshIndicesPtr.IsValid() &&
+			WorkItem.UnionAffectedIndicesPtr.IsValid() && WorkItem.UnionAffectedIndicesPtr->Num() > 0 &&
+			WorkItem.UnionAdjacencyOffsetsPtr.IsValid() && WorkItem.UnionAdjacencyTrianglesPtr.IsValid())
 		{
-			// Create mesh index buffer
 			const TArray<uint32>& MeshIndices = *WorkItem.MeshIndicesPtr;
-			const uint32 NumMeshIndices = MeshIndices.Num();
+			const TArray<uint32>& UnionIndices = *WorkItem.UnionAffectedIndicesPtr;
+			const TArray<uint32>& UnionAdjacencyOffsets = *WorkItem.UnionAdjacencyOffsetsPtr;
+			const TArray<uint32>& UnionAdjacencyTriangles = *WorkItem.UnionAdjacencyTrianglesPtr;
 
-			if (NumMeshIndices > 0)
+			const uint32 NumUnionAffected = UnionIndices.Num();
+
+			if (NumUnionAffected > 0 && MeshIndices.Num() > 0 &&
+				UnionAdjacencyOffsets.Num() > 0 && UnionAdjacencyTriangles.Num() > 0)
 			{
+				// Create mesh index buffer
 				FRDGBufferRef MeshIndexBuffer = GraphBuilder.CreateBuffer(
-					FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), NumMeshIndices),
+					FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), MeshIndices.Num()),
 					TEXT("FleshRing_MeshIndices")
 				);
 				GraphBuilder.QueueBufferUpload(
 					MeshIndexBuffer,
 					MeshIndices.GetData(),
-					NumMeshIndices * sizeof(uint32),
+					MeshIndices.Num() * sizeof(uint32),
 					ERDGInitialDataFlags::None
 				);
-
-				// ===== Surface Rotation Method for Normal Recompute =====
-				// Recompute normals using surface rotation method
-				// Apply original Face Normal → deformed Face Normal rotation to original vertex normals
-				// This method preserves smooth shading
 
 				// Get SourceTangents SRV (includes original normals)
 				FRHIShaderResourceView* SourceTangentsSRV = LODData.StaticVertexBuffers.StaticMeshVertexBuffer.GetTangentsSRV();
@@ -1696,7 +1699,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					UE_LOG(LogFleshRingWorker, Warning, TEXT("[NormalRecompute] SourceTangentsSRV is null, skipping"));
 				}
 
-				// Create original position buffer (bind pose - for original Face Normal computation)
+				// Create original position buffer (bind pose)
 				FRDGBufferRef OriginalPositionsBuffer = GraphBuilder.CreateBuffer(
 					FRDGBufferDesc::CreateBufferDesc(sizeof(float), ActualBufferSize),
 					TEXT("FleshRing_OriginalPositions")
@@ -1709,243 +1712,151 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				);
 
 				// Create output buffer (recomputed normals)
-				// Initialize to 0 - unaffected vertices remain with 0 normals for SkinningCS fallback
 				RecomputedNormalsBuffer = GraphBuilder.CreateBuffer(
 					FRDGBufferDesc::CreateBufferDesc(sizeof(float), ActualBufferSize),
 					TEXT("FleshRing_RecomputedNormals")
 				);
 				AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(RecomputedNormalsBuffer, PF_R32_FLOAT), 0);
 
-				// Dispatch NormalRecomputeCS for each Ring
-				for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
+				// Create unified affected index buffer
+				FRDGBufferRef UnionAffectedIndicesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumUnionAffected),
+					TEXT("FleshRing_UnionNormalAffectedIndices")
+				);
+				GraphBuilder.QueueBufferUpload(
+					UnionAffectedIndicesBuffer,
+					UnionIndices.GetData(),
+					NumUnionAffected * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// Create unified adjacency offset buffer
+				FRDGBufferRef UnionAdjacencyOffsetsBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), UnionAdjacencyOffsets.Num()),
+					TEXT("FleshRing_UnionAdjacencyOffsets")
+				);
+				GraphBuilder.QueueBufferUpload(
+					UnionAdjacencyOffsetsBuffer,
+					UnionAdjacencyOffsets.GetData(),
+					UnionAdjacencyOffsets.Num() * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// Create unified adjacency triangle buffer
+				FRDGBufferRef UnionAdjacencyTrianglesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), UnionAdjacencyTriangles.Num()),
+					TEXT("FleshRing_UnionAdjacencyTriangles")
+				);
+				GraphBuilder.QueueBufferUpload(
+					UnionAdjacencyTrianglesBuffer,
+					UnionAdjacencyTriangles.GetData(),
+					UnionAdjacencyTriangles.Num() * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
+
+				// UV Sync: Position synchronization before Normal Recompute
+				if (WorkItem.bUnionHasUVDuplicates && WorkItem.UnionRepresentativeIndicesPtr.IsValid() &&
+					WorkItem.UnionRepresentativeIndicesPtr->Num() == static_cast<int32>(NumUnionAffected))
 				{
-					const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
-
-					// Skip if no actual deformation (TightnessStrength=0 and no Bulge)
-					const bool bHasDeformation =
-						DispatchData.Params.TightnessStrength > KINDA_SMALL_NUMBER ||
-						(DispatchData.bEnableBulge && DispatchData.BulgeStrength > KINDA_SMALL_NUMBER && DispatchData.BulgeIndices.Num() > 0);
-					if (!bHasDeformation)
-					{
-						continue;
-					}
-
-					// ===== Normal Recompute region selection =====
-					// Priority: SmoothingRegion > Original
-					const bool bAnySmoothingEnabled =
-						DispatchData.bEnableRadialSmoothing ||
-						DispatchData.bEnableLaplacianSmoothing ||
-						DispatchData.bEnablePBDEdgeConstraint;
-
-					// SmoothingRegion availability check
-					const bool bUseSmoothingRegion = bAnySmoothingEnabled &&
-						DispatchData.SmoothingRegionIndices.Num() > 0 &&
-						DispatchData.SmoothingRegionAdjacencyOffsets.Num() > 0 &&
-						DispatchData.SmoothingRegionAdjacencyTriangles.Num() > 0;
-
-					// Select data source to use (SmoothingRegion > Original)
-					const TArray<uint32>& IndicesSource = bUseSmoothingRegion
-						? DispatchData.SmoothingRegionIndices : DispatchData.Indices;
-					const TArray<uint32>& AdjacencyOffsetsSource = bUseSmoothingRegion
-						? DispatchData.SmoothingRegionAdjacencyOffsets : DispatchData.AdjacencyOffsets;
-					const TArray<uint32>& AdjacencyTrianglesSource = bUseSmoothingRegion
-						? DispatchData.SmoothingRegionAdjacencyTriangles : DispatchData.AdjacencyTriangles;
-
-					// Skip if no adjacency data
-					if (AdjacencyOffsetsSource.Num() == 0 || AdjacencyTrianglesSource.Num() == 0)
-					{
-						continue;
-					}
-
-					const uint32 NumAffected = IndicesSource.Num();
-					if (NumAffected == 0) continue;
-
-					// Affected vertex index buffer
-					FRDGBufferRef AffectedIndicesBuffer = GraphBuilder.CreateBuffer(
-						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumAffected),
-						*FString::Printf(TEXT("FleshRing_NormalAffectedIndices_Ring%d"), RingIdx)
+					FRDGBufferRef UVSyncRepIndicesBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumUnionAffected),
+						TEXT("FleshRing_UnionUVSyncRepIndices")
 					);
 					GraphBuilder.QueueBufferUpload(
-						AffectedIndicesBuffer,
-						IndicesSource.GetData(),
-						NumAffected * sizeof(uint32),
+						UVSyncRepIndicesBuffer,
+						WorkItem.UnionRepresentativeIndicesPtr->GetData(),
+						NumUnionAffected * sizeof(uint32),
 						ERDGInitialDataFlags::None
 					);
 
-					// Adjacency offset buffer
-					FRDGBufferRef AdjacencyOffsetsBuffer = GraphBuilder.CreateBuffer(
-						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), AdjacencyOffsetsSource.Num()),
-						*FString::Printf(TEXT("FleshRing_AdjacencyOffsets_Ring%d"), RingIdx)
-					);
-					GraphBuilder.QueueBufferUpload(
-						AdjacencyOffsetsBuffer,
-						AdjacencyOffsetsSource.GetData(),
-						AdjacencyOffsetsSource.Num() * sizeof(uint32),
-						ERDGInitialDataFlags::None
-					);
-
-					// Adjacency triangle buffer
-					FRDGBufferRef AdjacencyTrianglesBuffer = GraphBuilder.CreateBuffer(
-						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), AdjacencyTrianglesSource.Num()),
-						*FString::Printf(TEXT("FleshRing_AdjacencyTriangles_Ring%d"), RingIdx)
-					);
-					GraphBuilder.QueueBufferUpload(
-						AdjacencyTrianglesBuffer,
-						AdjacencyTrianglesSource.GetData(),
-						AdjacencyTrianglesSource.Num() * sizeof(uint32),
-						ERDGInitialDataFlags::None
-					);
-
-					// ========================================
-					// UV Sync: Position synchronization before Normal Recompute
-					// ========================================
-					// Synchronize UV duplicate vertex positions based on Representative
-					// This ensures the same position is used when computing normals at UV seams
-					{
-						// Use unified SmoothingRegion data
-						const TArray<uint32>& RepresentativeSource = bUseSmoothingRegion
-							? DispatchData.SmoothingRegionRepresentativeIndices
-							: DispatchData.RepresentativeIndices;
-
-						const bool bHasUVDuplicates = bUseSmoothingRegion
-							? DispatchData.bSmoothingRegionHasUVDuplicates
-							: DispatchData.bHasUVDuplicates;
-
-						// Skip if no UV duplicates (optimization)
-						if (bHasUVDuplicates && RepresentativeSource.Num() == NumAffected)
-						{
-							FRDGBufferRef UVSyncRepIndicesBuffer = GraphBuilder.CreateBuffer(
-								FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumAffected),
-								*FString::Printf(TEXT("FleshRing_UVSyncRepIndices_Ring%d"), RingIdx)
-							);
-							GraphBuilder.QueueBufferUpload(
-								UVSyncRepIndicesBuffer,
-								RepresentativeSource.GetData(),
-								NumAffected * sizeof(uint32),
-								ERDGInitialDataFlags::None
-							);
-
-							FUVSyncDispatchParams UVSyncParams(NumAffected);
-							DispatchFleshRingUVSyncCS(
-								GraphBuilder,
-								UVSyncParams,
-								TightenedBindPoseBuffer,
-								AffectedIndicesBuffer,
-								UVSyncRepIndicesBuffer
-							);
-						}
-					}
-
-					// NormalRecomputeCS dispatch
-					FNormalRecomputeDispatchParams NormalParams(NumAffected, ActualNumVertices, WorkItem.NormalRecomputeMode);
-					NormalParams.FalloffType = DispatchData.NormalBlendFalloffType;
-
-					// ===== Hop-based blending settings =====
-					// Blend boundary vertex normals with original in HopBased mode
-					FRDGBufferRef HopDistancesBuffer = nullptr;
-					const bool bIsHopBasedMode = (DispatchData.SmoothingExpandMode == ESmoothingVolumeMode::HopBased);
-
-					if (bUseSmoothingRegion && bIsHopBasedMode &&
-						DispatchData.SmoothingRegionHopDistances.Num() == NumAffected &&
-						DispatchData.MaxSmoothingHops > 0)
-					{
-						HopDistancesBuffer = GraphBuilder.CreateBuffer(
-							FRDGBufferDesc::CreateStructuredDesc(sizeof(int32), NumAffected),
-							*FString::Printf(TEXT("FleshRing_HopDistances_Ring%d"), RingIdx)
-						);
-						GraphBuilder.QueueBufferUpload(
-							HopDistancesBuffer,
-							DispatchData.SmoothingRegionHopDistances.GetData(),
-							NumAffected * sizeof(int32),
-							ERDGInitialDataFlags::None
-						);
-
-						NormalParams.bEnableHopBlending = WorkItem.bEnableNormalHopBlending;
-						NormalParams.MaxHops = DispatchData.MaxSmoothingHops;
-					}
-
-					// ===== Displacement-based blending settings =====
-					// Blend recomputed normals with original based on vertex displacement
-					NormalParams.bEnableDisplacementBlending = WorkItem.bEnableDisplacementBlending;
-					NormalParams.MaxDisplacement = WorkItem.MaxDisplacementForBlend;
-
-					// ===== UV Seam Welding: RepresentativeIndices buffer (with caching) =====
-					// Use representative vertex adjacency data so split vertices at UV seams have identical normals
-					// Static data, created only on first frame then reused
-					const TArray<uint32>& NormalRepSource = bUseSmoothingRegion
-						? DispatchData.SmoothingRegionRepresentativeIndices
-						: DispatchData.RepresentativeIndices;
-
-					const bool bNormalHasUVDuplicates = bUseSmoothingRegion
-						? DispatchData.bSmoothingRegionHasUVDuplicates
-						: DispatchData.bHasUVDuplicates;
-
-					// Select cache buffer reference (SmoothingRegion vs Original)
-					TRefCountPtr<FRDGPooledBuffer>& CachedBuffer = bUseSmoothingRegion
-						? DispatchData.CachedSmoothingRegionRepresentativeIndicesBuffer
-						: DispatchData.CachedRepresentativeIndicesBuffer;
-
-					FRDGBufferRef NormalRepresentativeIndicesBuffer = nullptr;
-					if (bNormalHasUVDuplicates && NormalRepSource.Num() == static_cast<int32>(NumAffected))
-					{
-						if (!CachedBuffer.IsValid())
-						{
-							// First frame: Create and upload buffer
-							NormalRepresentativeIndicesBuffer = GraphBuilder.CreateBuffer(
-								FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumAffected),
-								*FString::Printf(TEXT("FleshRing_NormalRepIndices_Ring%d"), RingIdx)
-							);
-							GraphBuilder.QueueBufferUpload(
-								NormalRepresentativeIndicesBuffer,
-								NormalRepSource.GetData(),
-								NumAffected * sizeof(uint32),
-								ERDGInitialDataFlags::None
-							);
-							// Cache as pooled buffer (reuse in next frame)
-							CachedBuffer = GraphBuilder.ConvertToExternalBuffer(NormalRepresentativeIndicesBuffer);
-						}
-						else
-						{
-							// Subsequent frames: Reuse cached buffer
-							NormalRepresentativeIndicesBuffer = GraphBuilder.RegisterExternalBuffer(
-								CachedBuffer,
-								*FString::Printf(TEXT("FleshRing_NormalRepIndices_Ring%d"), RingIdx)
-							);
-						}
-						NormalParams.bEnableUVSeamWelding = true;
-					}
-
-					DispatchFleshRingNormalRecomputeCS(
+					FUVSyncDispatchParams UVSyncParams(NumUnionAffected);
+					DispatchFleshRingUVSyncCS(
 						GraphBuilder,
-						NormalParams,
-						TightenedBindPoseBuffer,       // Deformed positions
-						OriginalPositionsBuffer,       // Original positions (for original Face Normal computation)
-						AffectedIndicesBuffer,         // Affected vertex indices
-						AdjacencyOffsetsBuffer,        // Adjacency offsets
-						AdjacencyTrianglesBuffer,      // Adjacency triangles
-						MeshIndexBuffer,               // Mesh index buffer
-						SourceTangentsSRV,             // Original tangents (includes original smooth normals)
-						RecomputedNormalsBuffer,       // Output: Recomputed normals
-						HopDistancesBuffer,            // Hop distances (for blending, optional)
-						NormalRepresentativeIndicesBuffer  // Representative vertex indices for UV seam welding
+						UVSyncParams,
+						TightenedBindPoseBuffer,
+						UnionAffectedIndicesBuffer,
+						UVSyncRepIndicesBuffer
+					);
+				}
+
+				// NormalRecomputeCS dispatch params
+				FNormalRecomputeDispatchParams NormalParams(NumUnionAffected, ActualNumVertices, WorkItem.NormalRecomputeMode);
+				NormalParams.FalloffType = WorkItem.NormalBlendFalloffType;
+
+				// Hop-based blending (if available)
+				FRDGBufferRef HopDistancesBuffer = nullptr;
+				if (WorkItem.UnionHopDistancesPtr.IsValid() &&
+					WorkItem.UnionHopDistancesPtr->Num() == static_cast<int32>(NumUnionAffected) &&
+					WorkItem.UnionMaxHops > 0)
+				{
+					HopDistancesBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateStructuredDesc(sizeof(int32), NumUnionAffected),
+						TEXT("FleshRing_UnionHopDistances")
+					);
+					GraphBuilder.QueueBufferUpload(
+						HopDistancesBuffer,
+						WorkItem.UnionHopDistancesPtr->GetData(),
+						NumUnionAffected * sizeof(int32),
+						ERDGInitialDataFlags::None
 					);
 
+					NormalParams.bEnableHopBlending = WorkItem.bEnableNormalHopBlending;
+					NormalParams.MaxHops = WorkItem.UnionMaxHops;
 				}
+
+				// Displacement-based blending
+				NormalParams.bEnableDisplacementBlending = WorkItem.bEnableDisplacementBlending;
+				NormalParams.MaxDisplacement = WorkItem.MaxDisplacementForBlend;
+
+				// UV Seam Welding: RepresentativeIndices buffer
+				FRDGBufferRef NormalRepresentativeIndicesBuffer = nullptr;
+				if (WorkItem.bUnionHasUVDuplicates && WorkItem.UnionRepresentativeIndicesPtr.IsValid() &&
+					WorkItem.UnionRepresentativeIndicesPtr->Num() == static_cast<int32>(NumUnionAffected))
+				{
+					NormalRepresentativeIndicesBuffer = GraphBuilder.CreateBuffer(
+						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumUnionAffected),
+						TEXT("FleshRing_UnionNormalRepIndices")
+					);
+					GraphBuilder.QueueBufferUpload(
+						NormalRepresentativeIndicesBuffer,
+						WorkItem.UnionRepresentativeIndicesPtr->GetData(),
+						NumUnionAffected * sizeof(uint32),
+						ERDGInitialDataFlags::None
+					);
+					NormalParams.bEnableUVSeamWelding = true;
+				}
+
+				DispatchFleshRingNormalRecomputeCS(
+					GraphBuilder,
+					NormalParams,
+					TightenedBindPoseBuffer,
+					OriginalPositionsBuffer,
+					UnionAffectedIndicesBuffer,
+					UnionAdjacencyOffsetsBuffer,
+					UnionAdjacencyTrianglesBuffer,
+					MeshIndexBuffer,
+					SourceTangentsSRV,
+					RecomputedNormalsBuffer,
+					HopDistancesBuffer,
+					NormalRepresentativeIndicesBuffer
+				);
+
+				UE_LOG(LogFleshRingWorker, Verbose,
+					TEXT("[NormalRecompute] Unified dispatch: %d vertices"), NumUnionAffected);
 			}
 		}
 
-		// ===== TangentRecomputeCS Dispatch (after NormalRecomputeCS) =====
-		// Tangent recomputation: Gram-Schmidt orthonormalization
-		// Note: If bEnableNormalRecompute is false, RecomputedNormalsBuffer will be null, so it auto-skips
-		if (WorkItem.bEnableTangentRecompute && RecomputedNormalsBuffer && WorkItem.RingDispatchDataPtr.IsValid())
+		// ===== TangentRecomputeCS Dispatch (Unified - after NormalRecomputeCS) =====
+		// Tangent recomputation: Gram-Schmidt orthonormalization (ONCE with unified data)
+		if (WorkItem.bEnableTangentRecompute && RecomputedNormalsBuffer &&
+			WorkItem.UnionAffectedIndicesPtr.IsValid() && WorkItem.UnionAffectedIndicesPtr->Num() > 0)
 		{
-			// Get SourceTangents SRV
 			FRHIShaderResourceView* SourceTangentsSRV = LODData.StaticVertexBuffers.StaticMeshVertexBuffer.GetTangentsSRV();
 
 			if (SourceTangentsSRV)
 			{
-				// [DEBUG] TangentRecomputeCS valid log (uncomment if needed)
-				// UE_LOG(LogFleshRingWorker, Log, TEXT("[DEBUG] TangentRecomputeCS: SourceTangentsSRV is valid, proceeding"));
+				const TArray<uint32>& UnionIndices = *WorkItem.UnionAffectedIndicesPtr;
+				const uint32 NumUnionAffected = UnionIndices.Num();
 
 				// Create tangent output buffer (8 floats per vertex: TangentX.xyzw + TangentZ.xyzw)
 				const uint32 TangentBufferSize = ActualNumVertices * 8;
@@ -1953,77 +1864,34 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 					FRDGBufferDesc::CreateBufferDesc(sizeof(float), TangentBufferSize),
 					TEXT("FleshRing_RecomputedTangents")
 				);
-				// Initialize to 0 - unaffected vertices use original in SkinningCS
 				AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(RecomputedTangentsBuffer, PF_R32_FLOAT), 0);
 
-				// Dispatch TangentRecomputeCS for each Ring
-				for (int32 RingIdx = 0; RingIdx < WorkItem.RingDispatchDataPtr->Num(); ++RingIdx)
-				{
-					const FFleshRingWorkItem::FRingDispatchData& DispatchData = (*WorkItem.RingDispatchDataPtr)[RingIdx];
+				// Create unified affected index buffer for tangent recompute
+				FRDGBufferRef UnionTangentAffectedIndicesBuffer = GraphBuilder.CreateBuffer(
+					FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumUnionAffected),
+					TEXT("FleshRing_UnionTangentAffectedIndices")
+				);
+				GraphBuilder.QueueBufferUpload(
+					UnionTangentAffectedIndicesBuffer,
+					UnionIndices.GetData(),
+					NumUnionAffected * sizeof(uint32),
+					ERDGInitialDataFlags::None
+				);
 
-					// Skip if no actual deformation (TightnessStrength=0 and no Bulge)
-					const bool bHasDeformation =
-						DispatchData.Params.TightnessStrength > KINDA_SMALL_NUMBER ||
-						(DispatchData.bEnableBulge && DispatchData.BulgeStrength > KINDA_SMALL_NUMBER && DispatchData.BulgeIndices.Num() > 0);
-					if (!bHasDeformation)
-					{
-						continue;
-					}
+				// TangentRecomputeCS dispatch (Gram-Schmidt) - ONCE
+				FTangentRecomputeDispatchParams TangentParams(NumUnionAffected, ActualNumVertices);
 
-					// ===== Tangent Recompute region selection =====
-					// Priority: SmoothingRegion > Original
-					const bool bAnySmoothingEnabled =
-						DispatchData.bEnableRadialSmoothing ||
-						DispatchData.bEnableLaplacianSmoothing ||
-						DispatchData.bEnablePBDEdgeConstraint;
+				DispatchFleshRingTangentRecomputeCS(
+					GraphBuilder,
+					TangentParams,
+					RecomputedNormalsBuffer,
+					SourceTangentsSRV,
+					UnionTangentAffectedIndicesBuffer,
+					RecomputedTangentsBuffer
+				);
 
-					// SmoothingRegion availability check
-					const bool bUseSmoothingRegion = bAnySmoothingEnabled &&
-						DispatchData.SmoothingRegionIndices.Num() > 0 &&
-						DispatchData.SmoothingRegionAdjacencyOffsets.Num() > 0 &&
-						DispatchData.SmoothingRegionAdjacencyTriangles.Num() > 0;
-
-					// Data source selection (SmoothingRegion > Original)
-					const TArray<uint32>& IndicesSource = bUseSmoothingRegion
-						? DispatchData.SmoothingRegionIndices : DispatchData.Indices;
-					const TArray<uint32>& AdjacencyOffsetsSource = bUseSmoothingRegion
-						? DispatchData.SmoothingRegionAdjacencyOffsets : DispatchData.AdjacencyOffsets;
-					const TArray<uint32>& AdjacencyTrianglesSource = bUseSmoothingRegion
-						? DispatchData.SmoothingRegionAdjacencyTriangles : DispatchData.AdjacencyTriangles;
-
-					if (IndicesSource.Num() == 0) continue;
-
-					const uint32 NumAffected = IndicesSource.Num();
-
-					// Affected vertex index buffer
-					FRDGBufferRef TangentAffectedIndicesBuffer = GraphBuilder.CreateBuffer(
-						FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumAffected),
-						*FString::Printf(TEXT("FleshRing_TangentAffectedIndices_Ring%d"), RingIdx)
-					);
-					GraphBuilder.QueueBufferUpload(
-						TangentAffectedIndicesBuffer,
-						IndicesSource.GetData(),
-						NumAffected * sizeof(uint32),
-						ERDGInitialDataFlags::None
-					);
-
-					// TangentRecomputeCS dispatch (Gram-Schmidt)
-					FTangentRecomputeDispatchParams TangentParams(NumAffected, ActualNumVertices);
-
-					DispatchFleshRingTangentRecomputeCS(
-						GraphBuilder,
-						TangentParams,
-						RecomputedNormalsBuffer,
-						SourceTangentsSRV,
-						TangentAffectedIndicesBuffer,
-						RecomputedTangentsBuffer
-					);
-				}
-			}
-			else
-			{
-				// [DEBUG] TangentRecomputeCS NULL warning (uncomment if needed)
-				// UE_LOG(LogFleshRingWorker, Warning, TEXT("[DEBUG] TangentRecomputeCS: SourceTangentsSRV is NULL! Tangent recomputation skipped."));
+				UE_LOG(LogFleshRingWorker, Verbose,
+					TEXT("[TangentRecompute] Unified dispatch: %d vertices"), NumUnionAffected);
 			}
 		}
 
