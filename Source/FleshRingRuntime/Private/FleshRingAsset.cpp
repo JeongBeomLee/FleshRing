@@ -2761,7 +2761,6 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 		// =====================================
 		// Normal/Tangent update (VertexInstance based)
 		// In MeshDescription, normals/tangents are stored in VertexInstance
-		// Fix: Use VertexID-based mapping instead of sequential indexing
 		// =====================================
 		if (bHasNormals && bHasTangents)
 		{
@@ -2770,8 +2769,7 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 			TVertexInstanceAttributesRef<FVector3f> InstanceTangents = MeshAttributes.GetVertexInstanceTangents();
 			TVertexInstanceAttributesRef<float> InstanceBinormalSigns = MeshAttributes.GetVertexInstanceBinormalSigns();
 
-			// Iterate VertexInstances to update normals/tangents
-			// Find RenderData index through VertexInstance's parent VertexID
+			// VertexID-based mapping: find RenderData index through VertexInstance's parent VertexID
 			for (const FVertexInstanceID InstanceID : MeshDesc->VertexInstances().GetElementIDs())
 			{
 				FVertexID VertexID = MeshDesc->GetVertexInstanceVertex(InstanceID);
@@ -2787,8 +2785,9 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 						FVector3f Tangent(DeformedTangents[RenderIdx].X, DeformedTangents[RenderIdx].Y, DeformedTangents[RenderIdx].Z);
 						float BinormalSign = DeformedTangents[RenderIdx].W;
 
-						InstanceNormals[InstanceID] = Normal;
-						InstanceTangents[InstanceID] = Tangent;
+						// Normalize normals and tangents (GPU computed values may not be unit length)
+						InstanceNormals[InstanceID] = Normal.GetSafeNormal();
+						InstanceTangents[InstanceID] = Tangent.GetSafeNormal();
 						InstanceBinormalSigns[InstanceID] = BinormalSign;
 					}
 				}
