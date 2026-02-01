@@ -133,7 +133,9 @@ USkeletalMesh* FFleshRingSkinnedMeshGenerator::GenerateSkinnedRingMesh(
 			FSkeletalMaterial SkelMat;
 			SkelMat.MaterialInterface = StaticMat.MaterialInterface;
 			SkelMat.MaterialSlotName = StaticMat.MaterialSlotName;
+#if WITH_EDITORONLY_DATA
 			SkelMat.ImportedMaterialSlotName = StaticMat.ImportedMaterialSlotName;
+#endif
 			// Initialize UVChannelData to prevent crash in streaming system
 			SkelMat.UVChannelData.bInitialized = true;
 			SkinnedRingMesh->GetMaterials().Add(SkelMat);
@@ -141,9 +143,13 @@ USkeletalMesh* FFleshRingSkinnedMeshGenerator::GenerateSkinnedRingMesh(
 			// Use first material's slot name for polygon group
 			if (MaterialSlotName == TEXT("RingMaterial"))
 			{
+#if WITH_EDITORONLY_DATA
 				MaterialSlotName = StaticMat.ImportedMaterialSlotName.IsNone()
 					? StaticMat.MaterialSlotName
 					: StaticMat.ImportedMaterialSlotName;
+#else
+				MaterialSlotName = StaticMat.MaterialSlotName;
+#endif
 				if (MaterialSlotName.IsNone())
 				{
 					MaterialSlotName = TEXT("RingMaterial");
@@ -242,7 +248,8 @@ USkeletalMesh* FFleshRingSkinnedMeshGenerator::GenerateSkinnedRingMesh(
 			SkinWeights.Set(VertexID, BoneWeightArray);
 		}
 
-		// Commit this LOD
+		// Commit this LOD (Editor-only API)
+#if WITH_EDITORONLY_DATA
 		SkinnedRingMesh->CreateMeshDescription(LODIndex, MoveTemp(MeshDescription));
 
 		USkeletalMesh::FCommitMeshDescriptionParams CommitParams;
@@ -255,9 +262,12 @@ USkeletalMesh* FFleshRingSkinnedMeshGenerator::GenerateSkinnedRingMesh(
 			LODInfo->BuildSettings.bRecomputeNormals = false;
 			LODInfo->BuildSettings.bRecomputeTangents = false;
 		}
+#endif
 	}
 
+#if WITH_EDITORONLY_DATA
 	SkinnedRingMesh->Build();
+#endif
 	SkinnedRingMesh->InitResources();
 
 	FlushRenderingCommands();
