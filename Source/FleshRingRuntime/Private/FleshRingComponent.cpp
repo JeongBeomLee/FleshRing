@@ -3181,7 +3181,7 @@ void UFleshRingComponent::DrawBulgeDirectionArrow(int32 RingIndex)
 		WorldZAxis = WorldRotation.RotateVector(LocalZAxis);
 
 		// Arrow size (proportional to SDF volume size)
-		ArrowLength = FVector(SDFCache->BoundsMax - SDFCache->BoundsMin).Size() * 0.05f;
+		ArrowLength = FVector(SDFCache->BoundsMax - SDFCache->BoundsMin).Size() * 0.15f;
 	}
 	else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualRing)
 	{
@@ -3209,7 +3209,7 @@ void UFleshRingComponent::DrawBulgeDirectionArrow(int32 RingIndex)
 		WorldZAxis = WorldRingRotation.RotateVector(FVector::ZAxisVector);
 
 		// Arrow size (proportional to Ring radius)
-		ArrowLength = RingSettings.RingRadius * 0.1f;
+		ArrowLength = RingSettings.RingRadius * 0.3f;
 	}
 	else
 	{
@@ -3235,8 +3235,9 @@ void UFleshRingComponent::DrawBulgeDirectionArrow(int32 RingIndex)
 		break;
 	}
 
-	// Arrow color: unified to white
-	FColor ArrowColor = FColor::White;
+	// Arrow colors: +Z = Red, -Z = Blue
+	const FColor PositiveZColor = FColor::Red;
+	const FColor NegativeZColor = FColor::Blue;
 
 	// Draw arrow (SDPG_Foreground to display in front of mesh)
 	if (bShowBulgeArrows)
@@ -3249,12 +3250,13 @@ void UFleshRingComponent::DrawBulgeDirectionArrow(int32 RingIndex)
 			// Bidirectional: draw arrows both up and down
 			FVector ArrowEndUp = WorldCenter + WorldZAxis * ArrowLength;
 			FVector ArrowEndDown = WorldCenter - WorldZAxis * ArrowLength;
-			DrawDebugDirectionalArrow(World, WorldCenter, ArrowEndUp, ArrowHeadSize, ArrowColor, false, -1.0f, SDPG_Foreground, ArrowThickness);
-			DrawDebugDirectionalArrow(World, WorldCenter, ArrowEndDown, ArrowHeadSize, ArrowColor, false, -1.0f, SDPG_Foreground, ArrowThickness);
+			DrawDebugDirectionalArrow(World, WorldCenter, ArrowEndUp, ArrowHeadSize, PositiveZColor, false, -1.0f, SDPG_Foreground, ArrowThickness);
+			DrawDebugDirectionalArrow(World, WorldCenter, ArrowEndDown, ArrowHeadSize, NegativeZColor, false, -1.0f, SDPG_Foreground, ArrowThickness);
 		}
 		else
 		{
-			// Unidirectional
+			// Unidirectional: color based on direction
+			FColor ArrowColor = (FinalDirection > 0) ? PositiveZColor : NegativeZColor;
 			FVector ArrowDirection = WorldZAxis * static_cast<float>(FinalDirection);
 			FVector ArrowEnd = WorldCenter + ArrowDirection * ArrowLength;
 			DrawDebugDirectionalArrow(World, WorldCenter, ArrowEnd, ArrowHeadSize, ArrowColor, false, -1.0f, SDPG_Foreground, ArrowThickness);
@@ -3272,7 +3274,9 @@ void UFleshRingComponent::DrawBulgeDirectionArrow(int32 RingIndex)
 		case EBulgeDirectionMode::Positive: ModeStr = TEXT("+Z"); break;
 		case EBulgeDirectionMode::Negative: ModeStr = TEXT("-Z"); break;
 		}
-		GEngine->AddOnScreenDebugMessage(-1, 0.0f, ArrowColor,
+		// Text color based on direction: +Z=Red, -Z=Blue, Bidirectional=White
+		FColor TextColor = (FinalDirection > 0) ? PositiveZColor : (FinalDirection < 0) ? NegativeZColor : FColor::White;
+		GEngine->AddOnScreenDebugMessage(-1, 0.0f, TextColor,
 			FString::Printf(TEXT("Ring[%d] Bulge Dir: %s (Detected: %d, Final: %d)"),
 				RingIndex, *ModeStr, DetectedDirection, FinalDirection));
 	}

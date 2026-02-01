@@ -142,10 +142,11 @@ public:
 	void ApplyAsset();
 
 	/**
-	 * Swap FleshRingAsset at runtime
+	 * Swap FleshRingAsset at runtime (standard single-mesh workflow)
 	 * Instant swap between baked assets without animation interruption
+	 *
+	 * For modular characters, use UFleshRingModularLibrary::SwapModularRingAsset() instead.
 	 */
-	/** Runtime ring asset swap (legacy API, maintained for backward compatibility) */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing")
 	void SwapFleshRingAsset(UFleshRingAsset* NewAsset);
 
