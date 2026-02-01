@@ -84,7 +84,7 @@ Download from FAB Marketplace:
 
 For detailed parameter reference, tutorials, and troubleshooting:
 
-**[Full Technical Documentation](FleshRing_Documentation_v3.md)**
+**[Full Technical Documentation](Docs/FleshRing_Documentation.md)**
 
 ---
 
@@ -92,7 +92,7 @@ For detailed parameter reference, tutorials, and troubleshooting:
 
 | | |
 |---|---|
-| **Documentation** | See `Docs/FleshRing_Documentation_v3.md` |
+| **Documentation** | See `Docs/FleshRing_Documentation.md` |
 | **Email** | kraftontechlablcg@gmail.com |
 | **Bug Reports** | Submit via FAB product page |
 
