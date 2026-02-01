@@ -227,7 +227,7 @@ Automatically subdivides low-resolution meshes in affected areas for higher defo
 
 ### Modular Character Support
 
-FleshRing provides **runtime ring asset swapping** for modular character systems built with Leader Pose / Copy Pose or Skeletal Merging.
+FleshRing provides **runtime ring asset swapping** for modular character systems built with Leader Pose Component / Copy Pose from Mesh or Skeletal Mesh Merge.
 
 #### Key Capabilities
 
