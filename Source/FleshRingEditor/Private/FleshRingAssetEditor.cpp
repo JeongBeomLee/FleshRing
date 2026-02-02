@@ -102,6 +102,9 @@ void FFleshRingAssetEditor::InitFleshRingAssetEditor(
 	// Create EditorModeManager BEFORE InitAssetEditor (tabs are spawned during InitAssetEditor)
 	CreateEditorModeManager();
 
+	// Register editor commands BEFORE InitAssetEditor (viewport BindCommands needs them)
+	FFleshRingEditorCommands::Register();
+
 	// Initialize editor
 	InitAssetEditor(
 		Mode,
@@ -127,8 +130,7 @@ void FFleshRingAssetEditor::InitFleshRingAssetEditor(
 			this, &FFleshRingAssetEditor::OnRingSelectionChangedFromDetails);
 	}
 
-	// Register and bind editor commands (QWER shortcuts)
-	FFleshRingEditorCommands::Register();
+	// Bind editor commands (QWER shortcuts) - Register() called before InitAssetEditor
 	BindCommands();
 }
 
@@ -1130,6 +1132,8 @@ void FFleshRingAssetEditor::BindCommands()
 		Commands.SetWidgetModeScale,
 		FExecuteAction::CreateSP(this, &FFleshRingAssetEditor::SetWidgetMode, UE::Widget::WM_Scale));
 
+	// ToggleCoordSystem for non-viewport focus (tree, details panel, etc.)
+	// When viewport has focus, SFleshRingEditorViewport::OnCycleCoordinateSystem() handles it
 	ToolkitCommands->MapAction(
 		Commands.ToggleCoordSystem,
 		FExecuteAction::CreateSP(this, &FFleshRingAssetEditor::ToggleCoordSystem));

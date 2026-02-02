@@ -59,6 +59,7 @@ protected:
 	virtual void PopulateViewportOverlays(TSharedRef<SOverlay> Overlay) override;
 	virtual void OnFocusViewportToSelection() override;
 	virtual void BindCommands() override;
+	virtual void OnCycleCoordinateSystem() override;
 
 private:
 	/** Preview scene */

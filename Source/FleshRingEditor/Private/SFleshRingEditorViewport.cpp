@@ -12,6 +12,7 @@
 #include "Slate/SceneViewport.h"
 #include "EditorModeRegistry.h"
 #include "BufferVisualizationMenuCommands.h"
+#include "EditorViewportCommands.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "Styling/AppStyle.h"
 #include "Viewports.h"
@@ -221,8 +222,28 @@ void SFleshRingEditorViewport::BindCommands()
 	// Parent class command binding (view mode, camera, etc.)
 	SEditorViewport::BindCommands();
 
+	// Unbind engine's CycleTransformGizmoCoordSystem (Ctrl+`) from viewport
+	// Our GetWidgetCoordSystemSpace() always returns COORD_World, breaking the engine's cycle logic
+	// Instead, we use FFleshRingAssetEditor's ToggleCoordSystem via ToolkitCommands
+	const FEditorViewportCommands& ViewportCommands = FEditorViewportCommands::Get();
+	CommandList->UnmapAction(ViewportCommands.CycleTransformGizmoCoordSystem);
+
 	// Buffer visualization command binding
 	FBufferVisualizationMenuCommands::Get().BindCommands(*CommandList, Client);
+
+	// NOTE: FleshRing editor commands (QWER, Ctrl+`, number keys, etc.)
+	// are NOT bound here - they are bound in FFleshRingAssetEditor::BindCommands()
+	// Binding in both places would cause double-execution (double-toggle for Ctrl+`)
+}
+
+void SFleshRingEditorViewport::OnCycleCoordinateSystem()
+{
+	// This override is kept for safety but shouldn't be called
+	// since we unbound CycleTransformGizmoCoordSystem in BindCommands()
+	if (ViewportClient.IsValid())
+	{
+		ViewportClient->ToggleLocalCoordSystem();
+	}
 }
 
 #undef LOCTEXT_NAMESPACE
