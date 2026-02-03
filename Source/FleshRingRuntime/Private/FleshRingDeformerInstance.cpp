@@ -451,6 +451,15 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 			continue;
 		}
 
+		// Skip this ring if deformation is disabled
+		if (RingSettingsPtr && RingSettingsPtr->IsValidIndex(RingIndex))
+		{
+			if (!(*RingSettingsPtr)[RingIndex].bEnableDeformation)
+			{
+				continue;
+			}
+		}
+
 		FFleshRingWorkItem::FRingDispatchData DispatchData;
 		DispatchData.OriginalRingIndex = RingIndex;  // Store original index (for settings lookup)
 		DispatchData.Params = CreateTightnessParams(RingData, TotalVertexCount);
@@ -696,12 +705,60 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 
 	if (RingDispatchDataPtr->Num() == 0)
 	{
-		if (InDesc.FallbackDelegate.IsBound())
+		// Check if there was previous deformation (cached normals/tangents exist)
+		const bool bHadPreviousNormals = CurrentLODData.CachedNormalsShared.IsValid() &&
+			CurrentLODData.CachedNormalsShared->IsValid();
+
+		if (bHadPreviousNormals)
 		{
-			ENQUEUE_RENDER_COMMAND(FleshRingFallback)([FallbackDelegate = InDesc.FallbackDelegate](FRHICommandListImmediate& RHICmdList)
+			// ===== Passthrough Mode (for bEnableDeformation toggle) =====
+			// Previous deformation existed but all rings now have bEnableDeformation=false
+			// → Run SkinningCS once with original data to remove normal/tangent residue
+			FSkeletalMeshObject* MeshObjectForPassthrough = SkinnedMeshComp->MeshObject;
+			if (MeshObjectForPassthrough && !MeshObjectForPassthrough->IsCPUSkinned())
 			{
-				FallbackDelegate.ExecuteIfBound();
-			});
+				FFleshRingWorkItem PassthroughWorkItem;
+				PassthroughWorkItem.DeformerInstance = this;
+				PassthroughWorkItem.MeshObject = MeshObjectForPassthrough;
+				PassthroughWorkItem.LODIndex = LODIndex;
+				PassthroughWorkItem.bPassthroughMode = true;
+				PassthroughWorkItem.FallbackDelegate = InDesc.FallbackDelegate;
+				PassthroughWorkItem.TotalVertexCount = TotalVertexCount;
+
+				if (CurrentLODData.CachedSourcePositions.Num() > 0)
+				{
+					PassthroughWorkItem.SourceDataPtr = MakeShared<TArray<float>>(CurrentLODData.CachedSourcePositions);
+				}
+
+				FFleshRingComputeWorker* PassthroughWorker = FFleshRingComputeSystem::Get().GetWorker(Scene);
+				if (PassthroughWorker)
+				{
+					PassthroughWorker->EnqueueWork(MoveTemp(PassthroughWorkItem));
+				}
+			}
+
+			// Clear caches after Passthrough
+			if (CurrentLODData.CachedNormalsShared.IsValid())
+			{
+				CurrentLODData.CachedNormalsShared->SafeRelease();
+				CurrentLODData.CachedNormalsShared.Reset();
+			}
+			if (CurrentLODData.CachedTangentsShared.IsValid())
+			{
+				CurrentLODData.CachedTangentsShared->SafeRelease();
+				CurrentLODData.CachedTangentsShared.Reset();
+			}
+		}
+		else
+		{
+			// No previous deformation → just Fallback
+			if (InDesc.FallbackDelegate.IsBound())
+			{
+				ENQUEUE_RENDER_COMMAND(FleshRingFallback)([FallbackDelegate = InDesc.FallbackDelegate](FRHICommandListImmediate& RHICmdList)
+				{
+					FallbackDelegate.ExecuteIfBound();
+				});
+			}
 		}
 		return;
 	}

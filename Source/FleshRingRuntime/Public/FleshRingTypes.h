@@ -780,6 +780,14 @@ struct FLESHRINGRUNTIME_API FFleshRingSettings
 		meta = (DisplayName = "Target Material Layers", Bitmask, BitmaskEnum = "/Script/FleshRingRuntime.EFleshRingLayerMask"))
 	int32 AffectedLayerMask = static_cast<int32>(EFleshRingLayerMask::Skin) | static_cast<int32>(EFleshRingLayerMask::Other);
 
+	/**
+	 * Enable deformation effect for this Ring
+	 * - ON: Tightness, Bulge, Smoothing all applied
+	 * - OFF: No deformation from this Ring (useful for comparison)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ring", meta = (DisplayName = "Enable Deformation"))
+	bool bEnableDeformation = true;
+
 	/** Virtual band settings (used only in VirtualBand mode) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Virtual Band", meta = (EditCondition = "InfluenceMode == EFleshRingInfluenceMode::VirtualBand"))
 	FVirtualBandSettings VirtualBand;

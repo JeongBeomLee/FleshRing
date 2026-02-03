@@ -184,6 +184,25 @@ public:
 							.DesiredSizeOverride(FVector2D(14, 14))
 						]
 					]
+					// O/X icon (deformation toggle) - only shown for Ring
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(2, 0, 0, 0)
+					.VAlign(VAlign_Center)
+					[
+						SNew(SButton)
+						.ButtonStyle(FAppStyle::Get(), "NoBorder")
+						.ContentPadding(FMargin(2))
+						.OnClicked(this, &SFleshRingTreeRow::OnDeformationToggleClicked)
+						.ToolTipText(LOCTEXT("ToggleDeformation", "Toggle deformation effect (Tightness, Bulge, Smoothing)"))
+						.Visibility(bIsRing ? EVisibility::Visible : EVisibility::Collapsed)
+						[
+							SNew(STextBlock)
+							.Text(this, &SFleshRingTreeRow::GetDeformationToggleText)
+							.Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+							.ColorAndOpacity(this, &SFleshRingTreeRow::GetDeformationToggleColor)
+						]
+					]
 				]
 			]
 		];
@@ -441,6 +460,46 @@ private:
 			Asset->Modify();
 
 			Asset->Rings[Item->RingIndex].bEditorVisible = !Asset->Rings[Item->RingIndex].bEditorVisible;
+
+			// Notify Asset change (for editor viewport refresh)
+			Asset->OnAssetChanged.Broadcast(Asset);
+		}
+		return FReply::Handled();
+	}
+
+	/** Return deformation toggle text (O or X) */
+	FText GetDeformationToggleText() const
+	{
+		if (Asset && Item.IsValid() && Asset->Rings.IsValidIndex(Item->RingIndex))
+		{
+			bool bEnabled = Asset->Rings[Item->RingIndex].bEnableDeformation;
+			return FText::FromString(bEnabled ? TEXT("O") : TEXT("X"));
+		}
+		return FText::FromString(TEXT("O"));
+	}
+
+	/** Return deformation toggle color */
+	FSlateColor GetDeformationToggleColor() const
+	{
+		if (Asset && Item.IsValid() && Asset->Rings.IsValidIndex(Item->RingIndex))
+		{
+			bool bEnabled = Asset->Rings[Item->RingIndex].bEnableDeformation;
+			return bEnabled
+				? FSlateColor(FLinearColor(0.2f, 0.8f, 0.2f))   // Green for enabled
+				: FSlateColor(FLinearColor(0.8f, 0.2f, 0.2f));  // Red for disabled
+		}
+		return FSlateColor(FLinearColor(0.2f, 0.8f, 0.2f));
+	}
+
+	/** Deformation toggle button click */
+	FReply OnDeformationToggleClicked()
+	{
+		if (Asset && Item.IsValid() && Asset->Rings.IsValidIndex(Item->RingIndex))
+		{
+			FScopedTransaction Transaction(LOCTEXT("ToggleRingDeformation", "Toggle Ring Deformation"));
+			Asset->Modify();
+
+			Asset->Rings[Item->RingIndex].bEnableDeformation = !Asset->Rings[Item->RingIndex].bEnableDeformation;
 
 			// Notify Asset change (for editor viewport refresh)
 			Asset->OnAssetChanged.Broadcast(Asset);
