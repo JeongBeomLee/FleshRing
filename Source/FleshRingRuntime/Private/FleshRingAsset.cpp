@@ -2136,109 +2136,9 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 	}
 
 	// ============================================
-	// 6. Setup Import Data and build
+	// 6. Create MeshDescription
 	// ============================================
-	// Set mesh data using FSkeletalMeshImportData
-	FSkeletalMeshImportData ImportData;
-
-	// Points (vertex positions)
-	ImportData.Points.SetNum(NewVertexCount);
-	for (int32 i = 0; i < NewVertexCount; ++i)
-	{
-		ImportData.Points[i] = FVector3f(NewPositions[i]);
-	}
-
-	// Wedges (vertex attributes)
-	const int32 NumWedges = TopologyResult.Indices.Num();
-	ImportData.Wedges.SetNum(NumWedges);
-	for (int32 i = 0; i < NumWedges; ++i)
-	{
-		SkeletalMeshImportData::FVertex& Wedge = ImportData.Wedges[i];
-		int32 VertexIndex = TopologyResult.Indices[i];
-		Wedge.VertexIndex = VertexIndex;
-		Wedge.UVs[0] = FVector2f(NewUVs[VertexIndex]);
-		Wedge.MatIndex = 0;
-	}
-
-	// Faces
 	const int32 NumFaces = TopologyResult.Indices.Num() / 3;
-	ImportData.Faces.SetNum(NumFaces);
-	for (int32 i = 0; i < NumFaces; ++i)
-	{
-		SkeletalMeshImportData::FTriangle& Face = ImportData.Faces[i];
-		Face.WedgeIndex[0] = i * 3 + 0;
-		Face.WedgeIndex[1] = i * 3 + 1;
-		Face.WedgeIndex[2] = i * 3 + 2;
-
-		// Set TangentZ (Normal) for each wedge
-		for (int32 j = 0; j < 3; ++j)
-		{
-			int32 VertexIndex = TopologyResult.Indices[i * 3 + j];
-			Face.TangentZ[j] = FVector3f(NewNormals[VertexIndex]);
-			Face.TangentX[j] = FVector3f(NewTangents[VertexIndex].X, NewTangents[VertexIndex].Y, NewTangents[VertexIndex].Z);
-			Face.TangentY[j] = FVector3f(FVector::CrossProduct(NewNormals[VertexIndex],
-				FVector(NewTangents[VertexIndex].X, NewTangents[VertexIndex].Y, NewTangents[VertexIndex].Z)) * NewTangents[VertexIndex].W);
-		}
-		Face.SmoothingGroups = 1;
-		Face.MatIndex = 0;
-	}
-
-	// Influences (bone weights)
-	ImportData.Influences.Empty();
-	for (int32 i = 0; i < NewVertexCount; ++i)
-	{
-		for (int32 j = 0; j < MaxBoneInfluences; ++j)
-		{
-			if (NewBoneWeights[i][j] > 0)
-			{
-				SkeletalMeshImportData::FRawBoneInfluence Influence;
-				Influence.VertexIndex = i;
-				Influence.BoneIndex = NewBoneIndices[i][j];
-				Influence.Weight = NewBoneWeights[i][j] / 255.0f;
-				ImportData.Influences.Add(Influence);
-			}
-		}
-	}
-
-	// RefBonesBinary (use same as original)
-	const FReferenceSkeleton& RefSkel = SourceMesh->GetRefSkeleton();
-	ImportData.RefBonesBinary.SetNum(RefSkel.GetRawBoneNum());
-	for (int32 i = 0; i < RefSkel.GetRawBoneNum(); ++i)
-	{
-		SkeletalMeshImportData::FBone& Bone = ImportData.RefBonesBinary[i];
-		Bone.Name = RefSkel.GetBoneName(i).ToString();
-		Bone.ParentIndex = RefSkel.GetParentIndex(i);
-		Bone.NumChildren = 0;  // Calculated during build
-		Bone.Flags = 0;
-		const FTransform& BonePose = RefSkel.GetRefBonePose()[i];
-		Bone.BonePos.Transform.SetLocation(FVector3f(BonePose.GetLocation()));
-		Bone.BonePos.Transform.SetRotation(FQuat4f(BonePose.GetRotation()));
-		Bone.BonePos.Length = 0.0f;
-		Bone.BonePos.XSize = 1.0f;
-		Bone.BonePos.YSize = 1.0f;
-		Bone.BonePos.ZSize = 1.0f;
-	}
-
-	// Materials
-	ImportData.Materials.SetNum(1);
-	ImportData.Materials[0].MaterialImportName = TEXT("DefaultMaterial");
-	ImportData.Materials[0].Material = nullptr;
-
-	// NumTexCoords
-	ImportData.NumTexCoords = 1;
-	ImportData.MaxMaterialIndex = 0;
-	ImportData.bHasNormals = true;
-	ImportData.bHasTangents = true;
-	ImportData.bHasVertexColors = false;
-
-	// ============================================
-	// 7. Build SkeletalMesh
-	// ============================================
-	// Duplicated mesh already has LODInfo and materials, no separate setup needed
-
-	// ============================================
-	// Create and commit MeshDescription
-	// ============================================
 	FMeshDescription MeshDescription;
 	FSkeletalMeshAttributes MeshAttributes(MeshDescription);
 	MeshAttributes.Register();
@@ -2292,7 +2192,8 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 			GroupID, MeshAttribute::PolygonGroup::ImportedMaterialSlotName, 0, MaterialSlotName);
 	}
 
-	// Register triangles
+	// Create VertexInstance per index buffer entry (same as preview mesh)
+	// This correctly handles UV seams and hard edges
 	TArray<FVertexInstanceID> VertexInstanceIDs;
 	VertexInstanceIDs.Reserve(TopologyResult.Indices.Num());
 
@@ -2315,7 +2216,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		MeshAttributes.GetVertexInstanceBinormalSigns().Set(VertexInstanceID, NewTangents[VertexIndex].W);
 	}
 
-	// Register triangles as polygons (assign to PolygonGroup matching each triangle's MaterialIndex)
+	// Register triangles as polygons
 	for (int32 i = 0; i < NumFaces; ++i)
 	{
 		TArray<FVertexInstanceID> TriangleVertexInstances;
@@ -2325,7 +2226,7 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 
 		int32 MatIdx = TopologyResult.TriangleMaterialIndices.IsValidIndex(i)
 			? TopologyResult.TriangleMaterialIndices[i] : 0;
-		MatIdx = FMath::Clamp(MatIdx, 0, NumMaterials - 1);  // Clamp to valid range
+		MatIdx = FMath::Clamp(MatIdx, 0, NumMaterials - 1);
 		FPolygonGroupID* GroupID = MaterialIndexToPolygonGroup.Find(MatIdx);
 		if (GroupID)
 		{
@@ -2366,12 +2267,16 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 	CommitParams.bMarkPackageDirty = false;
 	SubdivisionSettings.SubdividedMesh->CommitMeshDescription(0, CommitParams);
 
-	// Disable Normal/Tangent recomputation before Build() (prevent blocky artifacts)
-	// If source mesh's BuildSettings has bRecomputeNormals=true, our set Normals get ignored
+	// Build settings: Prevent vertex merging + Recompute tangents only with MikkTSpace
 	if (FSkeletalMeshLODInfo* LODInfo = SubdivisionSettings.SubdividedMesh->GetLODInfo(0))
 	{
-		LODInfo->BuildSettings.bRecomputeNormals = false;
-		LODInfo->BuildSettings.bRecomputeTangents = false;
+		LODInfo->BuildSettings.bRecomputeNormals = false;    // Keep interpolated normals (recomputing causes faceted look)
+		LODInfo->BuildSettings.bRecomputeTangents = true;    // Recompute tangents with MikkTSpace
+		LODInfo->BuildSettings.bUseMikkTSpace = true;
+		LODInfo->BuildSettings.bRemoveDegenerates = false;
+		LODInfo->BuildSettings.ThresholdPosition = 0.0f;     // Prevent vertex merging
+		LODInfo->BuildSettings.ThresholdTangentNormal = 0.0f;
+		LODInfo->BuildSettings.ThresholdUV = 0.0f;
 	}
 
 	// Build mesh (LOD model -> render data)
@@ -2760,7 +2665,8 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 
 		// =====================================
 		// Normal/Tangent update (VertexInstance based)
-		// In MeshDescription, normals/tangents are stored in VertexInstance
+		// Apply GPU-computed normals/tangents to MeshDescription
+		// Normals preserved as-is (bRecomputeNormals=false), tangents recomputed by MikkTSpace
 		// =====================================
 		if (bHasNormals && bHasTangents)
 		{
@@ -2769,9 +2675,9 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 			TVertexInstanceAttributesRef<FVector3f> InstanceTangents = MeshAttributes.GetVertexInstanceTangents();
 			TVertexInstanceAttributesRef<float> InstanceBinormalSigns = MeshAttributes.GetVertexInstanceBinormalSigns();
 
-			// VertexID-based mapping: find RenderData index through VertexInstance's parent VertexID
 			for (const FVertexInstanceID InstanceID : MeshDesc->VertexInstances().GetElementIDs())
 			{
+				// VertexID-based mapping: find RenderData index through VertexInstance's parent VertexID
 				FVertexID VertexID = MeshDesc->GetVertexInstanceVertex(InstanceID);
 				uint32* RenderIdxPtr = VertexToFirstRenderIdx.Find(VertexID);
 
@@ -2809,12 +2715,16 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 	CommitParams.bMarkPackageDirty = false;
 	NewBakedMesh->CommitMeshDescription(0, CommitParams);
 
-	// Disable Normal/Tangent recomputation before Build() (prevent blocky artifacts)
-	// If source mesh's BuildSettings has bRecomputeNormals=true, our set Normals get ignored
+	// Build settings: Keep GPU normals + Recompute tangents with MikkTSpace (same as preview mesh)
 	if (FSkeletalMeshLODInfo* LODInfo = NewBakedMesh->GetLODInfo(0))
 	{
-		LODInfo->BuildSettings.bRecomputeNormals = false;
-		LODInfo->BuildSettings.bRecomputeTangents = false;
+		LODInfo->BuildSettings.bRecomputeNormals = false;    // Keep GPU-computed normals
+		LODInfo->BuildSettings.bRecomputeTangents = true;    // Recompute tangents with MikkTSpace
+		LODInfo->BuildSettings.bUseMikkTSpace = true;
+		LODInfo->BuildSettings.bRemoveDegenerates = false;
+		LODInfo->BuildSettings.ThresholdPosition = 0.0f;     // Prevent vertex merging
+		LODInfo->BuildSettings.ThresholdTangentNormal = 0.0f;
+		LODInfo->BuildSettings.ThresholdUV = 0.0f;
 	}
 
 	// Build mesh (create RenderData)

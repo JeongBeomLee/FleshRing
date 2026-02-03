@@ -1045,6 +1045,7 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 		const uint32 P2 = FMath::Min(VD.ParentV2, (uint32)(SourceVertexCount - 1));
 
 		NewPositions[i] = SourcePositions[P0] * U + SourcePositions[P1] * V + SourcePositions[P2] * W;
+
 		// Normal interpolation
 		FVector InterpolatedNormal = SourceNormals[P0] * U + SourceNormals[P1] * V + SourceNormals[P2] * W;
 		NewNormals[i] = InterpolatedNormal.GetSafeNormal();
@@ -1204,19 +1205,19 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 	CommitParams.bMarkPackageDirty = false;
 	PreviewSubdividedMesh->CommitMeshDescription(0, CommitParams);
 
-	// ★ Key: Disable Normal/Tangent recomputation before Build()
-	// DuplicateObject copies the source mesh's BuildSettings,
-	// if bRecomputeNormals=true is set on the source, our set Normals will be ignored
+	// Build settings: Prevent vertex merging + Recompute tangents only with MikkTSpace
 	if (FSkeletalMeshLODInfo* LODInfo = PreviewSubdividedMesh->GetLODInfo(0))
 	{
-		LODInfo->BuildSettings.bRecomputeNormals = false;
-		LODInfo->BuildSettings.bRecomputeTangents = false;
+		LODInfo->BuildSettings.bRecomputeNormals = false;    // Keep interpolated normals (recomputing causes faceted look)
+		LODInfo->BuildSettings.bRecomputeTangents = true;    // Recompute tangents with MikkTSpace
+		LODInfo->BuildSettings.bUseMikkTSpace = true;
+		LODInfo->BuildSettings.bRemoveDegenerates = false;
+		LODInfo->BuildSettings.ThresholdPosition = 0.0f;     // Prevent vertex merging
+		LODInfo->BuildSettings.ThresholdTangentNormal = 0.0f;
+		LODInfo->BuildSettings.ThresholdUV = 0.0f;
 	}
 
 	PreviewSubdividedMesh->Build();
-	PreviewSubdividedMesh->InitResources();
-
-	FlushRenderingCommands();
 
 	FBox BoundingBox(ForceInit);
 	for (int32 i = 0; i < NewVertexCount; ++i) { BoundingBox += NewPositions[i]; }
