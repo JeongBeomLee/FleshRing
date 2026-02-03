@@ -92,6 +92,7 @@ public:
         SHADER_PARAMETER(uint32, bProcessPreviousPosition) // Whether to process Previous Position (0 = current only, 1 = current + Previous)
         SHADER_PARAMETER(uint32, bUseRecomputedNormals) // Whether to use recomputed normals (0 = SourceTangents only, 1 = RecomputedNormals preferred)
         SHADER_PARAMETER(uint32, bUseRecomputedTangents) // Whether to use recomputed tangents (0 = SourceTangents only, 1 = RecomputedTangents preferred)
+        SHADER_PARAMETER(uint32, bPassthroughSkinning)  // Skip bone skinning, copy positions/tangents directly (1 = T-pose optimization)
     END_SHADER_PARAMETER_STRUCT()
 
     // Shader Compilation Settings
@@ -152,6 +153,15 @@ struct FSkinningDispatchParams
      * Number of bone influences per vertex (4 or 8)
      */
     uint32 NumBoneInfluences = 0;
+
+    /**
+     * Skip bone skinning and copy positions/tangents directly (T-pose optimization).
+     * When true, avoids GPU FP non-determinism from identity bone transforms.
+     *
+     * Currently always set to true (editor T-pose only, where RefToLocal = Identity).
+     * Must be set to false when animation preview is added (bone matrices != Identity).
+     */
+    bool bPassthroughSkinning = false;
 };
 
 // ============================================================================

@@ -235,6 +235,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 				SkinParams.InputWeightIndexSize = WeightBuffer->GetBoneIndexByteSize() |
 					(WeightBuffer->GetBoneWeightByteSize() << 8);
 				SkinParams.NumBoneInfluences = WeightBuffer->GetMaxBoneInfluences();
+				SkinParams.bPassthroughSkinning = true; // Skip bone skinning to avoid FP drift
 
 				// RecomputedNormalsBuffer and RecomputedTangentsBuffer are nullptr
 				// → SkinningCS uses original tangents
@@ -2194,6 +2195,7 @@ void FFleshRingComputeWorker::ExecuteWorkItem(FRDGBuilder& GraphBuilder, FFleshR
 			SkinParams.InputWeightIndexSize = WeightBuffer->GetBoneIndexByteSize() |
 				(WeightBuffer->GetBoneWeightByteSize() << 8);
 			SkinParams.NumBoneInfluences = WeightBuffer->GetMaxBoneInfluences();
+			SkinParams.bPassthroughSkinning = true; // Editor T-pose: skip bone skinning to avoid FP drift
 
 			DispatchFleshRingSkinningCS(GraphBuilder, SkinParams, TightenedBindPoseBuffer,
 				SourceTangentsSRV, OutputPositionBuffer, nullptr,

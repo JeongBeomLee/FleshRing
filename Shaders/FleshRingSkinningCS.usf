@@ -76,6 +76,7 @@ uint bProcessTangents;      // Whether to process tangents (0 = Position only, 1
 uint bProcessPreviousPosition; // Whether to process Previous Position (0 = current only, 1 = current + Previous)
 uint bUseRecomputedNormals; // Whether to use recomputed normals (0 = SourceTangents only, 1 = RecomputedNormals priority)
 uint bUseRecomputedTangents; // Whether to use recomputed tangents (0 = SourceTangents only, 1 = RecomputedTangents priority)
+uint bPassthroughSkinning; // Skip bone skinning, copy directly (1 = T-pose optimization to avoid FP drift)
 
 // Thread Group Size
 #ifndef THREADGROUP_SIZE
@@ -484,6 +485,31 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     float3 TightenedPos = ReadPosition(GlobalVertexIndex);
 
     // ========================================
+    // Passthrough Mode: Skip bone skinning (T-pose optimization)
+    // ========================================
+    // In T-pose, bone matrices are identity. Identity * Position = Position,
+    // but different shader binaries produce slightly different FP results (GPU non-determinism).
+    // Bypassing the identity transform eliminates this drift entirely.
+    if (bPassthroughSkinning != 0)
+    {
+        WritePosition(GlobalVertexIndex, TightenedPos);
+
+        if (bProcessPreviousPosition != 0)
+        {
+            WritePreviousPosition(GlobalVertexIndex, TightenedPos);
+        }
+
+        if (bProcessTangents != 0)
+        {
+            float3 SourceNormal;
+            float4 OriginalTangent;
+            ReadTangentsWithRecomputedNormal(GlobalVertexIndex, SourceNormal, OriginalTangent);
+            WriteTangents(GlobalVertexIndex, SourceNormal, OriginalTangent);
+        }
+        return;
+    }
+
+    // ========================================
     // Step 2: Compute Skinning Matrix
     // ========================================
     // IMPORTANT: Use GlobalVertexIndex for InputWeightStream access
@@ -526,7 +552,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
         float4 OriginalTangent;
         ReadTangentsWithRecomputedNormal(GlobalVertexIndex, SourceNormal, OriginalTangent);
 
-        // Transform tangents by skinning matrix (rotation only)
+        // Transform normal and tangent by skinning matrix (rotation only)
         float3 SkinnedNormal = TransformDirectionByMatrix(SkinMatrix, SourceNormal);
         float3 SkinnedTangentDir = TransformDirectionByMatrix(SkinMatrix, OriginalTangent.xyz);
         float4 SkinnedTangent = float4(SkinnedTangentDir, OriginalTangent.w);

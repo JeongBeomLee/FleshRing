@@ -705,15 +705,24 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 
 	if (RingDispatchDataPtr->Num() == 0)
 	{
-		// Check if there was previous deformation (cached normals/tangents exist)
-		const bool bHadPreviousNormals = CurrentLODData.CachedNormalsShared.IsValid() &&
-			CurrentLODData.CachedNormalsShared->IsValid();
-
-		if (bHadPreviousNormals)
+		// Clear normal/tangent caches (one-time cleanup, safe to call repeatedly)
+		if (CurrentLODData.CachedNormalsShared.IsValid())
 		{
-			// ===== Passthrough Mode (for bEnableDeformation toggle) =====
-			// Previous deformation existed but all rings now have bEnableDeformation=false
-			// → Run SkinningCS once with original data to remove normal/tangent residue
+			CurrentLODData.CachedNormalsShared->SafeRelease();
+			CurrentLODData.CachedNormalsShared.Reset();
+		}
+		if (CurrentLODData.CachedTangentsShared.IsValid())
+		{
+			CurrentLODData.CachedTangentsShared->SafeRelease();
+			CurrentLODData.CachedTangentsShared.Reset();
+		}
+
+		// ===== Continuous Passthrough Mode =====
+		// Keep running SkinningCS with bPassthroughSkinning=true every frame
+		// to avoid shader binary switch (FleshRingSkinningCS ↔ GpuSkinCacheComputeShader)
+		// which causes visible FP drift on transition frames.
+		if (CurrentLODData.CachedSourcePositions.Num() > 0)
+		{
 			FSkeletalMeshObject* MeshObjectForPassthrough = SkinnedMeshComp->MeshObject;
 			if (MeshObjectForPassthrough && !MeshObjectForPassthrough->IsCPUSkinned())
 			{
@@ -724,11 +733,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 				PassthroughWorkItem.bPassthroughMode = true;
 				PassthroughWorkItem.FallbackDelegate = InDesc.FallbackDelegate;
 				PassthroughWorkItem.TotalVertexCount = TotalVertexCount;
-
-				if (CurrentLODData.CachedSourcePositions.Num() > 0)
-				{
-					PassthroughWorkItem.SourceDataPtr = MakeShared<TArray<float>>(CurrentLODData.CachedSourcePositions);
-				}
+				PassthroughWorkItem.SourceDataPtr = MakeShared<TArray<float>>(CurrentLODData.CachedSourcePositions);
 
 				FFleshRingComputeWorker* PassthroughWorker = FFleshRingComputeSystem::Get().GetWorker(Scene);
 				if (PassthroughWorker)
@@ -736,22 +741,10 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 					PassthroughWorker->EnqueueWork(MoveTemp(PassthroughWorkItem));
 				}
 			}
-
-			// Clear caches after Passthrough
-			if (CurrentLODData.CachedNormalsShared.IsValid())
-			{
-				CurrentLODData.CachedNormalsShared->SafeRelease();
-				CurrentLODData.CachedNormalsShared.Reset();
-			}
-			if (CurrentLODData.CachedTangentsShared.IsValid())
-			{
-				CurrentLODData.CachedTangentsShared->SafeRelease();
-				CurrentLODData.CachedTangentsShared.Reset();
-			}
 		}
 		else
 		{
-			// No previous deformation → just Fallback
+			// No source data (never computed) → Fallback to UE default skinning
 			if (InDesc.FallbackDelegate.IsBound())
 			{
 				ENQUEUE_RENDER_COMMAND(FleshRingFallback)([FallbackDelegate = InDesc.FallbackDelegate](FRHICommandListImmediate& RHICmdList)

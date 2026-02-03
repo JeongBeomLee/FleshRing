@@ -161,6 +161,7 @@ void DispatchFleshRingSkinningCS(
     PassParameters->bProcessPreviousPosition = bProcessPreviousPosition ? 1 : 0;
     PassParameters->bUseRecomputedNormals = bUseRecomputedNormals ? 1 : 0;
     PassParameters->bUseRecomputedTangents = bUseRecomputedTangents ? 1 : 0;
+    PassParameters->bPassthroughSkinning = Params.bPassthroughSkinning ? 1 : 0;
 
     // Get shader reference
     TShaderMapRef<FFleshRingSkinningCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
