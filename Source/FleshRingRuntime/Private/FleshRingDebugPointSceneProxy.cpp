@@ -212,7 +212,7 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 
 	// Calculate view parameters
 	FMatrix44f ViewProjectionMatrix = FMatrix44f(View->ViewMatrices.GetViewMatrix() * View->ViewMatrices.GetProjectionNoAAMatrix());
-	FIntRect ViewRect = View->UnscaledViewRect;
+	FIntRect ViewRect = Parameters.ViewportRect;
 	FVector2f InvViewportSize(1.0f / FMath::Max(1, ViewRect.Width()), 1.0f / FMath::Max(1, ViewRect.Height()));
 
 	// If visibility mask array is empty, set all rings visible (default)
