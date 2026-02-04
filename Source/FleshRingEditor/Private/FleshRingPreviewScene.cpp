@@ -254,18 +254,17 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	// ============================================
 	if (FleshRingComponent)
 	{
+		// ★ Sync bShowRingMesh BEFORE ApplyAsset() so SetupRingMeshes() uses correct visibility
+		// This prevents visibility reset when subdivision is toggled (ApplyAsset recreates ring meshes)
+		FleshRingComponent->bShowRingMesh = bRingMeshesVisible;
+
 		FleshRingComponent->FleshRingAsset = InAsset;
 		FleshRingComponent->ApplyAsset();
 
-		// Apply Ring mesh visibility immediately after ApplyAsset() (prevent flickering)
-		const auto& ComponentRingMeshes = FleshRingComponent->GetRingMeshComponents();
-		for (UStaticMeshComponent* RingComp : ComponentRingMeshes)
-		{
-			if (RingComp)
-			{
-				RingComp->SetVisibility(bRingMeshesVisible);
-			}
-		}
+		// ★ Use UpdateRingMeshVisibility() instead of direct SetVisibility()
+		// This respects both bShowRingMesh AND per-ring bEditorVisible
+		// (Direct SetVisibility would override bEditorVisible=false rings)
+		FleshRingComponent->UpdateRingMeshVisibility();
 	}
 
 	// ============================================
@@ -453,8 +452,8 @@ void FFleshRingPreviewScene::RefreshRings(const TArray<FFleshRingSettings>& Ring
 			}
 		}
 
-		// Set visibility according to current Show Flag (set before AddComponent)
-		RingComp->SetVisibility(bRingMeshesVisible);
+		// Set visibility according to current Show Flag AND per-ring bEditorVisible
+		RingComp->SetVisibility(bRingMeshesVisible && RingSetting.bEditorVisible);
 
 		AddComponent(RingComp, RingComp->GetComponentTransform());
 		RingMeshComponents.Add(RingComp);
@@ -521,25 +520,25 @@ void FFleshRingPreviewScene::SetRingMeshesVisible(bool bVisible)
 	}
 
 	// 1. PreviewScene's RingMeshComponents (when Deformer is disabled)
-	for (UStaticMeshComponent* RingComp : RingMeshComponents)
+	// Must respect per-ring bEditorVisible
+	for (int32 i = 0; i < RingMeshComponents.Num(); ++i)
 	{
-		if (RingComp)
+		if (RingMeshComponents[i])
 		{
-			RingComp->SetVisibility(bVisible);
+			bool bShouldShow = bVisible;
+			if (CurrentAsset && CurrentAsset->Rings.IsValidIndex(i))
+			{
+				bShouldShow &= CurrentAsset->Rings[i].bEditorVisible;
+			}
+			RingMeshComponents[i]->SetVisibility(bShouldShow);
 		}
 	}
 
 	// 2. FleshRingComponent's RingMeshComponents (when Deformer is enabled)
+	// Use UpdateRingMeshVisibility() to respect bEditorVisible
 	if (FleshRingComponent)
 	{
-		const auto& ComponentRingMeshes = FleshRingComponent->GetRingMeshComponents();
-		for (UStaticMeshComponent* RingComp : ComponentRingMeshes)
-		{
-			if (RingComp)
-			{
-				RingComp->SetVisibility(bVisible);
-			}
-		}
+		FleshRingComponent->UpdateRingMeshVisibility();
 	}
 }
 
@@ -628,15 +627,9 @@ void FFleshRingPreviewScene::ExecutePendingDeformerInit()
 	// Initialize Deformer
 	FleshRingComponent->InitializeForEditorPreview();
 
-	// Apply Show Flag to Ring meshes created by FleshRingComponent
-	const auto& RingMeshes = FleshRingComponent->GetRingMeshComponents();
-	for (UStaticMeshComponent* RingComp : RingMeshes)
-	{
-		if (RingComp)
-		{
-			RingComp->SetVisibility(bRingMeshesVisible);
-		}
-	}
+	// ★ Sync bShowRingMesh and apply visibility respecting bEditorVisible
+	FleshRingComponent->bShowRingMesh = bRingMeshesVisible;
+	FleshRingComponent->UpdateRingMeshVisibility();
 
 	// Reapply PreviewMesh (InitializeForEditorPreview may have overwritten the mesh)
 	if (CurrentAsset)

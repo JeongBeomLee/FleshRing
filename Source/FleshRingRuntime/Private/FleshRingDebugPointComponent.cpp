@@ -35,6 +35,7 @@ FPrimitiveSceneProxy* UFleshRingDebugPointComponent::CreateSceneProxy()
 	// Pass rendering parameters
 	Proxy->PointSizeBase = PointSizeBase;
 	Proxy->PointSizeInfluence = PointSizeInfluence;
+	Proxy->DebugPointOutlineOpacity = DebugPointOutlineOpacity;
 
 	// Initial buffer setup
 	{

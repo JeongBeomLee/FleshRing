@@ -812,6 +812,58 @@ TSharedRef<SWidget> SFleshRingEditorViewportToolbar::GenerateShowMenu() const
 			],
 			FText::GetEmpty()
 		);
+
+		// Debug Point Outline (SpinBox widget for debug point outline opacity)
+		MenuBuilder.AddWidget(
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			.Padding(FMargin(4.0f, 0.0f))
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("DebugPointOutline", "Debug Point Outline"))
+			]
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.Padding(FMargin(4.0f, 0.0f))
+			[
+				SNew(SBox)
+				.WidthOverride(60.0f)
+				[
+					SNew(SSpinBox<float>)
+					.MinValue(0.0f)
+					.MaxValue(1.0f)
+					.Delta(0.05f)
+					.Value_Lambda([WeakViewportClient]()
+					{
+						if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+						{
+							return Client->GetDebugPointOutlineOpacity();
+						}
+						return 1.0f;
+					})
+					.OnValueChanged_Lambda([WeakViewportClient](float NewValue)
+					{
+						if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+						{
+							Client->SetDebugPointOutlineOpacity(NewValue);
+						}
+					})
+					.IsEnabled_Lambda([WeakViewportClient]()
+					{
+						if (TSharedPtr<FFleshRingEditorViewportClient> Client = WeakViewportClient.Pin())
+						{
+							// Enabled when debug visualization is on and either affected vertices or bulge heatmap is shown
+							return Client->ShouldShowDebugVisualization() &&
+								(Client->ShouldShowAffectedVertices() || Client->ShouldShowBulgeHeatmap());
+						}
+						return false;
+					})
+				]
+			],
+			FText::GetEmpty()
+		);
 	}
 	MenuBuilder.EndSection();
 

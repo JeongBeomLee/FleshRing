@@ -1522,6 +1522,10 @@ void UFleshRingComponent::CleanupRingMeshes()
 
 void UFleshRingComponent::UpdateRingMeshVisibility()
 {
+	// Check if we're in EditorPreview world (custom asset editor's PreviewScene)
+	// bEditorVisible should only apply in custom editor, not in PIE or level editor
+	const bool bIsEditorPreview = GetWorld() && GetWorld()->WorldType == EWorldType::EditorPreview;
+
 	// Update static mesh components visibility
 	for (int32 i = 0; i < RingMeshComponents.Num(); ++i)
 	{
@@ -1530,13 +1534,11 @@ void UFleshRingComponent::UpdateRingMeshVisibility()
 		{
 			bool bShouldShow = bShowRingMesh;
 
-#if WITH_EDITOR
-			// Check per-Ring visibility in editor
-			if (FleshRingAsset && FleshRingAsset->Rings.IsValidIndex(i))
+			// Check per-Ring visibility only in custom editor (EditorPreview)
+			if (bIsEditorPreview && FleshRingAsset && FleshRingAsset->Rings.IsValidIndex(i))
 			{
 				bShouldShow &= FleshRingAsset->Rings[i].bEditorVisible;
 			}
-#endif
 
 			MeshComp->SetVisibility(bShouldShow);
 		}
@@ -1550,13 +1552,11 @@ void UFleshRingComponent::UpdateRingMeshVisibility()
 		{
 			bool bShouldShow = bShowRingMesh;
 
-#if WITH_EDITOR
-			// Check per-Ring visibility in editor
-			if (FleshRingAsset && FleshRingAsset->Rings.IsValidIndex(i))
+			// Check per-Ring visibility only in custom editor (EditorPreview)
+			if (bIsEditorPreview && FleshRingAsset && FleshRingAsset->Rings.IsValidIndex(i))
 			{
 				bShouldShow &= FleshRingAsset->Rings[i].bEditorVisible;
 			}
-#endif
 
 			SkinnedComp->SetVisibility(bShouldShow);
 		}
@@ -3756,8 +3756,24 @@ void UFleshRingComponent::InitializeDebugPointComponents()
 			{
 				DebugPointComponent->SetupAttachment(AttachParent);
 			}
+
+			// Apply cached outline opacity before registration
+			DebugPointComponent->DebugPointOutlineOpacity = CachedDebugPointOutlineOpacity;
+
 			DebugPointComponent->RegisterComponent();
 		}
+	}
+}
+
+void UFleshRingComponent::SetDebugPointOutlineOpacity(float InOpacity)
+{
+	CachedDebugPointOutlineOpacity = FMath::Clamp(InOpacity, 0.0f, 1.0f);
+
+	// Apply to existing component if available
+	if (DebugPointComponent)
+	{
+		DebugPointComponent->DebugPointOutlineOpacity = CachedDebugPointOutlineOpacity;
+		DebugPointComponent->MarkRenderStateDirty();
 	}
 }
 

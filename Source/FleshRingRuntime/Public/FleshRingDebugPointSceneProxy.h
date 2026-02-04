@@ -93,6 +93,9 @@ public:
 	/** Additional point size based on Influence */
 	float PointSizeInfluence = 4.0f;
 
+	/** Outline opacity (0.0 = no outline, 1.0 = full outline) */
+	float DebugPointOutlineOpacity = 1.0f;
+
 private:
 	/** Tightness GPU debug point buffer */
 	TSharedPtr<TRefCountPtr<FRDGPooledBuffer>> TightnessBufferShared;

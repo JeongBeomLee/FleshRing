@@ -248,6 +248,7 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 	// Capture rendering parameters
 	float LocalPointSizeBase = PointSizeBase;
 	float LocalPointSizeInfluence = PointSizeInfluence;
+	float LocalDebugPointOutlineOpacity = DebugPointOutlineOpacity;
 
 	// ========================================
 	// Pass 1: Tightness debug points (ColorMode = 0)
@@ -262,6 +263,7 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 		PSParams->DebugPointsRDG = TightnessSRV;
 		PSParams->RingVisibilityMask = VisibilityMaskSRV;
 		PSParams->NumVisibilityMaskElements = NumMaskElements;
+		PSParams->DebugPointOutlineOpacity = LocalDebugPointOutlineOpacity;
 		PSParams->RenderTargets[0] = FRenderTargetBinding(ColorTarget, ERenderTargetLoadAction::ELoad);
 		// First pass: Clear depth buffer
 		PSParams->RenderTargets.DepthStencil = FDepthStencilBinding(
@@ -326,6 +328,7 @@ void FFleshRingDebugPointSceneProxy::RenderPostOpaque_RenderThread(FPostOpaqueRe
 		PSParams->DebugPointsRDG = BulgeSRV;
 		PSParams->RingVisibilityMask = VisibilityMaskSRV;
 		PSParams->NumVisibilityMaskElements = NumMaskElements;
+		PSParams->DebugPointOutlineOpacity = LocalDebugPointOutlineOpacity;
 		PSParams->RenderTargets[0] = FRenderTargetBinding(ColorTarget, ERenderTargetLoadAction::ELoad);
 		// Second pass: Load if Tightness was rendered, otherwise Clear
 		PSParams->RenderTargets.DepthStencil = FDepthStencilBinding(

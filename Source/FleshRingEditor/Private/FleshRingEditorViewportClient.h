@@ -175,6 +175,10 @@ public:
 	int32 GetDebugSliceZ() const;
 	void SetDebugSliceZ(int32 NewValue);
 
+	// Debug Point Outline Opacity
+	float GetDebugPointOutlineOpacity() const { return CachedDebugPointOutlineOpacity; }
+	void SetDebugPointOutlineOpacity(float NewValue);
+
 	/** Save settings (camera, show flags) */
 	void SaveSettings();
 
@@ -321,6 +325,7 @@ private:
 	bool bCachedShowBulgeRange = false;
 	bool bShowRingSkinSamplingRadius = false;  // Show ring vertex sampling radius spheres
 	int32 CachedDebugSliceZ = 32;
+	float CachedDebugPointOutlineOpacity = 1.0f;  // Debug point outline opacity (0.0 = no outline, 1.0 = full)
 
 	// Local/World coordinate system flag (custom managed)
 	bool bUseLocalCoordSystem = true;

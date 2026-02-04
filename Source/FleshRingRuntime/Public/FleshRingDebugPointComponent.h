@@ -86,6 +86,10 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Debug Rendering")
 	float PointSizeInfluence = 4.0f;
 
+	/** Outline opacity (0.0 = no outline, 1.0 = full outline) */
+	UPROPERTY(EditAnywhere, Category = "Debug Rendering", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float DebugPointOutlineOpacity = 1.0f;
+
 protected:
 	virtual void SendRenderDynamicData_Concurrent() override;
 

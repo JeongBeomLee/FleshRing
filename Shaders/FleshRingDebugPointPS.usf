@@ -17,6 +17,9 @@ struct FPSInput
     nointerpolation uint RingIndex : TEXCOORD3;  // Ring index (for visibility filtering)
 };
 
+// Outline opacity (0.0 = no outline, 1.0 = full outline)
+float DebugPointOutlineOpacity;
+
 // Visibility mask for ring filtering (unlimited ring support)
 // Bitmask array for ring visibility filtering
 // Each uint32 element is a visibility bitmask for 32 rings
@@ -108,15 +111,16 @@ void MainPS(
     }
 
     // ========================================
-    // Step 3: Black outline (outer edge)
+    // Step 3: Black outline (outer edge) - controlled by DebugPointOutlineOpacity parameter
     // ========================================
-    // Outline at outer edge (0.38 ~ 0.48 radius)
     float3 OutlineColor = float3(0.0, 0.0, 0.0);
     float OutlineStart = 0.38;
 
-    // Fill color inside, outline color at edge
+    // Calculate outline factor (how much of the pixel is in the outline region)
     float OutlineFactor = smoothstep(OutlineStart, OutlineStart + 0.03, Dist);
-    float3 Color = lerp(FillColor, OutlineColor, OutlineFactor);
+
+    // Blend using DebugPointOutlineOpacity parameter (0.0 = no outline, 1.0 = full outline)
+    float3 Color = lerp(FillColor, OutlineColor, OutlineFactor * DebugPointOutlineOpacity);
 
     // Output final color (solid edge, no fade)
     OutColor = float4(Color, 1.0);

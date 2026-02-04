@@ -301,6 +301,9 @@ public:
 	/** Get Ring mesh component array (for editor picking) */
 	const TArray<TObjectPtr<UFleshRingMeshComponent>>& GetRingMeshComponents() const { return RingMeshComponents; }
 
+	/** Update Ring mesh visibility (respects bShowRingMesh AND per-ring bEditorVisible) */
+	void UpdateRingMeshVisibility();
+
 	// =====================================
 	// SDF Cache Access (Used by Deformer)
 	// =====================================
@@ -444,9 +447,6 @@ private:
 	/** Remove Ring mesh components */
 	void CleanupRingMeshes();
 
-	/** Update Ring mesh visibility */
-	void UpdateRingMeshVisibility();
-
 	/** Apply baked mesh (BakedMesh + BakedRingTransforms) */
 	void ApplyBakedMesh();
 
@@ -512,9 +512,18 @@ private:
 	UPROPERTY()
 	TObjectPtr<UFleshRingDebugPointComponent> DebugPointComponent;
 
+	/** Cached debug point outline opacity (applied when DebugPointComponent is created) */
+	float CachedDebugPointOutlineOpacity = 1.0f;
+
 public:
 	/** Get GPU debug rendering enabled state */
 	bool IsGPUDebugRenderingEnabled() const { return bUseGPUDebugRendering; }
+
+	/** Get debug point component */
+	UFleshRingDebugPointComponent* GetDebugPointComponent() const { return DebugPointComponent; }
+
+	/** Set debug point outline opacity (cached and applied to DebugPointComponent) */
+	void SetDebugPointOutlineOpacity(float InOpacity);
 
 	/**
 	 * Get visible Ring bitmask array (supports unlimited Rings)

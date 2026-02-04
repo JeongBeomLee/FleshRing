@@ -6,6 +6,7 @@
 #include "SFleshRingEditorViewport.h"
 #include "FleshRingAsset.h"
 #include "FleshRingComponent.h"
+#include "FleshRingDebugPointComponent.h"
 #include "FleshRingHitProxy.h"
 #include "FleshRingMeshComponent.h"
 #include "FleshRingTypes.h"
@@ -2215,6 +2216,7 @@ void FFleshRingEditorViewportClient::SaveSettings()
 	GConfig->SetBool(*SectionName, TEXT("ShowBulgeRange"), bCachedShowBulgeRange, GEditorPerProjectIni);
 	GConfig->SetBool(*SectionName, TEXT("ShowRingSkinSamplingRadius"), bShowRingSkinSamplingRadius, GEditorPerProjectIni);
 	GConfig->SetInt(*SectionName, TEXT("DebugSliceZ"), CachedDebugSliceZ, GEditorPerProjectIni);
+	GConfig->SetFloat(*SectionName, TEXT("DebugPointOutlineOpacity"), CachedDebugPointOutlineOpacity, GEditorPerProjectIni);
 
 	// Save to config file immediately
 	GConfig->Flush(false, GEditorPerProjectIni);
@@ -2403,6 +2405,7 @@ void FFleshRingEditorViewportClient::LoadSettings()
 	GConfig->GetBool(*SectionName, TEXT("ShowBulgeRange"), bCachedShowBulgeRange, GEditorPerProjectIni);
 	GConfig->GetBool(*SectionName, TEXT("ShowRingSkinSamplingRadius"), bShowRingSkinSamplingRadius, GEditorPerProjectIni);
 	GConfig->GetInt(*SectionName, TEXT("DebugSliceZ"), CachedDebugSliceZ, GEditorPerProjectIni);
+	GConfig->GetFloat(*SectionName, TEXT("DebugPointOutlineOpacity"), CachedDebugPointOutlineOpacity, GEditorPerProjectIni);
 
 	// Apply cached values to FleshRingComponent
 	if (PreviewScene)
@@ -2417,6 +2420,10 @@ void FFleshRingEditorViewportClient::LoadSettings()
 			Comp->bShowBulgeArrows = bCachedShowBulgeArrows;
 			Comp->bShowBulgeRange = bCachedShowBulgeRange;
 			Comp->DebugSliceZ = CachedDebugSliceZ;
+
+			// Apply DebugPointOutlineOpacity via FleshRingComponent's setter
+			// This caches the value so it's applied when DebugPointComponent is created later
+			Comp->SetDebugPointOutlineOpacity(CachedDebugPointOutlineOpacity);
 
 			// Apply SDFSlice plane visibility
 			Comp->SetDebugSlicePlanesVisible(Comp->bShowSDFSlice && Comp->bShowDebugVisualization);
@@ -2525,6 +2532,21 @@ void FFleshRingEditorViewportClient::SetDebugSliceZ(int32 NewValue)
 		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
 		{
 			Comp->DebugSliceZ = NewValue;
+		}
+	}
+	Invalidate();
+}
+
+void FFleshRingEditorViewportClient::SetDebugPointOutlineOpacity(float NewValue)
+{
+	CachedDebugPointOutlineOpacity = FMath::Clamp(NewValue, 0.0f, 1.0f);
+	if (PreviewScene)
+	{
+		if (UFleshRingComponent* Comp = PreviewScene->GetFleshRingComponent())
+		{
+			// Use FleshRingComponent's setter which caches value and applies to DebugPointComponent
+			// This ensures value is applied even if DebugPointComponent is created later
+			Comp->SetDebugPointOutlineOpacity(CachedDebugPointOutlineOpacity);
 		}
 	}
 	Invalidate();

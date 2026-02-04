@@ -72,6 +72,9 @@ public:
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, RingVisibilityMask)
         SHADER_PARAMETER(uint32, NumVisibilityMaskElements)
 
+        // Outline opacity (0.0 = no outline, 1.0 = full outline)
+        SHADER_PARAMETER(float, DebugPointOutlineOpacity)
+
         // Render target binding for output
         RENDER_TARGET_BINDING_SLOTS()
     END_SHADER_PARAMETER_STRUCT()
