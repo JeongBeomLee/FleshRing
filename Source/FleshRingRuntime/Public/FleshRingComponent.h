@@ -192,54 +192,74 @@ public:
 	// General (Runtime Settings)
 	// =====================================
 
-	/** Enable all features */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General")
+	/**
+	 * Enable FleshRing effect (flesh deformation + ring meshes).
+	 * Use SetEnableFleshRing() to change at runtime - preserves animation state.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "General")
 	bool bEnableFleshRing = true;
 
-	/** Show Ring mesh (SDF source mesh) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General")
+	/**
+	 * Show Ring mesh (SDF source mesh).
+	 * Use SetShowRingMesh() to change at runtime.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "General")
 	bool bShowRingMesh = true;
 
-	/** Bounds scale multiplier (adjust for Deformer deformation to enable VSM caching) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General", meta = (ClampMin = "1.0", ClampMax = "3.0"))
+	/**
+	 * Enable/disable FleshRing effect at runtime.
+	 * Preserves animation state (Leader Pose) during toggle.
+	 * @param bEnable - true to enable flesh deformation, false to disable
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FleshRing")
+	void SetEnableFleshRing(bool bEnable);
+
+	/**
+	 * Show/hide Ring meshes at runtime.
+	 * Does not affect flesh deformation or animation.
+	 * @param bShow - true to show ring meshes, false to hide
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FleshRing")
+	void SetShowRingMesh(bool bShow);
+
+	/**
+	 * Bounds scale multiplier for Deformer (editor preview only).
+	 * Extends skeletal mesh bounds to ensure VSM caching works correctly
+	 * when Deformer deformation exceeds original bounds.
+	 * Not exposed in Details panel - only used internally by editor preview.
+	 */
 	float BoundsScale = 2.0f;
 
 	// =====================================
 	// Debug / Visualization (Editor Only)
+	// These are NOT exposed in Details panel - controlled via custom editor toolbar only.
+	// Values are cached in FleshRingEditorViewportClient and saved to GConfig.
 	// =====================================
 
 #if WITH_EDITORONLY_DATA
 	/** Enable debug visualization (master switch) */
-	UPROPERTY(EditAnywhere, Category = "Debug")
 	bool bShowDebugVisualization = false;
 
 	/** Show SDF volume bounding box */
-	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
 	bool bShowSdfVolume = false;
 
 	/** Show affected vertices (color = influence strength) */
-	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
 	bool bShowAffectedVertices = false;
 
 	/** Show SDF slice plane */
-	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
 	bool bShowSDFSlice = false;
 
 	/** SDF slice Z index to display (0 ~ Resolution-1) */
-	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization && bShowSDFSlice", ClampMin = "0", ClampMax = "63", UIMin = "0", UIMax = "63"))
 	int32 DebugSliceZ = 32;
 
 	// TODO: Implement Bulge heatmap visualization
 	/** Show Bulge heatmap */
-	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
 	bool bShowBulgeHeatmap = false;
 
 	/** Show Bulge direction arrows */
-	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization && bShowBulgeHeatmap"))
 	bool bShowBulgeArrows = true;
 
 	/** Show Bulge influence range cylinder */
-	UPROPERTY(EditAnywhere, Category = "Debug", meta = (EditCondition = "bShowDebugVisualization"))
 	bool bShowBulgeRange = false;
 #endif
 

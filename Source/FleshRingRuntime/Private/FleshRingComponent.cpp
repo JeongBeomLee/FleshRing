@@ -191,17 +191,124 @@ void UFleshRingComponent::PostEditChangeProperty(FPropertyChangedEvent& Property
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 
-	// Reconfigure Ring meshes when FleshRingAsset or related properties change
 	const FName PropertyName = PropertyChangedEvent.GetPropertyName();
-	if (PropertyName == GET_MEMBER_NAME_CHECKED(UFleshRingComponent, FleshRingAsset) ||
-		PropertyName == GET_MEMBER_NAME_CHECKED(UFleshRingComponent, bEnableFleshRing))
+
+	// FleshRingAsset change: Full reconfiguration needed
+	if (PropertyName == GET_MEMBER_NAME_CHECKED(UFleshRingComponent, FleshRingAsset))
 	{
-		// Rebind delegate on asset change
 		UnbindFromAssetDelegate();
 		BindToAssetDelegate();
 
 		ResolveTargetMesh();
 		SetupRingMeshes();
+	}
+
+	// bEnableFleshRing change: Preserve animation state (Leader Pose)
+	if (PropertyName == GET_MEMBER_NAME_CHECKED(UFleshRingComponent, bEnableFleshRing))
+	{
+		// Re-find target mesh if invalid (component recreation by Super::PostEditChangeProperty may have reset it)
+		if (!ResolvedTargetMesh.IsValid())
+		{
+			FindTargetMeshOnly();
+		}
+		USkeletalMeshComponent* TargetMesh = ResolvedTargetMesh.Get();
+
+		// Backup Leader Pose before any mesh changes
+		TWeakObjectPtr<USkinnedMeshComponent> CachedLeaderPose;
+		if (TargetMesh)
+		{
+			CachedLeaderPose = TargetMesh->LeaderPoseComponent;
+		}
+
+		if (bEnableFleshRing)
+		{
+			// Enable: Apply BakedMesh and setup ring meshes
+			UnbindFromAssetDelegate();
+			BindToAssetDelegate();
+
+			// Apply BakedMesh if available
+			if (TargetMesh && FleshRingAsset && FleshRingAsset->HasBakedMesh())
+			{
+				if (!CachedOriginalMesh.IsValid())
+				{
+					CachedOriginalMesh = TargetMesh->GetSkeletalMeshAsset();
+				}
+				TargetMesh->SetSkeletalMeshAsset(FleshRingAsset->SubdivisionSettings.BakedMesh.Get());
+				bUsingBakedMesh = true;
+			}
+
+			SetupRingMeshes();
+			ApplyBakedRingTransforms();
+		}
+		else
+		{
+			// Disable: Cleanup ring meshes and restore original mesh
+			CleanupRingMeshes();
+
+			// Cleanup orphaned ring mesh components (Outer is PendingKill due to component recreation)
+			// This handles the case where Super::PostEditChangeProperty() recreates the component
+			// and RingMeshComponents array is reset, leaving orphaned mesh components in the world
+			AActor* Owner = GetOwner();
+			if (Owner)
+			{
+				TArray<UActorComponent*> ComponentsToDestroy;
+
+				// Find orphaned SkeletalMeshComponents (skinned ring meshes)
+				TArray<USkeletalMeshComponent*> SkelMeshComps;
+				Owner->GetComponents<USkeletalMeshComponent>(SkelMeshComps);
+				for (USkeletalMeshComponent* Comp : SkelMeshComps)
+				{
+					if (Comp && Comp->GetName().Contains(TEXT("_SkinnedRing_")))
+					{
+						UObject* Outer = Comp->GetOuter();
+						// Check if Outer is a PendingKill FleshRingComponent (orphaned)
+						if (!Outer || !IsValid(Outer) || (Outer->IsA<UFleshRingComponent>() && Outer != this))
+						{
+							ComponentsToDestroy.Add(Comp);
+						}
+					}
+				}
+
+				// Find orphaned FleshRingMeshComponents (static ring meshes)
+				TArray<UFleshRingMeshComponent*> RingMeshComps;
+				Owner->GetComponents<UFleshRingMeshComponent>(RingMeshComps);
+				for (UFleshRingMeshComponent* Comp : RingMeshComps)
+				{
+					if (Comp)
+					{
+						UObject* Outer = Comp->GetOuter();
+						if (!Outer || !IsValid(Outer) || (Outer->IsA<UFleshRingComponent>() && Outer != this))
+						{
+							ComponentsToDestroy.Add(Comp);
+						}
+					}
+				}
+
+				// Destroy orphaned components
+				for (UActorComponent* Comp : ComponentsToDestroy)
+				{
+					Comp->DestroyComponent();
+				}
+			}
+
+			// Restore original mesh from FleshRingAsset->TargetSkeletalMesh
+			// (CachedOriginalMesh may be invalid due to component recreation by Super::PostEditChangeProperty)
+			if (TargetMesh && FleshRingAsset && FleshRingAsset->TargetSkeletalMesh.IsValid())
+			{
+				USkeletalMesh* OriginalMesh = FleshRingAsset->TargetSkeletalMesh.LoadSynchronous();
+				if (OriginalMesh)
+				{
+					TargetMesh->SetSkeletalMeshAsset(OriginalMesh);
+				}
+			}
+			bUsingBakedMesh = false;
+		}
+
+		// Restore Leader Pose to preserve animation state
+		if (TargetMesh && CachedLeaderPose.IsValid())
+		{
+			TargetMesh->SetLeaderPoseComponent(CachedLeaderPose.Get());
+		}
 	}
 
 	// Ring mesh visibility change
@@ -1022,6 +1129,92 @@ void UFleshRingComponent::ApplyAsset()
 
 		SetupRingMeshes();
 	}
+}
+
+void UFleshRingComponent::SetEnableFleshRing(bool bEnable)
+{
+	if (bEnableFleshRing == bEnable)
+	{
+		return;
+	}
+
+	bEnableFleshRing = bEnable;
+
+	// Runtime only - editor uses PostEditChangeProperty
+	if (!GetWorld() || GetWorld()->WorldType == EWorldType::Editor)
+	{
+		return;
+	}
+
+	USkeletalMeshComponent* TargetMesh = ResolvedTargetMesh.Get();
+	if (!TargetMesh)
+	{
+		return;
+	}
+
+	// Backup Leader Pose to preserve animation state
+	TWeakObjectPtr<USkinnedMeshComponent> CachedLeaderPose = TargetMesh->LeaderPoseComponent;
+
+	if (bEnable)
+	{
+		// Enable: Apply BakedMesh (if available) or setup Deformer
+		if (FleshRingAsset && FleshRingAsset->HasBakedMesh())
+		{
+			// Apply baked mesh
+			if (!CachedOriginalMesh.IsValid())
+			{
+				CachedOriginalMesh = TargetMesh->GetSkeletalMeshAsset();
+			}
+			TargetMesh->SetSkeletalMeshAsset(FleshRingAsset->SubdivisionSettings.BakedMesh.Get());
+			bUsingBakedMesh = true;
+
+			// Setup ring meshes
+			SetupRingMeshes();
+			ApplyBakedRingTransforms();
+		}
+
+		UE_LOG(LogFleshRingComponent, Log, TEXT("[%s] SetEnableFleshRing: Enabled"), *GetName());
+	}
+	else
+	{
+		// Disable: Restore original mesh, cleanup ring meshes
+		CleanupRingMeshes();
+
+		// Restore original mesh (modular-compatible: try TargetSkeletalMesh first, then CachedOriginalMesh)
+		if (FleshRingAsset && FleshRingAsset->TargetSkeletalMesh.IsValid())
+		{
+			USkeletalMesh* OriginalMesh = FleshRingAsset->TargetSkeletalMesh.LoadSynchronous();
+			if (OriginalMesh)
+			{
+				TargetMesh->SetSkeletalMeshAsset(OriginalMesh);
+			}
+		}
+		else if (CachedOriginalMesh.IsValid())
+		{
+			// Fallback: Use cached original if TargetSkeletalMesh not available
+			TargetMesh->SetSkeletalMeshAsset(CachedOriginalMesh.Get());
+		}
+		bUsingBakedMesh = false;
+
+		UE_LOG(LogFleshRingComponent, Log, TEXT("[%s] SetEnableFleshRing: Disabled"), *GetName());
+	}
+
+	// Restore Leader Pose to preserve animation state (critical for modular characters)
+	if (CachedLeaderPose.IsValid())
+	{
+		TargetMesh->SetLeaderPoseComponent(CachedLeaderPose.Get());
+	}
+}
+
+void UFleshRingComponent::SetShowRingMesh(bool bShow)
+{
+	if (bShowRingMesh == bShow)
+	{
+		return;
+	}
+
+	bShowRingMesh = bShow;
+	UpdateRingMeshVisibility();
 }
 
 void UFleshRingComponent::SwapFleshRingAsset(UFleshRingAsset* NewAsset)
