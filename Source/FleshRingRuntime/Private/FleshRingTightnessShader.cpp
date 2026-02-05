@@ -324,10 +324,10 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
             UFleshRingComponent* Comp = *It;
             if (Comp && Comp->GetWorld() && !Comp->GetWorld()->IsPreviewWorld())
             {
-                if (Comp->FleshRingAsset && Comp->GetResolvedTargetMesh())
+                if (Comp->FleshRingAsset && Comp->GetResolvedTargetSkeletalMeshComponent())
                 {
                     FoundComponent = Comp;
-                    TargetSkelMesh = Comp->GetResolvedTargetMesh();
+                    TargetSkelMesh = Comp->GetResolvedTargetSkeletalMeshComponent();
                     break;
                 }
             }

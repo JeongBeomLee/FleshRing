@@ -778,7 +778,7 @@ namespace SubdivisionHelpers
 		}
 
 		// Get SkeletalMeshComponent (mesh that DI is bound to)
-		USkeletalMeshComponent* SMC = const_cast<UFleshRingComponent*>(SourceComponent)->GetResolvedTargetMesh();
+		USkeletalMeshComponent* SMC = const_cast<UFleshRingComponent*>(SourceComponent)->GetResolvedTargetSkeletalMeshComponent();
 		if (!SMC)
 		{
 			UE_LOG(LogFleshRingAsset, Warning, TEXT("ExtractAffectedVerticesFromDI: No SkeletalMeshComponent"));
@@ -1051,7 +1051,7 @@ namespace SubdivisionHelpers
 		}
 
 		// Get SkeletalMeshComponent
-		USkeletalMeshComponent* SMC = const_cast<UFleshRingComponent*>(SourceComponent)->GetResolvedTargetMesh();
+		USkeletalMeshComponent* SMC = const_cast<UFleshRingComponent*>(SourceComponent)->GetResolvedTargetSkeletalMeshComponent();
 		if (!SMC)
 		{
 			UE_LOG(LogFleshRingAsset, Warning, TEXT("ExtractAffectedTrianglesFromDI: No SkeletalMeshComponent"));
@@ -2386,7 +2386,7 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 		return false;
 	}
 
-	USkeletalMeshComponent* SkelMeshComp = SourceComponent->GetResolvedTargetMesh();
+	USkeletalMeshComponent* SkelMeshComp = SourceComponent->GetResolvedTargetSkeletalMeshComponent();
 	if (!SkelMeshComp)
 	{
 		UE_LOG(LogFleshRingAsset, Warning, TEXT("GenerateBakedMesh: SourceComponent has no resolved target mesh"));

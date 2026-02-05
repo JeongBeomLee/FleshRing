@@ -455,7 +455,7 @@ FReply FSubdivisionSettingsCustomization::OnBakeMeshClicked()
 	}
 
 	// Store current preview mesh (for later restoration)
-	USkeletalMeshComponent* SkelMeshComp = PreviewComponent->GetResolvedTargetMesh();
+	USkeletalMeshComponent* SkelMeshComp = PreviewComponent->GetResolvedTargetSkeletalMeshComponent();
 	if (SkelMeshComp)
 	{
 		OriginalPreviewMesh = SkelMeshComp->GetSkeletalMeshAsset();
@@ -606,7 +606,7 @@ void FSubdivisionSettingsCustomization::CleanupAsyncBake(bool bRestorePreviewMes
 	// Restore original preview mesh
 	if (bRestorePreviewMesh && AsyncBakeComponent.IsValid() && OriginalPreviewMesh.IsValid())
 	{
-		USkeletalMeshComponent* SkelMeshComp = AsyncBakeComponent->GetResolvedTargetMesh();
+		USkeletalMeshComponent* SkelMeshComp = AsyncBakeComponent->GetResolvedTargetSkeletalMeshComponent();
 		if (SkelMeshComp && SkelMeshComp->GetSkeletalMeshAsset() != OriginalPreviewMesh.Get())
 		{
 			UE_LOG(LogTemp, Log, TEXT("Restoring original preview mesh..."));
@@ -637,7 +637,7 @@ void FSubdivisionSettingsCustomization::CleanupAsyncBake(bool bRestorePreviewMes
 		// Switch to another mesh first if preview component is still using SubdividedMesh
 		if (AsyncBakeComponent.IsValid())
 		{
-			USkeletalMeshComponent* SkelMeshComp = AsyncBakeComponent->GetResolvedTargetMesh();
+			USkeletalMeshComponent* SkelMeshComp = AsyncBakeComponent->GetResolvedTargetSkeletalMeshComponent();
 			if (SkelMeshComp && SkelMeshComp->GetSkeletalMeshAsset() == SubdividedMesh)
 			{
 				UE_LOG(LogTemp, Log, TEXT("CleanupAsyncBake: Preview still using SubdividedMesh, switching..."));
@@ -732,7 +732,7 @@ void FSubdivisionSettingsCustomization::RestoreOriginalPreviewMesh(UFleshRingCom
 		return;
 	}
 
-	USkeletalMeshComponent* SkelMeshComp = PreviewComponent->GetResolvedTargetMesh();
+	USkeletalMeshComponent* SkelMeshComp = PreviewComponent->GetResolvedTargetSkeletalMeshComponent();
 	if (SkelMeshComp && SkelMeshComp->GetSkeletalMeshAsset() != OriginalPreviewMesh.Get())
 	{
 		UE_LOG(LogTemp, Log, TEXT("Restoring original preview mesh..."));

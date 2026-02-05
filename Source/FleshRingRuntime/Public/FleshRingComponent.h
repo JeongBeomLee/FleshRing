@@ -6,6 +6,7 @@
 #include "Components/ActorComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/EngineTypes.h"
 #include "FleshRingTypes.h"
 #include "FleshRingDeformer.h"
 #include "FleshRingAffectedVertices.h"
@@ -182,11 +183,21 @@ public:
 	// =====================================
 
 	/**
-	 * Manual target mesh setting (for special cases like preview, merged mesh)
-	 * If not set, auto-searches Owner for component matching FleshRingAsset->TargetSkeletalMesh
-	 * Internal use only: Called by UFleshRingModularLibrary
+	 * Target SkeletalMeshComponent to apply FleshRing effect.
+	 * Must be explicitly set - auto-search is not supported.
 	 */
-	void SetTargetMesh(USkeletalMeshComponent* InTargetMesh);
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Settings",
+		meta = (UseComponentPicker, AllowedClasses = "/Script/Engine.SkeletalMeshComponent",
+			DisplayName = "Target Skeletal Mesh Component"))
+	FComponentReference TargetSkeletalMeshComponent;
+
+	/**
+	 * Set target SkeletalMeshComponent to apply FleshRing effect.
+	 * Also updates TargetSkeletalMeshComponent property for consistency.
+	 * @param InTargetMeshComponent - Target skeletal mesh component (nullptr to clear)
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FleshRing")
+	void SetTargetSkeletalMeshComponent(USkeletalMeshComponent* InTargetMeshComponent);
 
 	// =====================================
 	// General (Runtime Settings)
@@ -274,7 +285,7 @@ public:
 
 	/** Get resolved SkeletalMeshComponent that deformation is applied to */
 	UFUNCTION(BlueprintPure, Category = "FleshRing")
-	USkeletalMeshComponent* GetResolvedTargetMesh() const { return ResolvedTargetMesh.Get(); }
+	USkeletalMeshComponent* GetResolvedTargetSkeletalMeshComponent() const { return ResolvedTargetMesh.Get(); }
 
 	/** Get internal Deformer (internal use only) */
 	UFleshRingDeformer* GetDeformer() const { return InternalDeformer; }
@@ -391,14 +402,14 @@ private:
 	bool bCreatedForMergedMesh = false;
 
 	/**
-	 * Whether manually set via SetTargetMesh()
+	 * Whether manually set via SetTargetSkeletalMeshComponent()
 	 * If true, skip auto-search in FindTargetMeshOnly() (restore from ManualTargetMesh)
 	 * If true, skip mesh change in ResolveTargetMesh()
 	 */
 	bool bManualTargetSet = false;
 
 	/**
-	 * Target mesh set via SetTargetMesh() (for caching)
+	 * Target mesh set via SetTargetSkeletalMeshComponent() (for caching)
 	 * Can be restored even when ResolvedTargetMesh is reset in CleanupDeformer()
 	 */
 	TWeakObjectPtr<USkeletalMeshComponent> ManualTargetMesh;

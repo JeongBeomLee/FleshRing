@@ -195,7 +195,7 @@ void UFleshRingSubdivisionComponent::FindDependencies()
 	// Find SkeletalMeshComponent
 	if (FleshRingComp.IsValid())
 	{
-		TargetMeshComp = FleshRingComp->GetResolvedTargetMesh();
+		TargetMeshComp = FleshRingComp->GetResolvedTargetSkeletalMeshComponent();
 	}
 
 	if (!TargetMeshComp.IsValid())

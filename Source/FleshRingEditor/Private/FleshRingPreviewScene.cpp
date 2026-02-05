@@ -110,7 +110,7 @@ void FFleshRingPreviewScene::CreatePreviewActor()
 
 	// Create FleshRing component (enable Deformer in editor as well)
 	FleshRingComponent = NewObject<UFleshRingComponent>(PreviewActor, TEXT("FleshRingComponent"));
-	FleshRingComponent->SetTargetMesh(SkeletalMeshComponent);
+	FleshRingComponent->SetTargetSkeletalMeshComponent(SkeletalMeshComponent);
 	FleshRingComponent->bEnableFleshRing = true;  // Enable Deformer in editor preview
 	FleshRingComponent->RegisterComponent();
 	PreviewActor->AddInstanceComponent(FleshRingComponent);

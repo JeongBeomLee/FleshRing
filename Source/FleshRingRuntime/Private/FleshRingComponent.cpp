@@ -266,104 +266,150 @@ void UFleshRingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 #endif
 }
 
-void UFleshRingComponent::SetTargetMesh(USkeletalMeshComponent* InTargetMesh)
+void UFleshRingComponent::SetTargetSkeletalMeshComponent(USkeletalMeshComponent* InTargetMeshComponent)
 {
-	ManualTargetMesh = InTargetMesh;  // Caching (for restoration after CleanupDeformer)
-	ResolvedTargetMesh = InTargetMesh;
-	bManualTargetSet = (InTargetMesh != nullptr);
-	if (InTargetMesh)
+	// Check if target is actually changing
+	USkeletalMeshComponent* OldTarget = ResolvedTargetMesh.Get();
+	if (OldTarget == InTargetMeshComponent)
 	{
-		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: SetTargetMesh called with '%s'"),
-			*InTargetMesh->GetName());
-	}
-}
-
-void UFleshRingComponent::FindTargetMeshOnly()
-{
-	// Manual target mode: Restore from value set by SetTargetMesh()
-	// Even if ResolvedTargetMesh is reset in CleanupDeformer(), restore from ManualTargetMesh
-	if (bManualTargetSet)
-	{
-		ResolvedTargetMesh = ManualTargetMesh;
-		return;
+		return;  // No change
 	}
 
-	// Auto-discovery mode: Find SkeletalMeshComponent from Owner
-	AActor* Owner = GetOwner();
-	if (!Owner)
+	// Cleanup existing ring effect if we had a target
+	if (OldTarget)
 	{
-		UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: No owner actor found"));
-		return;
-	}
+		// Backup Leader Pose (for modular character support)
+		TWeakObjectPtr<USkinnedMeshComponent> OldLeaderPose = OldTarget->LeaderPoseComponent;
 
-	// Search for SkeletalMeshComponent among all Owner's components
-	TArray<USkeletalMeshComponent*> SkeletalMeshComponents;
-	Owner->GetComponents<USkeletalMeshComponent>(SkeletalMeshComponents);
-
-	if (SkeletalMeshComponents.Num() == 0)
-	{
-		UE_LOG(LogFleshRingComponent, Warning, TEXT("FleshRingComponent: No SkeletalMeshComponent found on owner '%s'"),
-			*Owner->GetName());
-		return;
-	}
-
-	// Auto-matching: Find component matching FleshRingAsset->TargetSkeletalMesh
-	USkeletalMeshComponent* MatchedComponent = nullptr;
-	if (FleshRingAsset && !FleshRingAsset->TargetSkeletalMesh.IsNull())
-	{
-		USkeletalMesh* TargetMesh = FleshRingAsset->TargetSkeletalMesh.LoadSynchronous();
-		UE_LOG(LogFleshRingComponent, Log,
-			TEXT("[%s] Auto-matching: Looking for TargetSkeletalMesh '%s' among %d components"),
-			*GetName(), TargetMesh ? *TargetMesh->GetName() : TEXT("null"), SkeletalMeshComponents.Num());
-
-		if (TargetMesh)
+		// Cleanup ring meshes and deformer
+		CleanupRingMeshes();
+		CleanupOrphanedRingMeshComponents();
+		if (InternalDeformer)
 		{
-			for (USkeletalMeshComponent* Comp : SkeletalMeshComponents)
-			{
-				USkeletalMesh* CompMesh = Comp ? Comp->GetSkeletalMeshAsset() : nullptr;
-				UE_LOG(LogFleshRingComponent, Log,
-					TEXT("[%s]   Checking '%s' -> Mesh='%s' (Match=%d)"),
-					*GetName(), Comp ? *Comp->GetName() : TEXT("null"),
-					CompMesh ? *CompMesh->GetName() : TEXT("null"),
-					CompMesh == TargetMesh);
+			CleanupDeformer();
+		}
 
-				if (Comp && CompMesh == TargetMesh)
+		// Restore original mesh on old target (only if BakedMesh was applied)
+		if (bUsingBakedMesh)
+		{
+			// Same pattern as SetEnableFleshRing(false): try TargetSkeletalMesh first, then CachedOriginalMesh
+			if (FleshRingAsset && FleshRingAsset->TargetSkeletalMesh.IsValid())
+			{
+				USkeletalMesh* OriginalMesh = FleshRingAsset->TargetSkeletalMesh.LoadSynchronous();
+				if (OriginalMesh)
 				{
-					MatchedComponent = Comp;
-					UE_LOG(LogFleshRingComponent, Log,
-						TEXT("[%s] ★ Auto-matched! Component='%s', TargetMesh='%s'"),
-						*GetName(), *Comp->GetName(), *TargetMesh->GetName());
-					break;
+					OldTarget->SetSkeletalMeshAsset(OriginalMesh);
 				}
+			}
+			else if (CachedOriginalMesh.IsValid())
+			{
+				// Fallback: Use cached original if TargetSkeletalMesh not available
+				OldTarget->SetSkeletalMeshAsset(CachedOriginalMesh.Get());
+			}
+		}
+
+		// Restore Leader Pose on old target
+		if (OldLeaderPose.IsValid())
+		{
+			OldTarget->SetLeaderPoseComponent(OldLeaderPose.Get());
+		}
+
+		// Reset baked mesh state (will be re-cached for new target)
+		CachedOriginalMesh = nullptr;
+		bUsingBakedMesh = false;
+
+		UE_LOG(LogFleshRingComponent, Log, TEXT("[%s] SetTargetSkeletalMeshComponent: Cleaned up and restored old target '%s'"),
+			*GetName(), *OldTarget->GetName());
+	}
+
+	// Update target references
+	ManualTargetMesh = InTargetMeshComponent;
+	ResolvedTargetMesh = InTargetMeshComponent;
+	bManualTargetSet = (InTargetMeshComponent != nullptr);
+
+	// Sync TargetSkeletalMeshComponent (FComponentReference) for consistency
+	if (InTargetMeshComponent)
+	{
+		TargetSkeletalMeshComponent.ComponentProperty = InTargetMeshComponent->GetFName();
+		UE_LOG(LogFleshRingComponent, Log, TEXT("[%s] SetTargetSkeletalMeshComponent: New target '%s'"),
+			*GetName(), *InTargetMeshComponent->GetName());
+
+		// Re-setup ring effect with new target (only if FleshRingAsset is set and enabled)
+		// ApplyBakedMesh() internally validates mesh compatibility
+		if (FleshRingAsset && bEnableFleshRing && HasBegunPlay())
+		{
+			// Backup Leader Pose on new target
+			TWeakObjectPtr<USkinnedMeshComponent> NewLeaderPose = InTargetMeshComponent->LeaderPoseComponent;
+
+			// ApplyBakedMesh handles mesh swap + ring setup (validates mesh compatibility)
+			ApplyBakedMesh();
+
+			// Restore Leader Pose on new target
+			if (NewLeaderPose.IsValid())
+			{
+				InTargetMeshComponent->SetLeaderPoseComponent(NewLeaderPose.Get());
 			}
 		}
 	}
 	else
 	{
-		UE_LOG(LogFleshRingComponent, Warning,
-			TEXT("[%s] Auto-matching skipped: FleshRingAsset=%p, TargetSkeletalMesh.IsNull=%d"),
-			*GetName(), FleshRingAsset.Get(),
-			FleshRingAsset ? FleshRingAsset->TargetSkeletalMesh.IsNull() : -1);
+		TargetSkeletalMeshComponent.ComponentProperty = NAME_None;
+		UE_LOG(LogFleshRingComponent, Log, TEXT("[%s] SetTargetSkeletalMeshComponent: Target cleared"),
+			*GetName());
+	}
+}
+
+void UFleshRingComponent::FindTargetMeshOnly()
+{
+	// 1. API call mode: Use value set by SetTargetSkeletalMeshComponent()
+	// Even if ResolvedTargetMesh is reset in CleanupDeformer(), restore from ManualTargetMesh
+	if (bManualTargetSet && ManualTargetMesh.IsValid())
+	{
+		ResolvedTargetMesh = ManualTargetMesh;
+		return;
 	}
 
-	if (MatchedComponent)
+	// 2. Details panel selection mode: Use TargetSkeletalMeshComponent
+	AActor* Owner = GetOwner();
+	if (Owner && !TargetSkeletalMeshComponent.ComponentProperty.IsNone())
 	{
-		ResolvedTargetMesh = MatchedComponent;
-	}
-	else
-	{
-		// When matching fails, use first SkeletalMeshComponent (legacy behavior)
-		ResolvedTargetMesh = SkeletalMeshComponents[0];
-		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: No matching mesh found, using first one '%s' on owner '%s'"),
-			*SkeletalMeshComponents[0]->GetName(), *Owner->GetName());
-
-		if (SkeletalMeshComponents.Num() > 1)
+		// Try FComponentReference first
+		UActorComponent* Comp = TargetSkeletalMeshComponent.GetComponent(Owner);
+		if (USkeletalMeshComponent* SkelComp = Cast<USkeletalMeshComponent>(Comp))
 		{
-			UE_LOG(LogFleshRingComponent, Warning,
-				TEXT("FleshRingComponent: Found %d SkeletalMeshComponents but none matched TargetSkeletalMesh. Using first one."),
-				SkeletalMeshComponents.Num());
+			ResolvedTargetMesh = SkelComp;
+			UE_LOG(LogFleshRingComponent, Log,
+				TEXT("[%s] Using TargetSkeletalMeshComponent: '%s'"),
+				*GetName(), *SkelComp->GetName());
+			return;
 		}
+
+		// Fallback: Search by name manually (handles Blueprint variable names)
+		FString TargetName = TargetSkeletalMeshComponent.ComponentProperty.ToString();
+		TArray<USkeletalMeshComponent*> SkelMeshComponents;
+		Owner->GetComponents<USkeletalMeshComponent>(SkelMeshComponents);
+		for (USkeletalMeshComponent* SkelMeshComp : SkelMeshComponents)
+		{
+			if (SkelMeshComp && SkelMeshComp->GetName().Contains(TargetName))
+			{
+				ResolvedTargetMesh = SkelMeshComp;
+				UE_LOG(LogFleshRingComponent, Log,
+					TEXT("[%s] Found TargetSkeletalMeshComponent by name search: '%s'"),
+					*GetName(), *SkelMeshComp->GetName());
+				return;
+			}
+		}
+
+		UE_LOG(LogFleshRingComponent, Warning,
+			TEXT("[%s] TargetSkeletalMeshComponent '%s' not found on Owner"),
+			*GetName(), *TargetSkeletalMeshComponent.ComponentProperty.ToString());
 	}
+
+	// 3. No target set - warning
+	UE_LOG(LogFleshRingComponent, Warning,
+		TEXT("[%s] No target SkeletalMeshComponent set. Set TargetSkeletalMeshComponent in Details panel or call SetTargetSkeletalMeshComponent()."),
+		*GetName());
+	ResolvedTargetMesh = nullptr;
 }
 
 void UFleshRingComponent::ResolveTargetMesh()
@@ -1050,19 +1096,10 @@ void UFleshRingComponent::SetEnableFleshRing(bool bEnable)
 	if (bEnable)
 	{
 		// Enable: Apply BakedMesh (if available) or setup Deformer
+		// ApplyBakedMesh() handles validation, mesh swap, and ring setup
 		if (FleshRingAsset && FleshRingAsset->HasBakedMesh())
 		{
-			// Apply baked mesh
-			if (!CachedOriginalMesh.IsValid())
-			{
-				CachedOriginalMesh = TargetMesh->GetSkeletalMeshAsset();
-			}
-			TargetMesh->SetSkeletalMeshAsset(FleshRingAsset->SubdivisionSettings.BakedMesh.Get());
-			bUsingBakedMesh = true;
-
-			// Setup ring meshes
-			SetupRingMeshes();
-			ApplyBakedRingTransforms();
+			ApplyBakedMesh();
 		}
 
 		UE_LOG(LogFleshRingComponent, Log, TEXT("[%s] SetEnableFleshRing: Enabled"), *GetName());
@@ -1073,19 +1110,23 @@ void UFleshRingComponent::SetEnableFleshRing(bool bEnable)
 		CleanupRingMeshes();
 		CleanupOrphanedRingMeshComponents();
 
-		// Restore original mesh (modular-compatible: try TargetSkeletalMesh first, then CachedOriginalMesh)
-		if (FleshRingAsset && FleshRingAsset->TargetSkeletalMesh.IsValid())
+		// Restore original mesh (only if BakedMesh was applied)
+		if (bUsingBakedMesh)
 		{
-			USkeletalMesh* OriginalMesh = FleshRingAsset->TargetSkeletalMesh.LoadSynchronous();
-			if (OriginalMesh)
+			// Modular-compatible: try TargetSkeletalMesh first, then CachedOriginalMesh
+			if (FleshRingAsset && FleshRingAsset->TargetSkeletalMesh.IsValid())
 			{
-				TargetMesh->SetSkeletalMeshAsset(OriginalMesh);
+				USkeletalMesh* OriginalMesh = FleshRingAsset->TargetSkeletalMesh.LoadSynchronous();
+				if (OriginalMesh)
+				{
+					TargetMesh->SetSkeletalMeshAsset(OriginalMesh);
+				}
 			}
-		}
-		else if (CachedOriginalMesh.IsValid())
-		{
-			// Fallback: Use cached original if TargetSkeletalMesh not available
-			TargetMesh->SetSkeletalMeshAsset(CachedOriginalMesh.Get());
+			else if (CachedOriginalMesh.IsValid())
+			{
+				// Fallback: Use cached original if TargetSkeletalMesh not available
+				TargetMesh->SetSkeletalMeshAsset(CachedOriginalMesh.Get());
+			}
 		}
 		bUsingBakedMesh = false;
 
@@ -1227,6 +1268,26 @@ FFleshRingModularResult UFleshRingComponent::Internal_SwapModularRingAsset(UFles
 				return Output;
 			}
 		}
+
+		// TargetSkeletalMesh compatibility: target's current mesh must match NewAsset's TargetSkeletalMesh
+		USkeletalMesh* ExpectedMesh = NewAsset->TargetSkeletalMesh.IsValid()
+			? NewAsset->TargetSkeletalMesh.LoadSynchronous()
+			: nullptr;
+
+		if (ExpectedMesh && CurrentMesh != ExpectedMesh)
+		{
+			UE_LOG(LogFleshRingComponent, Warning,
+				TEXT("[%s] Internal_SwapModularRingAsset: Target mesh '%s' does not match NewAsset's TargetSkeletalMesh '%s'. Ring effect not applied."),
+				*GetName(),
+				CurrentMesh ? *CurrentMesh->GetName() : TEXT("null"),
+				*ExpectedMesh->GetName());
+			Output.Result = EFleshRingModularResult::MeshMismatch;
+			Output.ErrorMessage = FString::Printf(
+				TEXT("Mesh mismatch - Target: '%s', Expected: '%s'"),
+				CurrentMesh ? *CurrentMesh->GetName() : TEXT("null"),
+				*ExpectedMesh->GetName());
+			return Output;
+		}
 	}
 
 	// 3. Backup Leader Pose (if needed)
@@ -1246,20 +1307,24 @@ FFleshRingModularResult UFleshRingComponent::Internal_SwapModularRingAsset(UFles
 	// 5. Remove ring effect (when nullptr is passed)
 	if (!NewAsset)
 	{
-		// Restore to current asset's original mesh (keep part swap, only release ring effect)
-		// Example: Thigh_A -> Thigh_B_BAKED swap then nullptr -> restore to Thigh_B (original)
-		if (FleshRingAsset && FleshRingAsset->TargetSkeletalMesh.IsValid())
+		// Restore original mesh only if BakedMesh was applied
+		if (bUsingBakedMesh)
 		{
-			USkeletalMesh* CurrentAssetOriginalMesh = FleshRingAsset->TargetSkeletalMesh.LoadSynchronous();
-			if (CurrentAssetOriginalMesh)
+			// Restore to current asset's original mesh (keep part swap, only release ring effect)
+			// Example: Thigh_A -> Thigh_B_BAKED swap then nullptr -> restore to Thigh_B (original)
+			if (FleshRingAsset && FleshRingAsset->TargetSkeletalMesh.IsValid())
 			{
-				TargetMesh->SetSkeletalMeshAsset(CurrentAssetOriginalMesh);
+				USkeletalMesh* CurrentAssetOriginalMesh = FleshRingAsset->TargetSkeletalMesh.LoadSynchronous();
+				if (CurrentAssetOriginalMesh)
+				{
+					TargetMesh->SetSkeletalMeshAsset(CurrentAssetOriginalMesh);
+				}
 			}
-		}
-		else if (CachedOriginalMesh.IsValid())
-		{
-			// Fallback: Use original if no current asset
-			TargetMesh->SetSkeletalMeshAsset(CachedOriginalMesh.Get());
+			else if (CachedOriginalMesh.IsValid())
+			{
+				// Fallback: Use original if no current asset
+				TargetMesh->SetSkeletalMeshAsset(CachedOriginalMesh.Get());
+			}
 		}
 		FleshRingAsset = nullptr;
 		bUsingBakedMesh = false;
@@ -1352,10 +1417,32 @@ void UFleshRingComponent::ApplyBakedMesh()
 		return;
 	}
 
+	// Validate mesh compatibility: target's current mesh must match FleshRingAsset's TargetSkeletalMesh
+	USkeletalMesh* CurrentMesh = TargetMesh->GetSkeletalMeshAsset();
+	USkeletalMesh* ExpectedMesh = FleshRingAsset->TargetSkeletalMesh.IsValid()
+		? FleshRingAsset->TargetSkeletalMesh.LoadSynchronous()
+		: nullptr;
+
+	if (!CurrentMesh)
+	{
+		UE_LOG(LogFleshRingComponent, Warning,
+			TEXT("[%s] ApplyBakedMesh: Target '%s' has no SkeletalMesh assigned. Ring effect not applied."),
+			*GetName(), *TargetMesh->GetName());
+		return;
+	}
+
+	if (ExpectedMesh && CurrentMesh != ExpectedMesh)
+	{
+		UE_LOG(LogFleshRingComponent, Warning,
+			TEXT("[%s] ApplyBakedMesh: Target mesh '%s' does not match FleshRingAsset's TargetSkeletalMesh '%s'. Ring effect not applied."),
+			*GetName(), *CurrentMesh->GetName(), *ExpectedMesh->GetName());
+		return;
+	}
+
 	// Save original mesh (for later restoration)
 	if (!CachedOriginalMesh.IsValid())
 	{
-		CachedOriginalMesh = TargetMesh->GetSkeletalMeshAsset();
+		CachedOriginalMesh = CurrentMesh;
 	}
 
 	// Apply baked mesh

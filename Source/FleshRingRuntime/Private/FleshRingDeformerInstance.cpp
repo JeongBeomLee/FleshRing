@@ -1373,7 +1373,7 @@ void UFleshRingDeformerInstance::EnqueueWork(FEnqueueWorkDesc const& InDesc)
 	USkeletalMeshComponent* TargetMeshComp = nullptr;
 	if (FleshRingComponent.IsValid())
 	{
-		TargetMeshComp = FleshRingComponent->GetResolvedTargetMesh();
+		TargetMeshComp = FleshRingComponent->GetResolvedTargetSkeletalMeshComponent();
 	}
 	if (!TargetMeshComp && MeshComponent.IsValid())
 	{

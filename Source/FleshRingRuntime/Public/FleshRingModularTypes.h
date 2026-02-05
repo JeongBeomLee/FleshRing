@@ -117,6 +117,8 @@ enum class EFleshRingModularResult : uint8
 	SkeletonMismatch,
 	/** SkeletalMeshComponent has no owning Actor */
 	NoOwner,
+	/** Target mesh does not match FleshRingAsset's TargetSkeletalMesh */
+	MeshMismatch,
 };
 
 /**
