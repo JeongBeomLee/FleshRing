@@ -1,0 +1,10 @@
+# Build Artifacts
+Binaries/
+Intermediate/
+
+# IDE
+.vs/
+*.sln
+
+# Others
+*.log
