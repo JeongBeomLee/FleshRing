@@ -203,120 +203,6 @@ void UFleshRingComponent::PostEditChangeProperty(FPropertyChangedEvent& Property
 		SetupRingMeshes();
 	}
 
-	// bEnableFleshRing change: Preserve animation state (Leader Pose)
-	if (PropertyName == GET_MEMBER_NAME_CHECKED(UFleshRingComponent, bEnableFleshRing))
-	{
-		// Re-find target mesh if invalid (component recreation by Super::PostEditChangeProperty may have reset it)
-		if (!ResolvedTargetMesh.IsValid())
-		{
-			FindTargetMeshOnly();
-		}
-		USkeletalMeshComponent* TargetMesh = ResolvedTargetMesh.Get();
-
-		// Backup Leader Pose before any mesh changes
-		TWeakObjectPtr<USkinnedMeshComponent> CachedLeaderPose;
-		if (TargetMesh)
-		{
-			CachedLeaderPose = TargetMesh->LeaderPoseComponent;
-		}
-
-		if (bEnableFleshRing)
-		{
-			// Enable: Apply BakedMesh and setup ring meshes
-			UnbindFromAssetDelegate();
-			BindToAssetDelegate();
-
-			// Apply BakedMesh if available
-			if (TargetMesh && FleshRingAsset && FleshRingAsset->HasBakedMesh())
-			{
-				if (!CachedOriginalMesh.IsValid())
-				{
-					CachedOriginalMesh = TargetMesh->GetSkeletalMeshAsset();
-				}
-				TargetMesh->SetSkeletalMeshAsset(FleshRingAsset->SubdivisionSettings.BakedMesh.Get());
-				bUsingBakedMesh = true;
-			}
-
-			SetupRingMeshes();
-			ApplyBakedRingTransforms();
-		}
-		else
-		{
-			// Disable: Cleanup ring meshes and restore original mesh
-			CleanupRingMeshes();
-
-			// Cleanup orphaned ring mesh components (Outer is PendingKill due to component recreation)
-			// This handles the case where Super::PostEditChangeProperty() recreates the component
-			// and RingMeshComponents array is reset, leaving orphaned mesh components in the world
-			AActor* Owner = GetOwner();
-			if (Owner)
-			{
-				TArray<UActorComponent*> ComponentsToDestroy;
-
-				// Find orphaned SkeletalMeshComponents (skinned ring meshes)
-				TArray<USkeletalMeshComponent*> SkelMeshComps;
-				Owner->GetComponents<USkeletalMeshComponent>(SkelMeshComps);
-				for (USkeletalMeshComponent* Comp : SkelMeshComps)
-				{
-					if (Comp && Comp->GetName().Contains(TEXT("_SkinnedRing_")))
-					{
-						UObject* Outer = Comp->GetOuter();
-						// Check if Outer is a PendingKill FleshRingComponent (orphaned)
-						if (!Outer || !IsValid(Outer) || (Outer->IsA<UFleshRingComponent>() && Outer != this))
-						{
-							ComponentsToDestroy.Add(Comp);
-						}
-					}
-				}
-
-				// Find orphaned FleshRingMeshComponents (static ring meshes)
-				TArray<UFleshRingMeshComponent*> RingMeshComps;
-				Owner->GetComponents<UFleshRingMeshComponent>(RingMeshComps);
-				for (UFleshRingMeshComponent* Comp : RingMeshComps)
-				{
-					if (Comp)
-					{
-						UObject* Outer = Comp->GetOuter();
-						if (!Outer || !IsValid(Outer) || (Outer->IsA<UFleshRingComponent>() && Outer != this))
-						{
-							ComponentsToDestroy.Add(Comp);
-						}
-					}
-				}
-
-				// Destroy orphaned components
-				for (UActorComponent* Comp : ComponentsToDestroy)
-				{
-					Comp->DestroyComponent();
-				}
-			}
-
-			// Restore original mesh from FleshRingAsset->TargetSkeletalMesh
-			// (CachedOriginalMesh may be invalid due to component recreation by Super::PostEditChangeProperty)
-			if (TargetMesh && FleshRingAsset && FleshRingAsset->TargetSkeletalMesh.IsValid())
-			{
-				USkeletalMesh* OriginalMesh = FleshRingAsset->TargetSkeletalMesh.LoadSynchronous();
-				if (OriginalMesh)
-				{
-					TargetMesh->SetSkeletalMeshAsset(OriginalMesh);
-				}
-			}
-			bUsingBakedMesh = false;
-		}
-
-		// Restore Leader Pose to preserve animation state
-		if (TargetMesh && CachedLeaderPose.IsValid())
-		{
-			TargetMesh->SetLeaderPoseComponent(CachedLeaderPose.Get());
-		}
-	}
-
-	// Ring mesh visibility change
-	if (PropertyName == GET_MEMBER_NAME_CHECKED(UFleshRingComponent, bShowRingMesh))
-	{
-		UpdateRingMeshVisibility();
-	}
-
 	// Invalidate cache when Bulge Heatmap is enabled (for immediate debug point display)
 	if (PropertyName == GET_MEMBER_NAME_CHECKED(UFleshRingComponent, bShowBulgeHeatmap))
 	{
@@ -1146,6 +1032,12 @@ void UFleshRingComponent::SetEnableFleshRing(bool bEnable)
 		return;
 	}
 
+	// Re-find target mesh if invalid (modular support)
+	if (!ResolvedTargetMesh.IsValid())
+	{
+		FindTargetMeshOnly();
+	}
+
 	USkeletalMeshComponent* TargetMesh = ResolvedTargetMesh.Get();
 	if (!TargetMesh)
 	{
@@ -1179,6 +1071,7 @@ void UFleshRingComponent::SetEnableFleshRing(bool bEnable)
 	{
 		// Disable: Restore original mesh, cleanup ring meshes
 		CleanupRingMeshes();
+		CleanupOrphanedRingMeshComponents();
 
 		// Restore original mesh (modular-compatible: try TargetSkeletalMesh first, then CachedOriginalMesh)
 		if (FleshRingAsset && FleshRingAsset->TargetSkeletalMesh.IsValid())
@@ -1711,6 +1604,58 @@ void UFleshRingComponent::CleanupRingMeshes()
 		}
 	}
 	SkinnedRingMeshComponents.Empty();
+}
+
+void UFleshRingComponent::CleanupOrphanedRingMeshComponents()
+{
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return;
+	}
+
+	TArray<UActorComponent*> ComponentsToDestroy;
+
+	// Find orphaned SkeletalMeshComponents (skinned ring meshes)
+	// These have "_SkinnedRing_" in their name and their Outer is invalid or PendingKill
+	// NOTE: Only destroy components whose Outer is invalid/PendingKill.
+	// Do NOT destroy components owned by other valid FleshRingComponents (modular support).
+	TArray<USkeletalMeshComponent*> SkelMeshComps;
+	Owner->GetComponents<USkeletalMeshComponent>(SkelMeshComps);
+	for (USkeletalMeshComponent* Comp : SkelMeshComps)
+	{
+		if (Comp && Comp->GetName().Contains(TEXT("_SkinnedRing_")))
+		{
+			UObject* Outer = Comp->GetOuter();
+			// Orphaned only if Outer is null or PendingKill (IsValid checks both)
+			if (!Outer || !IsValid(Outer))
+			{
+				ComponentsToDestroy.Add(Comp);
+			}
+		}
+	}
+
+	// Find orphaned FleshRingMeshComponents (static ring meshes)
+	TArray<UFleshRingMeshComponent*> RingMeshComps;
+	Owner->GetComponents<UFleshRingMeshComponent>(RingMeshComps);
+	for (UFleshRingMeshComponent* Comp : RingMeshComps)
+	{
+		if (Comp)
+		{
+			UObject* Outer = Comp->GetOuter();
+			// Orphaned only if Outer is null or PendingKill
+			if (!Outer || !IsValid(Outer))
+			{
+				ComponentsToDestroy.Add(Comp);
+			}
+		}
+	}
+
+	// Destroy orphaned components
+	for (UActorComponent* Comp : ComponentsToDestroy)
+	{
+		Comp->DestroyComponent();
+	}
 }
 
 void UFleshRingComponent::UpdateRingMeshVisibility()

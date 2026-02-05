@@ -194,22 +194,24 @@ public:
 
 	/**
 	 * Enable FleshRing effect (flesh deformation + ring meshes).
-	 * Use SetEnableFleshRing() to change at runtime - preserves animation state.
+	 * Use SetEnableFleshRing() BP function to toggle at runtime.
+	 * Not exposed in Details panel - use BP function for reliable behavior.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "General")
+	UPROPERTY(BlueprintReadOnly, Category = "General")
 	bool bEnableFleshRing = true;
 
 	/**
-	 * Show Ring mesh (SDF source mesh).
-	 * Use SetShowRingMesh() to change at runtime.
+	 * Show/hide Ring mesh without disabling flesh deformation.
+	 * Use SetShowRingMesh() BP function to toggle at runtime.
+	 * Not exposed in Details panel - use BP function for reliable behavior.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "General")
+	UPROPERTY(BlueprintReadOnly, Category = "General")
 	bool bShowRingMesh = true;
 
 	/**
-	 * Enable/disable FleshRing effect at runtime.
-	 * Preserves animation state (Leader Pose) during toggle.
-	 * @param bEnable - true to enable flesh deformation, false to disable
+	 * Enable/disable FleshRing effect at runtime (flesh deformation + ring meshes).
+	 * Preserves animation state (Leader Pose) - safe for modular characters.
+	 * @param bEnable - true to enable, false to restore original mesh and remove ring meshes
 	 */
 	UFUNCTION(BlueprintCallable, Category = "FleshRing")
 	void SetEnableFleshRing(bool bEnable);
@@ -466,6 +468,13 @@ private:
 
 	/** Remove Ring mesh components */
 	void CleanupRingMeshes();
+
+	/**
+	 * Cleanup orphaned ring mesh components.
+	 * Used when component recreation (by PostEditChangeProperty) leaves orphaned meshes.
+	 * Finds and destroys ring mesh components whose Outer is invalid or PendingKill.
+	 */
+	void CleanupOrphanedRingMeshComponents();
 
 	/** Apply baked mesh (BakedMesh + BakedRingTransforms) */
 	void ApplyBakedMesh();
