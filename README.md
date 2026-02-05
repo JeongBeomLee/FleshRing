@@ -1,5 +1,7 @@
 # FleshRing Plugin
 
+[![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md) [![한국어](https://img.shields.io/badge/lang-한국어-red.svg)](README_KR.md)
+
 > **GPU-accelerated flesh compression simulation for Unreal Engine 5.7**
 
 FleshRing creates realistic skin deformation when tight objects—bands, straps, garters, stockings—press against character meshes. Using Compute Shaders and Signed Distance Fields (SDF), it delivers production-quality results with zero runtime cost through a bake-based workflow.
