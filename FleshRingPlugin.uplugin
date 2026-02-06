@@ -6,9 +6,9 @@
 	"Description": "GPU-accelerated mesh deformation plugin for realistic flesh compression effects",
 	"Category": "Animation",
 	"CreatedBy": "LgThx",
-	"CreatedByURL": "",
-	"DocsURL": "",
-	"MarketplaceURL": "",
+	"CreatedByURL": "https://www.fab.com/ko/sellers/LgThx",
+	"DocsURL": "https://www.notion.so/Overview-2fb3fc71645280e49a2ffac863a9372d?source=copy_link",
+	"MarketplaceURL": "https://www.fab.com/ko/listings/e4aa4cfa-9ac0-4c9f-9456-9fa8c87ce615",
 	"SupportURL": "",
 	"FabURL": "com.epicgames.launcher://ue/Fab/product/13e2257eb94541c5b2f9211f08a26e4b,61a98a3ca3c0414990924f60ae54229c",
 	"CanContainContent": true,
@@ -20,13 +20,17 @@
 			"Name": "FleshRingRuntime",
 			"Type": "Runtime",
 			"LoadingPhase": "PostConfigInit",
-			"PlatformAllowList": [ "Win64" ]
+			"PlatformAllowList": [
+				"Win64"
+			]
 		},
 		{
 			"Name": "FleshRingEditor",
 			"Type": "Editor",
 			"LoadingPhase": "Default",
-			"PlatformAllowList": [ "Win64" ]
+			"PlatformAllowList": [
+				"Win64"
+			]
 		}
 	],
 	"Plugins": [
