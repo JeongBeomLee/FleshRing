@@ -1208,7 +1208,19 @@ FFleshRingModularResult UFleshRingComponent::Internal_SwapModularRingAsset(UFles
 			}
 		}
 
-		if (MeshToCompare && NewBakedMesh)
+		// Target component must have a mesh assigned
+		if (!MeshToCompare)
+		{
+			UE_LOG(LogFleshRingComponent, Warning,
+				TEXT("[%s] Internal_SwapModularRingAsset: Target '%s' has no SkeletalMesh assigned. Ring effect not applied."),
+				*GetName(), *TargetMesh->GetName());
+			Output.Result = EFleshRingModularResult::NoMeshOnTarget;
+			Output.ErrorMessage = FString::Printf(
+				TEXT("Target '%s' has no SkeletalMesh assigned"), *TargetMesh->GetName());
+			return Output;
+		}
+
+		if (NewBakedMesh)
 		{
 			USkeleton* CurrentSkeleton = MeshToCompare->GetSkeleton();
 			USkeleton* NewSkeleton = NewBakedMesh->GetSkeleton();
