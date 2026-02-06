@@ -114,6 +114,12 @@ void UFleshRingComponent::BeginPlay()
 		if (bCreatedForMergedMesh)
 		{
 			// Merged mesh mode: ring visuals only (SetupRingMeshes already done in OnRegister)
+			// Cache original mesh for consistency with normal mode (in case of later asset swap)
+			USkeletalMeshComponent* TargetMesh = ResolvedTargetMesh.Get();
+			if (TargetMesh && !CachedOriginalMesh.IsValid())
+			{
+				CachedOriginalMesh = TargetMesh->GetSkeletalMeshAsset();
+			}
 			ApplyBakedRingTransforms();
 			bUsingBakedMesh = true;
 			return;
@@ -1248,9 +1254,29 @@ FFleshRingModularResult UFleshRingComponent::Internal_SwapModularRingAsset(UFles
 		USkeletalMesh* CurrentMesh = TargetMesh->GetSkeletalMeshAsset();
 		USkeletalMesh* NewBakedMesh = NewAsset->SubdivisionSettings.BakedMesh.Get();
 
-		if (CurrentMesh && NewBakedMesh)
+		// When bUsingBakedMesh is true, CurrentMesh is the previous BakedMesh
+		// Use original mesh for comparison instead
+		USkeletalMesh* MeshToCompare = CurrentMesh;
+		if (bUsingBakedMesh)
 		{
-			USkeleton* CurrentSkeleton = CurrentMesh->GetSkeleton();
+			if (CachedOriginalMesh.IsValid())
+			{
+				MeshToCompare = CachedOriginalMesh.Get();
+			}
+			else
+			{
+				// CachedOriginalMesh is invalid while bUsingBakedMesh is true - this is unexpected
+				UE_LOG(LogFleshRingComponent, Warning,
+					TEXT("[%s] Internal_SwapModularRingAsset: CachedOriginalMesh is invalid while bUsingBakedMesh is true. "
+						 "Mesh compatibility validation may be unreliable."),
+					*GetName());
+				// MeshToCompare stays as CurrentMesh - validation will likely fail (safer)
+			}
+		}
+
+		if (MeshToCompare && NewBakedMesh)
+		{
+			USkeleton* CurrentSkeleton = MeshToCompare->GetSkeleton();
 			USkeleton* NewSkeleton = NewBakedMesh->GetSkeleton();
 
 			if (CurrentSkeleton != NewSkeleton)
@@ -1269,22 +1295,22 @@ FFleshRingModularResult UFleshRingComponent::Internal_SwapModularRingAsset(UFles
 			}
 		}
 
-		// TargetSkeletalMesh compatibility: target's current mesh must match NewAsset's TargetSkeletalMesh
+		// TargetSkeletalMesh compatibility: target's original mesh must match NewAsset's TargetSkeletalMesh
 		USkeletalMesh* ExpectedMesh = NewAsset->TargetSkeletalMesh.IsValid()
 			? NewAsset->TargetSkeletalMesh.LoadSynchronous()
 			: nullptr;
 
-		if (ExpectedMesh && CurrentMesh != ExpectedMesh)
+		if (ExpectedMesh && MeshToCompare != ExpectedMesh)
 		{
 			UE_LOG(LogFleshRingComponent, Warning,
 				TEXT("[%s] Internal_SwapModularRingAsset: Target mesh '%s' does not match NewAsset's TargetSkeletalMesh '%s'. Ring effect not applied."),
 				*GetName(),
-				CurrentMesh ? *CurrentMesh->GetName() : TEXT("null"),
+				MeshToCompare ? *MeshToCompare->GetName() : TEXT("null"),
 				*ExpectedMesh->GetName());
 			Output.Result = EFleshRingModularResult::MeshMismatch;
 			Output.ErrorMessage = FString::Printf(
 				TEXT("Mesh mismatch - Target: '%s', Expected: '%s'"),
-				CurrentMesh ? *CurrentMesh->GetName() : TEXT("null"),
+				MeshToCompare ? *MeshToCompare->GetName() : TEXT("null"),
 				*ExpectedMesh->GetName());
 			return Output;
 		}
@@ -1345,8 +1371,10 @@ FFleshRingModularResult UFleshRingComponent::Internal_SwapModularRingAsset(UFles
 		FleshRingAsset = NewAsset;
 	}
 
-	// 7. Cache original mesh (if not cached yet)
-	if (!CachedOriginalMesh.IsValid())
+	// 7. Cache original mesh (for later restoration)
+	// When bUsingBakedMesh is false, CurrentMesh IS the original mesh - always cache it
+	// When bUsingBakedMesh is true, CurrentMesh is the previous BakedMesh - keep existing cache
+	if (!bUsingBakedMesh)
 	{
 		CachedOriginalMesh = TargetMesh->GetSkeletalMeshAsset();
 	}
@@ -1417,13 +1445,38 @@ void UFleshRingComponent::ApplyBakedMesh()
 		return;
 	}
 
-	// Validate mesh compatibility: target's current mesh must match FleshRingAsset's TargetSkeletalMesh
+	// Validate mesh compatibility: target's original mesh must match FleshRingAsset's TargetSkeletalMesh
+	// When bUsingBakedMesh is true, CurrentMesh is the previous BakedMesh, so we compare against original mesh instead
 	USkeletalMesh* CurrentMesh = TargetMesh->GetSkeletalMeshAsset();
+	USkeletalMesh* MeshToCompare = CurrentMesh;
+
+	// If BakedMesh is already applied, use the original mesh for comparison
+	if (bUsingBakedMesh)
+	{
+		if (CachedOriginalMesh.IsValid())
+		{
+			MeshToCompare = CachedOriginalMesh.Get();
+		}
+		else
+		{
+			// CachedOriginalMesh is invalid while bUsingBakedMesh is true - this is unexpected
+			// This can happen if the original mesh was GC'd (very rare for SkeletalMesh)
+			// In this case, we can't reliably validate mesh compatibility
+			// Use CurrentMesh as fallback but log a warning for debugging
+			UE_LOG(LogFleshRingComponent, Warning,
+				TEXT("[%s] ApplyBakedMesh: CachedOriginalMesh is invalid while bUsingBakedMesh is true. "
+					 "Mesh compatibility validation may be unreliable. CurrentMesh: '%s'"),
+				*GetName(), CurrentMesh ? *CurrentMesh->GetName() : TEXT("null"));
+			// MeshToCompare stays as CurrentMesh (the currently applied BakedMesh)
+			// This will likely fail validation, which is safer than blindly passing
+		}
+	}
+
 	USkeletalMesh* ExpectedMesh = FleshRingAsset->TargetSkeletalMesh.IsValid()
 		? FleshRingAsset->TargetSkeletalMesh.LoadSynchronous()
 		: nullptr;
 
-	if (!CurrentMesh)
+	if (!MeshToCompare)
 	{
 		UE_LOG(LogFleshRingComponent, Warning,
 			TEXT("[%s] ApplyBakedMesh: Target '%s' has no SkeletalMesh assigned. Ring effect not applied."),
@@ -1431,16 +1484,18 @@ void UFleshRingComponent::ApplyBakedMesh()
 		return;
 	}
 
-	if (ExpectedMesh && CurrentMesh != ExpectedMesh)
+	if (ExpectedMesh && MeshToCompare != ExpectedMesh)
 	{
 		UE_LOG(LogFleshRingComponent, Warning,
 			TEXT("[%s] ApplyBakedMesh: Target mesh '%s' does not match FleshRingAsset's TargetSkeletalMesh '%s'. Ring effect not applied."),
-			*GetName(), *CurrentMesh->GetName(), *ExpectedMesh->GetName());
+			*GetName(), *MeshToCompare->GetName(), *ExpectedMesh->GetName());
 		return;
 	}
 
 	// Save original mesh (for later restoration)
-	if (!CachedOriginalMesh.IsValid())
+	// When bUsingBakedMesh is false, CurrentMesh IS the original mesh - always cache it
+	// When bUsingBakedMesh is true, CurrentMesh is the previous BakedMesh - keep existing cache
+	if (!bUsingBakedMesh)
 	{
 		CachedOriginalMesh = CurrentMesh;
 	}
