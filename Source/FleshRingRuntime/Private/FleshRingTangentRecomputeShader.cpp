@@ -11,6 +11,8 @@
 #include "RenderGraphUtils.h"
 #include "ShaderParameterUtils.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogFleshRingTangentRecompute, Log, All);
+
 // ============================================================================
 // Shader Implementation Registration
 // ============================================================================
@@ -42,7 +44,7 @@ void DispatchFleshRingTangentRecomputeCS(
 	// Validate required inputs
 	if (!RecomputedNormalsBuffer || !OriginalTangentsSRV || !AffectedVertexIndicesBuffer || !OutputTangentsBuffer)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("TangentRecomputeCS: Missing required buffer"));
+		UE_LOG(LogFleshRingTangentRecompute, Warning, TEXT("TangentRecomputeCS: Missing required buffer"));
 		return;
 	}
 

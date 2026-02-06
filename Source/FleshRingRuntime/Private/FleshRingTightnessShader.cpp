@@ -55,7 +55,6 @@ void DispatchFleshRingTightnessCS(
     // Early out if no vertices to process
     if (Params.NumAffectedVertices == 0)
     {
-        UE_LOG(LogTemp, Warning, TEXT("[TightnessShader] Early return: NumAffectedVertices=0"));
         return;
     }
 
@@ -302,20 +301,9 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
     TEXT("Tests TightnessCS GPU computation using FleshRingAsset"),
     FConsoleCommandDelegate::CreateLambda([]()
     {
-        UE_LOG(LogTemp, Log, TEXT(""));
-        UE_LOG(LogTemp, Log, TEXT("========================================="));
-        UE_LOG(LogTemp, Log, TEXT("  FleshRing TightnessCS Test"));
-        UE_LOG(LogTemp, Log, TEXT("  (Asset-based GPU Computation Validation)"));
-        UE_LOG(LogTemp, Log, TEXT("========================================="));
-
         // ============================================================
         // Step 1: Search for FleshRingComponent in World
         // ============================================================
-        UE_LOG(LogTemp, Log, TEXT(""));
-        UE_LOG(LogTemp, Log, TEXT("----------------------------------------"));
-        UE_LOG(LogTemp, Log, TEXT("[ Step 1: FleshRingComponent Search ]"));
-        UE_LOG(LogTemp, Log, TEXT("----------------------------------------"));
-
         UFleshRingComponent* FoundComponent = nullptr;
         USkeletalMeshComponent* TargetSkelMesh = nullptr;
 
@@ -335,65 +323,33 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
 
         if (!FoundComponent)
         {
-            UE_LOG(LogTemp, Error, TEXT("  X FleshRingComponent not found"));
-            UE_LOG(LogTemp, Error, TEXT(""));
-            UE_LOG(LogTemp, Error, TEXT("  Solutions:"));
-            UE_LOG(LogTemp, Error, TEXT("    1. Place an actor with FleshRingComponent in the world"));
-            UE_LOG(LogTemp, Error, TEXT("    2. Assign FleshRingAsset to the component"));
-            UE_LOG(LogTemp, Error, TEXT("    3. Test in PIE mode (Play)"));
             return;
         }
 
         if (!TargetSkelMesh)
         {
-            UE_LOG(LogTemp, Error, TEXT("  X TargetSkeletalMesh not found"));
             return;
         }
 
         UFleshRingAsset* Asset = FoundComponent->FleshRingAsset;
         if (Asset->Rings.Num() == 0)
         {
-            UE_LOG(LogTemp, Error, TEXT("  X FleshRingAsset has no Rings"));
             return;
         }
-
-        UE_LOG(LogTemp, Log, TEXT("  O FleshRingComponent found"));
-        UE_LOG(LogTemp, Log, TEXT("    - Actor: %s"), *FoundComponent->GetOwner()->GetName());
-        UE_LOG(LogTemp, Log, TEXT("    - FleshRingAsset: %s"), *Asset->GetName());
-        UE_LOG(LogTemp, Log, TEXT("    - Ring count: %d"), Asset->Rings.Num());
-        UE_LOG(LogTemp, Log, TEXT("    - TargetMesh: %s"), *TargetSkelMesh->GetName());
 
         // ============================================================
         // Step 2: Register AffectedVertices (Affected Vertex Selection)
         // ============================================================
-        UE_LOG(LogTemp, Log, TEXT(""));
-        UE_LOG(LogTemp, Log, TEXT("----------------------------------------"));
-        UE_LOG(LogTemp, Log, TEXT("[ Step 2: Affected Vertex Selection ]"));
-        UE_LOG(LogTemp, Log, TEXT("----------------------------------------"));
-
         FFleshRingAffectedVerticesManager AffectedManager;
         if (!AffectedManager.RegisterAffectedVertices(FoundComponent, TargetSkelMesh))
         {
-            UE_LOG(LogTemp, Error, TEXT("  X AffectedVertices registration failed"));
             return;
         }
 
         const TArray<FRingAffectedData>& AllRingData = AffectedManager.GetAllRingData();
         if (AllRingData.Num() == 0)
         {
-            UE_LOG(LogTemp, Error, TEXT("  X No Ring data registered"));
             return;
-        }
-
-        UE_LOG(LogTemp, Log, TEXT("  O Affected vertex selection complete"));
-        UE_LOG(LogTemp, Log, TEXT("    - Rings processed: %d"), AllRingData.Num());
-        UE_LOG(LogTemp, Log, TEXT("    - Total affected vertices: %d"), AffectedManager.GetTotalAffectedCount());
-
-        // Per-Ring affected vertex summary
-        for (int32 i = 0; i < AllRingData.Num(); ++i)
-        {
-            UE_LOG(LogTemp, Log, TEXT("    - Ring[%d] '%s': %d vertices"),
-                i, *AllRingData[i].BoneName.ToString(), AllRingData[i].Vertices.Num());
         }
 
         // ============================================================
@@ -402,25 +358,17 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
         USkeletalMesh* SkelMesh = TargetSkelMesh->GetSkeletalMeshAsset();
         if (!SkelMesh)
         {
-            UE_LOG(LogTemp, Error, TEXT("  X SkeletalMesh asset not found"));
             return;
         }
 
         const FSkeletalMeshRenderData* RenderData = SkelMesh->GetResourceForRendering();
         if (!RenderData || RenderData->LODRenderData.Num() == 0)
         {
-            UE_LOG(LogTemp, Error, TEXT("  X RenderData not found"));
             return;
         }
 
         const FSkeletalMeshLODRenderData& LODData = RenderData->LODRenderData[0];
         const uint32 TotalVertexCount = LODData.StaticVertexBuffers.PositionVertexBuffer.GetNumVertices();
-
-        UE_LOG(LogTemp, Log, TEXT(""));
-        UE_LOG(LogTemp, Log, TEXT("----------------------------------------"));
-        UE_LOG(LogTemp, Log, TEXT("[ Step 3: Mesh Vertex Data Extraction ]"));
-        UE_LOG(LogTemp, Log, TEXT("----------------------------------------"));
-        UE_LOG(LogTemp, Log, TEXT("  Total mesh vertex count: %d"), TotalVertexCount);
 
         // Extract vertex position data (shared across all Rings)
         TArray<float> SourcePositions;
@@ -433,7 +381,6 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
             SourcePositions[i * 3 + 1] = Pos.Y;
             SourcePositions[i * 3 + 2] = Pos.Z;
         }
-        UE_LOG(LogTemp, Log, TEXT("  Vertex position buffer extraction complete"));
 
         // Shared data pointer
         TSharedPtr<TArray<float>> SourceDataPtr = MakeShared<TArray<float>>(SourcePositions);
@@ -441,64 +388,15 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
         // ============================================================
         // Step 4: Run GPU Test for Each Ring
         // ============================================================
-        UE_LOG(LogTemp, Log, TEXT(""));
-        UE_LOG(LogTemp, Log, TEXT("----------------------------------------"));
-        UE_LOG(LogTemp, Log, TEXT("[ Step 4: Per-Ring GPU TightnessCS Test ]"));
-        UE_LOG(LogTemp, Log, TEXT("----------------------------------------"));
-
         int32 TestedRingCount = 0;
 
         for (int32 RingIdx = 0; RingIdx < AllRingData.Num(); ++RingIdx)
         {
             const FRingAffectedData& RingData = AllRingData[RingIdx];
 
-            UE_LOG(LogTemp, Log, TEXT(""));
-            UE_LOG(LogTemp, Log, TEXT("--------------------------------------"));
-            UE_LOG(LogTemp, Log, TEXT("> Ring[%d] '%s' Test"), RingIdx, *RingData.BoneName.ToString());
-            UE_LOG(LogTemp, Log, TEXT("--------------------------------------"));
-
-            // Convert FalloffType to string
-            FString FalloffTypeStr;
-            switch (RingData.FalloffType)
-            {
-            case EFalloffType::Linear:    FalloffTypeStr = TEXT("Linear"); break;
-            case EFalloffType::Quadratic: FalloffTypeStr = TEXT("Quadratic"); break;
-            case EFalloffType::Hermite:   FalloffTypeStr = TEXT("Hermite (S-curve)"); break;
-            default:                      FalloffTypeStr = TEXT("Unknown"); break;
-            }
-
-            UE_LOG(LogTemp, Log, TEXT("  [Ring Settings]"));
-            UE_LOG(LogTemp, Log, TEXT("    - Bone position (bind pose): (%.2f, %.2f, %.2f)"),
-                RingData.RingCenter.X, RingData.RingCenter.Y, RingData.RingCenter.Z);
-            UE_LOG(LogTemp, Log, TEXT("    - Bone axis direction: (%.2f, %.2f, %.2f)"),
-                RingData.RingAxis.X, RingData.RingAxis.Y, RingData.RingAxis.Z);
-            UE_LOG(LogTemp, Log, TEXT("    - Ring radius: %.2f"), RingData.RingRadius);
-            UE_LOG(LogTemp, Log, TEXT("    - Ring width: %.2f"), RingData.RingHeight);
-            UE_LOG(LogTemp, Log, TEXT("    - Influence range (Radius+Width): %.2f"), RingData.RingRadius + RingData.RingHeight);
-            UE_LOG(LogTemp, Log, TEXT("    - Tightness strength: %.2f"), RingData.TightnessStrength);
-            UE_LOG(LogTemp, Log, TEXT("    - Falloff type: %s"), *FalloffTypeStr);
-
-            UE_LOG(LogTemp, Log, TEXT(""));
-            UE_LOG(LogTemp, Log, TEXT("  [Affected Vertices]"));
-            UE_LOG(LogTemp, Log, TEXT("    - Selected vertex count: %d"), RingData.Vertices.Num());
-
             if (RingData.Vertices.Num() == 0)
             {
-                UE_LOG(LogTemp, Warning, TEXT("    ! No affected vertices - skipping this Ring test"));
-                UE_LOG(LogTemp, Warning, TEXT("    -> Check Ring position/size or increase Radius/Width values"));
                 continue;
-            }
-
-            // Output sample vertex info
-            UE_LOG(LogTemp, Log, TEXT("    - Sample vertices (up to 5):"));
-            int32 SampleCount = FMath::Min(5, RingData.Vertices.Num());
-            for (int32 i = 0; i < SampleCount; ++i)
-            {
-                const FAffectedVertex& V = RingData.Vertices[i];
-                uint32 BaseIdx = V.VertexIndex * 3;
-                UE_LOG(LogTemp, Log, TEXT("      [%d] Vertex#%d: RadialDist=%.2f, Influence=%.3f, Position=(%.2f, %.2f, %.2f)"),
-                    i, V.VertexIndex, V.RadialDistance, V.Influence,
-                    SourcePositions[BaseIdx], SourcePositions[BaseIdx + 1], SourcePositions[BaseIdx + 2]);
             }
 
             // GPU Dispatch preparation
@@ -509,10 +407,6 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
 
             FTightnessDispatchParams Params = CreateTightnessParams(RingData, TotalVertexCount);
             FName BoneName = RingData.BoneName;
-
-            UE_LOG(LogTemp, Log, TEXT(""));
-            UE_LOG(LogTemp, Log, TEXT("  [GPU Dispatch]"));
-            UE_LOG(LogTemp, Log, TEXT("    - Creating buffers..."));
 
             // ================================================================
             // RDG (Render Dependency Graph) Dispatch on render thread
@@ -601,7 +495,6 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
                     //   6. Executes Readback pass (GPU to CPU copy)
                     // ========================================
                     GraphBuilder.Execute();
-                    UE_LOG(LogTemp, Log, TEXT("    - Ring[%d] '%s' GPU Dispatch complete"), RingIdx, *BoneName.ToString());
                 });
 
             // Result validation
@@ -613,9 +506,6 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
                     {
                         RHICmdList.BlockUntilGPUIdle();
                     }
-
-                    UE_LOG(LogTemp, Log, TEXT(""));
-                    UE_LOG(LogTemp, Log, TEXT("  [Ring[%d] '%s' Validation Result]"), RingIdx, *BoneName.ToString());
 
                     if (Readback->IsReady())
                     {
@@ -664,40 +554,12 @@ static FAutoConsoleCommand GFleshRingTightnessTestCommand(
                                 else FailCount++;
                             }
 
-                            if (FailCount == 0)
-                            {
-                                UE_LOG(LogTemp, Log, TEXT("    O Validation passed: all %d vertices deformed correctly"), PassCount);
-                            }
-                            else
-                            {
-                                UE_LOG(LogTemp, Error, TEXT("    X Validation failed: passed=%d, failed=%d"), PassCount, FailCount);
-                            }
-
                             Readback->Unlock();
                         }
-                        else
-                        {
-                            UE_LOG(LogTemp, Error, TEXT("    X Readback Lock failed"));
-                        }
-                    }
-                    else
-                    {
-                        UE_LOG(LogTemp, Error, TEXT("    X Readback not ready"));
                     }
                 });
 
             TestedRingCount++;
         }
-
-        UE_LOG(LogTemp, Log, TEXT(""));
-        UE_LOG(LogTemp, Log, TEXT("----------------------------------------"));
-        UE_LOG(LogTemp, Log, TEXT("[ Test Complete ]"));
-        UE_LOG(LogTemp, Log, TEXT("----------------------------------------"));
-        UE_LOG(LogTemp, Log, TEXT("  Total Ring count: %d"), AllRingData.Num());
-        UE_LOG(LogTemp, Log, TEXT("  Tested Ring count: %d"), TestedRingCount);
-        UE_LOG(LogTemp, Log, TEXT("  (Only Rings with affected vertices are tested)"));
-        UE_LOG(LogTemp, Log, TEXT(""));
-        UE_LOG(LogTemp, Log, TEXT("  * Validation results are output from render thread"));
-        UE_LOG(LogTemp, Log, TEXT("========================================="));
     })
 );

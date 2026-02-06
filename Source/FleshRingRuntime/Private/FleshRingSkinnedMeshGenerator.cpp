@@ -69,12 +69,6 @@ USkeletalMesh* FFleshRingSkinnedMeshGenerator::GenerateSkinnedRingMesh(
 	const FReferenceSkeleton& RefSkeleton = SourceSkeletalMesh->GetRefSkeleton();
 	TSet<int32> AllowedBoneIndices = BuildBoneChainSet(RefSkeleton, AttachBoneIndex);
 
-	if (AllowedBoneIndices.Num() > 0)
-	{
-		UE_LOG(LogFleshRingSkinnedMesh, Log, TEXT("GenerateSkinnedRingMesh: Bone chain filter enabled - %d allowed bones from bone index %d"),
-			AllowedBoneIndices.Num(), AttachBoneIndex);
-	}
-
 	// 5. Transform ring vertices to component space and sample bone weights
 	TArray<TArray<uint16>> RingBoneIndices;
 	TArray<TArray<uint8>> RingBoneWeights;
@@ -283,9 +277,6 @@ USkeletalMesh* FFleshRingSkinnedMeshGenerator::GenerateSkinnedRingMesh(
 	SkinnedRingMesh->CalculateExtendedBounds();
 
 	// Materials were already set before Build()
-
-	UE_LOG(LogFleshRingSkinnedMesh, Log, TEXT("GenerateSkinnedRingMesh: Created skinned ring mesh '%s' with %d vertices"),
-		*MeshName, RingVertexCount);
 
 	return SkinnedRingMesh;
 }

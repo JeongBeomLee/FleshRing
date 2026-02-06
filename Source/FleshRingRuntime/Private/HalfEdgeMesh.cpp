@@ -5,6 +5,8 @@
 
 #include "HalfEdgeMesh.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogHalfEdgeMesh, Log, All);
+
 //=============================================================================
 // FHalfEdgeMesh Implementation
 //=============================================================================
@@ -20,7 +22,7 @@ bool FHalfEdgeMesh::BuildFromTriangles(
 
 	if (InTriangles.Num() < 3 || InTriangles.Num() % 3 != 0)
 	{
-		UE_LOG(LogTemp, Error, TEXT("HalfEdgeMesh: Invalid triangle count %d"), InTriangles.Num());
+		UE_LOG(LogHalfEdgeMesh, Error, TEXT("HalfEdgeMesh: Invalid triangle count %d"), InTriangles.Num());
 		return false;
 	}
 
@@ -60,7 +62,7 @@ bool FHalfEdgeMesh::BuildFromTriangles(
 			V1 < 0 || V1 >= Vertices.Num() ||
 			V2 < 0 || V2 >= Vertices.Num())
 		{
-			UE_LOG(LogTemp, Error, TEXT("HalfEdgeMesh: Invalid vertex index in face %d"), FaceIdx);
+			UE_LOG(LogHalfEdgeMesh, Error, TEXT("HalfEdgeMesh: Invalid vertex index in face %d"), FaceIdx);
 			continue;
 		}
 
@@ -795,66 +797,6 @@ int32 FLEBSubdivision::SubdivideRegion(
 	int32 MaxLevel,
 	float MinEdgeLength)
 {
-	// ======================================================================
-	// OBB Debug - Output parameters identical to DrawSdfVolume
-	// ======================================================================
-
-	// Calculate mesh vertex bounds
-	FVector VertexMin(FLT_MAX), VertexMax(-FLT_MAX);
-	for (const FHalfEdgeVertex& V : Mesh.Vertices)
-	{
-		VertexMin = VertexMin.ComponentMin(V.Position);
-		VertexMax = VertexMax.ComponentMax(V.Position);
-	}
-
-	UE_LOG(LogTemp, Log, TEXT(""));
-	UE_LOG(LogTemp, Log, TEXT("======== SubdivideRegion OBB Debug ========"));
-	UE_LOG(LogTemp, Log, TEXT("  [OBB Parameters (identical to DrawSdfVolume)]"));
-	UE_LOG(LogTemp, Log, TEXT("    Center: %s"), *OBB.Center.ToString());
-	UE_LOG(LogTemp, Log, TEXT("    HalfExtents: %s"), *OBB.HalfExtents.ToString());
-	UE_LOG(LogTemp, Log, TEXT("    AxisX: %s"), *OBB.AxisX.ToString());
-	UE_LOG(LogTemp, Log, TEXT("    AxisY: %s"), *OBB.AxisY.ToString());
-	UE_LOG(LogTemp, Log, TEXT("    AxisZ: %s"), *OBB.AxisZ.ToString());
-	UE_LOG(LogTemp, Log, TEXT("    InfluenceMargin: %.2f"), OBB.InfluenceMargin);
-	UE_LOG(LogTemp, Log, TEXT("  [Local Bounds (for debugging)]"));
-	UE_LOG(LogTemp, Log, TEXT("    LocalBoundsMin: %s"), *OBB.LocalBoundsMin.ToString());
-	UE_LOG(LogTemp, Log, TEXT("    LocalBoundsMax: %s"), *OBB.LocalBoundsMax.ToString());
-	UE_LOG(LogTemp, Log, TEXT("    LocalSize: %s"), *(OBB.LocalBoundsMax - OBB.LocalBoundsMin).ToString());
-	UE_LOG(LogTemp, Log, TEXT("  [Mesh Vertices (Component Space)]"));
-	UE_LOG(LogTemp, Log, TEXT("    VertexMin: %s"), *VertexMin.ToString());
-	UE_LOG(LogTemp, Log, TEXT("    VertexMax: %s"), *VertexMax.ToString());
-
-	// Sample vertex test - output actual projection values
-	UE_LOG(LogTemp, Log, TEXT("  [Sample Vertex Projection Test]"));
-	if (Mesh.Vertices.Num() > 0)
-	{
-		// Test vertices near center, minimum vertex, maximum vertex
-		TArray<int32> SampleIndices = { 0, Mesh.Vertices.Num() / 2, Mesh.Vertices.Num() - 1 };
-		for (int32 Idx : SampleIndices)
-		{
-			if (Idx < Mesh.Vertices.Num())
-			{
-				const FVector& P = Mesh.Vertices[Idx].Position;
-				FVector D = P - OBB.Center;
-				float ProjX = FMath::Abs(FVector::DotProduct(D, OBB.AxisX));
-				float ProjY = FMath::Abs(FVector::DotProduct(D, OBB.AxisY));
-				float ProjZ = FMath::Abs(FVector::DotProduct(D, OBB.AxisZ));
-				float LimitX = OBB.HalfExtents.X + OBB.InfluenceMargin;
-				float LimitY = OBB.HalfExtents.Y + OBB.InfluenceMargin;
-				float LimitZ = OBB.HalfExtents.Z + OBB.InfluenceMargin;
-				bool bInX = ProjX <= LimitX;
-				bool bInY = ProjY <= LimitY;
-				bool bInZ = ProjZ <= LimitZ;
-				UE_LOG(LogTemp, Log, TEXT("    V[%d] Pos: %s"), Idx, *P.ToString());
-				UE_LOG(LogTemp, Log, TEXT("      ProjX: %.2f vs Limit %.2f -> %s"), ProjX, LimitX, bInX ? TEXT("PASS") : TEXT("FAIL"));
-				UE_LOG(LogTemp, Log, TEXT("      ProjY: %.2f vs Limit %.2f -> %s"), ProjY, LimitY, bInY ? TEXT("PASS") : TEXT("FAIL"));
-				UE_LOG(LogTemp, Log, TEXT("      ProjZ: %.2f vs Limit %.2f -> %s"), ProjZ, LimitZ, bInZ ? TEXT("PASS") : TEXT("FAIL"));
-			}
-		}
-	}
-	UE_LOG(LogTemp, Log, TEXT("============================================"));
-	UE_LOG(LogTemp, Log, TEXT(""));
-
 	// Step 1: Export current mesh to simple triangle format
 	TArray<FVector> Positions;
 	TArray<FVector2D> UVs;
@@ -942,9 +884,6 @@ int32 FLEBSubdivision::SubdivideRegion(
 		return A < B ? TPair<int32, int32>(A, B) : TPair<int32, int32>(B, A);
 	};
 
-	// Debug statistics
-	int32 DebugMidpointCreated = 0, DebugMidpointReused = 0;
-
 	// GetOrCreateMidpoint: Reuse based on index, register existence based on position
 	auto GetOrCreateMidpoint = [&](int32 VA, int32 VB) -> int32
 	{
@@ -953,12 +892,10 @@ int32 FLEBSubdivision::SubdivideRegion(
 		// Reuse if same index (= same UV)
 		if (int32* Existing = IndexMidpointMap.Find(IndexKey))
 		{
-			DebugMidpointReused++;
 			return *Existing;
 		}
 
 		// Create new vertex (with its own UV)
-		DebugMidpointCreated++;
 		int32 NewIdx = Positions.Num();
 		Positions.Add((Positions[VA] + Positions[VB]) * 0.5f);
 		UVs.Add((UVs[VA] + UVs[VB]) * 0.5f);  // Interpolate with its own triangle's UV
@@ -977,10 +914,6 @@ int32 FLEBSubdivision::SubdivideRegion(
 		return PositionMidpointSet.Contains(MakePositionKey(VA, VB));
 	};
 
-	// Debug statistics
-	int32 DebugInCount = 0, DebugOutCount = 0;
-	int32 DebugFailX = 0, DebugFailY = 0, DebugFailZ = 0;
-
 	// OBB influence check - Same method as DrawSdfVolume
 	auto IsInInfluenceRegion = [&](const FVector& P) -> bool
 	{
@@ -997,17 +930,7 @@ int32 FLEBSubdivision::SubdivideRegion(
 		bool bInY = ProjY <= OBB.HalfExtents.Y + OBB.InfluenceMargin;
 		bool bInZ = ProjZ <= OBB.HalfExtents.Z + OBB.InfluenceMargin;
 
-		bool bInRegion = bInX && bInY && bInZ;
-
-		if (bInRegion) DebugInCount++;
-		else
-		{
-			DebugOutCount++;
-			if (!bInX) DebugFailX++;
-			if (!bInY) DebugFailY++;
-			if (!bInZ) DebugFailZ++;
-		}
-		return bInRegion;
+		return bInX && bInY && bInZ;
 	};
 
 	// Perform multiple levels of subdivision
@@ -1139,8 +1062,6 @@ int32 FLEBSubdivision::SubdivideRegion(
 		FinalTriangles.Reserve(NewTriangles.Num() * 2);
 		FinalMaterialIndices.Reserve(NewMaterialIndices.Num() * 2);
 
-		int32 DebugGreenSplit1 = 0, DebugGreenSplit2 = 0;
-
 		NumTris = NewTriangles.Num() / 3;
 		for (int32 i = 0; i < NumTris; i++)
 		{
@@ -1179,7 +1100,6 @@ int32 FLEBSubdivision::SubdivideRegion(
 			}
 			else if (NumMidpoints == 1)
 			{
-				DebugGreenSplit1++;
 				if (bHas01)
 				{
 					// Create/retrieve midpoint with its own UV
@@ -1208,7 +1128,6 @@ int32 FLEBSubdivision::SubdivideRegion(
 			}
 			else // NumMidpoints == 2
 			{
-				DebugGreenSplit2++;
 				// GREEN-2: Corner triangle + quadrilateral split by shorter diagonal
 				if (bHas01 && bHas12)
 				{
@@ -1299,21 +1218,12 @@ int32 FLEBSubdivision::SubdivideRegion(
 
 		int32 CurrentTriCount = Triangles.Num() / 3;
 
-		UE_LOG(LogTemp, Log, TEXT("  Level %d: GREEN splits - 1-midpoint: %d, 2-midpoint: %d, IndexMidpointMap size: %d"),
-			Level, DebugGreenSplit1, DebugGreenSplit2, IndexMidpointMap.Num());
-
 		// If no change, stop
 		if (CurrentTriCount == NumTris)
 		{
 			break;
 		}
 	}
-
-	// Debug: Output statistics
-	UE_LOG(LogTemp, Log, TEXT("=== SubdivideRegion Complete ==="));
-	UE_LOG(LogTemp, Log, TEXT("  Vertices IN region: %d, OUT of region: %d"), DebugInCount, DebugOutCount);
-	UE_LOG(LogTemp, Log, TEXT("  Fail reasons - X: %d, Y: %d, Z: %d"), DebugFailX, DebugFailY, DebugFailZ);
-	UE_LOG(LogTemp, Log, TEXT("  Midpoints - Created: %d, Reused: %d (position-based welding)"), DebugMidpointCreated, DebugMidpointReused);
 
 	// Rebuild half-edge mesh from result with parent info
 	Mesh.Clear();
@@ -1349,10 +1259,6 @@ int32 FLEBSubdivision::SubdivideUniform(
 	int32 MaxLevel,
 	float MinEdgeLength)
 {
-	UE_LOG(LogTemp, Log, TEXT(""));
-	UE_LOG(LogTemp, Log, TEXT("======== SubdivideUniform (Preview Mesh) ========"));
-	UE_LOG(LogTemp, Log, TEXT("  MaxLevel: %d, MinEdgeLength: %.2f"), MaxLevel, MinEdgeLength);
-
 	// Step 1: Export current mesh to simple triangle format
 	TArray<FVector> Positions;
 	TArray<FVector2D> UVs;
@@ -1384,9 +1290,6 @@ int32 FLEBSubdivision::SubdivideUniform(
 	}
 
 	int32 InitialTriCount = Triangles.Num() / 3;
-	int32 InitialVertCount = Positions.Num();
-
-	UE_LOG(LogTemp, Log, TEXT("  Initial: %d vertices, %d triangles"), InitialVertCount, InitialTriCount);
 
 	// ============================================================================
 	// Dual Midpoint Map System (Position + Index) - GREEN split support
@@ -1681,13 +1584,9 @@ int32 FLEBSubdivision::SubdivideUniform(
 		Triangles = MoveTemp(FinalTriangles);
 		MaterialIndices = MoveTemp(FinalMaterialIndices);
 
-		UE_LOG(LogTemp, Log, TEXT("  Level %d: RED=%d, GREEN(1)=%d, GREEN(2)=%d, GREEN(3)=%d"),
-			Level + 1, SplitCount, GreenSplit1, GreenSplit2, GreenSplit3);
-
 		// If no split occurred, stop early
 		if (SplitCount == 0 && GreenSplit1 == 0 && GreenSplit2 == 0 && GreenSplit3 == 0)
 		{
-			UE_LOG(LogTemp, Log, TEXT("  Early stop: No more triangles to split"));
 			break;
 		}
 	}
@@ -1697,13 +1596,6 @@ int32 FLEBSubdivision::SubdivideUniform(
 	Mesh.BuildFromTriangles(Positions, Triangles, UVs, MaterialIndices, &ParentIndices);
 
 	int32 FinalTriCount = Triangles.Num() / 3;
-	int32 FinalVertCount = Positions.Num();
-
-	UE_LOG(LogTemp, Log, TEXT("  Final: %d vertices, %d triangles"), FinalVertCount, FinalTriCount);
-	UE_LOG(LogTemp, Log, TEXT("  Added: %d vertices, %d triangles"), FinalVertCount - InitialVertCount, FinalTriCount - InitialTriCount);
-	UE_LOG(LogTemp, Log, TEXT("================================================="));
-	UE_LOG(LogTemp, Log, TEXT(""));
-
 	return FinalTriCount - InitialTriCount;
 }
 
@@ -1713,11 +1605,6 @@ int32 FLEBSubdivision::SubdivideSelectedFaces(
 	int32 MaxLevel,
 	float MinEdgeLength)
 {
-	UE_LOG(LogTemp, Log, TEXT(""));
-	UE_LOG(LogTemp, Log, TEXT("======== SubdivideSelectedFaces (Bone Region) ========"));
-	UE_LOG(LogTemp, Log, TEXT("  TargetFaces: %d, MaxLevel: %d, MinEdgeLength: %.2f"),
-		TargetFaces.Num(), MaxLevel, MinEdgeLength);
-
 	// Step 1: Export current mesh to simple triangle format
 	TArray<FVector> Positions;
 	TArray<FVector2D> UVs;
@@ -1752,12 +1639,6 @@ int32 FLEBSubdivision::SubdivideSelectedFaces(
 	}
 
 	int32 InitialTriCount = Triangles.Num() / 3;
-	int32 InitialVertCount = Positions.Num();
-	int32 InitialTargetCount = 0;
-	for (bool bTarget : IsTargetTriangle) { if (bTarget) InitialTargetCount++; }
-
-	UE_LOG(LogTemp, Log, TEXT("  Initial: %d vertices, %d triangles (%d in target region)"),
-		InitialVertCount, InitialTriCount, InitialTargetCount);
 
 	// ============================================================================
 	// Dual Midpoint Map System (Position + Index) - GREEN split support
@@ -2096,13 +1977,9 @@ int32 FLEBSubdivision::SubdivideSelectedFaces(
 		MaterialIndices = MoveTemp(FinalMaterialIndices);
 		IsTargetTriangle = MoveTemp(FinalIsTarget);
 
-		UE_LOG(LogTemp, Log, TEXT("  Level %d: RED=%d, GREEN(1)=%d, GREEN(2)=%d, GREEN(3)=%d"),
-			Level + 1, SplitCount, GreenSplit1, GreenSplit2, GreenSplit3);
-
 		// If no split occurred, stop early
 		if (SplitCount == 0 && GreenSplit1 == 0 && GreenSplit2 == 0 && GreenSplit3 == 0)
 		{
-			UE_LOG(LogTemp, Log, TEXT("  Early stop: No more triangles to split"));
 			break;
 		}
 	}
@@ -2112,12 +1989,5 @@ int32 FLEBSubdivision::SubdivideSelectedFaces(
 	Mesh.BuildFromTriangles(Positions, Triangles, UVs, MaterialIndices, &ParentIndices);
 
 	int32 FinalTriCount = Triangles.Num() / 3;
-	int32 FinalVertCount = Positions.Num();
-
-	UE_LOG(LogTemp, Log, TEXT("  Final: %d vertices, %d triangles"), FinalVertCount, FinalTriCount);
-	UE_LOG(LogTemp, Log, TEXT("  Added: %d vertices, %d triangles"), FinalVertCount - InitialVertCount, FinalTriCount - InitialTriCount);
-	UE_LOG(LogTemp, Log, TEXT("======================================================="));
-	UE_LOG(LogTemp, Log, TEXT(""));
-
 	return FinalTriCount - InitialTriCount;
 }

@@ -340,7 +340,7 @@ void FFleshRingAssetEditor::CreateDetailsView()
 	FDetailsViewArgs DetailsViewArgs;
 	DetailsViewArgs.bAllowSearch = true;
 	DetailsViewArgs.bHideSelectionTip = true;
-	DetailsViewArgs.bShowActorLabel = false;
+	DetailsViewArgs.bShowObjectLabel = false;
 	DetailsViewArgs.bShowOptions = true;
 
 	DetailsView = PropertyEditorModule.CreateDetailView(DetailsViewArgs);

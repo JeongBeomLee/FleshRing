@@ -182,9 +182,6 @@ namespace FleshRingLayerUtils
                 }
             }
 
-            UE_LOG(LogFleshRingVertices, Log,
-                TEXT("Section[%d]: Material '%s' → Layer %d (%d vertices)"),
-                SectionIdx, *MaterialName, static_cast<int32>(LayerType), NumSectionVertices);
         }
 
         return true;
@@ -216,9 +213,6 @@ void FVertexSpatialHash::Build(const TArray<FVector3f>& Vertices, float InCellSi
         CellMap.FindOrAdd(Hash).Add(i);
     }
 
-    UE_LOG(LogFleshRingVertices, Log,
-        TEXT("SpatialHash: Built with %d vertices, %d cells (CellSize=%.1f)"),
-        Vertices.Num(), CellMap.Num(), CellSize);
 }
 
 void FVertexSpatialHash::QueryAABB(const FVector& Min, const FVector& Max, TArray<int32>& OutIndices) const
@@ -329,20 +323,6 @@ void FDistanceBasedVertexSelector::SelectVertices(
         const FVector BoundsMin = FVector(Context.SDFCache->BoundsMin);
         const FVector BoundsMax = FVector(Context.SDFCache->BoundsMax);
 
-        // [Debug] OBB transform info log (for scale verification)
-        UE_LOG(LogFleshRingVertices, Log,
-            TEXT("OBB SelectVertices: Ring[%d] LocalToComponent Scale=%s, Rot=%s, Trans=%s"),
-            Context.RingIndex,
-            *LocalToComponent.GetScale3D().ToString(),
-            *LocalToComponent.GetRotation().Rotator().ToString(),
-            *LocalToComponent.GetLocation().ToString());
-        UE_LOG(LogFleshRingVertices, Log,
-            TEXT("OBB SelectVertices: Ring[%d] LocalBounds Min=%s, Max=%s, Size=%s"),
-            Context.RingIndex,
-            *BoundsMin.ToString(),
-            *BoundsMax.ToString(),
-            *(BoundsMax - BoundsMin).ToString());
-
         // Parameters for Influence calculation (local space, no scale applied)
         const float RingRadius = Ring.RingRadius;
         const float RingThickness = Ring.RingThickness;
@@ -447,9 +427,6 @@ void FDistanceBasedVertexSelector::SelectVertices(
             const FVector LocalMax(MaxDistance, MaxDistance, HalfWidth);
             Context.SpatialHash->QueryOBB(RingLocalToComponent, LocalMin, LocalMax, CandidateIndices);
 
-            UE_LOG(LogFleshRingVertices, Log,
-                TEXT("VirtualRing Ring[%d]: SpatialHash OBB query returned %d candidates (from %d total)"),
-                Context.RingIndex, CandidateIndices.Num(), AllVertices.Num());
         }
         else
         {
@@ -575,9 +552,6 @@ void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
             OutRingData.SmoothingRegionIsAnchor.Add(1);  // Original Affected = anchor
         }
 
-        UE_LOG(LogFleshRingVertices, Log,
-            TEXT("Refinement (VirtualRing): Smoothing disabled, using %d affected vertices"),
-            OutRingData.SmoothingRegionIndices.Num());
         return;
     }
 
@@ -600,9 +574,6 @@ void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
             OutRingData.SmoothingRegionIsAnchor.Add(1);  // Original Affected = anchor
         }
 
-        UE_LOG(LogFleshRingVertices, Log,
-            TEXT("Refinement (VirtualRing): No Z extension, using %d affected vertices"),
-            OutRingData.SmoothingRegionIndices.Num());
         return;
     }
 
@@ -676,10 +647,6 @@ void FDistanceBasedVertexSelector::SelectSmoothingRegionVertices(
         }
     }
 
-    UE_LOG(LogFleshRingVertices, Log,
-        TEXT("Refinement (VirtualRing): Selected %d vertices (Core=%d, ZExtended=%d, Anchors=%d) for Ring[%d], ZExtend=[%.1f, %.1f]"),
-        OutRingData.SmoothingRegionIndices.Num(), CoreCount, ExtendedCount, AnchorCount,
-        Context.RingIndex, BoundsZBottom, BoundsZTop);
 }
 
 // ============================================================================
@@ -722,14 +689,6 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
     BoundsMax.Y += ExpandY;
 
     const TArray<FVector3f>& AllVertices = Context.AllVertices;
-
-    // [Debug] LocalToComponent transform info log (for scale verification)
-    UE_LOG(LogFleshRingVertices, Log,
-        TEXT("SDFBoundsSelector: Ring[%d] LocalToComponent Scale=%s, Rot=%s, Trans=%s"),
-        Context.RingIndex,
-        *LocalToComponent.GetScale3D().ToString(),
-        *LocalToComponent.GetRotation().Rotator().ToString(),
-        *LocalToComponent.GetLocation().ToString());
 
     // ================================================================
     // UV Seam Welding: Position Group based selection
@@ -853,10 +812,6 @@ void FSDFBoundsBasedVertexSelector::SelectVertices(
         }
     }
 
-    UE_LOG(LogFleshRingVertices, Log,
-        TEXT("SDFBoundsBasedSelector: Selected %d vertices (%d positions, %d UV duplicates) for Ring[%d] '%s'"),
-        OutAffected.Num(), SelectedPositions.Num(), UVDuplicatesAdded,
-        Context.RingIndex, *Context.RingSettings.BoneName.ToString());
 }
 
 void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
@@ -908,9 +863,6 @@ void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
             OutRingData.SmoothingRegionIsAnchor.Add(1);  // Original Affected = anchor
         }
 
-        UE_LOG(LogFleshRingVertices, Log,
-            TEXT("Refinement: Smoothing disabled, using %d affected vertices (no Z extension)"),
-            OutRingData.SmoothingRegionIndices.Num());
         return;
     }
 
@@ -932,9 +884,6 @@ void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
             OutRingData.SmoothingRegionIsAnchor.Add(1);  // Original Affected = anchor
         }
 
-        UE_LOG(LogFleshRingVertices, Log,
-            TEXT("Refinement: No Z extension, using %d affected vertices"),
-            OutRingData.SmoothingRegionIndices.Num());
         return;
     }
 
@@ -1008,10 +957,6 @@ void FSDFBoundsBasedVertexSelector::SelectSmoothingRegionVertices(
         }
     }
 
-    UE_LOG(LogFleshRingVertices, Log,
-        TEXT("Refinement: Selected %d vertices (Core=%d, ZExtended=%d, Anchors=%d) for Ring[%d], ZExtend=[%.1f, %.1f]"),
-        OutRingData.SmoothingRegionIndices.Num(), CoreCount, ExtendedCount, AnchorCount,
-        Context.RingIndex, BoundsZBottom, BoundsZTop);
 }
 
 // ============================================================================
@@ -1162,9 +1107,6 @@ void FVirtualBandVertexSelector::SelectVertices(
         }
     }
 
-    UE_LOG(LogFleshRingVertices, Log,
-        TEXT("VirtualBandSelector: Ring[%d] '%s' - Selected %d vertices"),
-        Context.RingIndex, *Ring.BoneName.ToString(), OutAffected.Num());
 }
 
 void FVirtualBandVertexSelector::SelectSmoothingRegionVertices(
@@ -1209,9 +1151,6 @@ void FVirtualBandVertexSelector::SelectSmoothingRegionVertices(
             OutRingData.SmoothingRegionIsAnchor.Add(1);  // Original Affected = anchor
         }
 
-        UE_LOG(LogFleshRingVertices, Log,
-            TEXT("Refinement (VirtualBand): Smoothing disabled, using %d affected vertices"),
-            OutRingData.SmoothingRegionIndices.Num());
         return;
     }
 
@@ -1235,9 +1174,6 @@ void FVirtualBandVertexSelector::SelectSmoothingRegionVertices(
             OutRingData.SmoothingRegionIsAnchor.Add(1);  // Original Affected = anchor
         }
 
-        UE_LOG(LogFleshRingVertices, Log,
-            TEXT("Refinement (VirtualBand): No Z extension, using %d affected vertices"),
-            OutRingData.SmoothingRegionIndices.Num());
         return;
     }
 
@@ -1345,9 +1281,6 @@ void FVirtualBandVertexSelector::SelectSmoothingRegionVertices(
         OutRingData.SmoothingRegionIsAnchor.Add(bIsAnchor ? 1 : 0);
     }
 
-    UE_LOG(LogFleshRingVertices, Log,
-        TEXT("Refinement (VirtualBand): Selected %d vertices (Core=%d, Extended=%d) for Ring[%d]"),
-        OutRingData.SmoothingRegionIndices.Num(), CoreCount, ExtendedCount, Context.RingIndex);
 }
 
 // ============================================================================
@@ -1370,9 +1303,6 @@ void FFleshRingAffectedVerticesManager::SetVertexSelector(TSharedPtr<IVertexSele
     if (InSelector)
     {
         VertexSelector = InSelector;
-        UE_LOG(LogFleshRingVertices, Log,
-            TEXT("VertexSelector changed to: %s"),
-            *VertexSelector->GetStrategyName());
     }
 }
 
@@ -1439,9 +1369,6 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         }
 
         bMeshDataCached = true;
-        UE_LOG(LogFleshRingVertices, Log,
-            TEXT("RegisterAffectedVertices: Cached mesh data (%d vertices, %d indices, SpatialHash built, TopologyCache=%s)"),
-            CachedMeshVertices.Num(), CachedMeshIndices.Num(), bTopologyCacheBuilt ? TEXT("Yes") : TEXT("No"));
     }
 
     // ================================================================
@@ -1474,7 +1401,6 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         {
             RingDirtyFlags[i] = true;
         }
-        UE_LOG(LogFleshRingVertices, Log, TEXT("RegisterAffectedVertices: Resized dirty flags %d -> %d rings (new rings marked dirty)"), OldNum, NumRings);
     }
 
     // Process each Ring
@@ -1486,10 +1412,8 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
         if (!RingDirtyFlags[RingIdx])
         {
             // Already has valid data and not changed - skip
-            UE_LOG(LogFleshRingVertices, Log, TEXT("Ring[%d]: SKIPPED (not dirty)"), RingIdx);
             continue;
         }
-        UE_LOG(LogFleshRingVertices, Log, TEXT("Ring[%d]: PROCESSING (dirty)"), RingIdx);
 
         // Skip Rings without valid bone
         if (RingSettings.BoneName == NAME_None)
@@ -1639,35 +1563,6 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             RingSelector = MakeShared<FDistanceBasedVertexSelector>();
         }
 
-        // Determine InfluenceMode name
-        const TCHAR* InfluenceModeStr = TEXT("VirtualRing");
-        if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::Auto)
-        {
-            InfluenceModeStr = TEXT("Auto");
-        }
-        else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
-        {
-            InfluenceModeStr = TEXT("VirtualBand");
-        }
-
-        // Determine Selector name
-        const TCHAR* SelectorStr = TEXT("DistanceBasedSelector");
-        if (bUseSDFForThisRing)
-        {
-            SelectorStr = TEXT("SDFBoundsBasedSelector");
-        }
-        else if (RingSettings.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
-        {
-            SelectorStr = TEXT("VirtualBandVertexSelector");
-        }
-
-        UE_LOG(LogFleshRingVertices, Log,
-            TEXT("Ring[%d] '%s': Using %s (InfluenceMode=%s, SDFValid=%s)"),
-            RingIdx, *RingSettings.BoneName.ToString(),
-            SelectorStr,
-            InfluenceModeStr,
-            (SDFCache && SDFCache->IsValid()) ? TEXT("Yes") : TEXT("No"));
-
         // Select affected vertices using per-Ring Selector
         RingSelector->SelectVertices(Context, RingData.Vertices);
 
@@ -1769,29 +1664,10 @@ bool FFleshRingAffectedVerticesManager::RegisterAffectedVertices(
             // BoundsExpand mode: preserve data set by SelectSmoothingRegionVertices
         }
 
-        UE_LOG(LogFleshRingVertices, Log,
-            TEXT("Ring[%d] '%s': %d affected, %d slices, %d extended smoothing"),
-            RingIdx, *RingSettings.BoneName.ToString(),
-            RingData.Vertices.Num(), RingData.SlicePackedData.Num() / 33, RingData.SmoothingRegionIndices.Num());
-
         // Index-based assignment (instead of Add) + clear dirty flag
         RingDataArray[RingIdx] = MoveTemp(RingData);
         RingDirtyFlags[RingIdx] = false;
     }
-
-    // Calculate actual processed ring count
-    int32 ProcessedCount = 0;
-    for (int32 i = 0; i < NumRings; ++i)
-    {
-        if (!RingDirtyFlags[i])
-        {
-            ProcessedCount++;
-        }
-    }
-
-    UE_LOG(LogFleshRingVertices, Log,
-        TEXT("RegisterAffectedVertices: Complete. Total affected: %d, Processed rings: %d/%d"),
-        GetTotalAffectedCount(), ProcessedCount, NumRings);
 
     return true;
 }
@@ -1886,12 +1762,6 @@ void FFleshRingAffectedVerticesManager::BuildTopologyCache(
         return;
     }
 
-    UE_LOG(LogFleshRingVertices, Log,
-        TEXT("BuildTopologyCache: Building topology cache for %d vertices, %d indices"),
-        AllVertices.Num(), MeshIndices.Num());
-
-    const double StartTime = FPlatformTime::Seconds();
-
     // ================================================================
     // Step 1: Build position-based vertex groups for UV seam welding
     // ================================================================
@@ -1911,9 +1781,6 @@ void FFleshRingAffectedVerticesManager::BuildTopologyCache(
         CachedPositionToVertices.FindOrAdd(PosKey).Add(static_cast<uint32>(i));
         CachedVertexToPosition.Add(static_cast<uint32>(i), PosKey);
     }
-
-    const int32 WeldedPositionCount = CachedPositionToVertices.Num();
-    const int32 DuplicateVertexCount = AllVertices.Num() - WeldedPositionCount;
 
     // ================================================================
     // Step 1.5: Build representative vertex map for UV seam welding
@@ -2091,12 +1958,6 @@ void FFleshRingAffectedVerticesManager::BuildTopologyCache(
 
     // Mark cache build complete
     bTopologyCacheBuilt = true;
-
-    const double ElapsedMs = (FPlatformTime::Seconds() - StartTime) * 1000.0;
-
-    UE_LOG(LogFleshRingVertices, Log,
-        TEXT("BuildTopologyCache: Completed in %.2f ms - %d vertices -> %d welded positions (%d duplicates), %d adjacency entries"),
-        ElapsedMs, AllVertices.Num(), WeldedPositionCount, DuplicateVertexCount, CachedFullAdjacencyMap.Num());
 }
 
 // ============================================================================
@@ -2174,9 +2035,6 @@ void FFleshRingAffectedVerticesManager::RebuildVertexLayerTypes(const UFleshRing
                 }
 
                 bUsedAssetMapping = true;
-                UE_LOG(LogFleshRingVertices, Log,
-                    TEXT("RebuildVertexLayerTypes: Rebuilt from MaterialLayerMappings (%d vertices, %d sections)"),
-                    NumVertices, LODData.RenderSections.Num());
             }
         }
     }
@@ -2192,8 +2050,6 @@ void FFleshRingAffectedVerticesManager::RebuildVertexLayerTypes(const UFleshRing
                 CachedVertexLayerTypes[i] = EFleshRingLayerType::Other;
             }
         }
-        UE_LOG(LogFleshRingVertices, Log,
-            TEXT("RebuildVertexLayerTypes: Used keyword-based auto-detection fallback"));
     }
 }
 
@@ -3963,18 +3819,10 @@ void FFleshRingAffectedVerticesManager::BuildRepresentativeIndices(
 
         // Set UV duplicate flag for Refinement
         RingData.bSmoothingRegionHasUVDuplicates = (PPNumWelded > 0);
-
-        UE_LOG(LogFleshRingVertices, Log,
-            TEXT("BuildRepresentativeIndices (fallback): Affected=%d (welded=%d), Refinement=%d (welded=%d)"),
-            NumAffected, NumWelded, NumRefinement, PPNumWelded);
     }
     else
     {
         RingData.bSmoothingRegionHasUVDuplicates = false;
-
-        UE_LOG(LogFleshRingVertices, Log,
-            TEXT("BuildRepresentativeIndices (fallback): Affected=%d (welded=%d), Refinement=0"),
-            NumAffected, NumWelded);
     }
 }
 
@@ -4289,9 +4137,4 @@ void FFleshRingAffectedVerticesManager::BuildHopDistanceData(
         }
     }
 
-    // Statistics log
-    const int32 NumNewVertices = NumExtended - NumAffected;
-    UE_LOG(LogFleshRingVertices, Log,
-        TEXT("BuildHopDistanceData: %d seeds → %d smoothing (%d-hop, +%d extended)"),
-        NumAffected, NumExtended, MaxHops, NumNewVertices);
 }

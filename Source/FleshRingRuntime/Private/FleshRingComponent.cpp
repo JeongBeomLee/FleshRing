@@ -245,8 +245,6 @@ void UFleshRingComponent::OnFleshRingAssetChanged(UFleshRingAsset* ChangedAsset)
 	// Check if it's the same asset
 	if (ChangedAsset == FleshRingAsset)
 	{
-		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Asset changed, reapplying..."));
-
 		// Full reset (including SubdividedMesh application)
 		ApplyAsset();
 	}
@@ -323,9 +321,6 @@ void UFleshRingComponent::SetTargetSkeletalMeshComponent(USkeletalMeshComponent*
 		// Reset baked mesh state (will be re-cached for new target)
 		CachedOriginalMesh = nullptr;
 		bUsingBakedMesh = false;
-
-		UE_LOG(LogFleshRingComponent, Log, TEXT("[%s] SetTargetSkeletalMeshComponent: Cleaned up and restored old target '%s'"),
-			*GetName(), *OldTarget->GetName());
 	}
 
 	// Update target references
@@ -337,8 +332,6 @@ void UFleshRingComponent::SetTargetSkeletalMeshComponent(USkeletalMeshComponent*
 	if (InTargetMeshComponent)
 	{
 		TargetSkeletalMeshComponent.ComponentProperty = InTargetMeshComponent->GetFName();
-		UE_LOG(LogFleshRingComponent, Log, TEXT("[%s] SetTargetSkeletalMeshComponent: New target '%s'"),
-			*GetName(), *InTargetMeshComponent->GetName());
 
 		// Re-setup ring effect with new target (only if FleshRingAsset is set and enabled)
 		// ApplyBakedMesh() internally validates mesh compatibility
@@ -360,8 +353,6 @@ void UFleshRingComponent::SetTargetSkeletalMeshComponent(USkeletalMeshComponent*
 	else
 	{
 		TargetSkeletalMeshComponent.ComponentProperty = NAME_None;
-		UE_LOG(LogFleshRingComponent, Log, TEXT("[%s] SetTargetSkeletalMeshComponent: Target cleared"),
-			*GetName());
 	}
 }
 
@@ -384,9 +375,6 @@ void UFleshRingComponent::FindTargetMeshOnly()
 		if (USkeletalMeshComponent* SkelComp = Cast<USkeletalMeshComponent>(Comp))
 		{
 			ResolvedTargetMesh = SkelComp;
-			UE_LOG(LogFleshRingComponent, Log,
-				TEXT("[%s] Using TargetSkeletalMeshComponent: '%s'"),
-				*GetName(), *SkelComp->GetName());
 			return;
 		}
 
@@ -399,9 +387,6 @@ void UFleshRingComponent::FindTargetMeshOnly()
 			if (SkelMeshComp && SkelMeshComp->GetName().Contains(TargetName))
 			{
 				ResolvedTargetMesh = SkelMeshComp;
-				UE_LOG(LogFleshRingComponent, Log,
-					TEXT("[%s] Found TargetSkeletalMeshComponent by name search: '%s'"),
-					*GetName(), *SkelMeshComp->GetName());
 				return;
 			}
 		}
@@ -425,12 +410,6 @@ void UFleshRingComponent::ResolveTargetMesh()
 	// At runtime, BakedMesh is applied via ApplyBakedMesh() in BeginPlay
 	// SubdividedMesh is only used in editor preview scene during bake process
 	FindTargetMeshOnly();
-
-	if (ResolvedTargetMesh.IsValid())
-	{
-		UE_LOG(LogFleshRingComponent, Log, TEXT("ResolveTargetMesh: Found target mesh '%s'"),
-			ResolvedTargetMesh->GetSkeletalMeshAsset() ? *ResolvedTargetMesh->GetSkeletalMeshAsset()->GetName() : TEXT("null"));
-	}
 }
 
 void UFleshRingComponent::SetupDeformer()
@@ -467,9 +446,6 @@ void UFleshRingComponent::SetupDeformer()
 	// Extend bounds: Deformer deformation may exceed original bounds, so
 	// extend to ensure bounds-based caching systems like VSM (Virtual Shadow Maps) work correctly
 	TargetMesh->SetBoundsScale(BoundsScale);
-
-	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Deformer registered to target mesh '%s'"),
-		*TargetMesh->GetName());
 }
 
 void UFleshRingComponent::CleanupDeformer()
@@ -498,8 +474,6 @@ void UFleshRingComponent::CleanupDeformer()
 		// 5. Wait until new render state is applied
 		// Prevents FMeshBatch validity issues
 		FlushRenderingCommands();
-
-		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Deformer unregistered from target mesh"));
 	}
 
 	// Restore original mesh (if SubdividedMesh was applied)
@@ -513,8 +487,6 @@ void UFleshRingComponent::CleanupDeformer()
 		{
 			TargetMesh->SetSkeletalMesh(OriginalMesh);
 			TargetMesh->MarkRenderStateDirty();
-			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Restored original mesh '%s' on cleanup"),
-				OriginalMesh ? *OriginalMesh->GetName() : TEXT("null"));
 		}
 	}
 	CachedOriginalMesh.Reset();
@@ -574,10 +546,6 @@ void UFleshRingComponent::ReinitializeDeformer()
 	TargetMesh->SetBoundsScale(BoundsScale);
 	TargetMesh->MarkRenderStateDirty();
 	TargetMesh->MarkRenderDynamicDataDirty();
-
-	UE_LOG(LogFleshRingComponent, Log, TEXT("ReinitializeDeformer: Deformer recreated for mesh '%s' (%d vertices)"),
-		*TargetMesh->GetSkeletalMeshAsset()->GetName(),
-		TargetMesh->GetSkeletalMeshAsset()->GetResourceForRendering()->LODRenderData[0].StaticVertexBuffers.PositionVertexBuffer.GetNumVertices());
 }
 #endif // WITH_EDITOR
 
@@ -612,7 +580,6 @@ void UFleshRingComponent::GenerateSDF()
 		// Operates without SDF texture, so skip generation
 		if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
 		{
-			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] is VirtualBand mode, SDF generation skipped (using distance-based logic)"), RingIndex);
 			continue;
 		}
 
@@ -621,7 +588,6 @@ void UFleshRingComponent::GenerateSDF()
 		// Should not generate SDF even if Ring Mesh exists (mesh is only for visualization)
 		if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualRing)
 		{
-			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] is VirtualRing mode, SDF generation skipped"), RingIndex);
 			continue;
 		}
 
@@ -642,9 +608,6 @@ void UFleshRingComponent::GenerateSDF()
 			continue;
 		}
 
-		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] extracted %d vertices, %d triangles from '%s'"),
-			RingIndex, MeshData.GetVertexCount(), MeshData.GetTriangleCount(), *RingMesh->GetName());
-
 		// 2. OBB approach: Keep local space, store transform separately
 		// Ring Mesh Local -> MeshTransform -> BoneTransform -> Component Space
 		FTransform LocalToComponentTransform;
@@ -663,9 +626,6 @@ void UFleshRingComponent::GenerateSDF()
 
 			// Don't transform vertices (keep local space)
 			// SDF is generated in local space, use inverse transform when sampling
-
-			UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] OBB Transform saved. Local Bounds: (%s) to (%s)"),
-				RingIndex, *MeshData.Bounds.Min.ToString(), *MeshData.Bounds.Max.ToString());
 		}
 
 		// 3. Determine SDF resolution (fixed value 64)
@@ -707,9 +667,6 @@ void UFleshRingComponent::GenerateSDF()
 			CapturedIndices,
 			SDFCenter
 		);
-
-		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Ring[%d] Bulge direction auto-detected: %d (SDFCenter: %s)"),
-			RingIndex, CachePtr->DetectedBulgeDirection, *SDFCenter.ToString());
 
 		ENQUEUE_RENDER_COMMAND(GenerateFleshRingSDF)(
 			[CapturedVertices = MoveTemp(CapturedVertices),
@@ -757,9 +714,6 @@ void UFleshRingComponent::GenerateSDF()
 
 				// Execute RDG
 				GraphBuilder.Execute();
-
-				UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: SDF cached for Ring[%d], Resolution=%d"),
-					RingIndex, CapturedResolution.X);
 			});
 	}
 
@@ -767,8 +721,6 @@ void UFleshRingComponent::GenerateSDF()
 	// This ensures SDFCache->IsValid() is true after GenerateSDF() returns
 	// (Resolves issue where SDF is not yet available in first frame after mode switch during async generation)
 	FlushRenderingCommands();
-
-	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: GenerateSDF completed for %d rings"), FleshRingAsset->Rings.Num());
 }
 
 void UFleshRingComponent::UpdateSDF()
@@ -789,8 +741,6 @@ void UFleshRingComponent::InitializeForEditorPreview()
 	{
 		return;
 	}
-
-	UE_LOG(LogFleshRingComponent, Log, TEXT("InitializeForEditorPreview: Starting..."));
 
 	// Resolve target mesh
 	ResolveTargetMesh();
@@ -824,14 +774,10 @@ void UFleshRingComponent::InitializeForEditorPreview()
 	}
 
 	bEditorPreviewInitialized = true;
-
-	UE_LOG(LogFleshRingComponent, Log, TEXT("InitializeForEditorPreview: Completed"));
 }
 
 void UFleshRingComponent::ForceInitializeForEditorPreview()
 {
-	UE_LOG(LogFleshRingComponent, Log, TEXT("ForceInitializeForEditorPreview: Resetting and reinitializing..."));
-
 	// Reset initialization flag
 	bEditorPreviewInitialized = false;
 
@@ -962,8 +908,6 @@ bool UFleshRingComponent::RefreshWithDeformerReuse()
 		return false;
 	}
 
-	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: RefreshWithDeformerReuse - Reusing existing Deformer (avoiding GPU resource leak)"));
-
 	// Wait for render commands to complete (SDF generation commands must complete before cache can be released)
 	FlushRenderingCommands();
 
@@ -1020,8 +964,6 @@ void UFleshRingComponent::ApplyAsset()
 		BindToAssetDelegate();
 	}
 #endif
-
-	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Applying asset '%s'"), *FleshRingAsset->GetName());
 
 	// Reuse existing Deformer if available (prevents GPU memory leak)
 	if (RefreshWithDeformerReuse())
@@ -1107,8 +1049,6 @@ void UFleshRingComponent::SetEnableFleshRing(bool bEnable)
 		{
 			ApplyBakedMesh();
 		}
-
-		UE_LOG(LogFleshRingComponent, Log, TEXT("[%s] SetEnableFleshRing: Enabled"), *GetName());
 	}
 	else
 	{
@@ -1135,8 +1075,6 @@ void UFleshRingComponent::SetEnableFleshRing(bool bEnable)
 			}
 		}
 		bUsingBakedMesh = false;
-
-		UE_LOG(LogFleshRingComponent, Log, TEXT("[%s] SetEnableFleshRing: Disabled"), *GetName());
 	}
 
 	// Restore Leader Pose to preserve animation state (critical for modular characters)
@@ -1162,8 +1100,6 @@ void UFleshRingComponent::SwapFleshRingAsset(UFleshRingAsset* NewAsset)
 	// Restore original mesh + release asset when nullptr is passed
 	if (!NewAsset)
 	{
-		UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: SwapFleshRingAsset(nullptr) - restoring original mesh"));
-
 		// Cleanup existing asset
 		CleanupRingMeshes();
 
@@ -1208,8 +1144,6 @@ void UFleshRingComponent::SwapFleshRingAsset(UFleshRingAsset* NewAsset)
 		ResolveTargetMesh();
 	}
 	ApplyBakedMesh();
-
-	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Swapped to baked asset '%s'"), *NewAsset->GetName());
 }
 
 FFleshRingModularResult UFleshRingComponent::Internal_SwapModularRingAsset(UFleshRingAsset* NewAsset, bool bPreserveLeaderPose)
@@ -1424,10 +1358,6 @@ void UFleshRingComponent::Internal_DetachModularRingAsset(bool bPreserveLeaderPo
 	{
 		TargetMesh->SetLeaderPoseComponent(CachedLeaderPose.Get());
 	}
-
-	UE_LOG(LogFleshRingComponent, Log,
-		TEXT("[%s] Internal_DetachModularRingAsset: Ring asset detached, SkeletalMesh unchanged"),
-		*GetName());
 }
 
 void UFleshRingComponent::ApplyBakedMesh()
@@ -1517,9 +1447,6 @@ void UFleshRingComponent::ApplyBakedMesh()
 
 	// Set bake mode flag
 	bUsingBakedMesh = true;
-
-	UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Applied baked mesh '%s'"),
-		BakedMesh ? *BakedMesh->GetName() : TEXT("null"));
 }
 
 void UFleshRingComponent::ApplyBakedRingTransforms()
@@ -1636,8 +1563,6 @@ void UFleshRingComponent::SetupRingMeshes()
 
 				SkinnedRingMeshComponents.Add(SkinnedComp);
 				RingMeshComponents.Add(nullptr);  // No static mesh component needed
-
-				UE_LOG(LogFleshRingComponent, Log, TEXT("FleshRingComponent: Using skinned ring mesh for Ring[%d]"), RingIndex);
 				continue;
 			}
 		}
@@ -2010,12 +1935,6 @@ void UFleshRingComponent::DrawSdfVolume(int32 RingIndex)
 	const FRingSDFCache* SDFCache = GetRingSDFCache(RingIndex);
 	if (!SDFCache || !SDFCache->IsValid())
 	{
-		// Display warning on screen if no cache
-		if (GEngine)
-		{
-			GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::Red,
-				FString::Printf(TEXT("Ring[%d]: SDF not cached!"), RingIndex));
-		}
 		return;
 	}
 
@@ -2043,48 +1962,6 @@ void UFleshRingComponent::DrawSdfVolume(int32 RingIndex)
 
 	// Scale-applied Extent
 	FVector ScaledExtent = LocalExtent * LocalToWorld.GetScale3D();
-
-	// [Conditional log] Output on first frame only - DrawSdfVolume Debug
-	static bool bLoggedOBBDebug = false;
-	if (!bLoggedOBBDebug)
-	{
-		UE_LOG(LogTemp, Log, TEXT(""));
-		UE_LOG(LogTemp, Log, TEXT("======== DrawSdfVolume OBB Debug ========"));
-		UE_LOG(LogTemp, Log, TEXT("  [Local Space]"));
-		UE_LOG(LogTemp, Log, TEXT("    LocalBoundsMin: %s"), *LocalBoundsMin.ToString());
-		UE_LOG(LogTemp, Log, TEXT("    LocalBoundsMax: %s"), *LocalBoundsMax.ToString());
-		UE_LOG(LogTemp, Log, TEXT("    LocalSize: %s"), *(LocalBoundsMax - LocalBoundsMin).ToString());
-		UE_LOG(LogTemp, Log, TEXT("  [LocalToComponent Transform]"));
-		UE_LOG(LogTemp, Log, TEXT("    Location: %s"), *SDFCache->LocalToComponent.GetLocation().ToString());
-		UE_LOG(LogTemp, Log, TEXT("    Rotation: %s"), *SDFCache->LocalToComponent.GetRotation().Rotator().ToString());
-		UE_LOG(LogTemp, Log, TEXT("    Scale: %s"), *SDFCache->LocalToComponent.GetScale3D().ToString());
-		// Component Space OBB for comparison with SubdivideRegion
-		{
-			FVector CompCenter = SDFCache->LocalToComponent.TransformPosition(LocalCenter);
-			FQuat CompRotation = SDFCache->LocalToComponent.GetRotation();
-			FVector CompAxisX = CompRotation.RotateVector(FVector(1, 0, 0));
-			FVector CompAxisY = CompRotation.RotateVector(FVector(0, 1, 0));
-			FVector CompAxisZ = CompRotation.RotateVector(FVector(0, 0, 1));
-			FVector CompHalfExtents = LocalExtent * SDFCache->LocalToComponent.GetScale3D();
-			UE_LOG(LogTemp, Log, TEXT("  [Component Space OBB (compare with SubdivideRegion)]"));
-			UE_LOG(LogTemp, Log, TEXT("    Center: %s"), *CompCenter.ToString());
-			UE_LOG(LogTemp, Log, TEXT("    HalfExtents: %s"), *CompHalfExtents.ToString());
-			UE_LOG(LogTemp, Log, TEXT("    AxisX: %s"), *CompAxisX.ToString());
-			UE_LOG(LogTemp, Log, TEXT("    AxisY: %s"), *CompAxisY.ToString());
-			UE_LOG(LogTemp, Log, TEXT("    AxisZ: %s"), *CompAxisZ.ToString());
-		}
-		UE_LOG(LogTemp, Log, TEXT("  [LocalToWorld (includes ComponentToWorld)]"));
-		UE_LOG(LogTemp, Log, TEXT("    Location: %s"), *LocalToWorld.GetLocation().ToString());
-		UE_LOG(LogTemp, Log, TEXT("    Rotation: %s"), *LocalToWorld.GetRotation().Rotator().ToString());
-		UE_LOG(LogTemp, Log, TEXT("    Scale: %s"), *LocalToWorld.GetScale3D().ToString());
-		UE_LOG(LogTemp, Log, TEXT("  [Visualization]"));
-		UE_LOG(LogTemp, Log, TEXT("    WorldCenter: %s"), *WorldCenter.ToString());
-		UE_LOG(LogTemp, Log, TEXT("    ScaledExtent: %s"), *ScaledExtent.ToString());
-		UE_LOG(LogTemp, Log, TEXT("    WorldRotation: %s"), *WorldRotation.Rotator().ToString());
-		UE_LOG(LogTemp, Log, TEXT("=========================================="));
-		UE_LOG(LogTemp, Log, TEXT(""));
-		bLoggedOBBDebug = true;
-	}
 
 	FColor BracketColor = FColor(130, 200, 255, 160);  // Blue (SDF texture bounds)
 	FColor ExpandedBracketColor = FColor(80, 220, 80, 160);  // Green (expanded bounds)
@@ -2326,14 +2203,6 @@ void UFleshRingComponent::DrawAffectedVertices(int32 RingIndex)
 		DrawDebugPoint(World, WorldPos, PointSize, PointColor, false, -1.0f, SDPG_Foreground);
 	}
 
-	// Display info on screen
-	if (GEngine)
-	{
-		FString SourceStr = bUseGPUInfluence ? TEXT("GPU") : TEXT("CPU");
-		GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::Green,
-			FString::Printf(TEXT("Ring[%d] Affected: %d vertices (Source: %s)"),
-				RingIndex, RingData.Vertices.Num(), *SourceStr));
-	}
 }
 
 void UFleshRingComponent::DrawSDFSlice(int32 RingIndex)
@@ -2423,13 +2292,6 @@ void UFleshRingComponent::DrawSDFSlice(int32 RingIndex)
 	// Update slice texture
 	UpdateSliceTexture(RingIndex, DebugSliceZ);
 
-	// Display slice info on screen
-	if (GEngine)
-	{
-		GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::Cyan,
-			FString::Printf(TEXT("Ring[%d] Slice Z: %d/%d"),
-				RingIndex, DebugSliceZ, SDFCache->Resolution.Z));
-	}
 }
 
 AActor* UFleshRingComponent::CreateDebugSlicePlane(int32 RingIndex)
@@ -2519,8 +2381,6 @@ AActor* UFleshRingComponent::CreateDebugSlicePlane(int32 RingIndex)
 		PlaneMeshFront->SetMaterial(0, DynMaterial);
 		PlaneMeshBack->SetMaterial(0, DynMaterial);  // Same material for back face
 	}
-
-	UE_LOG(LogFleshRingComponent, Log, TEXT("Created debug slice plane for Ring[%d]"), RingIndex);
 
 	return PlaneActor;
 }
@@ -3058,13 +2918,6 @@ void UFleshRingComponent::DrawBulgeHeatmap(int32 RingIndex)
 		DrawDebugPoint(World, WorldPos, PointSize, PointColor, false, -1.0f, SDPG_Foreground);
 	}
 
-	// Display info on screen
-	if (GEngine)
-	{
-		GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::Orange,
-			FString::Printf(TEXT("Ring[%d] Bulge: %d vertices (Smoothstep filtered)"),
-				RingIndex, RingData.Vertices.Num()));
-	}
 }
 
 void UFleshRingComponent::CacheBulgeVerticesForDebug()
@@ -3385,16 +3238,6 @@ void UFleshRingComponent::CacheBulgeVerticesForDebug()
 			}
 		}
 
-		const TCHAR* ModeStr = TEXT("Unknown");
-		switch (RingSettings.BulgeDirection)
-		{
-		case EBulgeDirectionMode::Auto: ModeStr = TEXT("Auto"); break;
-		case EBulgeDirectionMode::Bidirectional: ModeStr = TEXT("Both"); break;
-		case EBulgeDirectionMode::Positive: ModeStr = TEXT("Positive"); break;
-		case EBulgeDirectionMode::Negative: ModeStr = TEXT("Negative"); break;
-		}
-		UE_LOG(LogFleshRingComponent, Log, TEXT("CacheBulgeVerticesForDebug: Ring[%d] - %d Bulge vertices (Direction: %d, Detected: %d, Mode: %s, RingAxis: %s)"),
-			RingIdx, BulgeData.Vertices.Num(), FinalDirection, DetectedDirection, ModeStr, *RingAxis.ToString());
 	}
 
 	bDebugBulgeVerticesCached = true;
@@ -3543,23 +3386,6 @@ void UFleshRingComponent::DrawBulgeDirectionArrow(int32 RingIndex)
 		}
 	}
 
-	// Display info on screen
-	if (GEngine)
-	{
-		FString ModeStr;
-		switch (RingSettings.BulgeDirection)
-		{
-		case EBulgeDirectionMode::Auto: ModeStr = TEXT("Auto"); break;
-		case EBulgeDirectionMode::Bidirectional: ModeStr = TEXT("Both"); break;
-		case EBulgeDirectionMode::Positive: ModeStr = TEXT("+Z"); break;
-		case EBulgeDirectionMode::Negative: ModeStr = TEXT("-Z"); break;
-		}
-		// Text color based on direction: +Z=Red, -Z=Blue, Bidirectional=White
-		FColor TextColor = (FinalDirection > 0) ? PositiveZColor : (FinalDirection < 0) ? NegativeZColor : FColor::White;
-		GEngine->AddOnScreenDebugMessage(-1, 0.0f, TextColor,
-			FString::Printf(TEXT("Ring[%d] Bulge Dir: %s (Detected: %d, Final: %d)"),
-				RingIndex, *ModeStr, DetectedDirection, FinalDirection));
-	}
 }
 
 void UFleshRingComponent::DrawBulgeRange(int32 RingIndex)

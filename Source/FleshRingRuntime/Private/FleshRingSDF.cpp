@@ -7,6 +7,8 @@
 #include "ShaderParameterStruct.h"
 #include "RHIStaticStates.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogFleshRingSDF, Log, All);
+
 // Register mesh SDF generation shader
 IMPLEMENT_GLOBAL_SHADER(
     FMeshSDFGenerateCS,
@@ -66,7 +68,7 @@ void GenerateMeshSDF(
 
     if (VertexCount == 0 || TriangleCount == 0)
     {
-        UE_LOG(LogTemp, Error, TEXT("GenerateMeshSDF: Empty mesh data"));
+        UE_LOG(LogFleshRingSDF, Error, TEXT("GenerateMeshSDF: Empty mesh data"));
         return;
     }
 
@@ -120,8 +122,6 @@ void GenerateMeshSDF(
         GroupCount
     );
 
-    UE_LOG(LogTemp, Log, TEXT("GenerateMeshSDF: Dispatched CS for %d triangles, Resolution %dx%dx%d"),
-        TriangleCount, Resolution.X, Resolution.Y, Resolution.Z);
 }
 
 void GenerateSDFSlice(
@@ -280,6 +280,4 @@ void Apply2DSliceFloodFill(
         );
     }
 
-    UE_LOG(LogTemp, Log, TEXT("Apply2DSliceFloodFill: Completed %d iterations + ZAxisVote for Resolution %dx%dx%d"),
-        MaxIterations, Resolution.X, Resolution.Y, Resolution.Z);
 }

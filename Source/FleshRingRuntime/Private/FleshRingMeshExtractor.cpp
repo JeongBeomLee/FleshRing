@@ -6,6 +6,8 @@
 #include "Rendering/PositionVertexBuffer.h"
 #include "RawIndexBuffer.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogFleshRingMeshExtractor, Log, All);
+
 bool UFleshRingMeshExtractor::ExtractMeshData(UStaticMesh* Mesh, FFleshRingMeshData& OutMeshData)
 {
     return ExtractMeshDataFromLOD(Mesh, 0, OutMeshData);
@@ -18,7 +20,7 @@ bool UFleshRingMeshExtractor::ExtractMeshDataFromLOD(UStaticMesh* Mesh, int32 LO
     // 1. Validation check
     if (!Mesh)
     {
-        UE_LOG(LogTemp, Error, TEXT("ExtractMeshData: Mesh is null"));
+        UE_LOG(LogFleshRingMeshExtractor, Error, TEXT("ExtractMeshData: Mesh is null"));
         return false;
     }
 
@@ -26,14 +28,14 @@ bool UFleshRingMeshExtractor::ExtractMeshDataFromLOD(UStaticMesh* Mesh, int32 LO
     FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
     if (!RenderData)
     {
-        UE_LOG(LogTemp, Error, TEXT("ExtractMeshData: RenderData is null"));
+        UE_LOG(LogFleshRingMeshExtractor, Error, TEXT("ExtractMeshData: RenderData is null"));
         return false;
     }
 
     // LOD validation check
     if (LODIndex < 0 || LODIndex >= RenderData->LODResources.Num())
     {
-        UE_LOG(LogTemp, Error, TEXT("ExtractMeshData: Invalid LOD index %d (max: %d)"),
+        UE_LOG(LogFleshRingMeshExtractor, Error, TEXT("ExtractMeshData: Invalid LOD index %d (max: %d)"),
             LODIndex, RenderData->LODResources.Num() - 1);
         return false;
     }
@@ -47,7 +49,7 @@ bool UFleshRingMeshExtractor::ExtractMeshDataFromLOD(UStaticMesh* Mesh, int32 LO
 
     if (VertexCount == 0)
     {
-        UE_LOG(LogTemp, Error, TEXT("ExtractMeshData: No vertices found"));
+        UE_LOG(LogFleshRingMeshExtractor, Error, TEXT("ExtractMeshData: No vertices found"));
         return false;
     }
 
@@ -111,56 +113,15 @@ bool UFleshRingMeshExtractor::ExtractMeshDataFromLOD(UStaticMesh* Mesh, int32 LO
 
     if (OutMeshData.Indices.Num() == 0 || OutMeshData.Indices.Num() % 3 != 0)
     {
-        UE_LOG(LogTemp, Error, TEXT("ExtractMeshData: Invalid index count %d (must be multiple of 3)"),
+        UE_LOG(LogFleshRingMeshExtractor, Error, TEXT("ExtractMeshData: Invalid index count %d (must be multiple of 3)"),
             OutMeshData.Indices.Num());
         return false;
     }
-
-    UE_LOG(LogTemp, Log, TEXT("ExtractMeshData: Success! Vertices=%d, Triangles=%d, Bounds=(%s) to (%s)"),
-        OutMeshData.GetVertexCount(),
-        OutMeshData.GetTriangleCount(),
-        *MinBounds.ToString(),
-        *MaxBounds.ToString());
 
     return true;
 }
 
 void UFleshRingMeshExtractor::DebugPrintMeshData(const FFleshRingMeshData& MeshData)
 {
-    UE_LOG(LogTemp, Warning, TEXT("========== Mesh Data Debug =========="));
-    UE_LOG(LogTemp, Warning, TEXT("Vertices: %d"), MeshData.GetVertexCount());
-    UE_LOG(LogTemp, Warning, TEXT("Triangles: %d"), MeshData.GetTriangleCount());
-    UE_LOG(LogTemp, Warning, TEXT("Bounds Min: %s"), *MeshData.Bounds.Min.ToString());
-    UE_LOG(LogTemp, Warning, TEXT("Bounds Max: %s"), *MeshData.Bounds.Max.ToString());
-    UE_LOG(LogTemp, Warning, TEXT("IsValid: %s"), MeshData.IsValid() ? TEXT("Yes") : TEXT("No"));
-
-    // Print first few vertices
-    const int32 MaxVertexPrint = FMath::Min(5, MeshData.GetVertexCount());
-    for (int32 i = 0; i < MaxVertexPrint; i++)
-    {
-        const FVector3f& V = MeshData.Vertices[i];
-        UE_LOG(LogTemp, Warning, TEXT("  Vertex[%d]: (%.3f, %.3f, %.3f)"), i, V.X, V.Y, V.Z);
-    }
-    if (MeshData.GetVertexCount() > MaxVertexPrint)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("  ... and %d more vertices"), MeshData.GetVertexCount() - MaxVertexPrint);
-    }
-
-    // Print first few triangles
-    const int32 MaxTrianglePrint = FMath::Min(3, MeshData.GetTriangleCount());
-    for (int32 i = 0; i < MaxTrianglePrint; i++)
-    {
-        uint32 Idx0 = MeshData.Indices[i * 3 + 0];
-        uint32 Idx1 = MeshData.Indices[i * 3 + 1];
-        uint32 Idx2 = MeshData.Indices[i * 3 + 2];
-
-        UE_LOG(LogTemp, Warning, TEXT("  Triangle[%d]: Indices(%d, %d, %d)"),
-            i, Idx0, Idx1, Idx2);
-    }
-    if (MeshData.GetTriangleCount() > MaxTrianglePrint)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("  ... and %d more triangles"), MeshData.GetTriangleCount() - MaxTrianglePrint);
-    }
-
-    UE_LOG(LogTemp, Warning, TEXT("======================================"));
+    // Intentionally empty for release builds
 }

@@ -13,6 +13,8 @@
 #include "ShaderParameterUtils.h"
 #include "DataDrivenShaderPlatformInfo.h"  // For IsOpenGLPlatform
 
+DEFINE_LOG_CATEGORY_STATIC(LogFleshRingSkinning, Log, All);
+
 // ============================================================================
 // Shader Implementation Registration
 // ============================================================================
@@ -50,7 +52,7 @@ void DispatchFleshRingSkinningCS(
     // Early out if skinning buffers are not available
     if (!BoneMatricesSRV || !InputWeightStreamSRV)
     {
-        UE_LOG(LogTemp, Warning, TEXT("FleshRingSkinningCS: Missing skinning buffers"));
+        UE_LOG(LogFleshRingSkinning, Warning, TEXT("FleshRingSkinningCS: Missing skinning buffers"));
         return;
     }
 

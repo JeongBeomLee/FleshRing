@@ -80,10 +80,6 @@ void UFleshRingAsset::PostLoad()
 		{
 			Ring.AffectedLayerMask |= OtherBit;
 			MarkPackageDirty();
-
-			UE_LOG(LogFleshRingAsset, Log,
-				TEXT("PostLoad Migration: Added Other bit to AffectedLayerMask for Ring '%s'"),
-				*Ring.GetDisplayName(RingIndex));
 		}
 	}
 
@@ -1143,11 +1139,7 @@ namespace SubdivisionHelpers
 					if (Idx < DIVertexCount) DIAffectedIndices.Add(Idx);
 				}
 
-				UE_LOG(LogFleshRingAsset, Log, TEXT("ExtractAffectedTrianglesFromDI: Ring[%d] Bulge - BulgeIndices=%d (new=%d)"),
-					RingIdx,
-					RingData.BulgeIndices.Num(),
-					DIAffectedIndices.Num() - PrevCount);
-			}
+				}
 		}
 
 		if (DIAffectedIndices.Num() == 0)
@@ -2016,10 +2008,6 @@ void UFleshRingAsset::GenerateSubdividedMesh(UFleshRingComponent* SourceComponen
 		return;
 	}
 
-	UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateSubdividedMesh: %d -> %d vertices, %d -> %d triangles"),
-		TopologyResult.OriginalVertexCount, TopologyResult.SubdividedVertexCount,
-		TopologyResult.OriginalTriangleCount, TopologyResult.SubdividedTriangleCount);
-
 	// ============================================
 	// 4. Generate new vertex data via Barycentric interpolation
 	// ============================================
@@ -2347,8 +2335,6 @@ void UFleshRingAsset::ClearSubdividedMesh()
 		// 5. Mark as garbage collection target
 		OldMesh->MarkAsGarbage();
 
-		UE_LOG(LogFleshRingAsset, Log, TEXT("ClearSubdividedMesh: Cleanup complete"));
-
 		// Note: SubdividedMesh is only used during bake process
 		// World components use BakedMesh at runtime, no need to notify them
 		// OnAssetChanged is for editor preview scene only
@@ -2409,7 +2395,6 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 		if (SubdivisionSettings.SubdividedMesh)
 		{
 			SourceMesh = SubdivisionSettings.SubdividedMesh;
-			UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Using SubdividedMesh"));
 		}
 		else
 		{
@@ -2422,7 +2407,6 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 	{
 		// Subdivision OFF: Bake with deformation applied to original mesh only
 		SourceMesh = TargetSkeletalMesh.LoadSynchronous();
-		UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Subdivision disabled, using original mesh"));
 	}
 
 	if (!SourceMesh)
@@ -2461,7 +2445,6 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 	if (!bAlreadyUsingSourceMesh)
 	{
 		// Step 1: Swap to SourceMesh (first call)
-		UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Swapping to SourceMesh..."));
 		SkelMeshComp->SetSkeletalMeshAsset(SourceMesh);
 
 		// Step 2: Complete MeshObject regeneration (synchronous)
@@ -2483,13 +2466,10 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 	if (!DeformerInstance->HasCachedDeformedGeometry(0))
 	{
 		// Cache not yet valid - async system will retry
-		UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Waiting for cache to become valid..."));
 		return false;
 	}
 
 	// Cache valid - proceed with Readback
-	UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Cache valid, proceeding with readback..."));
-
 	// GPU Readback (SourceMesh basis - direct correspondence)
 	TArray<FVector3f> DeformedPositions;
 	TArray<FVector3f> DeformedNormals;
@@ -2588,9 +2568,6 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 	// Vertex count verification: RenderData vertex count and MeshDescription vertex count can differ
 	// MeshDescription has unique vertices, RenderData has VertexInstances (includes duplicates)
 	// GPU Readback data is RenderData-based so mapping is needed
-	UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: MeshDesc vertices=%d, RenderData vertices=%d"),
-		MeshDescVertexCount, SourceVertexCount);
-
 	// =====================================
 	// Vertex mapping and position update (optimized hashmap approach)
 	// RenderData vertex -> MeshDescription vertex mapping
@@ -2659,9 +2636,6 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 				VertexPositions[VertexID] = DeformedPositions[*RenderIdxPtr];
 			}
 		}
-
-		UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Mapped %d/%d vertices"),
-			VertexToFirstRenderIdx.Num(), MeshDescVertexCount);
 
 		// =====================================
 		// Normal/Tangent update (VertexInstance based)
@@ -2784,7 +2758,6 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 		// 4. Mark as garbage collection target
 		OldMesh->MarkAsGarbage();
 
-		UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Cleaned up previous BakedMesh"));
 	}
 	// Bug fix: Previously called BakedRingTransforms.Empty() here which immediately deleted
 	// the Ring transform data filled above - removed
@@ -2796,9 +2769,6 @@ bool UFleshRingAsset::GenerateBakedMesh(UFleshRingComponent* SourceComponent)
 	// Remove RF_Transactional - prevent Undo/Redo system from referencing it
 	// DuplicateObject inherits source mesh flags, so explicit removal prevents TransBuffer reference
 	NewBakedMesh->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
-
-	UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateBakedMesh: Success - %d vertices, %d rings, Hash=%u"),
-		SourceVertexCount, Rings.Num(), SubdivisionSettings.BakeParamsHash);
 
 	// Generate skinned ring meshes for runtime deformation
 	// This allows ring meshes to deform with twist bones like skin vertices
@@ -2846,7 +2816,6 @@ void UFleshRingAsset::ClearBakedMesh()
 		// 5. Mark as garbage collection target
 		OldMesh->MarkAsGarbage();
 
-		UE_LOG(LogFleshRingAsset, Log, TEXT("ClearBakedMesh: Cleanup complete"));
 	}
 
 	// Cleanup skinned ring meshes
@@ -2958,7 +2927,6 @@ void UFleshRingAsset::GenerateSkinnedRingMeshes(USkeletalMesh* SourceMesh)
 		{
 			// Clear transactional flag to prevent undo issues
 			SkinnedRingMesh->ClearFlags(RF_Transactional);
-			UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateSkinnedRingMeshes: Created skinned ring mesh for Ring[%d]"), RingIndex);
 		}
 		else
 		{
@@ -2968,8 +2936,6 @@ void UFleshRingAsset::GenerateSkinnedRingMeshes(USkeletalMesh* SourceMesh)
 		SubdivisionSettings.BakedSkinnedRingMeshes.Add(SkinnedRingMesh);
 	}
 
-	UE_LOG(LogFleshRingAsset, Log, TEXT("GenerateSkinnedRingMeshes: Generated %d skinned ring meshes"),
-		SubdivisionSettings.BakedSkinnedRingMeshes.Num());
 }
 
 bool UFleshRingAsset::NeedsBakeRegeneration() const
@@ -3043,8 +3009,6 @@ int32 UFleshRingAsset::CleanupOrphanedMeshes()
 		if (SkelMesh && !ActiveMeshes.Contains(SkelMesh))
 		{
 			// Orphaned mesh found - move to Transient package
-			UE_LOG(LogFleshRingAsset, Log, TEXT("CleanupOrphanedMeshes: Removing orphaned mesh '%s'"), *SkelMesh->GetName());
-
 			SkelMesh->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);
 			SkelMesh->ClearFlags(RF_Public | RF_Standalone);
 			SkelMesh->SetFlags(RF_Transient);
@@ -3054,12 +3018,7 @@ int32 UFleshRingAsset::CleanupOrphanedMeshes()
 
 	if (RemovedCount > 0)
 	{
-		UE_LOG(LogFleshRingAsset, Log, TEXT("CleanupOrphanedMeshes: Removed %d orphaned mesh(es)"), RemovedCount);
 		MarkPackageDirty();
-	}
-	else
-	{
-		UE_LOG(LogFleshRingAsset, Log, TEXT("CleanupOrphanedMeshes: No orphaned meshes found"));
 	}
 
 	return RemovedCount;

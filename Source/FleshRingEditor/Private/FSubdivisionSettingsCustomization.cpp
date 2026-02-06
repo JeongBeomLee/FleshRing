@@ -367,7 +367,6 @@ FReply FSubdivisionSettingsCustomization::OnBakeMeshClicked()
 	// Ignore if bake is already in progress
 	if (bAsyncBakeInProgress)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Bake already in progress. Please wait..."));
 		return FReply::Handled();
 	}
 
@@ -407,7 +406,6 @@ FReply FSubdivisionSettingsCustomization::OnBakeMeshClicked()
 
 	if (!PreviewComponent || !FleshRingEditor)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Cannot bake mesh: PreviewComponent or Editor not found. Please ensure the asset editor is open."));
 		return FReply::Handled();
 	}
 
@@ -419,7 +417,6 @@ FReply FSubdivisionSettingsCustomization::OnBakeMeshClicked()
 		TSharedPtr<FFleshRingPreviewScene> PreviewScene = ViewportWidget->GetPreviewScene();
 		if (PreviewScene.IsValid() && PreviewScene->HasValidPreviewMesh())
 		{
-			UE_LOG(LogTemp, Log, TEXT("Bake: Clearing PreviewSubdividedMesh before CloseAllEditorsForAsset"));
 			PreviewScene->ClearPreviewMesh();
 			FlushRenderingCommands();
 		}
@@ -442,14 +439,12 @@ FReply FSubdivisionSettingsCustomization::OnBakeMeshClicked()
 	// Force initialize if Deformer doesn't exist (allows baking even with subdivision OFF)
 	if (!PreviewComponent->GetDeformer())
 	{
-		UE_LOG(LogTemp, Log, TEXT("Bake: Deformer not found, force initializing for editor preview..."));
 		PreviewComponent->ForceInitializeForEditorPreview();
 		FlushRenderingCommands();
 
 		// Error if Deformer still doesn't exist after initialization
 		if (!PreviewComponent->GetDeformer())
 		{
-			UE_LOG(LogTemp, Warning, TEXT("Cannot bake mesh: Failed to initialize Deformer. Please check Ring settings (need valid SDF or VirtualRing mode)."));
 			return FReply::Handled();
 		}
 	}
@@ -478,7 +473,6 @@ FReply FSubdivisionSettingsCustomization::OnBakeMeshClicked()
 	if (bImmediateSuccess)
 	{
 		// Immediate success (cache already existed)
-		UE_LOG(LogTemp, Log, TEXT("Bake completed immediately."));
 		FleshRingEditor->ShowBakeOverlay(false);
 		bAsyncBakeInProgress = false;
 		RestoreOriginalPreviewMesh(PreviewComponent);
@@ -536,7 +530,6 @@ bool FSubdivisionSettingsCustomization::OnAsyncBakeTick(float DeltaTime)
 	// Validity check
 	if (!AsyncBakeAsset.IsValid() || !AsyncBakeComponent.IsValid())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Async bake failed: Asset or Component became invalid."));
 		CleanupAsyncBake(true);
 		return false;  // Stop ticker
 	}
@@ -555,8 +548,6 @@ bool FSubdivisionSettingsCustomization::OnAsyncBakeTick(float DeltaTime)
 
 			if (PostCacheValidFrameCount < PostCacheValidWaitFrames)
 			{
-				UE_LOG(LogTemp, Log, TEXT("Cache valid, waiting additional frame %d/%d for GPU completion..."),
-					PostCacheValidFrameCount, PostCacheValidWaitFrames);
 				return true;  // Continue waiting
 			}
 
@@ -567,15 +558,12 @@ bool FSubdivisionSettingsCustomization::OnAsyncBakeTick(float DeltaTime)
 
 			if (bSuccess)
 			{
-				UE_LOG(LogTemp, Log, TEXT("Async bake completed successfully after %d frames (%d post-cache frames)."),
-					AsyncBakeFrameCount, PostCacheValidFrameCount);
 				CleanupAsyncBake(true);
 				return false;  // Stop ticker
 			}
 			else
 			{
-				// Cache is valid but failed? Something is wrong
-				UE_LOG(LogTemp, Warning, TEXT("Async bake failed even with valid cache. Retrying..."));
+				// Cache is valid but failed? Something is wrong - retry
 			}
 		}
 	}
@@ -583,7 +571,6 @@ bool FSubdivisionSettingsCustomization::OnAsyncBakeTick(float DeltaTime)
 	// Check if maximum frames exceeded
 	if (AsyncBakeFrameCount >= MaxAsyncBakeFrames)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Async bake timed out after %d frames. Deformer may not have processed the mesh."), MaxAsyncBakeFrames);
 		CleanupAsyncBake(true);
 		return false;  // Stop ticker
 	}
@@ -609,8 +596,6 @@ void FSubdivisionSettingsCustomization::CleanupAsyncBake(bool bRestorePreviewMes
 		USkeletalMeshComponent* SkelMeshComp = AsyncBakeComponent->GetResolvedTargetSkeletalMeshComponent();
 		if (SkelMeshComp && SkelMeshComp->GetSkeletalMeshAsset() != OriginalPreviewMesh.Get())
 		{
-			UE_LOG(LogTemp, Log, TEXT("Restoring original preview mesh..."));
-
 			// Release existing buffers
 			if (UFleshRingDeformer* Deformer = AsyncBakeComponent->GetDeformer())
 			{
@@ -640,8 +625,6 @@ void FSubdivisionSettingsCustomization::CleanupAsyncBake(bool bRestorePreviewMes
 			USkeletalMeshComponent* SkelMeshComp = AsyncBakeComponent->GetResolvedTargetSkeletalMeshComponent();
 			if (SkelMeshComp && SkelMeshComp->GetSkeletalMeshAsset() == SubdividedMesh)
 			{
-				UE_LOG(LogTemp, Log, TEXT("CleanupAsyncBake: Preview still using SubdividedMesh, switching..."));
-
 				// Release Deformer buffers
 				if (UFleshRingDeformer* Deformer = AsyncBakeComponent->GetDeformer())
 				{
@@ -683,8 +666,6 @@ void FSubdivisionSettingsCustomization::CleanupAsyncBake(bool bRestorePreviewMes
 
 		// Mark for garbage collection
 		SubdividedMesh->MarkAsGarbage();
-
-		UE_LOG(LogTemp, Log, TEXT("CleanupAsyncBake: SubdividedMesh cleanup complete"));
 	}
 
 	// Prevent memory leak: Execute GC after restoring original mesh
@@ -735,8 +716,6 @@ void FSubdivisionSettingsCustomization::RestoreOriginalPreviewMesh(UFleshRingCom
 	USkeletalMeshComponent* SkelMeshComp = PreviewComponent->GetResolvedTargetSkeletalMeshComponent();
 	if (SkelMeshComp && SkelMeshComp->GetSkeletalMeshAsset() != OriginalPreviewMesh.Get())
 	{
-		UE_LOG(LogTemp, Log, TEXT("Restoring original preview mesh..."));
-
 		// Release existing buffers
 		if (UFleshRingDeformer* Deformer = PreviewComponent->GetDeformer())
 		{

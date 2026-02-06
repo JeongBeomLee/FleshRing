@@ -152,11 +152,6 @@ void FFleshRingSubdivisionProcessor::SetTargetVertexIndices(const TSet<uint32>& 
 	InvalidateCache();
 	TargetVertexIndices = InTargetVertexIndices;
 	bUseVertexBasedMode = TargetVertexIndices.Num() > 0;
-
-	UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-		TEXT("SetTargetVertexIndices: %d vertices, VertexBasedMode=%s"),
-		TargetVertexIndices.Num(),
-		bUseVertexBasedMode ? TEXT("true") : TEXT("false"));
 }
 
 void FFleshRingSubdivisionProcessor::ClearTargetVertexIndices()
@@ -180,11 +175,6 @@ void FFleshRingSubdivisionProcessor::SetTargetTriangleIndices(const TSet<int32>&
 	{
 		bUseVertexBasedMode = false;
 	}
-
-	UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-		TEXT("SetTargetTriangleIndices: %d triangles, TriangleBasedMode=%s"),
-		TargetTriangleIndices.Num(),
-		bUseTriangleBasedMode ? TEXT("true") : TEXT("false"));
 }
 
 void FFleshRingSubdivisionProcessor::ClearTargetTriangleIndices()
@@ -271,15 +261,6 @@ bool FFleshRingSubdivisionProcessor::Process(FSubdivisionTopologyResult& OutResu
 		// ========================================
 		// Triangle-based mode: Directly use triangle set extracted from DI
 		// ========================================
-		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-			TEXT("Process: Using triangle-based mode with %d target triangles"),
-			TargetTriangleIndices.Num());
-
-		const int32 NumTriangles = SourceIndices.Num() / 3;
-		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-			TEXT("Process: %d/%d triangles selected for subdivision (%.1f%%)"),
-			TargetTriangleIndices.Num(), NumTriangles,
-			100.0f * (float)TargetTriangleIndices.Num() / NumTriangles);
 
 		// Subdivide only target triangles (passed directly)
 		TotalFacesAdded = FLEBSubdivision::SubdivideSelectedFaces(
@@ -294,9 +275,6 @@ bool FFleshRingSubdivisionProcessor::Process(FSubdivisionTopologyResult& OutResu
 		// ========================================
 		// Vertex-based mode: Subdivide triangles containing specified vertices
 		// ========================================
-		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-			TEXT("Process: Using vertex-based mode with %d target vertices"),
-			TargetVertexIndices.Num());
 
 		// Collect triangles containing target vertices
 		TSet<int32> TargetTrianglesLocal;
@@ -316,11 +294,6 @@ bool FFleshRingSubdivisionProcessor::Process(FSubdivisionTopologyResult& OutResu
 				TargetTrianglesLocal.Add(TriIdx);
 			}
 		}
-
-		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-			TEXT("Process: %d/%d triangles selected for subdivision (%.1f%%)"),
-			TargetTrianglesLocal.Num(), NumTriangles,
-			100.0f * (float)TargetTrianglesLocal.Num() / NumTriangles);
 
 		// Subdivide only target triangles
 		TotalFacesAdded = FLEBSubdivision::SubdivideSelectedFaces(
@@ -391,11 +364,6 @@ bool FFleshRingSubdivisionProcessor::Process(FSubdivisionTopologyResult& OutResu
 	CachedRingParamsArray = RingParamsArray;
 	bCacheValid = true;
 
-	UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-		TEXT("Subdivision complete: %d -> %d vertices, %d -> %d triangles"),
-		OutResult.OriginalVertexCount, OutResult.SubdividedVertexCount,
-		OutResult.OriginalTriangleCount, OutResult.SubdividedTriangleCount);
-
 	return true;
 }
 
@@ -439,10 +407,6 @@ bool FFleshRingSubdivisionProcessor::ExtractTopologyResult(FSubdivisionTopologyR
 			ImmediateParents[i] = TPair<int32, int32>(Vert.ParentIndex0, Vert.ParentIndex1);
 		}
 	}
-
-	UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-		TEXT("Parent extraction: %d original, %d subdivided vertices (direct read from HalfEdgeMesh)"),
-		OriginalVertexCount, HEVertexCount - OriginalVertexCount);
 
 	// ========================================================================
 	// Validation: Check if parent indices are valid
@@ -777,11 +741,6 @@ bool FFleshRingSubdivisionProcessor::ProcessUniform(FSubdivisionTopologyResult& 
 		return false;
 	}
 
-	UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-		TEXT("ProcessUniform: Complete - %d -> %d vertices, %d -> %d triangles"),
-		OutResult.OriginalVertexCount, OutResult.SubdividedVertexCount,
-		OutResult.OriginalTriangleCount, OutResult.SubdividedTriangleCount);
-
 	return true;
 }
 
@@ -856,9 +815,6 @@ bool FFleshRingSubdivisionProcessor::SetSourceMeshWithBoneInfo(USkeletalMesh* Sk
 			}
 		}
 
-		UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-			TEXT("SetSourceMeshWithBoneInfo: Extracted material indices for %d triangles (%d sections)"),
-			NumTriangles, LODData.RenderSections.Num());
 	}
 
 	// Extract bone info (SkinWeightVertexBuffer)
@@ -985,10 +941,6 @@ TSet<int32> FFleshRingSubdivisionProcessor::GatherNeighborBones(
 		Result.Append(NewBones);
 	}
 
-	UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-		TEXT("GatherNeighborBones: %d ring bones -> %d total bones (HopCount=%d)"),
-		RingBoneIndices.Num(), Result.Num(), HopCount);
-
 	return Result;
 }
 
@@ -1068,11 +1020,6 @@ bool FFleshRingSubdivisionProcessor::ProcessBoneRegion(
 		}
 	}
 
-	UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-		TEXT("ProcessBoneRegion: %d/%d triangles in bone region (%.1f%% reduction)"),
-		TargetTriangles.Num(), NumTriangles,
-		100.0f * (1.0f - (float)TargetTriangles.Num() / NumTriangles));
-
 	// 2. Build Half-Edge mesh
 	TArray<int32> IndicesInt32;
 	IndicesInt32.SetNum(SourceIndices.Num());
@@ -1106,11 +1053,6 @@ bool FFleshRingSubdivisionProcessor::ProcessBoneRegion(
 	BoneRegionCachedResult = OutResult;
 	CachedBoneRegionParamsHash = ParamsHash;
 	bBoneRegionCacheValid = true;
-
-	UE_LOG(LogFleshRingSubdivisionProcessor, Log,
-		TEXT("ProcessBoneRegion: Complete - %d -> %d vertices, %d -> %d triangles (cached)"),
-		OutResult.OriginalVertexCount, OutResult.SubdividedVertexCount,
-		OutResult.OriginalTriangleCount, OutResult.SubdividedTriangleCount);
 
 	return true;
 }

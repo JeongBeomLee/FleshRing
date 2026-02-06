@@ -1669,9 +1669,6 @@ bool UFleshRingDeformerInstance::ReadbackDeformedGeometry(
 		OutTangents.Empty();
 	}
 
-	UE_LOG(LogFleshRing, Log, TEXT("ReadbackDeformedGeometry: Success - %d vertices, Normals=%d, Tangents=%d"),
-		OutPositions.Num(), OutNormals.Num(), OutTangents.Num());
-
 	return true;
 }
 #endif

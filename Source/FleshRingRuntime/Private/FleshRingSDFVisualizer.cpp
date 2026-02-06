@@ -27,14 +27,12 @@ FSDFVisualizationResult UFleshRingSDFVisualizer::VisualizeSDFSlice(
 
     if (!WorldContextObject || !Mesh)
     {
-        UE_LOG(LogTemp, Error, TEXT("VisualizeSDFSlice: Invalid parameters"));
         return Result;
     }
 
     UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull);
     if (!World)
     {
-        UE_LOG(LogTemp, Error, TEXT("VisualizeSDFSlice: Could not get world"));
         return Result;
     }
 
@@ -42,7 +40,6 @@ FSDFVisualizationResult UFleshRingSDFVisualizer::VisualizeSDFSlice(
     FFleshRingMeshData MeshData;
     if (!UFleshRingMeshExtractor::ExtractMeshData(Mesh, MeshData))
     {
-        UE_LOG(LogTemp, Error, TEXT("VisualizeSDFSlice: Failed to extract mesh data"));
         return Result;
     }
 
@@ -69,7 +66,6 @@ FSDFVisualizationResult UFleshRingSDFVisualizer::VisualizeSDFSlice(
     AActor* PlaneActor = World->SpawnActor<AActor>(AActor::StaticClass(), WorldLocation, FRotator::ZeroRotator, SpawnParams);
     if (!PlaneActor)
     {
-        UE_LOG(LogTemp, Error, TEXT("VisualizeSDFSlice: Failed to spawn plane actor"));
         return Result;
     }
 
@@ -142,9 +138,6 @@ FSDFVisualizationResult UFleshRingSDFVisualizer::VisualizeSDFSlice(
     BackPlaneMeshComp->RegisterComponent();
 
     Result.PlaneActor = PlaneActor;
-    
-    UE_LOG(LogTemp, Warning, TEXT("Plane spawned at: %s, Scale: (%.2f, %.2f)"),
-        *PlaneCenter.ToString(), PlaneScaleX, PlaneScaleY);
 
     // 6. Generate SDF on GPU + slice visualization
     TArray<FVector3f> Vertices = MeshData.Vertices;
@@ -159,14 +152,12 @@ FSDFVisualizationResult UFleshRingSDFVisualizer::VisualizeSDFSlice(
         {
             if (!RenderTarget)
             {
-                UE_LOG(LogTemp, Error, TEXT("RenderTarget is null"));
                 return;
             }
 
             FTextureRenderTargetResource* RTResource = RenderTarget->GetRenderTargetResource();
             if (!RTResource)
             {
-                UE_LOG(LogTemp, Error, TEXT("RenderTargetResource is null"));
                 return;
             }
 
@@ -238,12 +229,9 @@ FSDFVisualizationResult UFleshRingSDFVisualizer::VisualizeSDFSlice(
             }
 
             GraphBuilder.Execute();
-
-            UE_LOG(LogTemp, Warning, TEXT("SDF Slice Visualization Generated: Z=%d"), CapturedSliceZ);
         }
     );
 
-    UE_LOG(LogTemp, Warning, TEXT("VisualizeSDFSlice: Created visualization at Z=%d"), Result.CurrentSliceZ);
     return Result;
 }
 
@@ -251,7 +239,6 @@ void UFleshRingSDFVisualizer::UpdateSliceZ(FSDFVisualizationResult& Result, int3
 {
     if (!Result.IsValid())
     {
-        UE_LOG(LogTemp, Warning, TEXT("UpdateSliceZ: Invalid result"));
         return;
     }
 
@@ -259,7 +246,6 @@ void UFleshRingSDFVisualizer::UpdateSliceZ(FSDFVisualizationResult& Result, int3
 
     // TODO: Cache SDF and update slice only
     // Currently requires full regeneration
-    UE_LOG(LogTemp, Warning, TEXT("UpdateSliceZ: Updated to Z=%d (requires re-visualization for now)"), Result.CurrentSliceZ);
 }
 
 void UFleshRingSDFVisualizer::CleanupVisualization(FSDFVisualizationResult& Result)
@@ -274,8 +260,6 @@ void UFleshRingSDFVisualizer::CleanupVisualization(FSDFVisualizationResult& Resu
     {
         Result.SliceTexture = nullptr;
     }
-
-    UE_LOG(LogTemp, Log, TEXT("CleanupVisualization: Cleaned up"));
 }
 
 TArray<FSDFVisualizationResult> UFleshRingSDFVisualizer::VisualizeAllSDFSlices(
@@ -288,14 +272,12 @@ TArray<FSDFVisualizationResult> UFleshRingSDFVisualizer::VisualizeAllSDFSlices(
 
     if (!WorldContextObject || !Mesh)
     {
-        UE_LOG(LogTemp, Error, TEXT("VisualizeAllSDFSlices: Invalid parameters"));
         return Results;
     }
 
     UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull);
     if (!World)
     {
-        UE_LOG(LogTemp, Error, TEXT("VisualizeAllSDFSlices: Could not get world"));
         return Results;
     }
 
@@ -303,7 +285,6 @@ TArray<FSDFVisualizationResult> UFleshRingSDFVisualizer::VisualizeAllSDFSlices(
     FFleshRingMeshData MeshData;
     if (!UFleshRingMeshExtractor::ExtractMeshData(Mesh, MeshData))
     {
-        UE_LOG(LogTemp, Error, TEXT("VisualizeAllSDFSlices: Failed to extract mesh data"));
         return Results;
     }
 
@@ -477,12 +458,9 @@ TArray<FSDFVisualizationResult> UFleshRingSDFVisualizer::VisualizeAllSDFSlices(
             }
 
             GraphBuilder.Execute();
-
-            UE_LOG(LogTemp, Warning, TEXT("VisualizeAllSDFSlices: Generated SDF once, visualized %d slices"), SDFResolution.Z);
         }
     );
 
-    UE_LOG(LogTemp, Warning, TEXT("VisualizeAllSDFSlices: Created %d slice visualizations"), Resolution);
     return Results;
 }
 

@@ -91,10 +91,6 @@ bool FMeshAdjacencyBuilder::BuildFromTriangles(int32 NumVertices, const TArray<u
             TrimmedCount, FLESHRING_MAX_NEIGHBORS);
     }
 
-    UE_LOG(LogFleshRingAdjacency, Log,
-        TEXT("BuildFromTriangles: Built adjacency for %d vertices from %d triangles"),
-        NumVertices, NumTriangles);
-
     return true;
 }
 
@@ -154,10 +150,6 @@ bool FMeshAdjacencyBuilder::BuildFromSkeletalMesh(const USkeletalMeshComponent* 
     {
         TriangleIndices.Add(IndexBuffer->Get(i));
     }
-
-    UE_LOG(LogFleshRingAdjacency, Log,
-        TEXT("BuildFromSkeletalMesh: Extracted %d vertices, %d indices from LOD %d"),
-        NumVertices, NumIndices, LODIndex);
 
     return BuildFromTriangles(NumVertices, TriangleIndices);
 }
@@ -380,7 +372,6 @@ void FMeshAdjacencyBuilder::PrintStats() const
 {
     if (!IsBuilt())
     {
-        UE_LOG(LogFleshRingAdjacency, Log, TEXT("Adjacency not built"));
         return;
     }
 
@@ -406,7 +397,4 @@ void FMeshAdjacencyBuilder::PrintStats() const
         ? (float)TotalNeighbors / VertexNeighbors.Num()
         : 0.0f;
 
-    UE_LOG(LogFleshRingAdjacency, Log,
-        TEXT("Adjacency Stats: %d vertices, Min=%d, Max=%d, Avg=%.2f, ZeroNeighbor=%d"),
-        VertexNeighbors.Num(), MinNeighbors, MaxNeighbors, AvgNeighbors, ZeroNeighborCount);
 }

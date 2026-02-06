@@ -210,7 +210,6 @@ private:
 public:
 
 	/** Check if subdivided mesh exists */
-	UFUNCTION(BlueprintPure, Category = "FleshRing|Subdivision")
 	bool HasSubdividedMesh() const;
 
 	/** Check if baked mesh exists */
@@ -218,7 +217,6 @@ public:
 	bool HasBakedMesh() const;
 
 	/** Check if subdivision regeneration needed due to parameter changes */
-	UFUNCTION(BlueprintPure, Category = "FleshRing|Subdivision")
 	bool NeedsSubdivisionRegeneration() const;
 
 	/** Calculate current parameter hash */

@@ -183,10 +183,6 @@ void CreateSubdivisionGPUBuffersFromTopology(
 	OutBuffers.OutputBoneIndices = GraphBuilder.CreateBuffer(
 		FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), NumVertices * OutParams.NumBoneInfluences),
 		TEXT("FleshRing_SubdividedBoneIndices"));
-
-	UE_LOG(LogFleshRingSubdivisionShader, Log,
-		TEXT("Created GPU buffers: %d vertices, %d indices"),
-		NumVertices, NumIndices);
 }
 
 void UploadSourceMeshToGPU(
@@ -390,10 +386,6 @@ void UploadSourceMeshToGPU(
 				ERDGInitialDataFlags::None);
 		}
 	}
-
-	UE_LOG(LogFleshRingSubdivisionShader, Log,
-		TEXT("Uploaded source mesh: %d vertices, %d bone influences"),
-		NumVertices, NumBoneInfluences);
 }
 
 bool ExecuteSubdivisionInterpolation(

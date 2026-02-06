@@ -47,9 +47,6 @@ FFleshRingPreviewScene::~FFleshRingPreviewScene()
 			SkeletalMeshComponent->SetSkeletalMesh(OriginalMesh);
 
 			GUndo = OldGUndo;
-
-			UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Restored original mesh '%s' on destruction"),
-				OriginalMesh ? *OriginalMesh->GetName() : TEXT("null"));
 		}
 	}
 	CachedOriginalMesh.Reset();
@@ -143,7 +140,6 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 		// Additional validation after LoadSynchronous (prevent corrupt objects)
 		if (OriginalMesh && !IsValid(OriginalMesh))
 		{
-			UE_LOG(LogTemp, Warning, TEXT("FleshRingPreviewScene: TargetSkeletalMesh reference is invalid (stale asset?)"));
 			OriginalMesh = nullptr;
 		}
 	}
@@ -182,8 +178,6 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	if (!bOriginalMeshChanged && !bDisplayMeshChanged && !bNeedsPreviewMeshGeneration &&
 		OriginalMesh && SkeletalMeshComponent && SkeletalMeshComponent->GetMeshDeformerInstance())
 	{
-		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Mesh unchanged, skipping full refresh (preserving DeformerInstance caches)"));
-
 		// FleshRingComponent handles its own update via OnAssetChanged delegate
 		// (Already processed in FleshRingComponent::OnFleshRingAssetChanged -> ApplyAsset -> RefreshWithDeformerReuse)
 
@@ -205,7 +199,6 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	// (Keep Deformer when toggling Subdivision - ApplyAsset runs first so Deformer is set before mesh swap)
 	if (bOriginalMeshChanged && SkeletalMeshComponent)
 	{
-		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Mesh changed, destroying DeformerInstance"));
 		if (UMeshDeformerInstance* OldInstance = SkeletalMeshComponent->GetMeshDeformerInstance())
 		{
 			FlushRenderingCommands();
@@ -237,15 +230,11 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	{
 		// Update cache if mesh changed
 		CachedOriginalMesh = OriginalMesh;
-		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Updated cached mesh to '%s' (mesh changed)"),
-			OriginalMesh ? *OriginalMesh->GetName() : TEXT("null"));
 	}
 	else if (!CachedOriginalMesh.IsValid() && OriginalMesh)
 	{
 		// Initial setup
 		CachedOriginalMesh = OriginalMesh;
-		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Cached original mesh '%s' for restoration"),
-			*OriginalMesh->GetName());
 	}
 
 	// ============================================
@@ -292,14 +281,6 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 				FlushRenderingCommands();
 			}
 
-			// ★ Prevent GC: Check validity before logging (objects may be destroyed when called from Timer callback)
-			if (IsValid(InAsset) && IsValid(PreviewSubdividedMesh))
-			{
-				FSkeletalMeshRenderData* RenderData = PreviewSubdividedMesh->GetResourceForRendering();
-				UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Using PreviewSubdividedMesh (Level %d, %d vertices)"),
-					InAsset->SubdivisionSettings.PreviewSubdivisionLevel,
-					RenderData ? RenderData->LODRenderData[0].StaticVertexBuffers.PositionVertexBuffer.GetNumVertices() : 0);
-			}
 		}
 	}
 	else
@@ -315,8 +296,6 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 			if (CurrentMesh != OrigMesh)
 			{
 				SetSkeletalMesh(OrigMesh);
-				UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Restored original mesh '%s' (subdivision disabled)"),
-					OrigMesh ? *OrigMesh->GetName() : TEXT("null"));
 			}
 		}
 	}
@@ -329,7 +308,6 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	if (FleshRingComponent && FleshRingComponent->bEnableFleshRing)
 	{
 		bPendingDeformerInit = true;
-		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Deformer init pending (waiting for mesh to be rendered)"));
 	}
 
 	// Visualize Rings only when Deformer is disabled (FleshRingComponent manages when enabled)
@@ -351,7 +329,6 @@ void FFleshRingPreviewScene::SetFleshRingAsset(UFleshRingAsset* InAsset)
 	{
 		FlushRenderingCommands();
 		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
-		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: GC executed to clean up unused PreviewMesh"));
 	}
 }
 
@@ -362,9 +339,6 @@ void FFleshRingPreviewScene::SetSkeletalMesh(USkeletalMesh* InMesh)
 		// Validate mesh (prevent Undo/Redo crash + verify render resource initialization)
 		if (InMesh && !FleshRingUtils::IsSkeletalMeshValid(InMesh, /*bLogWarnings=*/ true))
 		{
-			UE_LOG(LogTemp, Warning,
-				TEXT("FleshRingPreviewScene::SetSkeletalMesh: Mesh '%s' is invalid, skipping"),
-				*InMesh->GetName());
 			return;
 		}
 
@@ -583,7 +557,6 @@ void FFleshRingPreviewScene::OnAssetChanged(UFleshRingAsset* ChangedAsset)
 				{
 					if (WeakAsset.IsValid() && Scene && Scene->CurrentAsset == WeakAsset.Get())
 					{
-						UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Asset changed, refreshing preview (deferred)..."));
 						Scene->RefreshPreview();
 					}
 				});
@@ -622,8 +595,6 @@ void FFleshRingPreviewScene::ExecutePendingDeformerInit()
 		return;
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene: Mesh rendered, executing deferred Deformer init"));
-
 	// Initialize Deformer
 	FleshRingComponent->InitializeForEditorPreview();
 
@@ -661,9 +632,6 @@ void FFleshRingPreviewScene::ClearPreviewMesh()
 	if (PreviewSubdividedMesh)
 	{
 		USkeletalMesh* OldMesh = PreviewSubdividedMesh;
-
-		UE_LOG(LogTemp, Log, TEXT("FleshRingPreviewScene::ClearPreviewMesh: Destroying '%s'"),
-			*OldMesh->GetName());
 
 		// 1. Release pointer
 		PreviewSubdividedMesh = nullptr;
@@ -787,7 +755,6 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 
 	if (CurrentAsset->TargetSkeletalMesh.IsNull())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: TargetSkeletalMesh is not set"));
 		GUndo = OldGUndo;
 		return;
 	}
@@ -795,18 +762,14 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 	USkeletalMesh* SourceMesh = CurrentAsset->TargetSkeletalMesh.LoadSynchronous();
 	if (!SourceMesh)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: Failed to load SourceMesh"));
 		GUndo = OldGUndo;
 		return;
 	}
-
-	const double StartTime = FPlatformTime::Seconds();
 
 	// 1. Get source mesh render data
 	FSkeletalMeshRenderData* RenderData = SourceMesh->GetResourceForRendering();
 	if (!RenderData || RenderData->LODRenderData.Num() == 0)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: No RenderData"));
 		GUndo = OldGUndo;
 		return;
 	}
@@ -937,7 +900,6 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 
 	if (!Processor.SetSourceMesh(SourcePositions, SourceIndices, SourceUVs, SourceTriangleMaterialIndices))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: SetSourceMesh failed"));
 		GUndo = OldGUndo;
 		return;
 	}
@@ -952,8 +914,6 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 	// ★ Skip subdivision if no Rings (matches runtime behavior)
 	if (CurrentAsset->Rings.Num() == 0)
 	{
-		UE_LOG(LogTemp, Warning,
-			TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: Skipping Subdivision because there are no Rings"));
 		GUndo = OldGUndo;
 		return;
 	}
@@ -961,10 +921,6 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 	if (!Processor.HasBoneInfo())
 	{
 		// Ring exists + No BoneInfo -> Skip (abnormal situation)
-		UE_LOG(LogTemp, Error,
-			TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: Skipping Subdivision because there is no BoneInfo. ")
-			TEXT("SkeletalMesh '%s' has no SkinWeightBuffer or bone weight extraction failed."),
-			SourceMesh ? *SourceMesh->GetName() : TEXT("null"));
 		GUndo = OldGUndo;
 		return;
 	}
@@ -984,9 +940,6 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 	// ★ Skip if no Rings have valid BoneName
 	if (RingBoneIndices.Num() == 0)
 	{
-		UE_LOG(LogTemp, Warning,
-			TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: Skipping Subdivision because no Rings have valid BoneName. ")
-			TEXT("Please set BoneName on the Ring."));
 		GUndo = OldGUndo;
 		return;
 	}
@@ -1002,7 +955,6 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 
 	if (!Processor.ProcessBoneRegion(TopologyResult, BoneParams))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: ProcessBoneRegion failed"));
 		GUndo = OldGUndo;
 		return;
 	}
@@ -1090,7 +1042,6 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 
 	if (!PreviewSubdividedMesh)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh: Mesh duplication failed"));
 		GUndo = OldGUndo;
 		return;
 	}
@@ -1220,12 +1171,6 @@ void FFleshRingPreviewScene::GeneratePreviewMesh()
 	// Update cache hash
 	LastPreviewBoneConfigHash = CalculatePreviewBoneConfigHash();
 	bPreviewMeshCacheValid = true;
-
-	const double EndTime = FPlatformTime::Seconds();
-	const double ElapsedMs = (EndTime - StartTime) * 1000.0;
-
-	UE_LOG(LogTemp, Log, TEXT("FFleshRingPreviewScene::GeneratePreviewMesh completed: %d vertices, %d triangles (%.2fms, CacheHash=%u)"),
-		NewVertexCount, TopologyResult.SubdividedTriangleCount, ElapsedMs, LastPreviewBoneConfigHash);
 
 	// ★ Restore Undo system
 	GUndo = OldGUndo;

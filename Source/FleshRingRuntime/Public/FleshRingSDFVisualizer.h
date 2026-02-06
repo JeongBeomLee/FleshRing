@@ -9,6 +9,8 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "FleshRingSDFVisualizer.generated.h"
 
+class UStaticMesh;
+
 // Struct containing SDF visualization result
 USTRUCT(BlueprintType)
 struct FLESHRINGRUNTIME_API FSDFVisualizationResult
@@ -55,7 +57,6 @@ public:
     // @param Resolution - SDF resolution (default 64)
     // @param PlaneSize - Plane size (default 100)
     // @return Visualization result (plane actor, texture, etc.)
-    UFUNCTION(BlueprintCallable, Category = "FleshRing|Visualization", meta = (WorldContext = "WorldContextObject"))
     static FSDFVisualizationResult VisualizeSDFSlice(
         UObject* WorldContextObject,
         UStaticMesh* Mesh,
@@ -67,12 +68,10 @@ public:
     // Update existing visualization (change slice Z only)
     // @param Result - Previous VisualizeSDFSlice result
     // @param NewSliceZ - New Z slice index
-    UFUNCTION(BlueprintCallable, Category = "FleshRing|Visualization")
-    static void UpdateSliceZ(UPARAM(ref) FSDFVisualizationResult& Result, int32 NewSliceZ);
+    static void UpdateSliceZ(FSDFVisualizationResult& Result, int32 NewSliceZ);
 
     // Cleanup visualization (remove plane actor)
-    UFUNCTION(BlueprintCallable, Category = "FleshRing|Visualization")
-    static void CleanupVisualization(UPARAM(ref) FSDFVisualizationResult& Result);
+    static void CleanupVisualization(FSDFVisualizationResult& Result);
 
     // Visualize all slices at once (single SDF generation)
     // @param WorldContext - World context (for actor spawning)
@@ -80,7 +79,6 @@ public:
     // @param WorldLocation - Base world location to place the planes
     // @param Resolution - SDF resolution (default 64, same as slice count)
     // @return Array of visualization results (Resolution count)
-    UFUNCTION(BlueprintCallable, Category = "FleshRing|Visualization", meta = (WorldContext = "WorldContextObject"))
     static TArray<FSDFVisualizationResult> VisualizeAllSDFSlices(
         UObject* WorldContextObject,
         UStaticMesh* Mesh,

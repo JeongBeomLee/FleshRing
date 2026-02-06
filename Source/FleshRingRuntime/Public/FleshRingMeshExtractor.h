@@ -58,7 +58,6 @@ public:
     // @param Mesh - Static mesh to extract from
     // @param OutMeshData - Struct where extracted data will be stored
     // @return Success or failure
-    UFUNCTION(BlueprintCallable, Category = "FleshRing|Mesh")
     static bool ExtractMeshData(UStaticMesh* Mesh, FFleshRingMeshData& OutMeshData);
 
     // Extract data from specific LOD
@@ -66,10 +65,8 @@ public:
     // @param LODIndex - LOD index to use
     // @param OutMeshData - Struct where extracted data will be stored
     // @return Success or failure
-    UFUNCTION(BlueprintCallable, Category = "FleshRing|Mesh")
     static bool ExtractMeshDataFromLOD(UStaticMesh* Mesh, int32 LODIndex, FFleshRingMeshData& OutMeshData);
 
     // Debug print extracted data
-    UFUNCTION(BlueprintCallable, Category = "FleshRing|Mesh")
     static void DebugPrintMeshData(const FFleshRingMeshData& MeshData);
 };

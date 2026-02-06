@@ -233,10 +233,6 @@ void UFleshRingSubdivisionComponent::Initialize()
 	{
 		bIsInitialized = true;
 		bNeedsRecompute = true;
-
-		UE_LOG(LogFleshRingSubdivision, Log,
-			TEXT("FleshRingSubdivisionComponent initialized for '%s'"),
-			*TargetMeshComp->GetName());
 	}
 	else
 	{
@@ -331,11 +327,6 @@ void UFleshRingSubdivisionComponent::ComputeSubdivision()
 			RingParams.SDFBoundsMin = FVector(SDFCache->BoundsMin);
 			RingParams.SDFBoundsMax = FVector(SDFCache->BoundsMax);
 			RingParams.SDFLocalToComponent = SDFCache->LocalToComponent;
-
-			UE_LOG(LogFleshRingSubdivision, Log,
-				TEXT("Using SDF mode - Bounds: [%s] to [%s]"),
-				*RingParams.SDFBoundsMin.ToString(),
-				*RingParams.SDFBoundsMax.ToString());
 		}
 		else
 		{
@@ -386,24 +377,14 @@ void UFleshRingSubdivisionComponent::ComputeSubdivision()
 	FSubdivisionTopologyResult TopologyResult;
 	if (Processor->Process(TopologyResult))
 	{
-		// Calculate statistics
-		const int32 AddedVertices = TopologyResult.SubdividedVertexCount - TopologyResult.OriginalVertexCount;
-		const int32 AddedTriangles = TopologyResult.SubdividedTriangleCount - TopologyResult.OriginalTriangleCount;
-		const bool bWasSubdivided = (AddedVertices > 0 || AddedTriangles > 0);
-		const FString ModeStr = RingParams.bUseSDFBounds ? TEXT("SDF") : TEXT("VirtualRing");
+		// Warn if no subdivision occurred
+		const bool bWasSubdivided =
+			(TopologyResult.SubdividedVertexCount > TopologyResult.OriginalVertexCount) ||
+			(TopologyResult.SubdividedTriangleCount > TopologyResult.OriginalTriangleCount);
 
-		// Always output log (to verify whether subdivision occurred)
-		if (bWasSubdivided)
+		if (!bWasSubdivided)
 		{
-			UE_LOG(LogFleshRingSubdivision, Log,
-				TEXT("[%s] Subdivision SUCCESS - Mode: %s | Vertices: %d -> %d (+%d) | Triangles: %d -> %d (+%d)"),
-				*GetOwner()->GetName(),
-				*ModeStr,
-				TopologyResult.OriginalVertexCount, TopologyResult.SubdividedVertexCount, AddedVertices,
-				TopologyResult.OriginalTriangleCount, TopologyResult.SubdividedTriangleCount, AddedTriangles);
-		}
-		else
-		{
+			const FString ModeStr = RingParams.bUseSDFBounds ? TEXT("SDF") : TEXT("VirtualRing");
 			UE_LOG(LogFleshRingSubdivision, Warning,
 				TEXT("[%s] Subdivision NO CHANGE - Mode: %s | Vertices: %d | Triangles: %d (no triangles in affected region?)"),
 				*GetOwner()->GetName(),
@@ -411,19 +392,6 @@ void UFleshRingSubdivisionComponent::ComputeSubdivision()
 				TopologyResult.OriginalVertexCount,
 				TopologyResult.OriginalTriangleCount);
 		}
-
-#if WITH_EDITORONLY_DATA
-		// On-screen debug message (editor only)
-		if (bLogSubdivisionStats && GEngine)
-		{
-			const FColor MsgColor = bWasSubdivided ? FColor::Green : FColor::Yellow;
-			GEngine->AddOnScreenDebugMessage(-1, 5.0f, MsgColor,
-				FString::Printf(TEXT("Subdivision [%s]: V %d->%d (+%d), T %d->%d (+%d)"),
-					*ModeStr,
-					TopologyResult.OriginalVertexCount, TopologyResult.SubdividedVertexCount, AddedVertices,
-					TopologyResult.OriginalTriangleCount, TopologyResult.SubdividedTriangleCount, AddedTriangles));
-		}
-#endif
 
 		// Execute GPU interpolation
 		ExecuteGPUInterpolation();
@@ -448,7 +416,6 @@ void UFleshRingSubdivisionComponent::ExecuteGPUInterpolation()
 	// Skip if no subdivision occurred
 	if (TopologyResult.SubdividedVertexCount <= TopologyResult.OriginalVertexCount)
 	{
-		UE_LOG(LogFleshRingSubdivision, Log, TEXT("No subdivision occurred, skipping GPU interpolation"));
 		return;
 	}
 
@@ -571,10 +538,6 @@ void UFleshRingSubdivisionComponent::ExecuteGPUInterpolation()
 			}
 		}
 
-		UE_LOG(LogFleshRingSubdivision, Log,
-			TEXT("ExecuteGPUInterpolation: Extracted real mesh data - %d vertices (normals, tangents, bone weights)"),
-			SourcePositions.Num());
-
 		// Result cache pointer (for render thread access)
 		FSubdivisionResultCache* ResultCachePtr = &ResultCache;
 		const uint32 NumVertices = TopologyResult.SubdividedVertexCount;
@@ -627,10 +590,6 @@ void UFleshRingSubdivisionComponent::ExecuteGPUInterpolation()
 				ResultCachePtr->NumVertices = NumVertices;
 				ResultCachePtr->NumIndices = NumIndices;
 				ResultCachePtr->bCached = true;
-
-				UE_LOG(LogFleshRingSubdivision, Log,
-					TEXT("GPU interpolation complete and cached: %d vertices, %d indices"),
-					NumVertices, NumIndices);
 			});
 
 		return; // Successfully processed
@@ -717,10 +676,6 @@ FallbackToDefaults:
 				ResultCachePtr->NumVertices = NumVertices;
 				ResultCachePtr->NumIndices = NumIndices;
 				ResultCachePtr->bCached = true;
-
-				UE_LOG(LogFleshRingSubdivision, Log,
-					TEXT("GPU interpolation (fallback) complete and cached: %d vertices, %d indices"),
-					NumVertices, NumIndices);
 			});
 	}
 }
@@ -767,11 +722,6 @@ void UFleshRingSubdivisionComponent::BakeSubdividedMesh()
 		return;
 	}
 
-	UE_LOG(LogFleshRingSubdivision, Log,
-		TEXT("BakeSubdividedMesh started: %d -> %d vertices, %d -> %d triangles"),
-		Result.OriginalVertexCount, Result.SubdividedVertexCount,
-		Result.OriginalTriangleCount, Result.SubdividedTriangleCount);
-
 	// TODO: Create new SkeletalMesh asset
 	// This feature requires using complex SkeletalMesh creation APIs,
 	// so it should be implemented in the FleshRingEditor module.
@@ -779,20 +729,7 @@ void UFleshRingSubdivisionComponent::BakeSubdividedMesh()
 
 	UE_LOG(LogFleshRingSubdivision, Warning,
 		TEXT("BakeSubdividedMesh: SkeletalMesh creation needs to be implemented in FleshRingEditor module"));
-	UE_LOG(LogFleshRingSubdivision, Log,
-		TEXT("  Save path: %s"),
-		*BakedMeshSavePath);
-	UE_LOG(LogFleshRingSubdivision, Log,
-		TEXT("  Suffix: %s"),
-		*BakedMeshSuffix);
 
-	// Editor notification
-	if (GEngine)
-	{
-		GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Yellow,
-			FString::Printf(TEXT("BakeSubdividedMesh: %d -> %d vertices (SkeletalMesh creation needs to be implemented in Editor module)"),
-				Result.OriginalVertexCount, Result.SubdividedVertexCount));
-	}
 }
 
 #endif // WITH_EDITOR
@@ -829,7 +766,6 @@ void UFleshRingSubdivisionComponent::DrawSubdividedVerticesDebug()
 	const FTransform& MeshTransform = TargetMeshComp->GetComponentTransform();
 
 	// Visualize only newly added vertices (exclude original vertices)
-	int32 NewVertexCount = 0;
 	for (int32 i = 0; i < Result.VertexData.Num(); ++i)
 	{
 		const FSubdivisionVertexData& VertexData = Result.VertexData[i];
@@ -871,20 +807,6 @@ void UFleshRingSubdivisionComponent::DrawSubdividedVerticesDebug()
 			false,  // bPersistent
 			-1.0f   // LifeTime (every frame)
 		);
-
-		++NewVertexCount;
-	}
-
-	// Output log only on first frame
-	static bool bFirstFrame = true;
-	if (bFirstFrame && NewVertexCount > 0)
-	{
-		UE_LOG(LogFleshRingSubdivision, Log,
-			TEXT("DrawSubdividedVerticesDebug: Drawing %d new vertices (Total: %d, Original: %d)"),
-			NewVertexCount,
-			Result.VertexData.Num(),
-			Result.OriginalVertexCount);
-		bFirstFrame = false;
 	}
 }
 

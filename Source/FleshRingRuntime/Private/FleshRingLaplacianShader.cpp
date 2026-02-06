@@ -9,6 +9,8 @@
 #include "RenderGraphUtils.h"
 #include "ShaderParameterUtils.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogFleshRingLaplacian, Log, All);
+
 // ============================================================================
 // Shader Implementation Registration
 // ============================================================================
@@ -250,15 +252,10 @@ static void DispatchTaubinMultiPass(
     {
         if (Params.NeedsLambdaClamping())
         {
-            UE_LOG(LogTemp, Warning,
+            UE_LOG(LogFleshRingLaplacian, Warning,
                 TEXT("Taubin Smoothing: Lambda %.2f clamped to [%.1f, %.1f] for stability! Using lambda=%.3f, mu=%.3f"),
                 Params.SmoothingLambda, FLaplacianDispatchParams::MinSafeLambda, FLaplacianDispatchParams::MaxSafeLambda,
                 Lambda, Mu);
-        }
-        else
-        {
-            UE_LOG(LogTemp, Log, TEXT("Taubin Smoothing: lambda=%.3f, mu=%.3f, Iterations=%d"),
-                Lambda, Mu, Params.NumIterations);
         }
         bTaubinLoggedOnce = true;
     }

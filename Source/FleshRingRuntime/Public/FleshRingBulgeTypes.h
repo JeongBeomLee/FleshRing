@@ -101,11 +101,8 @@ public:
 		if (BoundaryVertexSet.Num() == 0)
 		{
 			// No boundary (closed mesh) - bidirectional Bulge
-			UE_LOG(LogTemp, Log, TEXT("FBulgeDirectionDetector: No boundary edges (closed mesh) - returning 0 for bidirectional"));
 			return 0;
 		}
-
-		UE_LOG(LogTemp, Log, TEXT("FBulgeDirectionDetector: Found %d boundary vertices"), BoundaryVertexSet.Num());
 
 		// Calculate average Z of boundary vertices
 		float SumZ = 0.0f;
@@ -130,16 +127,11 @@ public:
 		const float Tolerance = 0.1f;  // Tolerance
 		if (FMath::Abs(AverageZ - SDFCenter.Z) < Tolerance)
 		{
-			UE_LOG(LogTemp, Log, TEXT("FBulgeDirectionDetector: Boundary at center (AverageZ=%.2f ≈ SDFCenter.Z=%.2f) - Torus seam pattern, returning 0 for bidirectional"),
-				AverageZ, SDFCenter.Z);
 			return 0;  // Bidirectional
 		}
 
 		// Compare with SDF center Z
-		int32 Result = (AverageZ > SDFCenter.Z) ? 1 : -1;
-		UE_LOG(LogTemp, Log, TEXT("FBulgeDirectionDetector: AverageZ=%.2f, SDFCenter.Z=%.2f, Result=%d"),
-			AverageZ, SDFCenter.Z, Result);
-		return Result;
+		return (AverageZ > SDFCenter.Z) ? 1 : -1;
 	}
 
 	/**

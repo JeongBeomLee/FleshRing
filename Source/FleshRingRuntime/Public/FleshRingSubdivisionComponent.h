@@ -216,27 +216,21 @@ public:
 	// =====================================
 
 	/** Force Subdivision recomputation */
-	UFUNCTION(BlueprintCallable, Category = "FleshRing|Subdivision")
 	void ForceRecompute();
 
 	/** Invalidate cache */
-	UFUNCTION(BlueprintCallable, Category = "FleshRing|Subdivision")
 	void InvalidateCache();
 
 	/** Whether Subdivision is enabled */
-	UFUNCTION(BlueprintCallable, Category = "FleshRing|Subdivision")
 	bool IsSubdivisionEnabled() const { return bEnableSubdivision && bIsInitialized; }
 
 	/** Original vertex count */
-	UFUNCTION(BlueprintCallable, Category = "FleshRing|Subdivision")
 	int32 GetOriginalVertexCount() const;
 
 	/** Subdivided vertex count */
-	UFUNCTION(BlueprintCallable, Category = "FleshRing|Subdivision")
 	int32 GetSubdividedVertexCount() const;
 
 	/** Subdivided triangle count */
-	UFUNCTION(BlueprintCallable, Category = "FleshRing|Subdivision")
 	int32 GetSubdividedTriangleCount() const;
 
 	// =====================================

@@ -9,9 +9,6 @@
 #include "RenderGraphUtils.h"
 #include "ShaderParameterUtils.h"
 
-DECLARE_LOG_CATEGORY_EXTERN(LogFleshRingHeatProp, Log, All);
-DEFINE_LOG_CATEGORY(LogFleshRingHeatProp);
-
 // ============================================================================
 // Shader Implementation Registration
 // ============================================================================
@@ -44,16 +41,6 @@ void DispatchFleshRingHeatPropagationCS(
     if (Params.NumExtendedVertices == 0 || Params.NumIterations <= 0)
     {
         return;
-    }
-
-    // Debug log (once)
-    static bool bLoggedOnce = false;
-    if (!bLoggedOnce)
-    {
-        UE_LOG(LogFleshRingHeatProp, Log,
-            TEXT("[HeatPropagation] NumExtended=%d, NumTotal=%d, Lambda=%.2f, Iterations=%d"),
-            Params.NumExtendedVertices, Params.NumTotalVertices, Params.HeatLambda, Params.NumIterations);
-        bLoggedOnce = true;
     }
 
     const uint32 ThreadGroupSize = 64;
