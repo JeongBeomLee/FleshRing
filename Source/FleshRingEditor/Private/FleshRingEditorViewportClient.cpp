@@ -1672,15 +1672,25 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 				}
 			}
 
-			// Scale handling: adjust RingRadius
+			// Scale handling: X/Y → RingRadius, Z → RingHeight (additive for consistent snap behavior)
 			if (!SnappedScale.IsZero())
 			{
-				float ScaleDelta = FMath::Max3(SnappedScale.X, SnappedScale.Y, SnappedScale.Z);
-				if (ScaleDelta == 0.0f)
+				// X/Y axes: adjust RingRadius
+				float RadialScaleDelta = FMath::Max(SnappedScale.X, SnappedScale.Y);
+				if (FMath::IsNearlyZero(RadialScaleDelta))
 				{
-					ScaleDelta = FMath::Min3(SnappedScale.X, SnappedScale.Y, SnappedScale.Z);
+					RadialScaleDelta = FMath::Min(SnappedScale.X, SnappedScale.Y);
 				}
-				Ring.RingRadius = FMath::Clamp(Ring.RingRadius * (1.0f + ScaleDelta), 0.1f, 100.0f);
+				if (!FMath::IsNearlyZero(RadialScaleDelta))
+				{
+					Ring.RingRadius = FMath::Clamp(Ring.RingRadius + RadialScaleDelta, 0.1f, 100.0f);
+				}
+
+				// Z axis: adjust RingHeight
+				if (!FMath::IsNearlyZero(SnappedScale.Z))
+				{
+					Ring.RingHeight = FMath::Clamp(Ring.RingHeight + SnappedScale.Z, 0.1f, 100.0f);
+				}
 			}
 		}
 		else if (Ring.InfluenceMode == EFleshRingInfluenceMode::VirtualBand)
@@ -1706,7 +1716,7 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 				}
 			}
 
-			// Scale handling: per-section + per-axis separation
+			// Scale handling: per-section + per-axis separation (additive for consistent snap behavior)
 			float RadialScaleDelta = FMath::Max(SnappedScale.X, SnappedScale.Y);
 			if (FMath::IsNearlyZero(RadialScaleDelta))
 			{
@@ -1718,19 +1728,17 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 				// Entire band: X/Y → all Radius, Z → all Height
 				if (!FMath::IsNearlyZero(RadialScaleDelta))
 				{
-					float RadialFactor = 1.0f + RadialScaleDelta;
-					BandSettings.MidUpperRadius = FMath::Clamp(BandSettings.MidUpperRadius * RadialFactor, 0.1f, 100.0f);
-					BandSettings.MidLowerRadius = FMath::Clamp(BandSettings.MidLowerRadius * RadialFactor, 0.1f, 100.0f);
-					BandSettings.BandThickness = FMath::Clamp(BandSettings.BandThickness * RadialFactor, 0.1f, 50.0f);
-					BandSettings.Upper.Radius = FMath::Clamp(BandSettings.Upper.Radius * RadialFactor, 0.1f, 100.0f);
-					BandSettings.Lower.Radius = FMath::Clamp(BandSettings.Lower.Radius * RadialFactor, 0.1f, 100.0f);
+					BandSettings.MidUpperRadius = FMath::Clamp(BandSettings.MidUpperRadius + RadialScaleDelta, 0.1f, 100.0f);
+					BandSettings.MidLowerRadius = FMath::Clamp(BandSettings.MidLowerRadius + RadialScaleDelta, 0.1f, 100.0f);
+					BandSettings.BandThickness = FMath::Clamp(BandSettings.BandThickness + RadialScaleDelta, 0.1f, 50.0f);
+					BandSettings.Upper.Radius = FMath::Clamp(BandSettings.Upper.Radius + RadialScaleDelta, 0.1f, 100.0f);
+					BandSettings.Lower.Radius = FMath::Clamp(BandSettings.Lower.Radius + RadialScaleDelta, 0.1f, 100.0f);
 				}
 				if (!FMath::IsNearlyZero(SnappedScale.Z))
 				{
-					float HeightFactor = 1.0f + SnappedScale.Z;
-					BandSettings.BandHeight = FMath::Clamp(BandSettings.BandHeight * HeightFactor, 0.1f, 100.0f);
-					BandSettings.Upper.Height = FMath::Clamp(BandSettings.Upper.Height * HeightFactor, 0.0f, 100.0f);
-					BandSettings.Lower.Height = FMath::Clamp(BandSettings.Lower.Height * HeightFactor, 0.0f, 100.0f);
+					BandSettings.BandHeight = FMath::Clamp(BandSettings.BandHeight + SnappedScale.Z, 0.1f, 100.0f);
+					BandSettings.Upper.Height = FMath::Clamp(BandSettings.Upper.Height + SnappedScale.Z, 0.0f, 100.0f);
+					BandSettings.Lower.Height = FMath::Clamp(BandSettings.Lower.Height + SnappedScale.Z, 0.0f, 100.0f);
 				}
 			}
 			else if (SelectedSection == EBandSection::Upper)
@@ -1738,13 +1746,11 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 				// Upper section: X/Y → Upper.Radius, Z → Upper.Height
 				if (!FMath::IsNearlyZero(RadialScaleDelta))
 				{
-					float RadialFactor = 1.0f + RadialScaleDelta;
-					BandSettings.Upper.Radius = FMath::Clamp(BandSettings.Upper.Radius * RadialFactor, 0.1f, 100.0f);
+					BandSettings.Upper.Radius = FMath::Clamp(BandSettings.Upper.Radius + RadialScaleDelta, 0.1f, 100.0f);
 				}
 				if (!FMath::IsNearlyZero(SnappedScale.Z))
 				{
-					float HeightFactor = 1.0f + SnappedScale.Z;
-					BandSettings.Upper.Height = FMath::Clamp(BandSettings.Upper.Height * HeightFactor, 0.0f, 100.0f);
+					BandSettings.Upper.Height = FMath::Clamp(BandSettings.Upper.Height + SnappedScale.Z, 0.0f, 100.0f);
 				}
 			}
 			else if (SelectedSection == EBandSection::MidUpper)
@@ -1752,14 +1758,12 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 				// MidUpper section: X/Y → MidUpperRadius, Z → BandHeight
 				if (!FMath::IsNearlyZero(RadialScaleDelta))
 				{
-					float RadialFactor = 1.0f + RadialScaleDelta;
-					BandSettings.MidUpperRadius = FMath::Clamp(BandSettings.MidUpperRadius * RadialFactor, 0.1f, 100.0f);
+					BandSettings.MidUpperRadius = FMath::Clamp(BandSettings.MidUpperRadius + RadialScaleDelta, 0.1f, 100.0f);
 				}
 				if (!FMath::IsNearlyZero(SnappedScale.Z))
 				{
 					float OldBandHeight = BandSettings.BandHeight;
-					float HeightFactor = 1.0f + SnappedScale.Z;
-					BandSettings.BandHeight = FMath::Clamp(BandSettings.BandHeight * HeightFactor, 0.1f, 100.0f);
+					BandSettings.BandHeight = FMath::Clamp(BandSettings.BandHeight + SnappedScale.Z, 0.1f, 100.0f);
 
 					// Keep MidLower/Lower fixed: offset origin in band +Z direction → only MidUpper moves
 					float HeightDelta = BandSettings.BandHeight - OldBandHeight;
@@ -1771,14 +1775,12 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 				// MidLower section: X/Y → MidLowerRadius, Z → BandHeight
 				if (!FMath::IsNearlyZero(RadialScaleDelta))
 				{
-					float RadialFactor = 1.0f + RadialScaleDelta;
-					BandSettings.MidLowerRadius = FMath::Clamp(BandSettings.MidLowerRadius * RadialFactor, 0.1f, 100.0f);
+					BandSettings.MidLowerRadius = FMath::Clamp(BandSettings.MidLowerRadius + RadialScaleDelta, 0.1f, 100.0f);
 				}
 				if (!FMath::IsNearlyZero(SnappedScale.Z))
 				{
 					float OldBandHeight = BandSettings.BandHeight;
-					float HeightFactor = 1.0f + SnappedScale.Z;
-					BandSettings.BandHeight = FMath::Clamp(BandSettings.BandHeight * HeightFactor, 0.1f, 100.0f);
+					BandSettings.BandHeight = FMath::Clamp(BandSettings.BandHeight + SnappedScale.Z, 0.1f, 100.0f);
 
 					// Keep MidUpper/Upper fixed: offset origin in band -Z direction → only MidLower moves
 					float HeightDelta = BandSettings.BandHeight - OldBandHeight;
@@ -1790,13 +1792,11 @@ bool FFleshRingEditorViewportClient::InputWidgetDelta(FViewport* InViewport, EAx
 				// Lower section: X/Y → Lower.Radius, Z → Lower.Height
 				if (!FMath::IsNearlyZero(RadialScaleDelta))
 				{
-					float RadialFactor = 1.0f + RadialScaleDelta;
-					BandSettings.Lower.Radius = FMath::Clamp(BandSettings.Lower.Radius * RadialFactor, 0.1f, 100.0f);
+					BandSettings.Lower.Radius = FMath::Clamp(BandSettings.Lower.Radius + RadialScaleDelta, 0.1f, 100.0f);
 				}
 				if (!FMath::IsNearlyZero(SnappedScale.Z))
 				{
-					float HeightFactor = 1.0f + SnappedScale.Z;
-					BandSettings.Lower.Height = FMath::Clamp(BandSettings.Lower.Height * HeightFactor, 0.0f, 100.0f);
+					BandSettings.Lower.Height = FMath::Clamp(BandSettings.Lower.Height + SnappedScale.Z, 0.0f, 100.0f);
 				}
 			}
 		}
