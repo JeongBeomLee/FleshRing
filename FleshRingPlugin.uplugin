@@ -17,6 +17,14 @@
 	"Installed": false,
 	"Modules": [
 		{
+			"Name": "FleshRingShaders",
+			"Type": "Runtime",
+			"LoadingPhase": "PostConfigInit",
+			"PlatformAllowList": [
+				"Win64"
+			]
+		},
+		{
 			"Name": "FleshRingRuntime",
 			"Type": "Runtime",
 			"LoadingPhase": "PostConfigInit",
